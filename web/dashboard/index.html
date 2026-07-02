@@ -123,11 +123,11 @@
 
   .field{ margin-top:16px; display:flex; flex-direction:column; gap:6px; }
   .field label{ font-size:12.5px; color:var(--text-secondary); font-weight:600; }
-  .field input{
+  .field input, .field select{
     background:var(--bg-surface-2); border:1px solid var(--border); border-radius:var(--radius-sm);
-    padding:10px 12px; color:var(--text-primary);
+    padding:10px 12px; color:var(--text-primary); width:100%;
   }
-  .field input:focus{ border-color:var(--accent); }
+  .field input:focus, .field select:focus{ border-color:var(--accent); }
 
   .btn-primary{
     margin-top:22px; width:100%; padding:12px; border:none; border-radius:var(--radius-sm);
@@ -135,6 +135,9 @@
     transition:filter .15s;
   }
   .btn-primary:hover{ filter:brightness(1.06); }
+  .login-switch{ margin-top:16px; font-size:13px; color:var(--text-secondary); text-align:center; }
+  .login-switch a{ color:var(--accent); font-weight:600; text-decoration:none; }
+  .login-switch a:hover{ text-decoration:underline; }
   .login-note{ margin-top:16px; font-size:12px; color:var(--text-muted); line-height:1.6; }
   .login-note b{ color:var(--text-secondary); }
 
@@ -354,7 +357,7 @@
   </div>
 
   <div class="login-form-col">
-    <div class="login-form">
+    <div class="login-form" id="loginPanel">
       <h2>Iniciar sessão</h2>
       <p class="sub">Escolhe o teu perfil de acesso.</p>
 
@@ -379,7 +382,66 @@
       </div>
 
       <button class="btn-primary" onclick="login()">Entrar como <span id="loginRoleLabel">Utente / Família</span></button>
+      <p class="login-switch">Ainda não tens conta? <a href="#" onclick="showSignup(); return false;">Criar conta</a></p>
       <p class="login-note"><b>Protótipo de interface.</b> Sem autenticação real ligada — este ecrã demonstra a separação de perfis; dados clínicos usam leituras reais do wearable, dados de rotina/atividade são simulados até o classificador de HAR ser embarcado no firmware.</p>
+    </div>
+
+    <div class="login-form" id="signupPanel" style="display:none;">
+      <h2>Criar conta</h2>
+      <p class="sub">Regista-te como utente/família ou como médico/técnico.</p>
+
+      <div class="role-toggle" role="tablist" aria-label="Perfil da nova conta">
+        <button type="button" id="signupRoleBtnUtente" aria-pressed="true" onclick="setSignupRole('utente')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="7" r="4"/></svg>
+          Utente / Família
+        </button>
+        <button type="button" id="signupRoleBtnClinico" aria-pressed="false" onclick="setSignupRole('clinico')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2v6M9 4h6M8 9h8l1 5a5 5 0 0 1-10 0z"/><circle cx="12" cy="19" r="2"/></svg>
+          Médico / Técnico
+        </button>
+      </div>
+
+      <div class="field">
+        <label for="signupName">Nome completo</label>
+        <input id="signupName" type="text" placeholder="O teu nome" autocomplete="name">
+      </div>
+      <div class="field">
+        <label for="signupEmail">Email</label>
+        <input id="signupEmail" type="email" placeholder="nome@exemplo.pt" autocomplete="email">
+      </div>
+      <div class="field">
+        <label for="signupPass">Palavra-passe</label>
+        <input id="signupPass" type="password" placeholder="••••••••" autocomplete="new-password">
+      </div>
+
+      <div id="signupFieldsUtente">
+        <div class="field">
+          <label for="signupRelation">Relação com o utente monitorizado</label>
+          <select id="signupRelation">
+            <option>Familiar</option>
+            <option>Cuidador(a)</option>
+            <option>O próprio utente</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="signupPatient">Nome do utente monitorizado</label>
+          <input id="signupPatient" type="text" placeholder="Ex: Maria Silva">
+        </div>
+      </div>
+      <div id="signupFieldsClinico" style="display:none;">
+        <div class="field">
+          <label for="signupInstitution">Instituição / clínica</label>
+          <input id="signupInstitution" type="text" placeholder="Ex: Centro de Saúde de Barcelos">
+        </div>
+        <div class="field">
+          <label for="signupLicense">Nº de cédula profissional</label>
+          <input id="signupLicense" type="text" placeholder="Ex: OM-12345">
+        </div>
+      </div>
+
+      <button class="btn-primary" onclick="submitSignup()">Criar conta</button>
+      <p class="login-switch">Já tens conta? <a href="#" onclick="showLogin(); return false;">Iniciar sessão</a></p>
+      <p class="login-note"><b>Protótipo de interface.</b> O registo não cria uma conta real nem persiste dados — falta ligar a um backend/base de dados SQL (ver roadmap). Serve para validar o fluxo e os campos pedidos por perfil.</p>
     </div>
   </div>
 </div>
@@ -578,6 +640,66 @@ function setLoginRole(role){
   document.getElementById('roleBtnUtente').setAttribute('aria-pressed', role==='utente');
   document.getElementById('roleBtnClinico').setAttribute('aria-pressed', role==='clinico');
   document.getElementById('loginRoleLabel').textContent = role==='utente' ? 'Utente / Família' : 'Médico / Técnico';
+}
+
+/* ------------------------------------------------------------
+   INSCRIÇÃO DE NOVOS UTILIZADORES (protótipo, sem backend)
+   ------------------------------------------------------------
+   Alterna entre o painel de login e o de registo, e ajusta os campos
+   pedidos consoante o perfil escolhido (Utente/Família vs Médico/
+   Técnico). O "Criar conta" não persiste nada — apenas valida os campos
+   obrigatórios e devolve ao login com o email já preenchido, como
+   demonstração do fluxo até existir um backend real (ver roadmap: BD SQL).
+------------------------------------------------------------ */
+let signupRole = 'utente';
+
+function showSignup(){
+  document.getElementById('loginPanel').style.display = 'none';
+  document.getElementById('signupPanel').style.display = 'block';
+}
+function showLogin(){
+  document.getElementById('signupPanel').style.display = 'none';
+  document.getElementById('loginPanel').style.display = 'block';
+}
+
+function setSignupRole(role){
+  signupRole = role;
+  document.getElementById('signupRoleBtnUtente').setAttribute('aria-pressed', role==='utente');
+  document.getElementById('signupRoleBtnClinico').setAttribute('aria-pressed', role==='clinico');
+  document.getElementById('signupFieldsUtente').style.display = role==='utente' ? 'block' : 'none';
+  document.getElementById('signupFieldsClinico').style.display = role==='clinico' ? 'block' : 'none';
+}
+
+function submitSignup(){
+  const name = document.getElementById('signupName').value.trim();
+  const email = document.getElementById('signupEmail').value.trim();
+  const pass = document.getElementById('signupPass').value;
+
+  if (!name || !email || !pass){
+    alert('Preenche nome, email e palavra-passe para continuar.');
+    return;
+  }
+  if (signupRole === 'utente'){
+    const patient = document.getElementById('signupPatient').value.trim();
+    if (!patient){
+      alert('Indica o nome do utente monitorizado.');
+      return;
+    }
+  } else {
+    const license = document.getElementById('signupLicense').value.trim();
+    if (!license){
+      alert('Indica o número de cédula profissional.');
+      return;
+    }
+  }
+
+  // Protótipo: não há backend/BD ainda (ver PROJECT_STATUS.md) — só
+  // devolve ao login, já com o perfil e email preenchidos, para
+  // demonstrar o fluxo completo de "criar conta -> entrar".
+  alert(`Conta criada (demonstração): ${name} <${email}> como ${signupRole === 'utente' ? 'Utente/Família' : 'Médico/Técnico'}.\n\nEsta é uma simulação — nada foi guardado. A persistência real fica pendente da base de dados SQL.`);
+  setLoginRole(signupRole);
+  document.getElementById('loginEmail').value = email;
+  showLogin();
 }
 
 function login(){
