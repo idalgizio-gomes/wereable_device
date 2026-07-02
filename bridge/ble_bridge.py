@@ -78,6 +78,15 @@ UUID_DUMP_STATUS = "abcd1234-5678-1234-5678-abcdef200003"
 
 DUMP_CTRL_START = bytes([0x01])
 DUMP_CTRL_STOP = bytes([0x02])
+# Pede FC forcada (streaming durante N segundos) + SpO2 imediato num so
+# comando (ver kDumpCtrlForceHr em Ble.cpp). Bytes 1-2: segundos, uint16
+# little-endian.
+DUMP_CTRL_FORCE_READING_SECONDS = 15
+DUMP_CTRL_FORCE_READING = bytes([0x03]) + struct.pack("<H", DUMP_CTRL_FORCE_READING_SECONDS)
+# Apaga os registos guardados no ring buffer do dispositivo (destrutivo,
+# irreversivel — ver kDumpCtrlResetReadings em Ble.cpp). Nao apaga
+# calibracao nem chave AES.
+DUMP_CTRL_RESET_READINGS = bytes([0x04])
 
 # Tamanho de um registo completo (FullPlain, ver Ble.cpp) e o layout dos
 # seus campos, na mesma ordem em que o firmware os escreve. "<" = little-
@@ -138,6 +147,22 @@ class BleBridge:
         self._pending_fragments: dict[int, dict] = {}
         self.connected_device_name: Optional[str] = None
         self.last_record_ts: Optional[int] = None
+        # *** LIMITE DE TAXA PARA O DASHBOARD ***: o IMU produz ate ~52
+        # registos/seg, mas a interface web nao precisa de redesenhar a
+        # essa velocidade — e, em testes reais, enviar ao ritmo total
+        # (~14 msgs/seg observadas ja fragmentadas/remontadas) causava
+        # desconexoes repetidas da ligacao WebSocket no browser. Registos
+        # "normais" (sem leitura nova de HR/SpO2) sao amostrados para no
+        # maximo RECORD_BROADCAST_MIN_INTERVAL_S; registos com HR/SpO2
+        # novos sao sempre enviados de imediato (sao raros e importantes).
+        self._last_broadcast_monotonic = 0.0
+        # Referencia ao cliente BLE atualmente ligado (ou None), para que
+        # comandos vindos do dashboard (ver ws_handler) possam escrever em
+        # dumpCtrlChar sem precisar de re-ligar. So e' valida enquanto
+        # run_device_loop() estiver dentro do "async with BleakClient(...)".
+        self.current_client: Optional[BleakClient] = None
+
+    RECORD_BROADCAST_MIN_INTERVAL_S = 0.25  # no maximo ~4 atualizacoes/seg
 
     async def broadcast(self, payload: dict) -> None:
         if not self.ws_clients:
@@ -185,6 +210,14 @@ class BleBridge:
 
         record = decode_full_plain(full)
         self.last_record_ts = record["ts"]
+
+        has_new_vital = record["hr"] is not None or record["spo2"] is not None
+        now = time.monotonic()
+        due = (now - self._last_broadcast_monotonic) >= self.RECORD_BROADCAST_MIN_INTERVAL_S
+        if not (has_new_vital or due):
+            return  # amostra "normal" enviada ha pouco tempo — poupa o browser
+        self._last_broadcast_monotonic = now
+
         asyncio.create_task(self.broadcast({"kind": "record", "rec_seq": rec_seq, **record}))
 
     def _on_dump_status(self, _char: BleakGATTCharacteristic, data: bytearray) -> None:
@@ -236,6 +269,7 @@ class BleBridge:
             try:
                 async with BleakClient(device) as client:
                     self.connected_device_name = DEVICE_NAME
+                    self.current_client = client
                     await self.broadcast({"kind": "device_status", "connected": True})
 
                     await self._maybe_send_time(client)
@@ -263,9 +297,50 @@ class BleBridge:
                 print(f"[BRIDGE] ligacao perdida/erro: {exc}")
 
             self.connected_device_name = None
+            self.current_client = None
             await self.broadcast({"kind": "device_status", "connected": False})
             print("[BRIDGE] desligado — a tentar reconectar em 3s")
             await asyncio.sleep(3)
+
+    async def send_command(self, ws, name: str) -> None:
+        """Escreve um comando em dumpCtrlChar, pedido pelo dashboard
+        (ver handle_dashboard_command). Responde ao mesmo cliente WS com
+        o resultado, para a interface poder mostrar sucesso/erro."""
+        client = self.current_client
+        if client is None or not client.is_connected:
+            await ws.send(json.dumps({"kind": "command_result", "cmd": name, "ok": False, "error": "dispositivo nao ligado"}))
+            return
+
+        payload_by_name = {
+            "force_reading": DUMP_CTRL_FORCE_READING,
+            "reset_readings": DUMP_CTRL_RESET_READINGS,
+        }
+        payload = payload_by_name.get(name)
+        if payload is None:
+            await ws.send(json.dumps({"kind": "command_result", "cmd": name, "ok": False, "error": "comando desconhecido"}))
+            return
+
+        try:
+            await client.write_gatt_char(UUID_DUMP_CTRL, payload, response=False)
+            print(f"[BRIDGE] comando do dashboard enviado: {name}")
+            await ws.send(json.dumps({"kind": "command_result", "cmd": name, "ok": True}))
+        except Exception as exc:  # noqa: BLE001
+            print(f"[BRIDGE] falha a enviar comando {name}: {exc}")
+            await ws.send(json.dumps({"kind": "command_result", "cmd": name, "ok": False, "error": str(exc)}))
+
+    async def handle_dashboard_command(self, ws, raw_message: str) -> None:
+        """Descodifica uma mensagem JSON vinda do dashboard (ex.:
+        {"cmd":"force_reading"}) e traduz para uma escrita BLE. Comandos
+        desconhecidos ou mal formados sao ignorados silenciosamente —
+        este canal nao e' autenticado, pelo que so deve ser exposto em
+        localhost (ver README do bridge)."""
+        try:
+            msg = json.loads(raw_message)
+        except (ValueError, TypeError):
+            return
+        cmd = msg.get("cmd") if isinstance(msg, dict) else None
+        if cmd in ("force_reading", "reset_readings"):
+            await self.send_command(ws, cmd)
 
     async def ws_handler(self, ws: "websockets.ServerConnection") -> None:
         self.ws_clients.add(ws)
@@ -275,8 +350,8 @@ class BleBridge:
             "connected": self.connected_device_name is not None,
         }))
         try:
-            async for _ in ws:
-                pass  # o dashboard nao precisa de enviar nada para o bridge, por agora
+            async for raw_message in ws:
+                await self.handle_dashboard_command(ws, raw_message)
         finally:
             self.ws_clients.discard(ws)
             print(f"[BRIDGE] dashboard desligado ({len(self.ws_clients)} ativo(s))")
