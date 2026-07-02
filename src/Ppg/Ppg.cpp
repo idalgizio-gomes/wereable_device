@@ -65,6 +65,7 @@ uint32_t g_inactOffSinceMs = 0;         // Timestamp de quando a "inactivity" de
 volatile bool g_shutdownRequested = false;     // true depois de prepareForSystemOff(): a task deixa de medir definitivamente.
 volatile bool g_suspendForPowerCheck = false;  // true durante um long-press do botao de power em validacao: a task pausa temporariamente.
 volatile uint32_t g_manualHrDeadlineMs = 0;    // millis() ate quando um pedido requestManualHr() ainda esta ativo (0 = nenhum pedido pendente).
+volatile bool g_manualSpo2Requested = false;   // true depois de requestManualSpo2(): forca uma medicao de SpO2 na proxima iteracao da task, sem esperar por SPO2_INTERVAL_MS.
 
 // Formata a data/hora atual (vinda do modulo Clock) numa string, para usar
 // em mensagens de log. Se o relogio ainda nao estiver disponivel, escreve
@@ -535,11 +536,14 @@ void ppgTask(void *arg) {
     }
     const bool wantHr = inactivity || manualHrActive;
 
-    // --- Passo 2: medicao periodica de SpO2 ---
+    // --- Passo 2: medicao periodica de SpO2 (ou forcada por pedido manual) ---
     // Uma vez a cada SPO2_INTERVAL_MS, interrompe temporariamente o
     // streaming de HR (o sensor nao consegue fazer os dois modos ao
     // mesmo tempo) e faz uma medicao completa e bloqueante de SpO2.
-    if ((nowMs - lastSpo2Ms) >= SPO2_INTERVAL_MS) {
+    // g_manualSpo2Requested (ver requestManualSpo2()) antecipa esta
+    // medicao sem esperar pelo intervalo normal.
+    if ((nowMs - lastSpo2Ms) >= SPO2_INTERVAL_MS || g_manualSpo2Requested) {
+      g_manualSpo2Requested = false;
       if (g_hrStreaming) {
         stopHrStreaming();
       }
@@ -812,6 +816,7 @@ void prepareForSystemOff() {
   g_lastHrSampleMs = 0;
   g_inactOffSinceMs = 0;
   g_manualHrDeadlineMs = 0;
+  g_manualSpo2Requested = false;
   forceLedsOffNow();
 }
 
@@ -822,6 +827,14 @@ void requestManualHr(uint32_t durationMs) {
   if (g_shutdownRequested) return;
   if (durationMs > kManualHrMaxDurationMs) durationMs = kManualHrMaxDurationMs;
   g_manualHrDeadlineMs = millis() + durationMs;
+}
+
+// Ver Ppg.h. Marca um pedido que a task consome (e limpa) na proxima
+// iteracao do seu loop — nao ha necessidade de prazo, a medicao de SpO2
+// e' unica e bloqueante, nao um streaming continuo como o HR.
+void requestManualSpo2() {
+  if (g_shutdownRequested) return;
+  g_manualSpo2Requested = true;
 }
 
 // *** DIAGNOSTICO TEMPORARIO (otimizacao de RAM) *** — ver Ppg.h.

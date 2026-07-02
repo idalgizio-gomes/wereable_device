@@ -108,6 +108,12 @@ void prepareForSystemOff();
 // gastarem bateria sem necessidade.
 void requestManualHr(uint32_t durationMs);
 
+// Pede uma medicao de SpO2 imediata, sem esperar pelo intervalo normal
+// (SPO2_INTERVAL_MS). A medicao em si e' sempre bloqueante e unica
+// (nao um streaming continuo como o HR) — este pedido so antecipa
+// quando ela acontece.
+void requestManualSpo2();
+
 // *** DIAGNOSTICO TEMPORARIO (otimizacao de RAM) ***
 // Devolve a menor quantidade de stack livre (em palavras de 32 bits) que
 // a ppg_task alguma vez teve desde que arrancou. Serve para decidir, com

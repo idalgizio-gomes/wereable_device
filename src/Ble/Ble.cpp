@@ -104,6 +104,13 @@ constexpr uint8_t kDumpCtrlStop = 0x02;
 // app nao enviar esses bytes, usa-se kForceHrDefaultSeconds.
 constexpr uint8_t kDumpCtrlForceHr = 0x03;
 constexpr uint16_t kForceHrDefaultSeconds = 15;
+// Apaga TODOS os registos de leituras guardados no ring buffer da flash
+// externa (ver QspiRingBuffer::format()). Nao afeta a calibracao do IMU
+// nem a chave AES (essas ficam noutro sistema de ficheiros - Storage -
+// e nao sao tocadas por este comando). E' destrutivo e irreversivel: a
+// app/dashboard deve confirmar explicitamente com o utilizador antes de
+// enviar este comando (ver popup de aviso no dashboard).
+constexpr uint8_t kDumpCtrlResetReadings = 0x04;
 constexpr uint8_t kDumpDataType = 0xA1;
 constexpr uint8_t kDumpStatusType = 0xA2;
 
@@ -795,13 +802,37 @@ static void dumpCtrlCallback(uint16_t conn_hdl, BLECharacteristic *chr,
   }
 
   if (cmd == kDumpCtrlForceHr) {
+    // Um unico comando/botao pede as duas leituras "agora": a FC fica
+    // em streaming forcado durante `seconds` (pode demorar alguns
+    // segundos a estabilizar um valor fiavel) e o SpO2 e' medido de
+    // imediato na proxima iteracao da task (medicao unica, ~seg a mais).
     uint16_t seconds = kForceHrDefaultSeconds;
     if (len >= 3) {
       seconds = static_cast<uint16_t>(data[1]) | (static_cast<uint16_t>(data[2]) << 8);
     }
     Ppg::requestManualHr(static_cast<uint32_t>(seconds) * 1000UL);
-    Serial.print("[BLEG][DUMP] FORCE_HR segundos=");
+    Ppg::requestManualSpo2();
+    Serial.print("[BLEG][DUMP] FORCE_HR+SPO2 segundos=");
     Serial.println(seconds);
+    return;
+  }
+
+  if (cmd == kDumpCtrlResetReadings) {
+    // *** DESTRUTIVO E IRREVERSIVEL *** — ver aviso junto de
+    // kDumpCtrlResetReadings. Apaga apenas os registos de leituras
+    // (ring buffer); calibracao do IMU e chave AES ficam intactas.
+    //
+    // AVISO DE CONCORRENCIA: gattDumpTask (le/remove) e storageTask em
+    // main.cpp (escreve) tambem acedem ao ring buffer. Pedir a paragem
+    // do streaming e esperar um pouco reduz a janela de corrida com o
+    // leitor, mas nao elimina a corrida com quem escreve — uma correcao
+    // completa exigiria sincronizacao (mutex/secao critica) dentro do
+    // proprio QspiRingBuffer, fora do ambito deste comando pontual.
+    s_dumpStopRequested = true;
+    vTaskDelay(pdMS_TO_TICKS(100));
+    const bool ok = QspiRingBuffer::format();
+    Serial.print("[BLEG][DUMP] RESET_READINGS ok=");
+    Serial.println(ok ? "1" : "0");
     return;
   }
 }
