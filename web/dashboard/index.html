@@ -309,6 +309,27 @@
 
   .empty-hint{ font-size:12px; color:var(--text-muted); padding:8px 0; }
   .sim-flag{ font-size:10.5px; color:var(--text-muted); background:var(--bg-surface-2); border:1px solid var(--border); padding:1px 7px; border-radius:20px; font-weight:600; }
+
+  /* análise por atividade (drill-down por categoria) */
+  .activity-chips{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; }
+  .activity-chip{
+    display:flex; align-items:center; gap:7px; padding:7px 12px; border-radius:20px;
+    background:var(--bg-surface-2); border:1px solid var(--border); color:var(--text-secondary);
+    font-size:12.5px; font-weight:600; cursor:pointer; transition:border-color .15s, color .15s;
+  }
+  .activity-chip:hover{ color:var(--text-primary); }
+  .activity-chip.active{ border-color:var(--chip-color); color:var(--text-primary); background:color-mix(in srgb, var(--chip-color) 14%, transparent); }
+  .chip-dot{ width:8px; height:8px; border-radius:50%; flex:none; }
+
+  .activity-stat-row{ display:grid; grid-template-columns:repeat(auto-fit, minmax(130px,1fr)); gap:12px; margin-bottom:16px; }
+  .activity-stat{ background:var(--bg-surface-2); border:1px solid var(--border); border-radius:var(--radius-sm); padding:12px 13px; }
+  .activity-stat .n{ font-size:17px; font-weight:700; }
+  .activity-stat .l{ font-size:11px; color:var(--text-muted); margin-top:4px; }
+
+  .activity-blocks-list{ display:flex; flex-direction:column; gap:2px; max-height:180px; overflow-y:auto; }
+  .activity-block-row{ display:flex; align-items:center; gap:10px; padding:7px 4px; font-size:12.5px; border-bottom:1px solid var(--border-soft); }
+  .activity-block-row .legend-swatch{ width:8px; height:8px; }
+  .activity-block-dur{ margin-left:auto; color:var(--text-secondary); }
 </style>
 
 <!-- ============================================================
@@ -629,6 +650,12 @@ function fmtMin(m){
   return `${String(h).padStart(2,'0')}:${mm}`;
 }
 
+// Formata uma duração em minutos como "Xh Ym" (ou só "Ym" se < 1h).
+function fmtDuration(totalMinutes){
+  const h = Math.floor(totalMinutes/60), m = totalMinutes%60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
 /* ============================================================
    TEMPLATES — VISTA "UTENTE / FAMÍLIA"
 ============================================================ */
@@ -684,6 +711,8 @@ AFTER_RENDER.resumo = () => {
   applyLiveVitals();
 };
 
+let selectedActivityCat = ROUTINE_CATS[2].key; // 'atividade' por omissão
+
 TEMPLATES.rotina = () => `
   <div class="card">
     <div class="card-head">
@@ -692,6 +721,20 @@ TEMPLATES.rotina = () => `
     <canvas id="cvRoutineFull" height="180"></canvas>
     ${legendHtml()}
   </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div><h3>Análise por atividade <span class="sim-flag">dados simulados</span></h3><div class="card-sub">Escolhe uma categoria para ver o detalhe de hoje e a tendência semanal</div></div>
+    </div>
+    <div class="activity-chips" id="activityChips">
+      ${ROUTINE_CATS.map(c => `
+        <button class="activity-chip${c.key===selectedActivityCat?' active':''}" data-cat="${c.key}" style="--chip-color:${c.color}">
+          <span class="chip-dot" style="background:${c.color}"></span>${c.label}
+        </button>`).join('')}
+    </div>
+    <div id="activityDetail"></div>
+  </div>
+
   <div class="card">
     <div class="card-head"><h3>Simulação com anomalias injetadas</h3></div>
     <canvas id="cvRoutineAnomFull" height="180"></canvas>
@@ -702,7 +745,94 @@ TEMPLATES.rotina = () => `
 AFTER_RENDER.rotina = () => {
   drawRoutineTimeline('cvRoutineFull', routineToday, '');
   drawRoutineTimeline('cvRoutineAnomFull', routineAnomaly, '', true);
+  renderActivityDetail(selectedActivityCat);
 };
+
+document.addEventListener('click', (e) => {
+  const chip = e.target.closest('.activity-chip');
+  if (!chip) return;
+  selectedActivityCat = chip.dataset.cat;
+  document.querySelectorAll('.activity-chip').forEach(b => b.classList.toggle('active', b.dataset.cat === selectedActivityCat));
+  renderActivityDetail(selectedActivityCat);
+});
+
+// Gera minutos totais por dia (7 dias) para uma categoria, de forma
+// reprodutível (mesma categoria -> mesma "semente" -> mesmos valores),
+// centrado num valor tipico plausivel por categoria.
+function buildCategoryWeekly(catKey){
+  const typical = {dormir: 480, descanso: 300, atividade: 90, alimentacao: 60, higiene: 25}[catKey] || 60;
+  let seed = 0; for (const ch of catKey) seed += ch.charCodeAt(0);
+  const rnd = seedRand(seed * 17 + 3);
+  const days = ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
+  return days.map(d => ({day: d, minutes: Math.max(5, Math.round(typical * (0.75 + rnd()*0.5)))}));
+}
+
+function renderActivityDetail(catKey){
+  const host = document.getElementById('activityDetail');
+  if (!host) return;
+  const cat = ROUTINE_CATS.find(c => c.key === catKey);
+  const blocks = routineToday.filter(b => b.cat === catKey);
+  const totalMin = blocks.reduce((s,b) => s + (b.end - b.start), 0);
+  const count = blocks.length;
+  const avgMin = count ? Math.round(totalMin / count) : 0;
+  const weekly = buildCategoryWeekly(catKey);
+  const weekAvg = Math.round(weekly.reduce((s,d) => s + d.minutes, 0) / weekly.length);
+  const deltaPct = weekAvg ? Math.round(((totalMin - weekAvg) / weekAvg) * 100) : 0;
+
+  host.innerHTML = `
+    <div class="activity-stat-row">
+      <div class="activity-stat"><div class="n tabular">${fmtDuration(totalMin)}</div><div class="l">Tempo hoje</div></div>
+      <div class="activity-stat"><div class="n tabular">${count}</div><div class="l">Ocorrências hoje</div></div>
+      <div class="activity-stat"><div class="n tabular">${avgMin} min</div><div class="l">Duração média por bloco</div></div>
+      <div class="activity-stat"><div class="n tabular" style="color:${deltaPct>=0?'var(--status-good)':'var(--status-warning)'}">${deltaPct>=0?'+':''}${deltaPct}%</div><div class="l">Vs. média semanal (${weekAvg} min/dia)</div></div>
+    </div>
+    <div class="activity-blocks-list">
+      ${blocks.length ? blocks.map(b => `
+        <div class="activity-block-row">
+          <span class="legend-swatch" style="background:${cat.color}"></span>
+          <span class="tabular">${fmtMin(b.start)} – ${fmtMin(b.end)}</span>
+          <span class="activity-block-dur tabular">${b.end-b.start} min</span>
+        </div>`).join('') : `<p class="empty-hint">Sem blocos de "${cat.label}" registados hoje.</p>`}
+    </div>
+    <div class="card-sub" style="margin:14px 0 8px;">Tendência semanal — minutos por dia</div>
+    <canvas id="cvActivityWeekly" height="120"></canvas>
+  `;
+  drawCategoryWeeklyBar('cvActivityWeekly', weekly, cat.color);
+}
+
+function drawCategoryWeeklyBar(id, weekly, color){
+  const S = setupCanvas(id, 120);
+  if (!S) return;
+  const {ctx, w, h} = S;
+  ctx.clearRect(0,0,w,h);
+  const padL=6, padR=6, top=8, bottom=20;
+  const plotW=w-padL-padR, plotH=h-top-bottom;
+  const max = Math.max(...weekly.map(d=>d.minutes)) * 1.15;
+  const barW = plotW / weekly.length;
+  const col = colorOf(color);
+
+  S.bars = [];
+  weekly.forEach((d,i) => {
+    const bh = (d.minutes/max) * plotH;
+    const x = padL + i*barW + barW*0.18;
+    const bw = barW*0.64;
+    const y = top + plotH - bh;
+    ctx.fillStyle = col;
+    roundRect(ctx, x, y, bw, bh, 3); ctx.fill();
+    ctx.fillStyle = resolveVar('--text-muted'); ctx.font = '10px ' + getComputedStyle(document.body).fontFamily; ctx.textBaseline='top';
+    ctx.fillText(d.day, x + bw/2 - 8, h-bottom+5);
+    S.bars.push({x, y, w:bw, h:bh, d});
+  });
+
+  S.cv.onmousemove = (e) => {
+    const r = S.cv.getBoundingClientRect();
+    const mx = e.clientX-r.left, my = e.clientY-r.top;
+    const hit = S.bars.find(b => mx>=b.x && mx<=b.x+b.w && my>=b.y && my<=top+plotH);
+    if (!hit){ hideTip(); return; }
+    showTip(e.clientX, e.clientY, `<div class="tt-title">${hit.d.day}</div><div class="tt-row"><span>Minutos</span><b>${hit.d.minutes}</b></div>`);
+  };
+  S.cv.onmouseleave = hideTip;
+}
 
 TEMPLATES.vitais = () => `
   <div class="stat-row">
