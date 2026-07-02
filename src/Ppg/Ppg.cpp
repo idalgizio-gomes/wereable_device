@@ -44,6 +44,7 @@ constexpr uint32_t HR_SAMPLE_INTERVAL_MS = 10;       // Intervalo minimo entre a
 constexpr uint32_t TASK_LOOP_DELAY_IDLE_MS = 200;    // Pausa da task quando nao ha streaming de HR ativo (poupa CPU/energia).
 constexpr uint32_t TASK_LOOP_DELAY_HR_MS = 2;        // Pausa da task quando o streaming de HR esta ativo (precisa de amostrar rapido, ~100 Hz).
 constexpr uint32_t HR_STREAM_STOP_HOLDOFF_MS = 3000; // Tempo de tolerancia apos deixar de haver "inactivity" antes de desligar o streaming de HR (evita ligar/desligar aos saltos).
+constexpr uint32_t kManualHrMaxDurationMs = 30000;   // Limite superior para requestManualHr(), para nao gastar bateria indefinidamente por um pedido esquecido.
 // *** OTIMIZAÇÃO DE RAM (redução conservadora, ver DEBUG_STACK_WATERMARKS
 // em main.cpp) ***: reduzido de 1536 para 1152 words (-1536 bytes). O
 // corpo chama o driver MAX30105 e o algoritmo de SpO2 da Maxim, que usam
@@ -63,6 +64,7 @@ uint32_t g_lastHrSampleMs = 0;          // Timestamp da ultima amostra de HR pro
 uint32_t g_inactOffSinceMs = 0;         // Timestamp de quando a "inactivity" deixou de ser verdadeira (usado no holdoff antes de parar o streaming de HR).
 volatile bool g_shutdownRequested = false;     // true depois de prepareForSystemOff(): a task deixa de medir definitivamente.
 volatile bool g_suspendForPowerCheck = false;  // true durante um long-press do botao de power em validacao: a task pausa temporariamente.
+volatile uint32_t g_manualHrDeadlineMs = 0;    // millis() ate quando um pedido requestManualHr() ainda esta ativo (0 = nenhum pedido pendente).
 
 // Formata a data/hora atual (vinda do modulo Clock) numa string, para usar
 // em mensagens de log. Se o relogio ainda nao estiver disponivel, escreve
@@ -521,6 +523,18 @@ void ppgTask(void *arg) {
     const bool hasImu = Imu::getLatestSample(imuSample);
     const bool inactivity = hasImu && imuSample.inactivity;
 
+    // Pedido manual de HR (ver requestManualHr()/dumpCtrlChar em Ble.cpp):
+    // trata-se como equivalente a "inactivity" para efeitos de streaming,
+    // enquanto o prazo nao expirar. Isto permite medir mesmo em movimento
+    // quando pedido explicitamente, sabendo que a leitura pode ser menos
+    // fiavel (ver aviso em Ppg.h).
+    const uint32_t manualDeadline = g_manualHrDeadlineMs;
+    const bool manualHrActive = manualDeadline != 0 && (int32_t)(manualDeadline - nowMs) > 0;
+    if (manualDeadline != 0 && !manualHrActive) {
+      g_manualHrDeadlineMs = 0; // prazo expirado - limpa o pedido
+    }
+    const bool wantHr = inactivity || manualHrActive;
+
     // --- Passo 2: medicao periodica de SpO2 ---
     // Uma vez a cada SPO2_INTERVAL_MS, interrompe temporariamente o
     // streaming de HR (o sensor nao consegue fazer os dois modos ao
@@ -560,12 +574,13 @@ void ppgTask(void *arg) {
       lastSpo2Ms = nowMs;
     }
 
-    // --- Passo 3: streaming continuo de HR, apenas quando inativo ---
+    // --- Passo 3: streaming continuo de HR, quando inativo OU pedido manual ---
     // So' faz sentido medir frequencia cardiaca com fiabilidade quando o
     // utilizador esta parado (o IMU reporta inactivity); movimento
     // introduz artefactos que o pipeline de filtros nao consegue separar
-    // de um batimento real.
-    if (inactivity) {
+    // de um batimento real. wantHr tambem fica true durante uma janela
+    // pedida explicitamente via requestManualHr(), mesmo em movimento.
+    if (wantHr) {
       g_inactOffSinceMs = 0;
 
       if (!g_hrStreaming) {
@@ -796,7 +811,17 @@ void prepareForSystemOff() {
   g_hrStreaming = false;
   g_lastHrSampleMs = 0;
   g_inactOffSinceMs = 0;
+  g_manualHrDeadlineMs = 0;
   forceLedsOffNow();
+}
+
+// Ver Ppg.h. Limita durationMs a kManualHrMaxDurationMs e ignora o
+// pedido se o dispositivo ja estiver a desligar — nao faz sentido ligar
+// o sensor mesmo antes do System Off.
+void requestManualHr(uint32_t durationMs) {
+  if (g_shutdownRequested) return;
+  if (durationMs > kManualHrMaxDurationMs) durationMs = kManualHrMaxDurationMs;
+  g_manualHrDeadlineMs = millis() + durationMs;
 }
 
 // *** DIAGNOSTICO TEMPORARIO (otimizacao de RAM) *** — ver Ppg.h.

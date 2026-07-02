@@ -18,6 +18,7 @@
 #include "Storage/Storage.h"
 #include "QspiRingBuffer/QspiRingBuffer.h"
 #include "Clock/Clock.h"
+#include "Ppg/Ppg.h"
 
 #include <bluefruit.h>
 #include <rtos.h>
@@ -98,6 +99,11 @@ constexpr uint8_t kGattDumpChunkLen = 12;
 constexpr uint16_t kRecTypeImuPpgV1 = 0x1001;
 constexpr uint8_t kDumpCtrlStart = 0x01;
 constexpr uint8_t kDumpCtrlStop = 0x02;
+// Pede uma medicao de FC "forcada" (ver Ppg::requestManualHr): bytes[1..2]
+// (uint16 little-endian, opcional) indicam a duracao em segundos; se a
+// app nao enviar esses bytes, usa-se kForceHrDefaultSeconds.
+constexpr uint8_t kDumpCtrlForceHr = 0x03;
+constexpr uint16_t kForceHrDefaultSeconds = 15;
 constexpr uint8_t kDumpDataType = 0xA1;
 constexpr uint8_t kDumpStatusType = 0xA2;
 
@@ -785,6 +791,17 @@ static void dumpCtrlCallback(uint16_t conn_hdl, BLECharacteristic *chr,
   if (cmd == kDumpCtrlStop) {
     s_dumpStopRequested = true;
     Serial.println("[BLEG][DUMP] STOP");
+    return;
+  }
+
+  if (cmd == kDumpCtrlForceHr) {
+    uint16_t seconds = kForceHrDefaultSeconds;
+    if (len >= 3) {
+      seconds = static_cast<uint16_t>(data[1]) | (static_cast<uint16_t>(data[2]) << 8);
+    }
+    Ppg::requestManualHr(static_cast<uint32_t>(seconds) * 1000UL);
+    Serial.print("[BLEG][DUMP] FORCE_HR segundos=");
+    Serial.println(seconds);
     return;
   }
 }
