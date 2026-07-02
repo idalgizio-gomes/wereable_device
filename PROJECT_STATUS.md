@@ -16,11 +16,21 @@ Wearable-Derived Synthetic Daily Routines" (pipeline XGBoost + LSTM Autoencoder
 + detetor de duração baseado em regras), partilhado pelo utilizador como base
 científica do projeto.
 
+## Repositório
+
+https://github.com/idalgizio-gomes/wereable_device (branch `main`). Estado
+local e remoto sincronizados. Identidade git configurada: Idalgizio Gomes
+(idalgizio12@gmail.com).
+
 ## Hardware atual
 
 - Seeed Studio XIAO nRF52840 Sense Plus (framework Arduino via PlatformIO).
 - Sensores: IMU LSM6DS3 (acel+giro, ~52 Hz), PPG MAX3010x (SpO2/HR), ecrã OLED
   SSD1351, flash QSPI externa (armazenamento), BLE (SoftDevice S140).
+- **Antena LoRa Wio-SX1262 já integrada na placa** (confirmado pelo
+  utilizador) — ainda sem driver/firmware nenhum a usá-la. Mapeamento exato
+  de pinos (NSS/CS, DIO1, RESET, BUSY) para a variante nRF52840 ainda por
+  confirmar (pesquisa em curso — ver "Próximas tarefas").
 - Botão físico de ligar/desligar (BTN_PIN) **partido** — ver "Riscos".
 
 ## Firmware — módulos e estado
@@ -64,26 +74,83 @@ científica do projeto.
 
 `test/csv_serial_capture.py`, `test/spiffs_serial_cli.py`, `test/GATT.cpp` — eram
 de uma versão antiga (SPIFFS + CSV) incompatível com o protocolo BLE binário
-cifrado atual (`DumpDataPacket`/`DumpStatusPacket`, comandos START/STOP via
-`dumpCtrlChar`). Não têm substituto ainda — ver "Próximas tarefas".
+atual (`DumpDataPacket`/`DumpStatusPacket`, comandos START/STOP via
+`dumpCtrlChar`). Substituídos por `bridge/ble_bridge.py` (ver abaixo).
+
+### Correção importante: o "modo de dados" BLE NÃO está cifrado
+
+Apesar de existir troca e persistência de uma chave AES (`aesKeyChar`), o
+registo transmitido no streaming de sensores chama-se `FullPlain` no código
+(`src/Ble/Ble.cpp`) — vai em texto simples. Há um comentário no firmware a
+dizer que a versão cifrada é "eventual" (futura, não implementada). Isto tinha
+sido descrito incorretamente como "cifrado" numa versão anterior deste
+ficheiro — corrigido.
+
+## Bridge BLE ↔ WebSocket (`bridge/ble_bridge.py`)
+
+Liga o wearable ao dashboard web sem precisar de Web Bluetooth (que nunca vai
+funcionar em Safari/iOS). Fluxo: `Wearable (BLE)` → `ble_bridge.py` (Python,
+bleak) → `ws://localhost:8765` → dashboard (browser).
+
+- Deteta e liga-se ao dispositivo "Wearable" automaticamente, com reconexão.
+- **Escreve a hora atual (UTC) sozinho** na characteristic Current Time
+  (0x2A2B) se o dispositivo ainda estiver em provisioning — substitui a
+  necessidade de usar o nRF Connect manualmente.
+- Remonta os fragmentos `DumpDataPacket` em registos `FullPlain` completos e
+  reencaminha-os em JSON para todos os clientes WebSocket ligados.
+- Dependências: `pip install -r bridge/requirements.txt` (bleak, websockets).
 
 ## Dashboard web (protótipo)
 
-Ficheiro fonte: guardado no scratchpad da sessão (não versionado no repo ainda —
-**ação pendente**: mover para `web/dashboard/` ou pasta equivalente no repo).
+Ficheiro: `web/dashboard/index.html` (versionado no repo).
 
 - HTML/CSS/JS autocontido, tema escuro clínico.
 - Login com seleção de perfil (Utente/Família vs Médico/Técnico) — sem
-  autenticação real ligada (protótipo).
+  autenticação real ligada (protótipo). **Pendente**: área de inscrição de
+  novos utilizadores (pedido pelo utilizador, ainda não implementada).
 - Área Utente/Família: resumo, rotina diária (timeline em canvas), sinais
   vitais, tendência semanal, heatmap semanal, alertas.
 - Área Médico/Técnico: pacientes, estado do dispositivo/firmware (liga aos
   dados reais da otimização RAM/CPU), registo de anomalias, limites de duração
   (tabela do template do artigo, editável em protótipo), exportar dados.
-- Dados de sinais vitais (FC, SpO2, passos) = plausíveis/realistas, alinhados
-  ao payload real do firmware. Dados de classificação de rotina (Dormir/
-  Descanso/Atividade/Alimentação/Higiene) = **simulados**, claramente
-  assinalados — o classificador HAR ainda não está embarcado no firmware.
+- **Ligação em direto ao bridge**: a página tenta ligar-se sozinha a
+  `ws://localhost:8765` ao carregar. Se conseguir, os cartões de FC/SpO2/
+  passos/quedas/movimento e o gráfico de FC na vista "Sinais vitais" passam a
+  mostrar dados reais recebidos do dispositivo; caso contrário, mantém os
+  dados de demonstração (a página publicada como Artifact nunca consegue
+  alcançar `localhost`, por isso mostra sempre a demonstração a não ser que
+  seja aberta localmente com o bridge a correr).
+- Dados de classificação de rotina (Dormir/Descanso/Atividade/Alimentação/
+  Higiene) continuam **simulados** — o classificador HAR ainda não está
+  embarcado no firmware.
+- Base de dados: **decidido SQL** (motor concreto — SQLite vs Postgres/MySQL —
+  por decidir quando desenharmos o serviço de persistência).
+
+## Deteção de emergência (desenhado, ainda por implementar)
+
+Decisões já tomadas com o utilizador:
+
+- **Canal de alerta**: ambos — (a) via bridge/telemóvel com internet
+  (SMS/email/push aos contactos configurados) **e** (b) via LoRa (Wio-SX1262),
+  para cobrir o caso de não haver telemóvel/bridge por perto.
+- **Gesto SOS manual**: triplo clique do botão físico por omissão, mas o
+  número de cliques/janela de tempo deve ser **editável**. Depois de detetado
+  o gesto, NÃO envia de imediato — espera um período de confirmação
+  (2–3s, editável) antes de disparar o alerta, para permitir cancelar.
+- **Deteção automática (sem SOS manual)**: queda (freefall) + inatividade
+  sustentada sem resposta do utilizador. Tempo de espera **60s** (não minutos),
+  também editável.
+- Pendente: mapeamento de pinos do Wio-SX1262 para a XIAO nRF52840 (a
+  variante nRF52840 usa ligação por pinos, não o conector B2B da versão
+  ESP32S3 — os pinouts NÃO são iguais entre variantes). Fontes encontradas
+  até agora mencionam D6/D7 para série e D30/D31 para I2C nalgumas variantes
+  de terceiros (Meshtastic), mas os pinos SPI/CS/BUSY/DIO1/RESET do rádio em
+  si ainda não foram confirmados numa fonte fiável — não inventar pinos sem
+  confirmação, sob risco de danificar o módulo.
+- Ainda por decidir: quem são as "entidades competentes" concretas por
+  utente (família vs serviços de emergência), e o provedor de SMS/email real
+  a integrar no bridge (ex.: Twilio) — precisa de conta/credenciais do
+  utilizador, não posso criar isso de forma autónoma.
 
 ## Riscos / bloqueios ativos
 
@@ -110,17 +177,23 @@ Migração de hardware futura possível: nRF5340 ou nRF54H20.
 
 ## Próximas tarefas (por prioridade)
 
-1. Confirmar reduções de stack em hardware real (`[STACK] ...`) assim que o
+1. Área de inscrição de novos utilizadores no dashboard (pedido, por fazer).
+2. Deteção de emergência: confirmar pinout do Wio-SX1262 (pesquisa em curso),
+   implementar módulo de firmware (gesto SOS editável + confirmação temporizada
+   + auto-deteção queda/inatividade 60s editável), estender `Ble.cpp` com uma
+   characteristic de emergência, estender `ble_bridge.py` para reencaminhar o
+   alerta e (mais tarde) notificar externamente.
+3. Confirmar reduções de stack em hardware real (`[STACK] ...`) assim que o
    dispositivo estiver acessível via USB.
-2. Mover o ficheiro do dashboard para dentro do repositório (`web/` ou similar)
-   e versionar.
-3. Decidir e implementar app móvel (Android/iOS) e software desktop, a partir
+4. Decidir e implementar app móvel (Android/iOS) e software desktop, a partir
    do mesmo dashboard/design system.
-4. Desenhar o serviço que recebe os dumps BLE cifrados, decifra (AES) e
-   persiste numa base de dados SQL — pré-requisito para o dashboard passar a
-   mostrar dados reais.
-5. HAR/deteção de anomalias: portar o pipeline do artigo científico (XGBoost +
+5. Desenhar o serviço que recebe os dumps BLE, persiste numa base de dados
+   **SQL** — pré-requisito para o dashboard mostrar histórico real (routine/
+   heatmap/tendência), hoje só os valores "ao vivo" via bridge são reais.
+6. HAR/deteção de anomalias: portar o pipeline do artigo científico (XGBoost +
    LSTM Autoencoder + detetor de duração) — decidir se corre no dispositivo
    (TinyML) ou num serviço backend, com justificação técnica.
-6. Reparar/substituir o botão físico e remover os bypasses de debug
+7. Reparar/substituir o botão físico e remover os bypasses de debug
    (`DEBUG_SERIAL_WAKE`) do firmware.
+8. Rotina cloud diária (`/schedule`) para melhorar dashboard + modelo ML —
+   pedida pelo utilizador, ainda não criada.
