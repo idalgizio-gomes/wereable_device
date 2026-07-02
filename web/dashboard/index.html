@@ -333,6 +333,46 @@
   .activity-block-row{ display:flex; align-items:center; gap:10px; padding:7px 4px; font-size:12.5px; border-bottom:1px solid var(--border-soft); }
   .activity-block-row .legend-swatch{ width:8px; height:8px; }
   .activity-block-dur{ margin-left:auto; color:var(--text-secondary); }
+
+  /* botões secundário / perigo, usados nos comandos ao vivo e na zona de risco */
+  .btn-secondary{
+    display:inline-flex; align-items:center; gap:7px; padding:8px 14px; border-radius:var(--radius-sm);
+    background:var(--bg-surface-2); border:1px solid var(--border); color:var(--text-primary);
+    font-weight:600; font-size:12.5px; cursor:pointer; white-space:nowrap;
+  }
+  .btn-secondary:hover{ border-color:var(--accent); }
+  .btn-secondary:disabled{ opacity:0.55; cursor:default; border-color:var(--border); }
+  .btn-danger{
+    display:inline-flex; align-items:center; gap:7px; padding:8px 14px; border-radius:var(--radius-sm);
+    background:transparent; border:1px solid var(--status-critical); color:var(--status-critical);
+    font-weight:700; font-size:12.5px; cursor:pointer; white-space:nowrap;
+  }
+  .btn-danger:hover{ background:var(--status-critical-bg); }
+  .btn-danger:disabled{ opacity:0.55; cursor:default; }
+
+  .danger-zone{ border-color:rgba(208,59,59,0.35); }
+
+  /* modal de confirmação */
+  .modal-overlay{
+    position:fixed; inset:0; background:rgba(4,8,16,0.6); backdrop-filter:blur(2px);
+    display:flex; align-items:center; justify-content:center; z-index:100; padding:20px;
+  }
+  .modal-box{
+    background:var(--bg-surface); border:1px solid var(--border); border-radius:var(--radius-md);
+    padding:24px; max-width:420px; width:100%; text-align:center;
+  }
+  .modal-icon{
+    width:44px; height:44px; border-radius:50%; margin:0 auto 14px; background:var(--status-critical-bg);
+    color:var(--status-critical); display:flex; align-items:center; justify-content:center;
+  }
+  .modal-icon svg{ width:22px; height:22px; }
+  .modal-box h3{ font-size:16px; font-weight:700; margin-bottom:10px; }
+  .modal-box p{ font-size:13px; color:var(--text-secondary); line-height:1.6; text-align:left; }
+  .modal-actions{ display:flex; gap:10px; justify-content:center; margin-top:20px; }
+  .modal-actions .btn-secondary, .modal-actions .btn-danger{ flex:1; justify-content:center; padding:10px; }
+  .modal-status{ margin-top:12px; font-size:12px; min-height:16px; }
+  .modal-status.ok{ color:var(--status-good); }
+  .modal-status.err{ color:var(--status-critical); }
 </style>
 
 <!-- ============================================================
@@ -543,6 +583,24 @@
 </div>
 
 <div class="tooltip" id="ttip"></div>
+
+<!-- ============================================================
+     MODAL DE CONFIRMAÇÃO — usado para a ação destrutiva "Repor leituras"
+============================================================ -->
+<div class="modal-overlay" id="resetModalOverlay" style="display:none;">
+  <div class="modal-box">
+    <div class="modal-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+    </div>
+    <h3>Repor leituras do dispositivo?</h3>
+    <p>Esta ação apaga <b>permanentemente</b> todos os registos guardados no dispositivo (ring buffer da flash externa). Não é possível desfazer. A calibração do sensor e a chave de emparelhamento não são afetadas — só perdes o histórico de leituras.</p>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeResetModal()">Cancelar</button>
+      <button class="btn-danger" id="resetConfirmBtn" onclick="confirmReset()">Sim, apagar tudo</button>
+    </div>
+    <p class="modal-status" id="resetModalStatus"></p>
+  </div>
+</div>
 
 <script>
 /* ============================================================
@@ -957,6 +1015,16 @@ function drawCategoryWeeklyBar(id, weekly, color){
 }
 
 TEMPLATES.vitais = () => `
+  <div class="card" style="padding:14px 17px;">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;">
+      <p class="empty-hint" id="forceReadingHint" style="padding:0; margin:0;">Força uma leitura mesmo em movimento — só funciona com o dispositivo ligado ao bridge; pode ser menos fiável do que parado.</p>
+      <button class="btn-secondary" id="forceReadingBtn" onclick="onForceReadingClick()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+        Medir agora (FC + SpO₂)
+      </button>
+    </div>
+  </div>
+
   <div class="stat-row">
     ${statTile('heart','Frequência cardíaca','—','bpm', 'var(--status-good)', 'stat-hr-2')}
     ${statTile('zap','SpO₂','—','%', 'var(--status-good)', 'stat-spo2-2')}
@@ -1002,6 +1070,17 @@ TEMPLATES.definicoes = () => `
       </tbody>
     </table>
     <p class="empty-hint">Protótipo — estes limites ainda não estão ligados a um backend de configuração persistente.</p>
+  </div>
+
+  <div class="card danger-zone">
+    <div class="card-head"><div><h3>Zona de risco</h3><div class="card-sub">Ações destrutivas e irreversíveis</div></div></div>
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;">
+      <div>
+        <div style="font-weight:600; font-size:13px;">Repor leituras do dispositivo</div>
+        <p class="empty-hint" style="padding:2px 0 0;">Apaga todos os registos guardados no dispositivo (ring buffer da flash). Não afeta a calibração nem a chave de emparelhamento.</p>
+      </div>
+      <button class="btn-danger" onclick="openResetModal()">Repor leituras…</button>
+    </div>
   </div>
 `;
 
@@ -1518,6 +1597,10 @@ function handleBridgeMessage(msg){
     applyLiveVitals();
     return;
   }
+  if (msg.kind === 'command_result'){
+    handleCommandResult(msg);
+    return;
+  }
   if (msg.kind === 'record'){
     // Espelha o payload real gravado pelo firmware (ImuPpgPayloadV1 /
     // FullPlain — ver storageTask em main.cpp e Ble.cpp): spo2/hr vêm a
@@ -1539,6 +1622,11 @@ function handleBridgeMessage(msg){
   }
 }
 
+// Referência à ligação WebSocket ativa (ou null), para os botões de
+// comando ("Medir agora", "Repor leituras") poderem enviar pedidos ao
+// bridge sem precisar de gerir a sua própria ligação.
+let bridgeWs = null;
+
 function connectBridge(){
   let ws;
   try {
@@ -1548,11 +1636,13 @@ function connectBridge(){
     return;
   }
 
+  ws.onopen = () => { bridgeWs = ws; };
   ws.onmessage = (ev) => {
     try { handleBridgeMessage(JSON.parse(ev.data)); }
     catch (e) { /* mensagem invalida do bridge - ignora */ }
   };
   ws.onclose = () => {
+    if (bridgeWs === ws) bridgeWs = null;
     liveState.connected = false;
     updateDeviceStatusUI();
     scheduleReconnect();
@@ -1564,6 +1654,91 @@ function scheduleReconnect(){
   // Tenta religar de tempos a tempos — cobre tanto "o bridge ainda não
   // tinha arrancado" como "o bridge caiu e voltou".
   setTimeout(connectBridge, 4000);
+}
+
+// Envia um comando ({"cmd":"..."}) ao bridge, que o traduz numa escrita
+// BLE em dumpCtrlChar (ver ble_bridge.py). Devolve false de imediato se
+// não houver ligação — quem chama deve tratar esse caso (ver
+// onForceReadingClick/confirmReset).
+function sendWsCommand(cmd){
+  if (!bridgeWs || bridgeWs.readyState !== WebSocket.OPEN) return false;
+  bridgeWs.send(JSON.stringify({cmd}));
+  return true;
+}
+
+/* ------------------------------------------------------------
+   COMANDOS AO VIVO — "Medir agora" (FC+SpO2 forçados) e
+   "Repor leituras" (destrutivo, com modal de confirmação)
+------------------------------------------------------------ */
+function onForceReadingClick(){
+  const btn = document.getElementById('forceReadingBtn');
+  const hint = document.getElementById('forceReadingHint');
+  if (!liveState.connected){
+    hint.textContent = 'Sem ligação ao bridge — liga o dispositivo primeiro.';
+    hint.style.color = 'var(--status-warning)';
+    return;
+  }
+  const sent = sendWsCommand('force_reading');
+  if (!sent){
+    hint.textContent = 'Não foi possível contactar o bridge. Tenta novamente.';
+    hint.style.color = 'var(--status-warning)';
+    return;
+  }
+  btn.disabled = true;
+  hint.style.color = '';
+  hint.textContent = 'A pedir leitura ao dispositivo… (pode demorar alguns segundos)';
+}
+
+function handleCommandResult(msg){
+  if (msg.cmd === 'force_reading'){
+    const btn = document.getElementById('forceReadingBtn');
+    const hint = document.getElementById('forceReadingHint');
+    if (btn) btn.disabled = false;
+    if (hint){
+      hint.style.color = msg.ok ? 'var(--status-good)' : 'var(--status-warning)';
+      hint.textContent = msg.ok
+        ? 'Pedido enviado — os valores devem atualizar em alguns segundos.'
+        : `Falhou: ${msg.error || 'erro desconhecido'}.`;
+    }
+  }
+  if (msg.cmd === 'reset_readings'){
+    const status = document.getElementById('resetModalStatus');
+    const confirmBtn = document.getElementById('resetConfirmBtn');
+    if (confirmBtn) confirmBtn.disabled = false;
+    if (status){
+      status.className = 'modal-status ' + (msg.ok ? 'ok' : 'err');
+      status.textContent = msg.ok ? 'Leituras apagadas com sucesso.' : `Falhou: ${msg.error || 'erro desconhecido'}.`;
+    }
+    if (msg.ok) setTimeout(closeResetModal, 1600);
+  }
+}
+
+function openResetModal(){
+  const status = document.getElementById('resetModalStatus');
+  status.className = 'modal-status'; status.textContent = '';
+  document.getElementById('resetConfirmBtn').disabled = false;
+  document.getElementById('resetModalOverlay').style.display = 'flex';
+}
+function closeResetModal(){
+  document.getElementById('resetModalOverlay').style.display = 'none';
+}
+function confirmReset(){
+  const status = document.getElementById('resetModalStatus');
+  const confirmBtn = document.getElementById('resetConfirmBtn');
+  if (!liveState.connected){
+    status.className = 'modal-status err';
+    status.textContent = 'Sem ligação ao bridge — não é possível repor agora.';
+    return;
+  }
+  const sent = sendWsCommand('reset_readings');
+  if (!sent){
+    status.className = 'modal-status err';
+    status.textContent = 'Não foi possível contactar o bridge.';
+    return;
+  }
+  confirmBtn.disabled = true;
+  status.className = 'modal-status';
+  status.textContent = 'A apagar…';
 }
 
 // Tenta ligar assim que a página carrega (mesmo antes do login, para o
