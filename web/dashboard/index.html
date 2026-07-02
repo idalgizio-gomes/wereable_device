@@ -1,0 +1,1185 @@
+<title>CareWear · Monitorização de Rotina</title>
+<style>
+  :root{
+    --bg-page:#080D18;
+    --bg-surface:#121B2E;
+    --bg-surface-2:#1A2540;
+    --bg-surface-3:#22304F;
+    --border:#24304D;
+    --border-soft:rgba(255,255,255,0.06);
+    --text-primary:#E7ECF5;
+    --text-secondary:#93A1C0;
+    --text-muted:#5C6A8A;
+    --accent:#3FD6C0;
+    --accent-ink:#04211D;
+    --accent-dim:rgba(63,214,192,0.14);
+    --link:#5B8DEF;
+
+    --cat-dormir:#9085e9;
+    --cat-descanso:#199e70;
+    --cat-atividade:#3987e5;
+    --cat-alimentacao:#d95926;
+    --cat-higiene:#d55181;
+
+    --status-good:#0ca30c;
+    --status-good-bg:rgba(12,163,12,0.14);
+    --status-warning:#fab219;
+    --status-warning-bg:rgba(250,178,25,0.14);
+    --status-serious:#ec835a;
+    --status-serious-bg:rgba(236,131,90,0.14);
+    --status-critical:#d03b3b;
+    --status-critical-bg:rgba(208,59,59,0.16);
+
+    --radius-sm:6px;
+    --radius-md:10px;
+    --font-ui: -apple-system, "Segoe UI", "Segoe UI Variable", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, "Roboto Mono", monospace;
+  }
+
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0; padding:0; height:100%;
+    background:var(--bg-page);
+    color:var(--text-primary);
+    font-family:var(--font-ui);
+    font-size:14px;
+    -webkit-font-smoothing:antialiased;
+  }
+  ::selection{ background:var(--accent-dim); }
+  :focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+  button, input, select{ font-family:inherit; font-size:inherit; color:inherit; }
+  h1,h2,h3,h4{ margin:0; text-wrap:balance; letter-spacing:-0.01em; }
+  p{ margin:0; }
+  a{ color:var(--link); }
+
+  @media (prefers-reduced-motion: reduce){
+    *{ animation-duration:0.001ms !important; transition-duration:0.001ms !important; }
+  }
+
+  .tabular{ font-variant-numeric: tabular-nums; font-family:var(--font-mono); }
+
+  /* ============================================================
+     LOGIN
+  ============================================================ */
+  #view-login{
+    min-height:100vh;
+    display:grid;
+    grid-template-columns: 1.1fr 1fr;
+  }
+  @media (max-width: 880px){
+    #view-login{ grid-template-columns: 1fr; }
+    .login-brand{ display:none; }
+  }
+  .login-brand{
+    position:relative;
+    padding:56px;
+    display:flex; flex-direction:column; justify-content:space-between;
+    background:
+      radial-gradient(680px 460px at 18% 12%, rgba(63,214,192,0.16), transparent 60%),
+      radial-gradient(520px 420px at 82% 88%, rgba(91,141,239,0.14), transparent 55%),
+      var(--bg-surface);
+    border-right:1px solid var(--border-soft);
+    overflow:hidden;
+  }
+  .login-brand-mark{ display:flex; align-items:center; gap:10px; }
+  .login-brand-mark .logo-dot{
+    width:34px; height:34px; border-radius:9px;
+    background:linear-gradient(160deg, var(--accent), #2AA593);
+    display:flex; align-items:center; justify-content:center;
+    color:var(--accent-ink); font-weight:700; font-size:15px;
+  }
+  .login-brand-mark span{ font-weight:600; font-size:16px; letter-spacing:0.01em; }
+  .login-brand-quote{ max-width:420px; }
+  .login-brand-quote .eyebrow{
+    text-transform:uppercase; font-size:11px; letter-spacing:0.09em; color:var(--accent);
+    margin-bottom:14px; font-weight:600;
+  }
+  .login-brand-quote h1{ font-size:28px; line-height:1.28; font-weight:600; color:var(--text-primary); }
+  .login-brand-quote p{ margin-top:14px; color:var(--text-secondary); line-height:1.6; font-size:14px; }
+  .login-brand-vitals{ display:flex; gap:28px; }
+  .login-brand-vitals div{ display:flex; flex-direction:column; gap:4px; }
+  .login-brand-vitals .n{ font-size:20px; font-weight:600; }
+  .login-brand-vitals .l{ font-size:12px; color:var(--text-muted); }
+
+  .login-form-col{ display:flex; align-items:center; justify-content:center; padding:32px; }
+  .login-form{ width:100%; max-width:380px; }
+  .login-form h2{ font-size:21px; font-weight:600; }
+  .login-form .sub{ color:var(--text-secondary); margin-top:6px; font-size:13.5px; }
+
+  .role-toggle{
+    margin-top:28px;
+    display:grid; grid-template-columns:1fr 1fr; gap:8px;
+    background:var(--bg-surface-2); padding:4px; border-radius:var(--radius-md);
+    border:1px solid var(--border);
+  }
+  .role-toggle button{
+    background:transparent; border:none; border-radius:calc(var(--radius-md) - 2px);
+    padding:11px 10px; cursor:pointer; color:var(--text-secondary);
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    font-weight:600; font-size:13px; transition:background .15s, color .15s;
+  }
+  .role-toggle button[aria-pressed="true"]{ background:var(--accent); color:var(--accent-ink); }
+  .role-toggle button svg{ width:16px; height:16px; flex:none; }
+
+  .field{ margin-top:16px; display:flex; flex-direction:column; gap:6px; }
+  .field label{ font-size:12.5px; color:var(--text-secondary); font-weight:600; }
+  .field input{
+    background:var(--bg-surface-2); border:1px solid var(--border); border-radius:var(--radius-sm);
+    padding:10px 12px; color:var(--text-primary);
+  }
+  .field input:focus{ border-color:var(--accent); }
+
+  .btn-primary{
+    margin-top:22px; width:100%; padding:12px; border:none; border-radius:var(--radius-sm);
+    background:var(--accent); color:var(--accent-ink); font-weight:700; font-size:14px; cursor:pointer;
+    transition:filter .15s;
+  }
+  .btn-primary:hover{ filter:brightness(1.06); }
+  .login-note{ margin-top:16px; font-size:12px; color:var(--text-muted); line-height:1.6; }
+  .login-note b{ color:var(--text-secondary); }
+
+  /* ============================================================
+     APP SHELL
+  ============================================================ */
+  #view-app{ display:none; min-height:100vh; grid-template-columns: 232px 1fr; }
+  #view-app.active{ display:grid; }
+
+  .sidebar{
+    background:var(--bg-surface); border-right:1px solid var(--border-soft);
+    padding:20px 14px; display:flex; flex-direction:column; gap:22px;
+    position:sticky; top:0; height:100vh;
+  }
+  .sidebar-brand{ display:flex; align-items:center; gap:10px; padding:0 6px; }
+  .sidebar-brand .logo-dot{
+    width:28px; height:28px; border-radius:8px;
+    background:linear-gradient(160deg, var(--accent), #2AA593);
+    display:flex; align-items:center; justify-content:center; color:var(--accent-ink); font-weight:700; font-size:13px;
+  }
+  .sidebar-brand span{ font-weight:600; font-size:14.5px; }
+
+  .sidebar-role-pill{
+    font-size:11px; font-weight:700; letter-spacing:0.03em; text-transform:uppercase;
+    padding:4px 8px; border-radius:5px; width:fit-content; margin-left:6px;
+  }
+  .sidebar-role-pill.utente{ background:var(--accent-dim); color:var(--accent); }
+  .sidebar-role-pill.clinico{ background:rgba(91,141,239,0.16); color:var(--link); }
+
+  .nav-group{ display:flex; flex-direction:column; gap:2px; }
+  .nav-group-label{ font-size:11px; text-transform:uppercase; letter-spacing:0.07em; color:var(--text-muted); padding:0 10px; margin-bottom:6px; font-weight:600; }
+  .nav-item{
+    display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius:var(--radius-sm);
+    color:var(--text-secondary); cursor:pointer; font-size:13.5px; font-weight:500;
+    border:none; background:transparent; width:100%; text-align:left;
+  }
+  .nav-item svg{ width:17px; height:17px; flex:none; opacity:0.85; }
+  .nav-item:hover{ background:var(--bg-surface-2); color:var(--text-primary); }
+  .nav-item.active{ background:var(--accent-dim); color:var(--accent); }
+  .nav-item.active svg{ opacity:1; }
+
+  .sidebar-footer{ margin-top:auto; display:flex; flex-direction:column; gap:8px; }
+  .switch-role-btn{
+    display:flex; align-items:center; gap:8px; padding:9px 10px; border-radius:var(--radius-sm);
+    background:transparent; border:1px dashed var(--border); color:var(--text-secondary);
+    cursor:pointer; font-size:12.5px; width:100%;
+  }
+  .switch-role-btn:hover{ border-color:var(--accent); color:var(--accent); }
+
+  .main{ display:flex; flex-direction:column; min-width:0; }
+
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 26px; border-bottom:1px solid var(--border-soft);
+    background:linear-gradient(180deg, rgba(255,255,255,0.015), transparent);
+    position:sticky; top:0; z-index:5; backdrop-filter:blur(6px);
+  }
+  .topbar-left{ display:flex; align-items:center; gap:18px; }
+  .topbar h1{ font-size:16.5px; font-weight:600; }
+  .device-status{ display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--text-secondary); }
+  .status-dot{ width:7px; height:7px; border-radius:50%; background:var(--status-good); box-shadow:0 0 0 3px var(--status-good-bg); }
+  .status-dot.warn{ background:var(--status-warning); box-shadow:0 0 0 3px var(--status-warning-bg); }
+  .battery-chip{ display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--text-secondary); }
+  .battery-chip svg{ width:16px; height:16px; }
+  .topbar-right{ display:flex; align-items:center; gap:14px; }
+  .icon-btn{
+    width:34px; height:34px; border-radius:var(--radius-sm); background:var(--bg-surface-2);
+    border:1px solid var(--border); display:flex; align-items:center; justify-content:center;
+    cursor:pointer; position:relative; color:var(--text-secondary);
+  }
+  .icon-btn:hover{ color:var(--text-primary); border-color:var(--accent); }
+  .icon-btn svg{ width:16px; height:16px; }
+  .badge-dot{ position:absolute; top:-3px; right:-3px; width:9px; height:9px; border-radius:50%; background:var(--status-critical); border:2px solid var(--bg-surface); }
+  .avatar-chip{ display:flex; align-items:center; gap:9px; padding:5px 10px 5px 5px; border-radius:20px; background:var(--bg-surface-2); border:1px solid var(--border); }
+  .avatar-chip img, .avatar-chip .initials{
+    width:26px; height:26px; border-radius:50%; object-fit:cover;
+    background:var(--bg-surface-3); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:var(--text-secondary);
+  }
+  .avatar-chip .name{ font-size:12.5px; font-weight:600; }
+  .avatar-chip .role{ font-size:10.5px; color:var(--text-muted); }
+
+  .content{ padding:22px 26px 60px; display:flex; flex-direction:column; gap:20px; max-width:1440px; width:100%; margin:0 auto; }
+
+  .section-title-row{ display:flex; align-items:baseline; justify-content:space-between; }
+  .section-title-row h2{ font-size:15px; font-weight:600; }
+  .section-title-row .meta{ font-size:12px; color:var(--text-muted); }
+
+  /* stat tiles */
+  .stat-row{ display:grid; grid-template-columns:repeat(auto-fit, minmax(148px,1fr)); gap:12px; }
+  .stat-tile{
+    background:var(--bg-surface); border:1px solid var(--border); border-radius:var(--radius-md);
+    padding:14px 15px; display:flex; flex-direction:column; gap:10px;
+  }
+  .stat-tile .top{ display:flex; align-items:center; justify-content:space-between; }
+  .stat-icon{ width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; }
+  .stat-icon svg{ width:16px; height:16px; }
+  .stat-tile .label{ font-size:12px; color:var(--text-secondary); font-weight:600; }
+  .stat-tile .value{ font-size:17px; font-weight:600; }
+  .stat-tile .value .unit{ font-size:12px; color:var(--text-muted); font-weight:500; margin-left:3px; }
+  .stat-pill{ font-size:10.5px; font-weight:700; padding:2px 7px; border-radius:20px; letter-spacing:0.02em; }
+
+  /* generic card */
+  .grid-2{ display:grid; grid-template-columns: 1.55fr 1fr; gap:16px; align-items:start; }
+  .grid-2b{ display:grid; grid-template-columns: 1fr 1fr; gap:16px; align-items:start; }
+  @media (max-width: 1080px){ .grid-2, .grid-2b{ grid-template-columns:1fr; } }
+
+  .card{
+    background:var(--bg-surface); border:1px solid var(--border); border-radius:var(--radius-md);
+    padding:16px 17px 18px;
+  }
+  .card-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+  .card-head h3{ font-size:13.5px; font-weight:600; }
+  .card-head .card-sub{ font-size:11.5px; color:var(--text-muted); margin-top:2px; }
+  .card-head-actions{ display:flex; gap:6px; }
+
+  /* alerts */
+  .alert-row{
+    display:flex; align-items:flex-start; gap:10px; padding:10px 8px; border-radius:var(--radius-sm);
+    border-left:3px solid transparent;
+  }
+  .alert-row + .alert-row{ border-top:1px solid var(--border-soft); }
+  .alert-row.critical{ border-left-color:var(--status-critical); background:var(--status-critical-bg); }
+  .alert-row.serious{ border-left-color:var(--status-serious); background:var(--status-serious-bg); }
+  .alert-row.warning{ border-left-color:var(--status-warning); background:var(--status-warning-bg); }
+  .alert-icon{ width:26px; height:26px; border-radius:7px; flex:none; display:flex; align-items:center; justify-content:center; margin-top:1px; }
+  .alert-icon svg{ width:14px; height:14px; }
+  .alert-row .body{ flex:1; min-width:0; }
+  .alert-row .title{ font-size:12.5px; font-weight:600; }
+  .alert-row .desc{ font-size:11.5px; color:var(--text-secondary); margin-top:2px; line-height:1.5; }
+  .alert-row .time{ font-size:10.5px; color:var(--text-muted); flex:none; margin-top:1px; }
+
+  .legend{ display:flex; flex-wrap:wrap; gap:12px; margin-top:12px; }
+  .legend-item{ display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--text-secondary); }
+  .legend-swatch{ width:9px; height:9px; border-radius:2px; flex:none; }
+
+  .tooltip{
+    position:fixed; pointer-events:none; z-index:50; background:#0A1424; border:1px solid var(--border);
+    border-radius:var(--radius-sm); padding:8px 10px; font-size:11.5px; line-height:1.5; color:var(--text-primary);
+    box-shadow:0 8px 24px rgba(0,0,0,0.4); opacity:0; transform:translateY(2px); transition:opacity .1s, transform .1s;
+    max-width:220px;
+  }
+  .tooltip.show{ opacity:1; transform:translateY(0); }
+  .tooltip .tt-title{ font-weight:700; margin-bottom:2px; }
+  .tooltip .tt-row{ display:flex; justify-content:space-between; gap:14px; color:var(--text-secondary); }
+  .tooltip .tt-row b{ color:var(--text-primary); font-variant-numeric:tabular-nums; font-family:var(--font-mono); }
+
+  canvas{ display:block; max-width:100%; }
+
+  /* table (clinician) */
+  table.data-table{ width:100%; border-collapse:collapse; font-size:12.5px; }
+  table.data-table th{
+    text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted);
+    font-weight:600; padding:0 10px 8px; border-bottom:1px solid var(--border);
+  }
+  table.data-table td{ padding:10px; border-bottom:1px solid var(--border-soft); vertical-align:middle; }
+  table.data-table tr:last-child td{ border-bottom:none; }
+  table.data-table td.num{ font-variant-numeric:tabular-nums; font-family:var(--font-mono); }
+  .row-input{ width:64px; background:var(--bg-surface-2); border:1px solid var(--border); border-radius:5px; padding:5px 7px; font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+  .row-input:focus{ border-color:var(--accent); }
+
+  .pill{ display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:20px; font-size:11px; font-weight:700; }
+  .pill.good{ background:var(--status-good-bg); color:var(--status-good); }
+  .pill.warning{ background:var(--status-warning-bg); color:var(--status-warning); }
+  .pill.critical{ background:var(--status-critical-bg); color:var(--status-critical); }
+  .pill.neutral{ background:var(--bg-surface-2); color:var(--text-secondary); }
+  .pill svg{ width:10px; height:10px; }
+
+  .device-meter{ display:flex; flex-direction:column; gap:6px; }
+  .device-meter .meter-row{ display:flex; justify-content:space-between; font-size:11.5px; color:var(--text-secondary); }
+  .meter-track{ height:6px; border-radius:4px; background:var(--bg-surface-2); overflow:hidden; }
+  .meter-fill{ height:100%; border-radius:4px; background:var(--accent); }
+
+  .empty-hint{ font-size:12px; color:var(--text-muted); padding:8px 0; }
+  .sim-flag{ font-size:10.5px; color:var(--text-muted); background:var(--bg-surface-2); border:1px solid var(--border); padding:1px 7px; border-radius:20px; font-weight:600; }
+</style>
+
+<!-- ============================================================
+     LOGIN
+============================================================ -->
+<div id="view-login">
+  <div class="login-brand">
+    <div class="login-brand-mark">
+      <div class="logo-dot">CW</div>
+      <span>CareWear</span>
+    </div>
+    <div class="login-brand-quote">
+      <div class="eyebrow">Monitorização de rotina · nRF52840</div>
+      <h1>A rotina diária conta uma história. Este painel aprende a lê-la.</h1>
+      <p>Dados de acelerómetro, giroscópio, frequência cardíaca e SpO₂ recolhidos pelo wearable, organizados por rotina diária — para a família acompanhar e para a equipa clínica investigar.</p>
+    </div>
+    <div class="login-brand-vitals">
+      <div><span class="n tabular">54&nbsp;Hz</span><span class="l">Amostragem IMU</span></div>
+      <div><span class="n tabular">30 s</span><span class="l">Resolução de anomalia</span></div>
+      <div><span class="n tabular">AES-256</span><span class="l">Dados em trânsito</span></div>
+    </div>
+  </div>
+
+  <div class="login-form-col">
+    <div class="login-form">
+      <h2>Iniciar sessão</h2>
+      <p class="sub">Escolhe o teu perfil de acesso.</p>
+
+      <div class="role-toggle" role="tablist" aria-label="Perfil de acesso">
+        <button type="button" id="roleBtnUtente" aria-pressed="true" onclick="setLoginRole('utente')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="7" r="4"/></svg>
+          Utente / Família
+        </button>
+        <button type="button" id="roleBtnClinico" aria-pressed="false" onclick="setLoginRole('clinico')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2v6M9 4h6M8 9h8l1 5a5 5 0 0 1-10 0z"/><circle cx="12" cy="19" r="2"/></svg>
+          Médico / Técnico
+        </button>
+      </div>
+
+      <div class="field">
+        <label for="loginEmail">Email</label>
+        <input id="loginEmail" type="email" placeholder="nome@carewear.pt" autocomplete="username" value="ana.silva@carewear.pt">
+      </div>
+      <div class="field">
+        <label for="loginPass">Palavra-passe</label>
+        <input id="loginPass" type="password" placeholder="••••••••" autocomplete="current-password" value="········">
+      </div>
+
+      <button class="btn-primary" onclick="login()">Entrar como <span id="loginRoleLabel">Utente / Família</span></button>
+      <p class="login-note"><b>Protótipo de interface.</b> Sem autenticação real ligada — este ecrã demonstra a separação de perfis; dados clínicos usam leituras reais do wearable, dados de rotina/atividade são simulados até o classificador de HAR ser embarcado no firmware.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     APP SHELL
+============================================================ -->
+<div id="view-app">
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="logo-dot">CW</div>
+      <span>CareWear</span>
+    </div>
+    <span class="sidebar-role-pill utente" id="sidebarRolePill">Utente / Família</span>
+
+    <nav class="nav-group" id="navUtente">
+      <span class="nav-group-label">Maria Silva · 72 anos</span>
+      <button class="nav-item active" data-view="resumo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+        Resumo
+      </button>
+      <button class="nav-item" data-view="rotina">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+        Rotina diária
+      </button>
+      <button class="nav-item" data-view="vitais">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg>
+        Sinais vitais
+      </button>
+      <button class="nav-item" data-view="tendencia">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V9M11 19V5M18 19v-7"/></svg>
+        Tendência semanal
+      </button>
+      <button class="nav-item" data-view="definicoes">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        Definições
+      </button>
+    </nav>
+
+    <nav class="nav-group" id="navClinico" style="display:none;">
+      <span class="nav-group-label">Consulta clínica</span>
+      <button class="nav-item active" data-view="pacientes">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Pacientes
+      </button>
+      <button class="nav-item" data-view="dispositivo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="7" y="2" width="10" height="20" rx="2.5"/><path d="M11 18h2"/></svg>
+        Dispositivo &amp; firmware
+      </button>
+      <button class="nav-item" data-view="anomalias">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+        Anomalias detetadas
+      </button>
+      <button class="nav-item" data-view="limites">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h10M4 18h6"/></svg>
+        Limites de duração
+      </button>
+      <button class="nav-item" data-view="exportar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+        Exportar dados
+      </button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <button class="switch-role-btn" onclick="logout()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+        Terminar sessão
+      </button>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <div class="topbar-left">
+        <h1 id="topbarTitle">Resumo</h1>
+        <div class="device-status"><span class="status-dot" id="deviceDot"></span><span id="deviceStatusText">Wearable ligado · BLE ativo</span></div>
+        <div class="battery-chip">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="18" height="10" rx="2"/><path d="M22 10v4" stroke-linecap="round"/><rect x="4" y="9" width="12" height="6" fill="currentColor" stroke="none" opacity="0.9"/></svg>
+          <span class="tabular">92%</span>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <button class="icon-btn" title="Alertas" onclick="switchNav(document.querySelector('#view-app .nav-group[style]:not([style*=\"none\"]) .nav-item[data-view=\"anomalias\"], #navUtente .nav-item[data-view=\"resumo\"]'))">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+          <span class="badge-dot"></span>
+        </button>
+        <div class="avatar-chip">
+          <div class="initials" id="avatarInitials">MS</div>
+          <div>
+            <div class="name" id="avatarName">Maria Silva</div>
+            <div class="role" id="avatarRole">Perfil: Utente/Família</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="content" id="content"><!-- injected per view --></div>
+  </div>
+</div>
+
+<div class="tooltip" id="ttip"></div>
+
+<script>
+/* ============================================================
+   DADOS DE EXEMPLO
+   ------------------------------------------------------------
+   As leituras "vitais" (FC, SpO2, passos, quedas, inatividade)
+   correspondem exatamente ao payload que o firmware grava
+   (ImuPpgPayloadV1: steps, freefall, inactivity, spo2, hr_x10)
+   e por isso são apresentadas como reais/plausíveis.
+
+   As categorias de rotina diária (Dormir/Descanso/Atividade/
+   Alimentação/Higiene) seguem o template de 21 passos descrito
+   no artigo científico do projeto (classificador XGBoost +
+   deteção de anomalias por LSTM Autoencoder + regras de duração)
+   — esse classificador ainda não está embarcado no firmware,
+   por isso estes blocos são DADOS SIMULADOS, claramente
+   assinalados, e servem de maquete para quando o pipeline de
+   HAR estiver disponível.
+============================================================ */
+const ROUTINE_CATS = [
+  {key:'dormir',      label:'Dormir',       color:'var(--cat-dormir)'},
+  {key:'descanso',    label:'Descanso',     color:'var(--cat-descanso)'},
+  {key:'atividade',   label:'Atividade',    color:'var(--cat-atividade)'},
+  {key:'alimentacao', label:'Alimentação',  color:'var(--cat-alimentacao)'},
+  {key:'higiene',     label:'Higiene',      color:'var(--cat-higiene)'},
+];
+
+function seedRand(seed){ let s = seed; return () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; }; }
+
+function buildRoutine(seed, anomalous){
+  const rnd = seedRand(seed);
+  const template = [
+    ['dormir',0,7*60],['atividade',7*60,7*60+8],['higiene',7*60+8,7*60+22],
+    ['atividade',7*60+22,7*60+50],['descanso',7*60+50,8*60+15],['alimentacao',8*60+15,8*60+35],
+    ['descanso',8*60+35,9*60+30],['descanso',9*60+30,12*60],['alimentacao',12*60+30,12*60+50],
+    ['descanso',13*60,17*60],['atividade',17*60,17*60+40],['descanso',17*60+40,19*60],
+    ['alimentacao',19*60,19*60+25],['descanso',19*60+25,21*60+30],['higiene',21*60+30,21*60+40],
+    ['dormir',22*60,24*60],
+  ];
+  const blocks = template.map(([cat,s,e]) => ({cat, start:s, end:e}));
+  if (anomalous){
+    blocks[2].end += 46;               // higiene prolongada (duche demorado)
+    blocks[8].cat = 'atividade';        // substituição contextual estranha
+    blocks[10].end -= 25;               // atividade truncada
+  }
+  return blocks;
+}
+const routineToday = buildRoutine(7, false);
+const routineAnomaly = buildRoutine(7, true);
+
+function buildTrend(seed){
+  const rnd = seedRand(seed);
+  const days=['08/07','09/07','10/07','11/07','12/07','13/07','14/07'];
+  return days.map((d,i)=>({
+    day:d,
+    passos: Math.round(3200 + rnd()*3600 + Math.sin(i*0.9)*900),
+    sono: +(5.6 + rnd()*2.4).toFixed(1),
+    fc: Math.round(64 + rnd()*14),
+  }));
+}
+const trendData = buildTrend(3);
+
+function buildHeatmap(seed){
+  const rnd = seedRand(seed);
+  const days=['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
+  return days.map(d => ({ day:d, hours: Array.from({length:24}, (_,h) => {
+    const wake = h>=7 && h<=21;
+    const base = wake ? 0.35 + rnd()*0.55 : 0.02 + rnd()*0.12;
+    return Math.min(1, base);
+  })}));
+}
+const heatmapData = buildHeatmap(11);
+
+const alerts = [
+  {sev:'critical', title:'Frequência cardíaca elevada', desc:'92 bpm sustentados durante 6 min em repouso (referência: 58–78 bpm).', time:'há 6 min'},
+  {sev:'serious',  title:'Inatividade prolongada', desc:'Sem movimento detetado desde as 14:35 (3h12min) — acima do limite configurado.', time:'há 41 min'},
+  {sev:'warning',  title:'Bloco de rotina alterado', desc:'"Atividade" da tarde substituída por padrão sedentário — fora do esperado pelo template diário.', time:'há 2h'},
+  {sev:'warning',  title:'SpO₂ no limite', desc:'Leitura de 93% às 03:14 — uma amostra isolada, sem tendência de queda.', time:'há 9h'},
+];
+
+const anomalyLog = [
+  {id:'A-1042', patient:'Maria Silva', type:'Duração', detail:'Higiene 46 min acima do limite (d_max × 3.0)', detector:'Regra de duração', conf:'—', sev:'serious', time:'02/07 07:22'},
+  {id:'A-1041', patient:'Maria Silva', type:'Comportamental', detail:'Substituição contextual: "Atividade" às 09:30 (era "Descanso")', detector:'LSTM Autoencoder', conf:'0.91', sev:'warning', time:'02/07 09:31'},
+  {id:'A-1039', patient:'Maria Silva', type:'Duração', detail:'Bloco de atividade truncado (25 min abaixo do mínimo)', detector:'Regra de duração', conf:'—', sev:'warning', time:'01/07 17:12'},
+  {id:'A-1035', patient:'Maria Silva', type:'Fisiológica', detail:'FC 92 bpm sustentada em repouso', detector:'Limiar clínico', conf:'—', sev:'critical', time:'01/07 21:04'},
+];
+
+/* ============================================================
+   NAVEGAÇÃO ENTRE ECRÃS (login vs app; utente vs médico/técnico)
+============================================================ */
+let currentRole = 'utente';
+
+function setLoginRole(role){
+  currentRole = role;
+  document.getElementById('roleBtnUtente').setAttribute('aria-pressed', role==='utente');
+  document.getElementById('roleBtnClinico').setAttribute('aria-pressed', role==='clinico');
+  document.getElementById('loginRoleLabel').textContent = role==='utente' ? 'Utente / Família' : 'Médico / Técnico';
+}
+
+function login(){
+  document.getElementById('view-login').style.display = 'none';
+  document.getElementById('view-app').classList.add('active');
+
+  const isUtente = currentRole === 'utente';
+  document.getElementById('navUtente').style.display = isUtente ? 'flex' : 'none';
+  document.getElementById('navClinico').style.display = isUtente ? 'none' : 'flex';
+  const pill = document.getElementById('sidebarRolePill');
+  pill.textContent = isUtente ? 'Utente / Família' : 'Médico / Técnico';
+  pill.className = 'sidebar-role-pill ' + (isUtente ? 'utente' : 'clinico');
+
+  document.getElementById('avatarInitials').textContent = isUtente ? 'MS' : 'DR';
+  document.getElementById('avatarName').textContent = isUtente ? 'Maria Silva' : 'Dr. Ricardo Alves';
+  document.getElementById('avatarRole').textContent = isUtente ? 'Perfil: Utente/Família' : 'Perfil: Médico/Técnico';
+
+  renderView(isUtente ? 'resumo' : 'pacientes');
+}
+
+function logout(){
+  document.getElementById('view-app').classList.remove('active');
+  document.getElementById('view-login').style.display = 'grid';
+}
+
+document.addEventListener('click', (e) => {
+  const item = e.target.closest('.nav-item');
+  if (!item) return;
+  const group = item.closest('.nav-group');
+  group.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+  item.classList.add('active');
+  renderView(item.dataset.view);
+});
+
+const VIEW_TITLES = {
+  resumo:'Resumo', rotina:'Rotina diária', vitais:'Sinais vitais', tendencia:'Tendência semanal', definicoes:'Definições',
+  pacientes:'Pacientes', dispositivo:'Dispositivo & firmware', anomalias:'Anomalias detetadas', limites:'Limites de duração', exportar:'Exportar dados',
+};
+
+function renderView(view){
+  document.getElementById('topbarTitle').textContent = VIEW_TITLES[view] || 'CareWear';
+  const c = document.getElementById('content');
+  c.innerHTML = TEMPLATES[view] ? TEMPLATES[view]() : '<div class="empty-hint">Vista em construção.</div>';
+  requestAnimationFrame(() => AFTER_RENDER[view] && AFTER_RENDER[view]());
+}
+
+/* ============================================================
+   AUXILIARES DE UI
+============================================================ */
+function iconFor(type){
+  const M = {
+    heart:'<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/>',
+    walk:'<circle cx="13" cy="4" r="2"/><path d="M9 21l2-6 2 2 3 4M9 15l1-5-3-2 3-6 4 2 4-1"/>',
+    warn:'<path d="M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>',
+    drop:'<path d="M12 2s7 8.2 7 12.5A7 7 0 1 1 5 14.5C5 10.2 12 2 12 2z"/>',
+    moon:'<path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/>',
+    zap:'<path d="M13 2 3 14h7l-1 8 11-13h-7l1-7z"/>',
+  };
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${M[type]||M.warn}</svg>`;
+}
+const SEV_COLOR = {critical:'var(--status-critical)', serious:'var(--status-serious)', warning:'var(--status-warning)', good:'var(--status-good)'};
+const SEV_BG = {critical:'var(--status-critical-bg)', serious:'var(--status-serious-bg)', warning:'var(--status-warning-bg)', good:'var(--status-good-bg)'};
+
+function pillHtml(sev, label){
+  return `<span class="pill ${sev}">${iconFor(sev==='critical'?'warn':sev==='warning'?'warn':'zap')}${label}</span>`;
+}
+
+function fmtMin(m){
+  const h = Math.floor(m/60), mm = String(m%60).padStart(2,'0');
+  return `${String(h).padStart(2,'0')}:${mm}`;
+}
+
+/* ============================================================
+   TEMPLATES — VISTA "UTENTE / FAMÍLIA"
+============================================================ */
+const TEMPLATES = {};
+const AFTER_RENDER = {};
+
+TEMPLATES.resumo = () => `
+  <div class="stat-row">
+    ${statTile('walk','Movimento','Ativo','', 'var(--cat-atividade)')}
+    ${statTile('moon','Sono','7h 24m','', 'var(--cat-dormir)')}
+    ${statTile('drop','Alimentação','3 refeições','', 'var(--cat-alimentacao)')}
+    ${statTile('heart','Frequência cardíaca','71','bpm', 'var(--status-good)')}
+    ${statTile('zap','SpO₂','97','%', 'var(--status-good)')}
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-head">
+        <div><h3>Rotina diária — hoje <span class="sim-flag">dados simulados</span></h3><div class="card-sub">Comparação com o template de 21 passos do artigo científico</div></div>
+      </div>
+      <canvas id="cvRoutineToday" height="150"></canvas>
+      <canvas id="cvRoutineAnom" height="150" style="margin-top:10px;"></canvas>
+      ${legendHtml()}
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>Alertas recentes</h3></div>
+      ${alerts.map(a => alertRow(a)).join('')}
+    </div>
+  </div>
+
+  <div class="grid-2b">
+    <div class="card">
+      <div class="card-head"><div><h3>Padrão semanal de atividade</h3><div class="card-sub">Intensidade de movimento por hora, últimos 7 dias</div></div></div>
+      <canvas id="cvHeatmap" height="180"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-head"><div><h3>Tendência — últimos 7 dias</h3><div class="card-sub">Passos, sono e frequência cardíaca média</div></div></div>
+      <canvas id="cvTrend" height="180"></canvas>
+      <div class="legend">
+        <span class="legend-item"><span class="legend-swatch" style="background:var(--cat-atividade)"></span>Passos</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:var(--cat-dormir)"></span>Sono (h)</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:var(--status-critical)"></span>FC média (bpm)</span>
+      </div>
+    </div>
+  </div>
+`;
+AFTER_RENDER.resumo = () => {
+  drawRoutineTimeline('cvRoutineToday', routineToday, 'Rotina de hoje');
+  drawRoutineTimeline('cvRoutineAnom', routineAnomaly, 'Simulação com anomalias');
+  drawHeatmap('cvHeatmap');
+  drawTrend('cvTrend');
+};
+
+TEMPLATES.rotina = () => `
+  <div class="card">
+    <div class="card-head">
+      <div><h3>Rotina diária — hoje <span class="sim-flag">dados simulados</span></h3><div class="card-sub">Blocos de atividade ao longo de 24h, alinhados ao template clínico</div></div>
+    </div>
+    <canvas id="cvRoutineFull" height="180"></canvas>
+    ${legendHtml()}
+  </div>
+  <div class="card">
+    <div class="card-head"><h3>Simulação com anomalias injetadas</h3></div>
+    <canvas id="cvRoutineAnomFull" height="180"></canvas>
+    ${legendHtml()}
+    <p class="empty-hint">Anomalias marcadas a tracejado: substituição contextual de atividade e bloco de duração fora dos limites [d_min × 0.30, d_max × 3.00].</p>
+  </div>
+`;
+AFTER_RENDER.rotina = () => {
+  drawRoutineTimeline('cvRoutineFull', routineToday, '');
+  drawRoutineTimeline('cvRoutineAnomFull', routineAnomaly, '', true);
+};
+
+TEMPLATES.vitais = () => `
+  <div class="stat-row">
+    ${statTile('heart','Frequência cardíaca','71','bpm', 'var(--status-good)')}
+    ${statTile('zap','SpO₂','97','%', 'var(--status-good)')}
+    ${statTile('walk','Passos hoje','2 842','', 'var(--cat-atividade)')}
+    ${statTile('warn','Quedas detetadas','0','', 'var(--status-good)')}
+  </div>
+  <div class="card">
+    <div class="card-head"><div><h3>Frequência cardíaca — últimas 24h</h3><div class="card-sub">Leituras reais do sensor PPG (MAX3010x)</div></div></div>
+    <canvas id="cvHr" height="170"></canvas>
+  </div>
+`;
+AFTER_RENDER.vitais = () => drawHrSeries('cvHr');
+
+TEMPLATES.tendencia = () => `
+  <div class="card">
+    <div class="card-head"><div><h3>Tendência — últimos 7 dias</h3></div></div>
+    <canvas id="cvTrend2" height="220"></canvas>
+    <div class="legend">
+      <span class="legend-item"><span class="legend-swatch" style="background:var(--cat-atividade)"></span>Passos</span>
+      <span class="legend-item"><span class="legend-swatch" style="background:var(--cat-dormir)"></span>Sono (h)</span>
+      <span class="legend-item"><span class="legend-swatch" style="background:var(--status-critical)"></span>FC média (bpm)</span>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head"><div><h3>Padrão semanal</h3></div></div>
+    <canvas id="cvHeatmap2" height="200"></canvas>
+  </div>
+`;
+AFTER_RENDER.tendencia = () => { drawTrend('cvTrend2'); drawHeatmap('cvHeatmap2'); };
+
+TEMPLATES.definicoes = () => `
+  <div class="card">
+    <div class="card-head"><h3>Preferências de alerta</h3></div>
+    <table class="data-table">
+      <thead><tr><th>Alerta</th><th>Limite</th><th>Notificar</th></tr></thead>
+      <tbody>
+        <tr><td>Frequência cardíaca elevada</td><td class="num">&gt; 100 bpm</td><td>${pillHtml('good','Ativo')}</td></tr>
+        <tr><td>SpO₂ baixo</td><td class="num">&lt; 92%</td><td>${pillHtml('good','Ativo')}</td></tr>
+        <tr><td>Inatividade prolongada</td><td class="num">&gt; 3h</td><td>${pillHtml('good','Ativo')}</td></tr>
+        <tr><td>Queda detetada</td><td class="num">imediato</td><td>${pillHtml('good','Ativo')}</td></tr>
+      </tbody>
+    </table>
+    <p class="empty-hint">Protótipo — estes limites ainda não estão ligados a um backend de configuração persistente.</p>
+  </div>
+`;
+
+/* ============================================================
+   TEMPLATES — VISTA "MÉDICO / TÉCNICO"
+============================================================ */
+TEMPLATES.pacientes = () => `
+  <div class="card">
+    <div class="card-head"><div><h3>Pacientes monitorizados</h3><div class="card-sub">1 dispositivo emparelhado nesta conta</div></div></div>
+    <table class="data-table">
+      <thead><tr><th>Paciente</th><th>Dispositivo</th><th>Última sincronização</th><th>Estado</th><th>Alertas ativos</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><b>Maria Silva</b> · 72 anos</td>
+          <td class="num">Wearable · E6:ED:42:57:1F:20</td>
+          <td class="num">há 4 min</td>
+          <td>${pillHtml('good','Ligado')}</td>
+          <td>${pillHtml('critical','2 ativos')}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="card">
+    <div class="card-head"><h3>Alertas por severidade — Maria Silva</h3></div>
+    ${alerts.map(a => alertRow(a)).join('')}
+  </div>
+`;
+
+TEMPLATES.dispositivo = () => `
+  <div class="grid-2b">
+    <div class="card">
+      <div class="card-head"><div><h3>Estado do wearable</h3><div class="card-sub">XIAO nRF52840 Sense Plus · firmware BLE_GATT_DUMP_V1</div></div></div>
+      <div class="device-meter" style="gap:14px;">
+        <div>
+          <div class="meter-row"><span>Bateria</span><span class="tabular">92%</span></div>
+          <div class="meter-track"><div class="meter-fill" style="width:92%"></div></div>
+        </div>
+        <div>
+          <div class="meter-row"><span>Ring buffer (flash QSPI)</span><span class="tabular">2 843 / 16 384 registos</span></div>
+          <div class="meter-track"><div class="meter-fill" style="width:17%; background:var(--link)"></div></div>
+        </div>
+        <div>
+          <div class="meter-row"><span>RAM estática (.data/.bss)</span><span class="tabular">17 056 / 237 568 bytes</span></div>
+          <div class="meter-track"><div class="meter-fill" style="width:7.2%; background:var(--cat-alimentacao)"></div></div>
+        </div>
+        <div>
+          <div class="meter-row"><span>Flash de programa</span><span class="tabular">173 304 / 811 008 bytes</span></div>
+          <div class="meter-track"><div class="meter-fill" style="width:21.4%; background:var(--cat-higiene)"></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div><h3>Folga de stack por task (FreeRTOS)</h3><div class="card-sub">uxTaskGetStackHighWaterMark — pendente confirmação em hardware</div></div></div>
+      <table class="data-table">
+        <thead><tr><th>Task</th><th>Reservado</th><th>Estado</th></tr></thead>
+        <tbody>
+          <tr><td>imu_task</td><td class="num">768 words</td><td>${pillHtml('neutral','por confirmar')}</td></tr>
+          <tr><td>ppg_task</td><td class="num">1 152 words</td><td>${pillHtml('neutral','por confirmar')}</td></tr>
+          <tr><td>storage_task</td><td class="num">1 536 words</td><td>${pillHtml('neutral','por confirmar')}</td></tr>
+          <tr><td>ble_gatt_dump_task</td><td class="num">2 560 words</td><td>${pillHtml('neutral','por confirmar')}</td></tr>
+        </tbody>
+      </table>
+      <p class="empty-hint">Reduções conservadoras aplicadas (~25% de margem); confirmar com o dispositivo ligado antes de otimizar mais.</p>
+    </div>
+  </div>
+`;
+
+TEMPLATES.anomalias = () => `
+  <div class="card">
+    <div class="card-head"><div><h3>Registo de anomalias</h3><div class="card-sub">Deteção combinada: LSTM Autoencoder (comportamental) + regras de duração, com supressão em cascata</div></div></div>
+    <table class="data-table">
+      <thead><tr><th>ID</th><th>Paciente</th><th>Tipo</th><th>Detalhe</th><th>Detetor</th><th>Confiança</th><th>Severidade</th><th>Quando</th></tr></thead>
+      <tbody>
+        ${anomalyLog.map(a => `
+          <tr>
+            <td class="num">${a.id}</td>
+            <td>${a.patient}</td>
+            <td>${a.type}</td>
+            <td>${a.detail}</td>
+            <td>${a.detector}</td>
+            <td class="num">${a.conf}</td>
+            <td>${pillHtml(a.sev, a.sev==='critical'?'Crítico':a.sev==='serious'?'Sério':'Aviso')}</td>
+            <td class="num">${a.time}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  </div>
+`;
+
+TEMPLATES.limites = () => `
+  <div class="card">
+    <div class="card-head"><div><h3>Template de rotina diária — limites de duração</h3><div class="card-sub">[d_min × 0.30, d_max × 3.00] por passo do template, conforme o artigo científico</div></div></div>
+    <table class="data-table" id="limitsTable">
+      <thead><tr><th>Passo</th><th>Hora</th><th>Atividade</th><th>d_min (min)</th><th>d_max (min)</th></tr></thead>
+      <tbody>
+        ${[
+          [1,'00:00','Deitado (sono)',60,120],[2,'07:00','De pé',1,2],[3,'07:06','Higiene oral',1,3],
+          [4,'07:18','Duche',5,10],[5,'07:48','Caminhar',2,5],[6,'08:00','Sentado',10,20],
+          [7,'08:30','Comer à mão',5,10],[9,'09:30','Sentado',60,90],[13,'13:30','Sentado',60,90],
+          [17,'19:00','Comer com talheres',10,20],[21,'22:00','Deitado (sono)',60,120],
+        ].map(([step,time,act,dmin,dmax]) => `
+          <tr>
+            <td class="num">${step}</td><td class="num">${time}</td><td>${act}</td>
+            <td class="num"><input class="row-input" type="number" value="${dmin}"></td>
+            <td class="num"><input class="row-input" type="number" value="${dmax}"></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+    <p class="empty-hint">Edição de protótipo — ainda não persiste no dispositivo; a atualização de limites exigirá um canal BLE/OTA dedicado.</p>
+  </div>
+`;
+
+TEMPLATES.exportar = () => `
+  <div class="card">
+    <div class="card-head"><div><h3>Exportar dados</h3><div class="card-sub">Origem: dump BLE cifrado (AES) do ring buffer QSPI</div></div></div>
+    <table class="data-table">
+      <thead><tr><th>Intervalo</th><th>Registos</th><th>Formato</th><th></th></tr></thead>
+      <tbody>
+        <tr><td>Últimas 24h</td><td class="num">2 843</td><td>CSV</td><td><button class="btn-primary" style="margin:0; padding:6px 14px; width:auto;">Descarregar</button></td></tr>
+        <tr><td>Últimos 7 dias</td><td class="num">18 210</td><td>CSV</td><td><button class="btn-primary" style="margin:0; padding:6px 14px; width:auto;">Descarregar</button></td></tr>
+        <tr><td>Intervalo completo</td><td class="num">41 902</td><td>JSON</td><td><button class="btn-primary" style="margin:0; padding:6px 14px; width:auto;">Descarregar</button></td></tr>
+      </tbody>
+    </table>
+    <p class="empty-hint">Protótipo — a exportação real depende de um serviço que decifre e persista os dumps BLE numa base de dados (ainda por implementar).</p>
+  </div>
+`;
+
+/* ============================================================
+   PEÇAS REUTILIZÁVEIS
+============================================================ */
+function statTile(icon, label, value, unit, color){
+  return `
+    <div class="stat-tile">
+      <div class="top">
+        <span class="stat-icon" style="background:color-mix(in srgb, ${color} 18%, transparent); color:${color}">${iconFor(icon)}</span>
+      </div>
+      <div class="label">${label}</div>
+      <div class="value">${value}${unit ? `<span class="unit">${unit}</span>` : ''}</div>
+    </div>`;
+}
+
+function alertRow(a){
+  const icon = a.sev==='critical' ? 'heart' : a.sev==='serious' ? 'warn' : 'zap';
+  return `
+    <div class="alert-row ${a.sev}">
+      <span class="alert-icon" style="background:${SEV_BG[a.sev]}; color:${SEV_COLOR[a.sev]}">${iconFor(icon)}</span>
+      <div class="body">
+        <div class="title">${a.title}</div>
+        <div class="desc">${a.desc}</div>
+      </div>
+      <div class="time">${a.time}</div>
+    </div>`;
+}
+
+function legendHtml(){
+  return `<div class="legend">${ROUTINE_CATS.map(c => `<span class="legend-item"><span class="legend-swatch" style="background:${c.color}"></span>${c.label}</span>`).join('')}</div>`;
+}
+
+/* ============================================================
+   CANVAS — utilidades de tooltip + DPR
+============================================================ */
+const ttipEl = document.getElementById('ttip');
+function showTip(x, y, html){
+  ttipEl.innerHTML = html;
+  ttipEl.style.left = (x+14)+'px';
+  ttipEl.style.top = (y+14)+'px';
+  ttipEl.classList.add('show');
+}
+function hideTip(){ ttipEl.classList.remove('show'); }
+
+function setupCanvas(id, cssHeight){
+  const cv = document.getElementById(id);
+  if (!cv) return null;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const cssW = cv.parentElement.clientWidth - 34;
+  cv.style.width = cssW + 'px';
+  cv.style.height = cssHeight + 'px';
+  cv.width = cssW * dpr;
+  cv.height = cssHeight * dpr;
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  return {cv, ctx, w:cssW, h:cssHeight};
+}
+function resolveVar(name){
+  return getComputedStyle(document.documentElement).getPropertyValue(name.replace('var(','').replace(')','')).trim() || name;
+}
+function colorOf(token){
+  if (token.startsWith('var(')) return resolveVar(token);
+  return token;
+}
+
+/* ============================================================
+   ROUTINE TIMELINE (gantt de 1 dia) — canvas + hover
+============================================================ */
+function drawRoutineTimeline(id, blocks, subtitle, dashedAnomaly){
+  const S = setupCanvas(id, 96);
+  if (!S) return;
+  const {ctx, w, h} = S;
+  ctx.clearRect(0,0,w,h);
+
+  const padL = 4, padR = 4, top = 22, barH = 34;
+  const plotW = w - padL - padR;
+  const minToX = (m) => padL + (m/1440)*plotW;
+
+  // eixo de horas
+  ctx.strokeStyle = resolveVar('--border'); ctx.lineWidth = 1;
+  ctx.fillStyle = resolveVar('--text-muted'); ctx.font = '10.5px ' + getComputedStyle(document.body).fontFamily;
+  ctx.textBaseline = 'middle';
+  for (let hh=0; hh<=24; hh+=6){
+    const x = minToX(hh*60);
+    ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, top+barH); ctx.stroke();
+    ctx.fillText(String(hh).padStart(2,'0')+':00', x - (hh===24?26:0), top-9);
+  }
+
+  // barra de fundo
+  ctx.fillStyle = resolveVar('--bg-surface-2');
+  roundRect(ctx, padL, top, plotW, barH, 6); ctx.fill();
+
+  const catMap = Object.fromEntries(ROUTINE_CATS.map(c => [c.key, c]));
+  S.blocks = [];
+  blocks.forEach((b, i) => {
+    const x0 = minToX(b.start), x1 = minToX(b.end);
+    const col = colorOf(catMap[b.cat].color);
+    ctx.fillStyle = col;
+    const isAnom = dashedAnomaly && (i===2 || i===8 || i===10);
+    ctx.globalAlpha = isAnom ? 0.55 : 1;
+    ctx.fillRect(x0+1, top+2, Math.max(2,x1-x0-2), barH-4);
+    ctx.globalAlpha = 1;
+    if (isAnom){
+      ctx.strokeStyle = resolveVar('--status-critical'); ctx.lineWidth = 1.6; ctx.setLineDash([3,2]);
+      ctx.strokeRect(x0+1, top+2, Math.max(2,x1-x0-2), barH-4);
+      ctx.setLineDash([]);
+    }
+    S.blocks.push({x0, x1, y0:top, y1:top+barH, b, isAnom});
+  });
+
+  if (subtitle){
+    ctx.fillStyle = resolveVar('--text-secondary'); ctx.font = '600 11.5px ' + getComputedStyle(document.body).fontFamily;
+    ctx.fillText(subtitle, padL, top+barH+16);
+  }
+
+  S.cv.onmousemove = (e) => {
+    const r = S.cv.getBoundingClientRect();
+    const mx = e.clientX - r.left, my = e.clientY - r.top;
+    const hit = S.blocks.find(bl => mx>=bl.x0 && mx<=bl.x1 && my>=bl.y0 && my<=bl.y1);
+    if (!hit){ hideTip(); S.cv.style.cursor='default'; return; }
+    S.cv.style.cursor='pointer';
+    const catLabel = catMap[hit.b.cat].label;
+    showTip(e.clientX, e.clientY, `
+      <div class="tt-title">${catLabel}${hit.isAnom ? ' · anomalia' : ''}</div>
+      <div class="tt-row"><span>Início</span><b>${fmtMin(hit.b.start)}</b></div>
+      <div class="tt-row"><span>Fim</span><b>${fmtMin(hit.b.end)}</b></div>
+      <div class="tt-row"><span>Duração</span><b>${hit.b.end-hit.b.start} min</b></div>
+    `);
+  };
+  S.cv.onmouseleave = hideTip;
+}
+
+function roundRect(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+}
+
+/* ============================================================
+   HEATMAP semanal
+============================================================ */
+function drawHeatmap(id){
+  const S = setupCanvas(id, 180);
+  if (!S) return;
+  const {ctx, w, h} = S;
+  ctx.clearRect(0,0,w,h);
+
+  const labelW = 34, top = 8, bottom = 20;
+  const rows = heatmapData.length, cols = 24;
+  const gridW = w - labelW - 4, gridH = h - top - bottom;
+  const cw = gridW/cols, ch = gridH/rows;
+
+  ctx.font = '10px ' + getComputedStyle(document.body).fontFamily;
+  ctx.fillStyle = resolveVar('--text-muted');
+  ctx.textBaseline = 'middle';
+
+  const seqBase = [205,66,231]; // aqua ramp base (accent-adjacent) in rgb for interpolation
+  S.cells = [];
+  heatmapData.forEach((row,ri) => {
+    ctx.fillText(row.day, 0, top + ri*ch + ch/2);
+    row.hours.forEach((v,ci) => {
+      const x = labelW + ci*cw, y = top + ri*ch;
+      const t = v; // 0..1
+      const r = Math.round(18 + t*(63-18));
+      const g = Math.round(30 + t*(214-30));
+      const b = Math.round(50 + t*(192-50));
+      ctx.fillStyle = `rgba(${r},${g},${b}, ${0.25+t*0.75})`;
+      roundRect(ctx, x+0.5, y+0.5, cw-1.5, ch-1.5, 2); ctx.fill();
+      S.cells.push({x,y,w:cw,h:ch, day:row.day, hour:ci, v});
+    });
+  });
+
+  ctx.fillStyle = resolveVar('--text-muted');
+  [0,6,12,18,23].forEach(hh => {
+    ctx.fillText(String(hh).padStart(2,'0')+'h', labelW + hh*cw, top+gridH+12);
+  });
+
+  S.cv.onmousemove = (e) => {
+    const r = S.cv.getBoundingClientRect();
+    const mx = e.clientX - r.left, my = e.clientY - r.top;
+    const hit = S.cells.find(c => mx>=c.x && mx<=c.x+c.w && my>=c.y && my<=c.y+c.h);
+    if (!hit){ hideTip(); return; }
+    showTip(e.clientX, e.clientY, `
+      <div class="tt-title">${hit.day} · ${String(hit.hour).padStart(2,'0')}:00</div>
+      <div class="tt-row"><span>Intensidade de atividade</span><b>${Math.round(hit.v*100)}%</b></div>
+    `);
+  };
+  S.cv.onmouseleave = hideTip;
+}
+
+/* ============================================================
+   TENDÊNCIA — linhas indexadas (3 métricas, escalas diferentes
+   → cada série é normalizada ao seu próprio min/max, nunca um
+   duplo eixo y) com crosshair + tooltip
+============================================================ */
+function drawTrend(id){
+  const S = setupCanvas(id, 190);
+  if (!S) return;
+  const {ctx, w, h} = S;
+  ctx.clearRect(0,0,w,h);
+
+  const padL = 6, padR = 6, top = 14, bottom = 22;
+  const plotW = w-padL-padR, plotH = h-top-bottom;
+  const n = trendData.length;
+  const xAt = (i) => padL + (i/(n-1))*plotW;
+
+  const series = [
+    {key:'passos', color: colorOf('var(--cat-atividade)')},
+    {key:'sono', color: colorOf('var(--cat-dormir)')},
+    {key:'fc', color: colorOf('var(--status-critical)')},
+  ];
+  series.forEach(s => {
+    const vals = trendData.map(d => d[s.key]);
+    s.min = Math.min(...vals); s.max = Math.max(...vals);
+    s.yAt = (v) => top + plotH - ((v - s.min)/((s.max-s.min)||1))*plotH*0.86 - plotH*0.02;
+  });
+
+  // gridlines
+  ctx.strokeStyle = resolveVar('--border-soft'); ctx.lineWidth = 1;
+  for (let i=0;i<4;i++){ const y = top + (plotH/3)*i; ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(w-padR,y); ctx.stroke(); }
+
+  series.forEach(s => {
+    ctx.beginPath();
+    trendData.forEach((d,i) => { const x=xAt(i), y=s.yAt(d[s.key]); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
+    ctx.strokeStyle = s.color; ctx.lineWidth = 2; ctx.lineJoin='round'; ctx.stroke();
+    trendData.forEach((d,i) => {
+      const x=xAt(i), y=s.yAt(d[s.key]);
+      ctx.beginPath(); ctx.arc(x,y,2.6,0,Math.PI*2);
+      ctx.fillStyle = resolveVar('--bg-surface'); ctx.fill();
+      ctx.lineWidth=2; ctx.strokeStyle = s.color; ctx.stroke();
+    });
+  });
+
+  ctx.fillStyle = resolveVar('--text-muted'); ctx.font = '10px ' + getComputedStyle(document.body).fontFamily; ctx.textBaseline='top';
+  trendData.forEach((d,i) => ctx.fillText(d.day, xAt(i)-14, h-bottom+6));
+
+  S.xAt = xAt;
+  S.cv.onmousemove = (e) => {
+    const r = S.cv.getBoundingClientRect();
+    const mx = e.clientX - r.left;
+    let idx = 0, best = Infinity;
+    trendData.forEach((d,i) => { const dx = Math.abs(xAt(i)-mx); if (dx<best){best=dx; idx=i;} });
+    const d = trendData[idx];
+    showTip(e.clientX, e.clientY, `
+      <div class="tt-title">${d.day}</div>
+      <div class="tt-row"><span style="color:${colorOf('var(--cat-atividade)')}">● Passos</span><b>${d.passos.toLocaleString('pt-PT')}</b></div>
+      <div class="tt-row"><span style="color:${colorOf('var(--cat-dormir)')}">● Sono</span><b>${d.sono} h</b></div>
+      <div class="tt-row"><span style="color:${colorOf('var(--status-critical)')}">● FC média</span><b>${d.fc} bpm</b></div>
+    `);
+  };
+  S.cv.onmouseleave = hideTip;
+}
+
+/* ============================================================
+   FC — série de 24h (simulada em torno de valores reais plausíveis)
+============================================================ */
+function buildHr(){
+  const rnd = seedRand(21);
+  return Array.from({length:48}, (_,i) => {
+    const hour = i/2;
+    const night = hour<7 || hour>22;
+    return { t: hour, hr: Math.round((night?58:72) + rnd()*10 + Math.sin(i*0.4)*4) };
+  });
+}
+const hrSeries = buildHr();
+
+function drawHrSeries(id){
+  const S = setupCanvas(id, 190);
+  if (!S) return;
+  const {ctx,w,h} = S;
+  ctx.clearRect(0,0,w,h);
+  const padL=30, padR=8, top=14, bottom=22;
+  const plotW=w-padL-padR, plotH=h-top-bottom;
+  const min=50,max=105;
+  const xAt=(i)=> padL + (i/(hrSeries.length-1))*plotW;
+  const yAt=(v)=> top + plotH - ((v-min)/(max-min))*plotH;
+
+  ctx.strokeStyle=resolveVar('--border-soft'); ctx.fillStyle=resolveVar('--text-muted'); ctx.font='10px '+getComputedStyle(document.body).fontFamily;
+  [50,65,80,95].forEach(v=>{ const y=yAt(v); ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(w-padR,y); ctx.stroke(); ctx.fillText(v, 2, y-4); });
+
+  // área
+  const grad = ctx.createLinearGradient(0,top,0,top+plotH);
+  const accentRgb = colorOf('var(--status-good)');
+  grad.addColorStop(0, 'rgba(12,163,12,0.28)'); grad.addColorStop(1,'rgba(12,163,12,0.02)');
+  ctx.beginPath(); ctx.moveTo(xAt(0), yAt(hrSeries[0].hr));
+  hrSeries.forEach((d,i)=> ctx.lineTo(xAt(i), yAt(d.hr)));
+  ctx.lineTo(xAt(hrSeries.length-1), top+plotH); ctx.lineTo(xAt(0), top+plotH); ctx.closePath();
+  ctx.fillStyle = grad; ctx.fill();
+
+  ctx.beginPath(); hrSeries.forEach((d,i)=>{ const x=xAt(i),y=yAt(d.hr); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
+  ctx.strokeStyle = resolveVar('--status-good'); ctx.lineWidth=2; ctx.stroke();
+
+  [0,6,12,18,23].forEach(hh=>{ const i = hh*2; ctx.fillStyle=resolveVar('--text-muted'); ctx.fillText(String(hh).padStart(2,'0')+'h', xAt(i)-8, h-bottom+8); });
+
+  S.cv.onmousemove = (e)=>{
+    const r=S.cv.getBoundingClientRect(); const mx=e.clientX-r.left;
+    let idx=0,best=Infinity; hrSeries.forEach((d,i)=>{ const dx=Math.abs(xAt(i)-mx); if(dx<best){best=dx; idx=i;} });
+    const d = hrSeries[idx];
+    showTip(e.clientX, e.clientY, `<div class="tt-title">${String(Math.floor(d.t)).padStart(2,'0')}:${d.t%1?'30':'00'}</div><div class="tt-row"><span>FC</span><b>${d.hr} bpm</b></div>`);
+  };
+  S.cv.onmouseleave = hideTip;
+}
+
+window.addEventListener('resize', () => {
+  const active = document.querySelector('.nav-item.active');
+  if (active && document.getElementById('view-app').classList.contains('active')) renderView(active.dataset.view);
+});
+</script>
