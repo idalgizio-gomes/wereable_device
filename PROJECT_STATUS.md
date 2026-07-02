@@ -47,6 +47,13 @@ local e remoto sincronizados. Identidade git configurada: Idalgizio Gomes
 
 `STORAGE_TASK_STACK_WORDS` (em `main.cpp`) reduzido 2048→1536 words.
 
+### Correções e funcionalidades confirmadas em hardware real (após a 1ª otimização)
+
+- **Instabilidade BLE corrigida**: `kGattDumpInterPacketMs` 0→2ms em `Ble.cpp` — sem atraso nenhum, o streaming (~208 notificações/seg) sobrecarregava a pilha BLE do central (Windows) e causava desconexões repetidas poucos segundos após o início. Confirmado estável em hardware real depois da correção.
+- **Deteção de inatividade corrigida** (`Imu.cpp`, `detectInactivity`): o contador de "parado" reiniciava para 0 numa única amostra de ruído (de 156 exigidas, ~3s a 52Hz), tornando quase impossível atingir os 3s mesmo genuinamente parado (confirmado em teste real: vários segundos imóvel sem mudar de estado). Passou a "contador com fuga" (decai, não zera) + limiar de aceleração alargado de 0.05g para 0.08g. **O tempo de deteção continua 3 segundos** — só ficou mais robusto a ruído, não mais "sensível/rápido". Nota do utilizador: este flag de 3s serve só para decidir quando medir FC, é um conceito totalmente separado de uma futura deteção de "inatividade prolongada/emergência" (essa terá o seu próprio limiar, muito mais longo — ver secção de emergência abaixo).
+- **Leitura forçada de FC+SpO2** (`Ppg.h/cpp`, `Ble.cpp`): `Ppg::requestManualHr(durationMs)` e `Ppg::requestManualSpo2()` permitem medir mesmo em movimento, quando pedido explicitamente. Comando BLE `kDumpCtrlForceHr` (0x03) em `dumpCtrlChar` aciona os dois de uma vez (um só botão no dashboard, "Medir agora").
+- **Reset de leituras** (`Ble.cpp`): comando `kDumpCtrlResetReadings` (0x04) chama `QspiRingBuffer::format()`, apagando só os registos guardados (não toca em calibração nem chave AES). **Risco de corrida conhecido e não resolvido**: `storageTask` (escreve) e `gattDumpTask` (lê) podem aceder ao ring buffer ao mesmo tempo que o format() corre a partir do contexto BLE; pede-se paragem do streaming + pausa de 100ms antes de formatar, o que reduz mas não elimina a janela de corrida — uma correção completa exigiria sincronização dentro do próprio `QspiRingBuffer`.
+
 ### Dependência corrigida
 
 `platformio.ini` estava sem `adafruit/Adafruit SPIFlash` (usada por `QspiRingBuffer.cpp`)
@@ -98,6 +105,16 @@ bleak) → `ws://localhost:8765` → dashboard (browser).
   necessidade de usar o nRF Connect manualmente.
 - Remonta os fragmentos `DumpDataPacket` em registos `FullPlain` completos e
   reencaminha-os em JSON para todos os clientes WebSocket ligados.
+- **Limite de taxa para o dashboard**: registos "normais" (sem HR/SpO2 novo)
+  só são reenviados no máximo a 4/seg (`RECORD_BROADCAST_MIN_INTERVAL_S`);
+  enviar ao ritmo total (~14/seg observado) causava desconexões repetidas da
+  ligação WebSocket no browser. Registos com HR/SpO2 novos são sempre
+  enviados de imediato.
+- **Aceita comandos do dashboard**: mensagens JSON `{"cmd":"force_reading"}`
+  e `{"cmd":"reset_readings"}` recebidas via WebSocket são traduzidas em
+  escritas em `dumpCtrlChar` (0x03/0x04), com resposta `command_result`
+  (ok/erro) para a interface dar feedback. Canal não autenticado — só deve
+  ser exposto em localhost.
 - Dependências: `pip install -r bridge/requirements.txt` (bleak, websockets).
 
 ## Dashboard web (protótipo)
@@ -105,11 +122,17 @@ bleak) → `ws://localhost:8765` → dashboard (browser).
 Ficheiro: `web/dashboard/index.html` (versionado no repo).
 
 - HTML/CSS/JS autocontido, tema escuro clínico.
-- Login com seleção de perfil (Utente/Família vs Médico/Técnico) — sem
-  autenticação real ligada (protótipo). **Pendente**: área de inscrição de
-  novos utilizadores (pedido pelo utilizador, ainda não implementada).
-- Área Utente/Família: resumo, rotina diária (timeline em canvas), sinais
-  vitais, tendência semanal, heatmap semanal, alertas.
+- **Login + registo**: seleção de perfil (Utente/Família vs Médico/Técnico),
+  e ecrã "Criar conta" com campos que se ajustam ao perfil (relação/utente
+  monitorizado vs instituição/cédula profissional). Sem backend real —
+  protótipo que valida o fluxo, não persiste nada (ver riscos).
+- Área Utente/Família: resumo, rotina diária (timeline em canvas +
+  **análise individual por categoria de atividade** com chips
+  Dormir/Descanso/Atividade/Alimentação/Higiene, mostrando tempo hoje,
+  ocorrências, duração média, comparação semanal e lista de blocos), sinais
+  vitais (+ botão "Medir agora" para forçar FC+SpO2), tendência semanal,
+  heatmap semanal, alertas, **Definições** com zona de risco ("Repor
+  leituras" + modal de confirmação explicando o que é apagado).
 - Área Médico/Técnico: pacientes, estado do dispositivo/firmware (liga aos
   dados reais da otimização RAM/CPU), registo de anomalias, limites de duração
   (tabela do template do artigo, editável em protótipo), exportar dados.
@@ -117,9 +140,12 @@ Ficheiro: `web/dashboard/index.html` (versionado no repo).
   `ws://localhost:8765` ao carregar. Se conseguir, os cartões de FC/SpO2/
   passos/quedas/movimento e o gráfico de FC na vista "Sinais vitais" passam a
   mostrar dados reais recebidos do dispositivo; caso contrário, mantém os
-  dados de demonstração (a página publicada como Artifact nunca consegue
-  alcançar `localhost`, por isso mostra sempre a demonstração a não ser que
-  seja aberta localmente com o bridge a correr).
+  dados de demonstração, agora claramente rotulados ("Demonstração", "—")
+  em vez de valores falsos fixos. **Importante**: a página publicada como
+  Artifact (claude.ai/code/artifact/...) nunca consegue alcançar
+  `localhost` — para dados reais tem de se abrir o ficheiro local
+  `web/dashboard/index.html` diretamente no browser (não o link do
+  Artifact), com o bridge a correr.
 - Dados de classificação de rotina (Dormir/Descanso/Atividade/Alimentação/
   Higiene) continuam **simulados** — o classificador HAR ainda não está
   embarcado no firmware.
@@ -168,6 +194,39 @@ Decisões já tomadas com o utilizador:
 5. Reduções de stack (RAM/CPU) ainda **não confirmadas** com dados reais de
    hardware — ver `DEBUG_STACK_WATERMARKS`.
 
+## Estudo de viabilidade TinyML (preliminar, ver conversa para detalhe)
+
+Recursos livres nesta placa: ~220KB RAM, ~638KB flash (com IMU/PPG/BLE/storage
+já a correr). Avaliação teórica (não testada/treinada ainda):
+- Detetor de duração (regras): trivial, cabe facilmente.
+- XGBoost (400 árvores × 10 classes ≈ 4000 árvores internamente): duvidoso
+  sem poda agressiva — provavelmente não cabe tal como descrito no artigo.
+- LSTM Autoencoder: plausível com inferência em fluxo + quantização int8,
+  mas precisa de TensorFlow Lite Micro (~20-30KB de biblioteca) ou motor
+  próprio, e medição real (não só matemática de papel).
+Recomendação registada: treinar/quantizar primeiro, medir footprint/latência
+reais nesta placa antes de decidir "tudo embarcado" vs "classificador no
+backend" (o artigo já aponta este último como caminho comum).
+
+## Rotinas cloud agendadas (via `/schedule`)
+
+Duas rotinas diárias às 05:00 UTC (6h em Lisboa), ambas publicam direto no
+`main` (decisão do utilizador — sem PR de revisão intermédio):
+
+1. **CareWear — Otimização diária de código** (`trig_01FavJELFcXwPXjVccGR2BoX`)
+   — revê RAM/CPU/desempenho no firmware, bridge e dashboard; só altera com
+   justificação mensurável, senão só regista no PROJECT_STATUS.md.
+2. **CareWear — Melhoria diária do dashboard e do modelo ML**
+   (`trig_01GrQtaJrqNp3Yg57qpmbmbh`) — melhora o dashboard (bugs, usabilidade,
+   tarefas pendentes) e progride incrementalmente uma pasta `ml/` com o
+   pipeline do artigo científico (XGBoost + LSTM Autoencoder + detetor de
+   duração), documentando decisões técnicas.
+
+Ambas instruídas a: ler este ficheiro primeiro, nunca inventar resultados/
+validações não feitas, não decidir por questões que só o utilizador pode
+decidir (ex.: dados reais de pacientes, credenciais de SMS/email), e manter
+este ficheiro atualizado. Geridas em https://claude.ai/code/routines.
+
 ## Roadmap alargado (definido pelo utilizador, por implementar)
 
 Wearable · Firmware · IA embarcada · App móvel (Android/iOS) · Dashboard Web ·
@@ -177,23 +236,25 @@ Migração de hardware futura possível: nRF5340 ou nRF54H20.
 
 ## Próximas tarefas (por prioridade)
 
-1. Área de inscrição de novos utilizadores no dashboard (pedido, por fazer).
-2. Deteção de emergência: confirmar pinout do Wio-SX1262 (pesquisa em curso),
+1. Deteção de emergência: confirmar pinout do Wio-SX1262 (pesquisa em curso,
+   ainda sem fonte fiável para os pinos SPI/CS/BUSY/DIO1/RESET do rádio),
    implementar módulo de firmware (gesto SOS editável + confirmação temporizada
    + auto-deteção queda/inatividade 60s editável), estender `Ble.cpp` com uma
    characteristic de emergência, estender `ble_bridge.py` para reencaminhar o
-   alerta e (mais tarde) notificar externamente.
-3. Confirmar reduções de stack em hardware real (`[STACK] ...`) assim que o
-   dispositivo estiver acessível via USB.
-4. Decidir e implementar app móvel (Android/iOS) e software desktop, a partir
+   alerta e (mais tarde) notificar externamente (canal duplo: bridge/telemóvel
+   E LoRa — decidido pelo utilizador).
+2. Confirmar reduções de stack em hardware real (`[STACK] ...`) assim que o
+   dispositivo estiver acessível via USB (tem sido intermitente nesta sessão).
+3. Decidir e implementar app móvel (Android/iOS) e software desktop, a partir
    do mesmo dashboard/design system.
-5. Desenhar o serviço que recebe os dumps BLE, persiste numa base de dados
+4. Desenhar o serviço que recebe os dumps BLE, persiste numa base de dados
    **SQL** — pré-requisito para o dashboard mostrar histórico real (routine/
    heatmap/tendência), hoje só os valores "ao vivo" via bridge são reais.
-6. HAR/deteção de anomalias: portar o pipeline do artigo científico (XGBoost +
-   LSTM Autoencoder + detetor de duração) — decidir se corre no dispositivo
-   (TinyML) ou num serviço backend, com justificação técnica.
-7. Reparar/substituir o botão físico e remover os bypasses de debug
+5. HAR/deteção de anomalias: portar o pipeline do artigo científico — ver
+   "Estudo de viabilidade TinyML" acima; agora também progride via rotina
+   cloud diária (pasta `ml/`).
+6. Reparar/substituir o botão físico e remover os bypasses de debug
    (`DEBUG_SERIAL_WAKE`) do firmware.
-8. Rotina cloud diária (`/schedule`) para melhorar dashboard + modelo ML —
-   pedida pelo utilizador, ainda não criada.
+7. Decidir quem são as "entidades competentes" concretas por utente e o
+   provedor de SMS/email a integrar (ex.: Twilio) — decisão do utilizador,
+   precisa de conta/credenciais próprias.
