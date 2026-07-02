@@ -434,10 +434,10 @@
     <div class="topbar">
       <div class="topbar-left">
         <h1 id="topbarTitle">Resumo</h1>
-        <div class="device-status"><span class="status-dot" id="deviceDot"></span><span id="deviceStatusText">Wearable ligado · BLE ativo</span></div>
-        <div class="battery-chip">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="18" height="10" rx="2"/><path d="M22 10v4" stroke-linecap="round"/><rect x="4" y="9" width="12" height="6" fill="currentColor" stroke="none" opacity="0.9"/></svg>
-          <span class="tabular">92%</span>
+        <div class="device-status"><span class="status-dot warn" id="deviceDot"></span><span id="deviceStatusText">A ligar ao bridge…</span></div>
+        <div class="battery-chip" title="O firmware ainda não reporta nível de bateria">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="18" height="10" rx="2"/><path d="M22 10v4" stroke-linecap="round"/></svg>
+          <span class="tabular" id="batteryText">—</span>
         </div>
       </div>
       <div class="topbar-right">
@@ -637,11 +637,11 @@ const AFTER_RENDER = {};
 
 TEMPLATES.resumo = () => `
   <div class="stat-row">
-    ${statTile('walk','Movimento','Ativo','', 'var(--cat-atividade)')}
+    ${statTile('walk','Movimento','Ativo','', 'var(--cat-atividade)', 'stat-movement')}
     ${statTile('moon','Sono','7h 24m','', 'var(--cat-dormir)')}
     ${statTile('drop','Alimentação','3 refeições','', 'var(--cat-alimentacao)')}
-    ${statTile('heart','Frequência cardíaca','71','bpm', 'var(--status-good)')}
-    ${statTile('zap','SpO₂','97','%', 'var(--status-good)')}
+    ${statTile('heart','Frequência cardíaca','—','bpm', 'var(--status-good)', 'stat-hr')}
+    ${statTile('zap','SpO₂','—','%', 'var(--status-good)', 'stat-spo2')}
   </div>
 
   <div class="grid-2">
@@ -681,6 +681,7 @@ AFTER_RENDER.resumo = () => {
   drawRoutineTimeline('cvRoutineAnom', routineAnomaly, 'Simulação com anomalias');
   drawHeatmap('cvHeatmap');
   drawTrend('cvTrend');
+  applyLiveVitals();
 };
 
 TEMPLATES.rotina = () => `
@@ -705,17 +706,19 @@ AFTER_RENDER.rotina = () => {
 
 TEMPLATES.vitais = () => `
   <div class="stat-row">
-    ${statTile('heart','Frequência cardíaca','71','bpm', 'var(--status-good)')}
-    ${statTile('zap','SpO₂','97','%', 'var(--status-good)')}
-    ${statTile('walk','Passos hoje','2 842','', 'var(--cat-atividade)')}
-    ${statTile('warn','Quedas detetadas','0','', 'var(--status-good)')}
+    ${statTile('heart','Frequência cardíaca','—','bpm', 'var(--status-good)', 'stat-hr-2')}
+    ${statTile('zap','SpO₂','—','%', 'var(--status-good)', 'stat-spo2-2')}
+    ${statTile('walk','Passos hoje','—','', 'var(--cat-atividade)', 'stat-steps-2')}
+    ${statTile('warn','Quedas detetadas','—','', 'var(--status-good)', 'stat-falls-2')}
   </div>
   <div class="card">
-    <div class="card-head"><div><h3>Frequência cardíaca — últimas 24h</h3><div class="card-sub">Leituras reais do sensor PPG (MAX3010x)</div></div></div>
+    <div class="card-head">
+      <div><h3>Frequência cardíaca <span id="hrChartLabel">— últimas 24h (demonstração)</span></h3><div class="card-sub">Leituras do sensor PPG (MAX3010x) — em direto quando o bridge está ligado</div></div>
+    </div>
     <canvas id="cvHr" height="170"></canvas>
   </div>
 `;
-AFTER_RENDER.vitais = () => drawHrSeries('cvHr');
+AFTER_RENDER.vitais = () => { drawHrSeries('cvHr'); applyLiveVitals(); };
 
 TEMPLATES.tendencia = () => `
   <div class="card">
@@ -879,14 +882,15 @@ TEMPLATES.exportar = () => `
 /* ============================================================
    PEÇAS REUTILIZÁVEIS
 ============================================================ */
-function statTile(icon, label, value, unit, color){
+function statTile(icon, label, value, unit, color, valueId){
+  const valAttr = valueId ? ` id="${valueId}"` : '';
   return `
     <div class="stat-tile">
       <div class="top">
         <span class="stat-icon" style="background:color-mix(in srgb, ${color} 18%, transparent); color:${color}">${iconFor(icon)}</span>
       </div>
       <div class="label">${label}</div>
-      <div class="value">${value}${unit ? `<span class="unit">${unit}</span>` : ''}</div>
+      <div class="value"${valAttr}>${value}${unit ? `<span class="unit">${unit}</span>` : ''}</div>
     </div>`;
 }
 
@@ -1149,7 +1153,16 @@ function drawHrSeries(id){
   const padL=30, padR=8, top=14, bottom=22;
   const plotW=w-padL-padR, plotH=h-top-bottom;
   const min=50,max=105;
-  const xAt=(i)=> padL + (i/(hrSeries.length-1))*plotW;
+
+  // Em modo "ao vivo" (bridge ligado) desenha o buffer real recebido por
+  // WebSocket (liveHrBuffer); caso contrário, cai para a série simulada
+  // hrSeries — mantém o gráfico sempre com algo para mostrar.
+  const live = liveState.connected && liveHrBuffer.length >= 2;
+  const series = live ? liveHrBuffer : hrSeries;
+  const label = document.getElementById('hrChartLabel');
+  if (label) label.textContent = live ? '— ao vivo' : '— últimas 24h (demonstração)';
+
+  const xAt = (i) => padL + (i/(series.length-1))*plotW;
   const yAt=(v)=> top + plotH - ((v-min)/(max-min))*plotH;
 
   ctx.strokeStyle=resolveVar('--border-soft'); ctx.fillStyle=resolveVar('--text-muted'); ctx.font='10px '+getComputedStyle(document.body).fontFamily;
@@ -1157,26 +1170,153 @@ function drawHrSeries(id){
 
   // área
   const grad = ctx.createLinearGradient(0,top,0,top+plotH);
-  const accentRgb = colorOf('var(--status-good)');
   grad.addColorStop(0, 'rgba(12,163,12,0.28)'); grad.addColorStop(1,'rgba(12,163,12,0.02)');
-  ctx.beginPath(); ctx.moveTo(xAt(0), yAt(hrSeries[0].hr));
-  hrSeries.forEach((d,i)=> ctx.lineTo(xAt(i), yAt(d.hr)));
-  ctx.lineTo(xAt(hrSeries.length-1), top+plotH); ctx.lineTo(xAt(0), top+plotH); ctx.closePath();
+  ctx.beginPath(); ctx.moveTo(xAt(0), yAt(series[0].hr));
+  series.forEach((d,i)=> ctx.lineTo(xAt(i), yAt(d.hr)));
+  ctx.lineTo(xAt(series.length-1), top+plotH); ctx.lineTo(xAt(0), top+plotH); ctx.closePath();
   ctx.fillStyle = grad; ctx.fill();
 
-  ctx.beginPath(); hrSeries.forEach((d,i)=>{ const x=xAt(i),y=yAt(d.hr); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
+  ctx.beginPath(); series.forEach((d,i)=>{ const x=xAt(i),y=yAt(d.hr); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
   ctx.strokeStyle = resolveVar('--status-good'); ctx.lineWidth=2; ctx.stroke();
 
-  [0,6,12,18,23].forEach(hh=>{ const i = hh*2; ctx.fillStyle=resolveVar('--text-muted'); ctx.fillText(String(hh).padStart(2,'0')+'h', xAt(i)-8, h-bottom+8); });
+  if (live){
+    // Eixo com o instante (hh:mm) de cada amostra recebida.
+    const step = Math.max(1, Math.floor(series.length/6));
+    series.forEach((d,i)=>{
+      if (i % step !== 0 && i !== series.length-1) return;
+      ctx.fillStyle=resolveVar('--text-muted');
+      ctx.fillText(d.label, xAt(i)-14, h-bottom+8);
+    });
+  } else {
+    [0,6,12,18,23].forEach(hh=>{ const i = hh*2; ctx.fillStyle=resolveVar('--text-muted'); ctx.fillText(String(hh).padStart(2,'0')+'h', xAt(i)-8, h-bottom+8); });
+  }
 
   S.cv.onmousemove = (e)=>{
     const r=S.cv.getBoundingClientRect(); const mx=e.clientX-r.left;
-    let idx=0,best=Infinity; hrSeries.forEach((d,i)=>{ const dx=Math.abs(xAt(i)-mx); if(dx<best){best=dx; idx=i;} });
-    const d = hrSeries[idx];
-    showTip(e.clientX, e.clientY, `<div class="tt-title">${String(Math.floor(d.t)).padStart(2,'0')}:${d.t%1?'30':'00'}</div><div class="tt-row"><span>FC</span><b>${d.hr} bpm</b></div>`);
+    let idx=0,best=Infinity; series.forEach((d,i)=>{ const dx=Math.abs(xAt(i)-mx); if(dx<best){best=dx; idx=i;} });
+    const d = series[idx];
+    const when = live ? d.label : `${String(Math.floor(d.t)).padStart(2,'0')}:${d.t%1?'30':'00'}`;
+    showTip(e.clientX, e.clientY, `<div class="tt-title">${when}</div><div class="tt-row"><span>FC</span><b>${d.hr} bpm</b></div>`);
   };
   S.cv.onmouseleave = hideTip;
 }
+
+/* ============================================================
+   LIGAÇÃO AO BRIDGE (bridge/ble_bridge.py) — dados reais do wearable
+   ------------------------------------------------------------
+   Esta página não fala Bluetooth diretamente: liga-se por WebSocket a
+   um pequeno serviço Python (ver bridge/ble_bridge.py) que por sua vez
+   fala com o dispositivo via BLE e reencaminha cada registo já
+   descodificado, em JSON. Se o bridge não estiver a correr (ex.: ao
+   abrir esta página publicada como demonstração, sem nada instalado no
+   PC), a ligação falha silenciosamente e o dashboard mantém os dados
+   simulados — nada se parte por não haver bridge disponível.
+============================================================ */
+const WS_URL = 'ws://localhost:8765';
+const LIVE_HR_WINDOW = 60; // amostras mantidas no gráfico de FC ao vivo
+
+const liveState = {
+  connected: false,
+  hr: null, spo2: null, steps: null, freefall: false, inactivity: false,
+  lastRecordAt: 0,
+};
+const liveHrBuffer = []; // {t: epoch_s, hr, label: "HH:MM:SS"}
+
+function fmtClock(epochSeconds){
+  const d = new Date(epochSeconds * 1000);
+  return d.toLocaleTimeString('pt-PT', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+}
+
+// Atualiza a pastilha de estado do dispositivo na barra superior.
+function updateDeviceStatusUI(){
+  const dot = document.getElementById('deviceDot');
+  const text = document.getElementById('deviceStatusText');
+  if (!dot || !text) return;
+  if (liveState.connected){
+    dot.classList.remove('warn');
+    text.textContent = 'Wearable ligado · dados em direto';
+  } else {
+    dot.classList.add('warn');
+    text.textContent = 'Sem ligação ao bridge · a mostrar demonstração';
+  }
+}
+
+// Escreve os últimos valores conhecidos (liveState) nos cartões de
+// sinais vitais, se estiverem presentes na vista atualmente renderizada.
+// Chamado tanto quando chega um registo novo como sempre que se navega
+// para uma vista com estes cartões (ver AFTER_RENDER.resumo/vitais).
+function applyLiveVitals(){
+  if (!liveState.connected) return; // mantém os valores de demonstração já no HTML
+
+  const setVal = (id, value) => { const el = document.getElementById(id); if (el && value != null) el.innerHTML = value; };
+  const hrText = liveState.hr != null ? `${liveState.hr}<span class="unit">bpm</span>` : '—<span class="unit">bpm</span>';
+  const spo2Text = liveState.spo2 != null ? `${liveState.spo2}<span class="unit">%</span>` : '—<span class="unit">%</span>';
+
+  setVal('stat-hr', hrText); setVal('stat-hr-2', hrText);
+  setVal('stat-spo2', spo2Text); setVal('stat-spo2-2', spo2Text);
+  setVal('stat-steps-2', liveState.steps != null ? liveState.steps.toLocaleString('pt-PT') : '—');
+  setVal('stat-movement', liveState.inactivity ? 'Parado' : 'Ativo');
+  setVal('stat-falls-2', liveState.freefall ? '⚠ Deteção recente' : '0');
+}
+
+function handleBridgeMessage(msg){
+  if (msg.kind === 'device_status'){
+    liveState.connected = !!msg.connected;
+    updateDeviceStatusUI();
+    applyLiveVitals();
+    return;
+  }
+  if (msg.kind === 'record'){
+    // Espelha o payload real gravado pelo firmware (ImuPpgPayloadV1 /
+    // FullPlain — ver storageTask em main.cpp e Ble.cpp): spo2/hr vêm a
+    // null quando essa amostra em particular não trouxe leitura nova.
+    liveState.lastRecordAt = Date.now();
+    if (msg.hr != null) liveState.hr = msg.hr;
+    if (msg.spo2 != null) liveState.spo2 = msg.spo2;
+    liveState.steps = msg.steps;
+    liveState.freefall = !!msg.freefall;
+    liveState.inactivity = !!msg.inactivity;
+
+    if (msg.hr != null && msg.ts){
+      liveHrBuffer.push({t: msg.ts, hr: msg.hr, label: fmtClock(msg.ts)});
+      if (liveHrBuffer.length > LIVE_HR_WINDOW) liveHrBuffer.shift();
+      // Só redesenha o gráfico se a vista "Sinais vitais" estiver ativa.
+      if (document.getElementById('cvHr')) drawHrSeries('cvHr');
+    }
+    applyLiveVitals();
+  }
+}
+
+function connectBridge(){
+  let ws;
+  try {
+    ws = new WebSocket(WS_URL);
+  } catch (e) {
+    scheduleReconnect();
+    return;
+  }
+
+  ws.onmessage = (ev) => {
+    try { handleBridgeMessage(JSON.parse(ev.data)); }
+    catch (e) { /* mensagem invalida do bridge - ignora */ }
+  };
+  ws.onclose = () => {
+    liveState.connected = false;
+    updateDeviceStatusUI();
+    scheduleReconnect();
+  };
+  ws.onerror = () => { ws.close(); };
+}
+
+function scheduleReconnect(){
+  // Tenta religar de tempos a tempos — cobre tanto "o bridge ainda não
+  // tinha arrancado" como "o bridge caiu e voltou".
+  setTimeout(connectBridge, 4000);
+}
+
+// Tenta ligar assim que a página carrega (mesmo antes do login, para o
+// estado do dispositivo já estar correto quando o utilizador entrar).
+connectBridge();
 
 window.addEventListener('resize', () => {
   const active = document.querySelector('.nav-item.active');
