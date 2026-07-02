@@ -96,6 +96,18 @@ void resumeAfterPowerCheck();
 // chamada mesmo antes do dispositivo entrar efetivamente em System Off.
 void prepareForSystemOff();
 
+// Pede uma medicao de frequencia cardiaca "forcada": liga o streaming de
+// HR durante durationMs mesmo que o IMU nao esteja a reportar inatividade
+// (por omissao a medicao so acontece parado, ver ppgTask). Util quando o
+// utilizador/app pede explicitamente uma leitura imediata em movimento.
+// A leitura resultante pode ser menos fiavel do que uma feita parado —
+// o pipeline de deteccao de batimento nao filtra artefactos de
+// movimento tao bem. Chamadas repetidas apenas renovam o prazo (nao
+// acumulam). durationMs e limitado internamente a um maximo razoavel
+// (ver kManualHrMaxDurationMs no .cpp) para evitar pedidos indefinidos
+// gastarem bateria sem necessidade.
+void requestManualHr(uint32_t durationMs);
+
 // *** DIAGNOSTICO TEMPORARIO (otimizacao de RAM) ***
 // Devolve a menor quantidade de stack livre (em palavras de 32 bits) que
 // a ppg_task alguma vez teve desde que arrancou. Serve para decidir, com

@@ -230,8 +230,22 @@ static bool detectFreefall(float accMag) {
 // de monitorizacao de pessoas com demencia.
 static bool detectInactivity(float accMag, float gx, float gy, float gz) {
   constexpr float kGyroStillDps = 6.0f;
-  constexpr float kAccelStillDeltaG = 0.05f;
+  // *** CORRECAO DE ROBUSTEZ ***: 0.05g estava demasiado apertado para uso
+  // real (segurar a placa na mao introduz vibracao/tremor de poucas
+  // dezenas de mg, que facilmente ultrapassa este limiar). Alargado para
+  // 0.08g, ainda bem abaixo do que um movimento real produz.
+  constexpr float kAccelStillDeltaG = 0.08f;
   constexpr uint16_t kInactivitySamples = 156; // 3 s @ 52 Hz
+  // *** CORRECAO DE ROBUSTEZ ***: a logica original reiniciava o contador
+  // para 0 numa UNICA amostra fora do limiar — bastava uma amostra
+  // ruidosa (das 156 seguidas exigidas) para nunca se atingir 3s de
+  // imobilidade, mesmo com o utilizador genuinamente parado. Passa a
+  // "contador com fuga": uma amostra isolada de ruido so recua um pouco
+  // (kNoiseDecay), nao apaga todo o progresso; so um periodo sustentado
+  // de movimento real consegue baixar o contador mais depressa do que ele
+  // sobe. Um kNoiseDecay maior do que o incremento (1) garante que
+  // movimento genuino continua a interromper a deteccao rapidamente.
+  constexpr uint16_t kNoiseDecay = 12;
 
   const float gyroNorm = sqrtf((gx * gx) + (gy * gy) + (gz * gz));
   const float accDelta = fabsf(accMag - 1.0f);
@@ -240,7 +254,9 @@ static bool detectInactivity(float accMag, float gx, float gy, float gz) {
   if (still) {
     if (g_motion.inactivityCount < 0xFFFF) g_motion.inactivityCount++;
   } else {
-    g_motion.inactivityCount = 0;
+    g_motion.inactivityCount = (g_motion.inactivityCount > kNoiseDecay)
+                                    ? (g_motion.inactivityCount - kNoiseDecay)
+                                    : 0;
   }
 
   g_motion.inactivity = (g_motion.inactivityCount >= kInactivitySamples);
