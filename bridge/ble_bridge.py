@@ -122,9 +122,11 @@ def build_current_time_payload(dt: Optional[datetime] = None) -> bytes:
     firmware ignora mas exige que estejam presentes (len == 10).
     """
     dt = dt or datetime.now(timezone.utc)
-    return struct.pack(
+    payload = struct.pack(
         "<HBBBBB", dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second
-    ) + bytes(4)  # dia_semana=0, fracoes256=0, motivo=0, +1 byte de folga
+    ) + bytes(3)  # dia_semana=0, fracoes256=0, motivo=0 -> total 10 bytes
+    assert len(payload) == 10, "payload da hora tem de ter exatamente 10 bytes"
+    return payload
 
 
 class BleBridge:

@@ -64,7 +64,24 @@ namespace {
 // real (ver dumpTaskStackHighWaterMarkWords() em Ble.h) — confirmar
 // margem confortavel antes de reduzir mais.
 constexpr uint16_t kGattDumpTaskStackWords = 2560;
-constexpr uint32_t kGattDumpInterPacketMs = 0;
+// Atraso (ms) entre cada FRAGMENTO BLE enviado (ver sendDumpPendingRecord).
+// *** AJUSTE DE ESTABILIDADE BLE ***: estava a 0 (sem atraso nenhum), o que
+// gera ate ~208 notificacoes/seg (52 registos/seg x ate 4 fragmentos cada) —
+// em testes reais isto sobrecarregou a pilha BLE do lado do central (PC com
+// Windows) e causou desconexoes repetidas pouco depois de o streaming
+// comecar. 2ms/fragmento reduz o pico para um maximo teorico de ~500
+// fragmentos/seg, dando folga a pilha BLE do central sem comprometer o
+// ritmo necessario (208/seg) para acompanhar a taxa real do IMU.
+//
+// IMPORTANTE: este valor regula APENAS o ritmo entre a placa e quem se
+// liga diretamente por BLE (o bridge local ou uma app/telemovel) — e
+// completamente independente de qualquer servidor externo que receba os
+// dados depois disso. A partir do momento em que um registo chega ao
+// bridge/app via BLE, o reenvio para um servidor externo (HTTP/WebSocket/
+// fila, etc.) e responsabilidade exclusiva desse bridge/app, que o pode
+// atrasar, colocar em fila ou agrupar como precisar — o firmware nunca
+// espera por essa segunda etapa nem e afetado pela velocidade dela.
+constexpr uint32_t kGattDumpInterPacketMs = 2;
 constexpr uint32_t kGattDumpWindowMs = 1000; // envio continuo: 1 segundo
 constexpr uint32_t kImuRateHz = 52;
 constexpr uint32_t kWindowTargetRecords = (kImuRateHz * kGattDumpWindowMs) / 1000U; // 52
