@@ -1,0 +1,35 @@
+{
+  "baseline_sklearn_accuracy": 0.9775252525252526,
+  "methods": {
+    "inline_int16": {
+      "method": "inline",
+      "dtype": "int16_t",
+      "flash_bytes": 10540,
+      "ram_bytes": 0,
+      "c_accuracy": 0.7893939393939394,
+      "generated_c_lines": 2518
+    },
+    "inline_float": {
+      "method": "inline",
+      "dtype": "float",
+      "flash_bytes": 19136,
+      "ram_bytes": 0,
+      "c_accuracy": 0.9775252525252526,
+      "generated_c_lines": 2518
+    },
+    "loadable_int16": {
+      "method": "loadable",
+      "dtype": "int16_t",
+      "flash_bytes": 4841,
+      "ram_bytes": 28,
+      "c_accuracy": 0.7893939393939394,
+      "generated_c_lines": 520
+    }
+  },
+  "free_flash_budget_bytes": 653312,
+  "free_ram_budget_bytes": 225280,
+  "n_estimators": 80,
+  "max_depth": 5,
+  "n_features": 37,
+  "note": "Medido compilando o C gerado pelo emlearn com arm-none-eabi-gcc para Cortex-M4F (-Os), o mesmo alvo do firmware. 'flash_bytes' e' .text+.rodata+.data de uma unica unidade de compilacao isolada (so o classificador, sem o resto do firmware) - nao inclui o overhead de runtime C (startup, libc) que o firmware completo ja paga por outras razoes. 'c_accuracy' corre o MESMO codigo C gerado (compilado nativo, nao simulado) para cada variante - ver ml/README.md para a descoberta real desta medicao: a quantizacao int16 (omissao do emlearn, usada em 'inline_int16' e em 'loadable_int16') reduz a accuracy de 0.978 (sklearn) para bem menos, porque varias das nossas features tem valores tipicamente entre -1 e 1 (ex.: correlacao entre eixos) que colapsam para 0 quando truncados para inteiro. 'inline_float' evita isso (mantem os limiares em float) a troco de mais flash."
+}

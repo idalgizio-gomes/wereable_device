@@ -185,6 +185,58 @@ que no XGBoost — sinal de que árvores mais rasas/em menor número têm mais
 dificuldade nesta classe especificamente, algo a ter em conta se se
 avançar para esta via).
 
+### Footprint real medido via `emlearn` (2026-07-03, `measure_rf_footprint.py`)
+
+Primeira medição real (não estimativa) do footprint deste Random Forest,
+convertido para C via `emlearn` e **compilado com o toolchain ARM real do
+firmware** (`arm-none-eabi-gcc`, `-mcpu=cortex-m4 -mfpu=fpv4-sp-d16
+-mfloat-abi=hard -Os`) — não retreinou nada, só mediu o modelo já treinado
+acima. Ver `reports/activity_classifier_rf_footprint.json` para os números
+completos.
+
+| Variante | Flash | RAM | Accuracy (código C real, compilado e corrido) |
+|---|---|---|---|
+| `inline`, quantizado (`int16_t`, omissão do `emlearn`) | **10 540 bytes** (~10,3 KB) | 0 bytes | **0.789** |
+| `inline`, `float` (limiares não quantizados) | **19 136 bytes** (~18,7 KB) | 0 bytes | **0.978** |
+| `loadable` (tabela de dados, só suporta `int16_t`) | **4 841 bytes** (~4,7 KB) | 28 bytes | **0.789** |
+
+**Duas conclusões, uma boa e uma que exige atenção antes de qualquer
+decisão de embarcar:**
+
+1. **Flash: não é problema nenhum.** Mesmo a variante maior (`inline`
+   float, ~19KB) é uma fração ínfima dos ~638KB livres nesta placa — ao
+   contrário do precedente de terceiros (500 árvores a exigirem
+   553-727KB) que motivou a preocupação original com o XGBoost. Para este
+   modelo (80 árvores, profundidade 5), o footprint de flash deixa de ser
+   um fator de decisão.
+2. **A quantização `int16_t` por omissão do `emlearn` destrói a accuracy
+   — de 0.978 para 0.789, uma queda de ~19 pontos percentuais.** Isto não
+   estava documentado antes de se medir; a suposição implícita nas notas
+   anteriores era que "quantizar" é sempre um trade-off pequeno de
+   precisão por espaço, o que não se confirma aqui. **Causa identificada**:
+   várias das features estatísticas usadas (`features.py`) — em
+   particular a correlação entre eixos do acelerómetro, que varia
+   tipicamente entre -1 e 1 — ficam com quase toda a sua informação
+   destruída quando truncadas para `int16_t` sem escala (um valor 0.87 e
+   um valor 0.12 tornam-se ambos `0`). O caminho `loadable` (o único que
+   permitiria uma tabela de dados bem compacta, 4,7KB) está **preso** a
+   este mesmo dtype no `emlearn` atual — não há como usar `loadable` com
+   `float`. A variante `inline` com `dtype='float'` evita o problema
+   (mantém os limiares em vírgula flutuante) e recupera a accuracy
+   original exatamente (0.978), ao custo de ~19KB em vez de ~5-10KB —
+   ainda assim uma fração pequena do orçamento de flash.
+
+**Decisão técnica ainda pendente** (não tomada aqui, só medida): se se
+avançar para embarcar este classificador, há duas vias honestas: (a) usar
+`inline`+`float` (mais simples, accuracy intacta, ~19KB — como o flash não
+é fator limitante aqui, esta é a opção que menos risco introduz); ou (b)
+adaptar `features.py` para produzir features já escaladas para inteiro
+antes da conversão (ex.: multiplicar a correlação por 10000 antes de
+alimentar o `emlearn`), o que permitiria usar `loadable` (mais compacto e
+mais rápido) sem perder accuracy — mas isso exigiria retreinar com as
+features escaladas e não foi feito nesta sessão (fora do âmbito "medir,
+não retreinar" desta execução).
+
 ### Avaliação — split por sujeito, não por janela
 
 O conjunto de teste é composto por sujeitos sintéticos **nunca vistos no
@@ -214,11 +266,18 @@ hardware), (c) validar em hardware embarcado se a via TinyML avançar.
 
 ## Próximos passos (por ordem)
 
-1. Medir footprint real (flash/RAM) e latência do modelo XGBoost treinado
-   aqui, convertido via `micromlgen`, numa placa de teste — e comparar com
-   um Random Forest via `emlearn` treinado sobre os mesmos dados/features,
-   como baseline de decisão (ver ressalva acima). Só depois decidir se este
-   classificador é embarcado no firmware ou corre num serviço backend.
+1. ~~Medir footprint real (flash/RAM) do Random Forest via `emlearn`~~ —
+   **FEITO (2026-07-03)**: ver "Footprint real medido via `emlearn`"
+   acima. Resultado: flash não é fator limitante (~5-19KB de ~638KB
+   livres), mas a quantização `int16_t` por omissão destrói a accuracy
+   (0.978→0.789) — usar `dtype='float'` no `emlearn` resolve isso.
+   **Ainda por medir**: footprint do XGBoost via `micromlgen` (não feito
+   nesta sessão — `micromlgen` está sem manutenção ativa e o Random
+   Forest já mostrou ser viável, reduzindo a urgência de medir a via
+   XGBoost) e latência de inferência real em hardware (só foi medido
+   footprint estático via compilação; falta correr num nRF52840 real e
+   cronometrar, bloqueado pela indisponibilidade atual do hardware — ver
+   PROJECT_STATUS.md, "Riscos/bloqueios ativos").
 2. **LSTM Autoencoder para deteção de anomalias** — treinar sobre a
    sequência de atividades classificadas (ou sobre as features brutas por
    janela) para detetar padrões que fogem à rotina habitual de cada sujeito.
@@ -248,8 +307,13 @@ hardware), (c) validar em hardware embarcado se a via TinyML avançar.
 2. A escolha final entre manter XGBoost (via `micromlgen`, sem manutenção
    ativa) ou migrar para Random Forest (via `emlearn`, mantido ativamente)
    para uma eventual versão embarcada é uma mudança metodológica face ao
-   artigo original — precisa de validação do utilizador antes de se avançar,
-   depois de medido o footprint real de ambas as opções (ver "Próximos
-   passos" acima).
+   artigo original — precisa de validação do utilizador antes de se avançar.
+   O footprint do Random Forest já foi medido (ver "Footprint real medido
+   via `emlearn`" acima: flash não é fator limitante), mas o do XGBoost via
+   `micromlgen` continua por medir. Adicionalmente, mesmo optando por
+   Random Forest, falta decidir entre `inline`+`float` (accuracy intacta,
+   ~19KB) e adaptar as features para escala inteira e usar `loadable`
+   (mais compacto, mas exige retreinar) — ver detalhe na secção do
+   footprint.
 
 Ambas continuam registadas como decisão pendente também no PROJECT_STATUS.md.
