@@ -204,6 +204,7 @@ struct __attribute__((packed)) ImuPpgPayloadV1 {
   uint8_t inact;     // 1 se o dispositivo está atualmente considerado "inativo" (parado)
   int16_t spo2;       // última leitura de saturação de oxigénio (%), 0 se não houver leitura nova
   int16_t hr_x10;     // última frequência cardíaca em bpm (nota: apesar do nome "_x10", é gravado o valor arredondado em bpm, não x10)
+  uint8_t pacing_index; // índice 0-100 de "pacing"/curvas apertadas via giroscópio (ver Imu::Sample::pacing_index)
 };
 
 // Verificação em tempo de compilação: garante que a estrutura acima cabe
@@ -300,6 +301,7 @@ void storageTask(void *arg) {
     payload.inact = imu.inactivity ? 1 : 0;
     payload.spo2 = spo2Out;
     payload.hr_x10 = hrOutX10;
+    payload.pacing_index = imu.pacing_index;
 
     // Preferir o relógio real (UTC, sincronizado por BLE) como timestamp
     // do registo, se já estiver disponível; caso contrário usar o

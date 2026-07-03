@@ -27,7 +27,7 @@ Este script:
      notificações de dumpDataChar (registos de sensores fragmentados) e
      dumpStatusChar (estado da transmissão), e pede o início do streaming
      escrevendo 0x01 em dumpCtrlChar.
-  4. Remonta os fragmentos de cada registo (FullPlain, 38 bytes) e reenvia
+  4. Remonta os fragmentos de cada registo (FullPlain, 39 bytes) e reenvia
      cada registo já descodificado, em JSON, a todos os clientes WebSocket
      ligados a este script (por omissão, ws://localhost:8765).
   5. Subscreve também emergencyAlertChar (módulo firmware Emergency — SOS
@@ -100,9 +100,12 @@ DUMP_CTRL_RESET_READINGS = bytes([0x04])
 # Tamanho de um registo completo (FullPlain, ver Ble.cpp) e o layout dos
 # seus campos, na mesma ordem em que o firmware os escreve. "<" = little-
 # endian (nativo do Cortex-M4 do nRF52840); struct.calcsize confirma que
-# bate certo com o static_assert(sizeof(FullPlain) == 38, ...) do firmware.
-FULL_PLAIN_STRUCT = struct.Struct("<IffffffIBBhh")
-assert FULL_PLAIN_STRUCT.size == 38, "FullPlain deve ter 38 bytes, igual ao firmware"
+# bate certo com o static_assert(sizeof(FullPlain) == 39, ...) do firmware.
+# Ultimo campo (B, uint8) e' o pacing_index acrescentado em 2026-07-03 (ver
+# PROJECT_STATUS.md, backlog de investigacao item 2) — bump de formato de
+# 38 para 39 bytes.
+FULL_PLAIN_STRUCT = struct.Struct("<IffffffIBBhhB")
+assert FULL_PLAIN_STRUCT.size == 39, "FullPlain deve ter 39 bytes, igual ao firmware"
 
 # EmergencyAlertPacket (8 bytes, ver src/Ble/Ble.cpp): type (uint8),
 # reserved (uint8, ignorado), seq (uint16), timestamp_utc (uint32).
@@ -121,13 +124,13 @@ WS_PORT = 8765
 
 
 def decode_full_plain(raw: bytes) -> dict:
-    """Descodifica os 38 bytes de um registo FullPlain para um dict Python.
+    """Descodifica os 39 bytes de um registo FullPlain para um dict Python.
 
     A ordem dos campos tem de corresponder exatamente à struct FullPlain
     em src/Ble/Ble.cpp: ts, ax, ay, az, gx, gy, gz, steps, ff, inact,
-    spo2, hr.
+    spo2, hr, pacing_index.
     """
-    ts, ax, ay, az, gx, gy, gz, steps, ff, inact, spo2, hr = (
+    ts, ax, ay, az, gx, gy, gz, steps, ff, inact, spo2, hr, pacing_index = (
         FULL_PLAIN_STRUCT.unpack(raw)
     )
     return {
@@ -141,6 +144,11 @@ def decode_full_plain(raw: bytes) -> dict:
         # (ver storageTask em main.cpp) — o dashboard deve ignorar zeros.
         "spo2": spo2 if spo2 != 0 else None,
         "hr": hr if hr != 0 else None,
+        # Indice 0-100 de "pacing"/curvas apertadas via giroscopio (ver
+        # Imu::detectPacing em Imu.cpp) — 0 e' um valor real possivel (sem
+        # curvas apertadas na ultima janela), nao um sentinela de "sem
+        # leitura" como spo2/hr, por isso nao e' convertido para None aqui.
+        "pacing_index": pacing_index,
     }
 
 
@@ -221,7 +229,7 @@ class BleBridge:
 
         Cada notificação é um fragmento (DumpDataPacket, 20 bytes, ver
         Ble.cpp): type, frag_idx, frag_total, chunk_len, rec_seq (uint32),
-        chunk[12]. Um FullPlain (38 bytes) chega dividido em até 4
+        chunk[12]. Um FullPlain (39 bytes) chega dividido em até 4
         fragmentos; aqui remontamos por rec_seq até termos todos os bytes.
         """
         if len(data) < 8:

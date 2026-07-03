@@ -140,6 +140,7 @@ struct __attribute__((packed)) ImuPpgPayloadV1 {
   uint8_t inact;
   int16_t spo2;
   int16_t hr;
+  uint8_t pacing_index;
 };
 
 // Registo "completo" (com timestamp) tal como é enviado para a app,
@@ -158,10 +159,18 @@ struct __attribute__((packed)) FullPlain {
   uint8_t inact;
   int16_t spo2;
   int16_t hr;
+  // Indice 0-100 de "pacing"/curvas apertadas via giroscopio (ver
+  // Imu::Sample::pacing_index) — acrescentado 2026-07-03, cresce o
+  // registo de 38 para 39 bytes (nao havia bytes reservados livres para
+  // reaproveitar, ao contrario do que aconteceu com data_loss_flag em
+  // DumpStatusPacket): bump de formato, exige atualizar em conjunto
+  // ImuPpgPayloadV1 (aqui e em main.cpp), este FullPlain, os
+  // static_assert abaixo e FULL_PLAIN_STRUCT em bridge/ble_bridge.py.
+  uint8_t pacing_index;
 };
 
 // Um "fragmento" de um FullPlain enviado via notify() na characteristic
-// dumpDataChar. Como um FullPlain (38 bytes) pode nao caber num unico
+// dumpDataChar. Como um FullPlain (39 bytes) pode nao caber num unico
 // pacote BLE, é dividido em ate N fragmentos de kGattDumpChunkLen bytes;
 // frag_idx/frag_total permitem a app remontar o registo do lado dela.
 struct __attribute__((packed)) DumpDataPacket {
@@ -217,7 +226,7 @@ struct __attribute__((packed)) EmergencyAlertPacket {
   uint32_t timestamp_utc;
 };
 
-static_assert(sizeof(FullPlain) == 38, "FullPlain v2 must have 38 bytes");
+static_assert(sizeof(FullPlain) == 39, "FullPlain v3 must have 39 bytes");
 static_assert(sizeof(DumpDataPacket) == 20, "DumpDataPacket must have 20 bytes");
 static_assert(sizeof(DumpStatusPacket) == 16, "DumpStatusPacket must have 16 bytes");
 static_assert(sizeof(EmergencyAlertPacket) == 8, "EmergencyAlertPacket must have 8 bytes");
@@ -402,6 +411,7 @@ bool mapRingRecordToFull(const QspiRingBuffer::Record &rec, FullMappedRecord &ou
   out.payload.inact = p->inact ? 1 : 0;
   out.payload.spo2 = p->spo2;
   out.payload.hr = p->hr;
+  out.payload.pacing_index = p->pacing_index;
 
   if (kGattDumpVerboseLogs) {
     Serial.print("[BLEG][DUMP][MAP] seq=");
@@ -480,7 +490,7 @@ bool prepareDumpPendingRecord() {
 }
 
 // Envia o registo pendente atual (s_dumpPendingSample) por BLE,
-// fragmentado em varios pacotes DumpDataPacket porque o registo (38
+// fragmentado em varios pacotes DumpDataPacket porque o registo (39
 // bytes) normalmente nao cabe inteiro num unico payload de notify().
 // Se qualquer fragmento falhar a enviar (ex.: fila de notificacoes
 // cheia, desconexao a meio), aborta e devolve false — o registo

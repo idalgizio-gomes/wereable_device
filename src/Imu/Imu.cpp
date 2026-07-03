@@ -143,6 +143,11 @@ struct MotionState {
   bool freefall = false;        // Resultado atual da deteccao de queda livre.
   uint16_t inactivityCount = 0; // Nº de amostras consecutivas "paradas" (sem rotacao nem variacao de aceleracao).
   bool inactivity = false;      // Resultado atual da deteccao de inatividade.
+  bool turnArmed = true;        // true = pronto para contar a proxima curva apertada (evita contar a mesma varias vezes).
+  uint8_t turnHighCount = 0;    // Nº de amostras consecutivas com rotacao acima do limiar de curva apertada.
+  uint16_t turnEventsInWindow = 0; // Nº de curvas apertadas contadas na janela de pacing atual.
+  uint32_t pacingWindowStartMs = 0; // Instante (millis()) em que a janela de pacing atual comecou.
+  uint8_t pacingIndex = 0;      // Ultimo indice de pacing (0-100) calculado no fim de uma janela.
 };
 
 static MotionState g_motion;
@@ -263,6 +268,67 @@ static bool detectInactivity(float accMag, float gx, float gy, float gz) {
   return g_motion.inactivity;
 }
 
+// Deteccao de "pacing"/curvas apertadas via giroscopio: item 2 do backlog
+// de investigacao (ver PROJECT_STATUS.md) — proxy precoce de deambulacao
+// (wandering), complementar ao geofencing por GPS. A literatura associa
+// padroes de deambulacao a mudancas de direcao frequentes e apertadas num
+// espaco curto, em vez de percursos lineares.
+//
+// Como este dispositivo e usado no pulso (sem orientacao fixa em relacao
+// ao corpo), usa-se a NORMA do giroscopio (rotacao total, independente do
+// eixo) como aproximacao de "quao apertada" e uma rotacao — mais robusto a
+// como o dispositivo esta orientado no pulso do que isolar um unico eixo
+// (ex.: gz), mas nao distingue rotacao do proprio pulso/braco de uma curva
+// real do corpo a andar: e um SINAL COMPLEMENTAR, nao uma deteccao de
+// wandering validada clinicamente (a evidencia de eficacia clinica desta
+// familia de sinais e ainda mista segundo a pesquisa registada no
+// PROJECT_STATUS.md).
+//
+// Algoritmo: conta "eventos de curva apertada" — rajadas de rotacao acima
+// de kTurnGyroThresholdDps, com o mesmo padrao rise/rearm ja usado em
+// detectStep() — dentro de uma janela deslizante de kPacingWindowMs. No
+// fim de cada janela, converte o numero de eventos num indice 0-100 (mais
+// curvas apertadas por minuto = indice mais alto) e reinicia a contagem
+// para a janela seguinte. Os limiares (graus/seg, curvas/min para indice
+// maximo) sao heuristicas desta primeira iteracao, ainda por afinar com
+// dados reais de uso (nao ha ainda historico real de wandering confirmado
+// para calibrar contra ele).
+static uint8_t detectPacing(float gyroNorm, uint32_t nowMs) {
+  constexpr float kTurnGyroThresholdDps = 45.0f;    // limiar de rotacao para contar uma "curva apertada"
+  constexpr float kTurnRearmThresholdDps = 15.0f;   // tem de descer abaixo disto antes da proxima curva contar
+  constexpr uint8_t kTurnMinHighSamples = 5;        // ~96 ms @ 52 Hz, filtra picos de ruido curtos
+  constexpr uint32_t kPacingWindowMs = 60000;       // janela de 1 minuto
+  constexpr uint16_t kPacingTurnsForMaxScore = 12;  // 12+ curvas/min -> indice 100 (heuristico)
+
+  if (gyroNorm > kTurnGyroThresholdDps) {
+    if (g_motion.turnHighCount < 255) g_motion.turnHighCount++;
+  } else {
+    g_motion.turnHighCount = 0;
+  }
+
+  if (g_motion.turnArmed && g_motion.turnHighCount >= kTurnMinHighSamples) {
+    if (g_motion.turnEventsInWindow < 0xFFFF) g_motion.turnEventsInWindow++;
+    g_motion.turnArmed = false;
+    g_motion.turnHighCount = 0;
+  }
+
+  if (gyroNorm < kTurnRearmThresholdDps) {
+    g_motion.turnArmed = true;
+  }
+
+  if (g_motion.pacingWindowStartMs == 0) {
+    g_motion.pacingWindowStartMs = nowMs;
+  } else if ((nowMs - g_motion.pacingWindowStartMs) >= kPacingWindowMs) {
+    const uint32_t score = (static_cast<uint32_t>(g_motion.turnEventsInWindow) * 100)
+                            / kPacingTurnsForMaxScore;
+    g_motion.pacingIndex = static_cast<uint8_t>(score > 100 ? 100 : score);
+    g_motion.turnEventsInWindow = 0;
+    g_motion.pacingWindowStartMs = nowMs;
+  }
+
+  return g_motion.pacingIndex;
+}
+
 // Corpo da task FreeRTOS de aquisicao do IMU. Corre indefinidamente
 // (nunca retorna), acordando a um ritmo fixo definido por
 // IMU_TASK_PERIOD_TICKS (~52 Hz) atraves de vTaskDelayUntil — usa-se
@@ -317,6 +383,8 @@ static void imuTask(void *arg) {
 
       const bool freefall = detectFreefall(accMag);
       const bool inactivity = detectInactivity(accMag, cgx, cgy, cgz);
+      const float gyroNorm = sqrtf((cgx * cgx) + (cgy * cgy) + (cgz * cgz));
+      const uint8_t pacingIndex = detectPacing(gyroNorm, nowMs);
 
       // Nota: a amostra publicada guarda os valores RAW (ax..gz), nao os
       // calibrados (cax..cgz); os valores calibrados sao usados apenas
@@ -332,6 +400,7 @@ static void imuTask(void *arg) {
       sample.step_count = g_stepCount;
       sample.freefall = freefall;
       sample.inactivity = inactivity;
+      sample.pacing_index = pacingIndex;
 
       // Secao critica curta: protege a escrita de g_latestSample contra
       // uma leitura concorrente feita por getLatestSample() a partir de
@@ -363,7 +432,9 @@ static void imuTask(void *arg) {
         Serial.print(" ff=");
         Serial.print(sample.freefall ? "1" : "0");
         Serial.print(" inact=");
-        Serial.println(sample.inactivity ? "1" : "0");
+        Serial.print(sample.inactivity ? "1" : "0");
+        Serial.print(" pacing=");
+        Serial.println(sample.pacing_index);
       }
     }
 
