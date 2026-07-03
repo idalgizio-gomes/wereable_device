@@ -70,6 +70,8 @@ import websockets
 from bleak import BleakClient, BleakScanner
 from bleak.backends.characteristic import BleakGATTCharacteristic
 
+import storage
+
 # ============================================================
 # IDENTIFICADORES BLE — têm de corresponder exatamente aos definidos
 # em src/Ble/Ble.cpp. Se algum UUID mudar no firmware, tem de mudar aqui
@@ -194,6 +196,10 @@ class BleBridge:
         # dumpCtrlChar sem precisar de re-ligar. So e' valida enquanto
         # run_device_loop() estiver dentro do "async with BleakClient(...)".
         self.current_client: Optional[BleakClient] = None
+        # Ligação à base de dados local (SQLite, ver storage.py) — aberta
+        # uma única vez no arranque do bridge, reutilizada para todos os
+        # inserts/queries desta execução.
+        self.db = storage.init_db()
 
     RECORD_BROADCAST_MIN_INTERVAL_S = 0.25  # no maximo ~4 atualizacoes/seg
 
@@ -244,6 +250,16 @@ class BleBridge:
         record = decode_full_plain(full)
         self.last_record_ts = record["ts"]
 
+        # Persiste TODOS os registos na base de dados local (ver
+        # storage.py), independentemente do limite de taxa aplicado ao
+        # broadcast por WebSocket logo a seguir — o histórico real não
+        # deve perder amostras só porque o browser não precisa de as ver
+        # todas em tempo real.
+        try:
+            storage.insert_record(self.db, record)
+        except Exception as exc:  # noqa: BLE001 - nao deve travar o streaming
+            print(f"[BRIDGE] erro a gravar registo na base de dados local: {exc}")
+
         has_new_vital = record["hr"] is not None or record["spo2"] is not None
         now = time.monotonic()
         due = (now - self._last_broadcast_monotonic) >= self.RECORD_BROADCAST_MIN_INTERVAL_S
@@ -282,6 +298,10 @@ class BleBridge:
             return
         alert = decode_emergency_alert(bytes(data[:EMERGENCY_ALERT_STRUCT.size]))
         print(f"[BRIDGE] ALERTA DE EMERGENCIA recebido: {alert['alert_name']} (seq={alert['seq']})")
+        try:
+            storage.insert_emergency_alert(self.db, alert)
+        except Exception as exc:  # noqa: BLE001 - a gravacao nunca deve bloquear o alerta
+            print(f"[BRIDGE] erro a gravar alerta de emergencia na base de dados local: {exc}")
         asyncio.create_task(self.broadcast({"kind": "emergency_alert", **alert}))
 
     async def _maybe_send_time(self, client: BleakClient) -> None:
@@ -393,6 +413,42 @@ class BleBridge:
         cmd = msg.get("cmd") if isinstance(msg, dict) else None
         if cmd in ("force_reading", "reset_readings"):
             await self.send_command(ws, cmd)
+            return
+        if cmd == "get_history":
+            # Pedido de histórico real (ver storage.py) — "hours" é
+            # opcional, por omissão 24h. Responde só ao cliente que
+            # pediu, não a todos os ligados (ao contrário de broadcast()).
+            hours = msg.get("hours", 24)
+            try:
+                hours = float(hours)
+            except (TypeError, ValueError):
+                hours = 24.0
+            try:
+                records = storage.get_records_since(self.db, hours)
+                total = storage.count_records(self.db)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[BRIDGE] erro a consultar historico: {exc}")
+                await ws.send(json.dumps({"kind": "history", "records": [], "total_records": 0, "error": str(exc)}))
+                return
+            await ws.send(json.dumps({"kind": "history", "records": records, "total_records": total, "hours": hours}))
+            return
+        if cmd == "export_csv":
+            # Exportação CSV (2026-07-03, pedido do utilizador) — devolve
+            # o texto CSV diretamente, o dashboard trata de o transformar
+            # num download no browser (mesma técnica já usada para o FHIR
+            # JSON, ver exportFhirSummary() em web/dashboard/index.html).
+            hours = msg.get("hours", 24)
+            try:
+                hours = float(hours)
+            except (TypeError, ValueError):
+                hours = 24.0
+            try:
+                csv_text = storage.export_records_csv(self.db, hours)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[BRIDGE] erro a exportar CSV: {exc}")
+                await ws.send(json.dumps({"kind": "csv_export", "csv": "", "error": str(exc)}))
+                return
+            await ws.send(json.dumps({"kind": "csv_export", "csv": csv_text, "hours": hours}))
 
     async def ws_handler(self, ws: "websockets.ServerConnection") -> None:
         self.ws_clients.add(ws)

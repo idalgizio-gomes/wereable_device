@@ -149,6 +149,39 @@ bleak) → `ws://localhost:8765` → dashboard (browser).
   ser exposto em localhost.
 - Dependências: `pip install -r bridge/requirements.txt` (bleak, websockets).
 
+### Persistência local — SQLite (`bridge/storage.py`, 2026-07-03)
+
+Primeira versão do item "Base de dados" do backlog. Motor concreto: SQLite
+(embutido, sem servidor separado, adequado ao uso local/pessoal deste
+protótipo). Ficheiro `bridge/carewear_history.db` (ignorado no git —
+dados reais de cada instalação, não código nem exemplos do repositório).
+
+- `init_db()` cria `sensor_records` (cada `FullPlain` descodificado) e
+  `emergency_alerts` (cada alerta de emergência), com índice em
+  `received_at` (consulta mais comum: "últimas N horas").
+- `ble_bridge.py` grava automaticamente cada registo/alerta recebido,
+  independentemente do rate-limit do broadcast ao dashboard — o
+  histórico real não perde amostras só porque o browser não precisa de
+  as ver todas ao vivo.
+- Dois novos comandos WebSocket (mesmo canal `{"cmd":"..."}` dos
+  comandos já existentes): `get_history` (devolve `{kind:"history",
+  records, total_records, hours}`) e `export_csv` (devolve
+  `{kind:"csv_export", csv, hours}` — texto CSV gerado em memória via
+  `csv.DictWriter`, sem ficheiros temporários no servidor).
+- **Dashboard ligado ao `export_csv`** (pedido do utilizador: "quero que
+  dê para exportar os dados também em CSV... CSV dá para ser lido por
+  softwares SQL"): nova vista "Dados reais (CSV)" em `TEMPLATES.exportar`,
+  com botões para exportar últimas 24h / últimos 7 dias — chama
+  `exportRealCsv(hours)` → `sendWsCommandWithArgs('export_csv',{hours})`
+  → `handleCsvExportResult()` descarrega o CSV recebido via Blob + `<a
+  download>` (mesma técnica de `exportFhirSummary()`).
+- **Ainda não feito** (próximo passo natural, não pedido explicitamente
+  ainda): ligar `get_history` aos gráficos de tendência do dashboard
+  (hoje continuam com dados sintéticos claramente rotulados como tal);
+  política de retenção/limpeza para `sensor_records`; cifra do `.db` se
+  este serviço vier a correr fora de um ambiente de desenvolvimento
+  local confiável.
+
 ## Dashboard web (protótipo)
 
 Ficheiro: `web/dashboard/index.html` (versionado no repo).
@@ -1028,6 +1061,30 @@ Migração de hardware futura possível: nRF5340 ou nRF54H20.
    os parâmetros do LoRa um a um, com leitura SPI em bruto, antes do
    RadioLib completo). Esta ordem existe precisamente para isolar
    problemas — não saltar para o código mais complexo primeiro.
+
+   **Sessão de hardware de 2026-07-03 (placa ligada, depois desconectada
+   pelo utilizador)**: seguida a ordem acima.
+   - Leitura série do firmware já instalado: OK, heartbeat BLE estável
+     (`[BLE] wait TIME... adv=1 connected=0`) durante 45s sem cortes.
+   - Build + upload do firmware principal via `pio run -t upload
+     --upload-port COM6`: **sucesso** (32.55s, RAM/Flash sem alterações
+     face à última verificação).
+   - **Depois do upload**: o dispositivo deixou de responder — sem
+     output série, LED azul apagado, bridge (`ble_bridge.py`) a correr
+     e à escuta em `ws://localhost:8765` mas incapaz de encontrar o
+     dispositivo "Wearable" por BLE mesmo após repetidos scans (~35s).
+     Diagnóstico apontado ao utilizador: o firmware não arrancou/ficou
+     preso após o DFU (diferente da instabilidade de porta USB já
+     conhecida — desta vez a porta ficou visível e estável, só o
+     firmware é que parece "sem vida"). Pedido feito ao utilizador para
+     premir o botão de reset físico, mas a placa foi desconectada antes
+     de se confirmar.
+   - **NÃO chegou a testar-se `test_lora_isolated`** — ficou por fazer
+     por este bloqueio anterior, não por ter sido saltado deliberadamente.
+   - Próximo passo, quando a placa voltar a ligar-se: confirmar primeiro
+     se um reset físico resolve (LED azul + heartbeat série voltam);
+     se não resolver, pode ser sintoma novo a investigar antes de
+     avançar para qualquer teste LoRa.
 1. Deteção de emergência: confirmar pinout do Wio-SX1262 (pesquisa em curso,
    ainda sem fonte fiável para os pinos SPI/CS/BUSY/DIO1/RESET do rádio) —
    módulo de firmware, characteristic BLE e reencaminhamento bridge→dashboard
