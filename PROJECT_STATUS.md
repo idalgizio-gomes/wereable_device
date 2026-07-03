@@ -454,10 +454,31 @@ iteração do `loop()`). Cobre as duas formas de alerta desenhadas:
   depender do gesto de cliques — útil enquanto o botão físico estiver por
   confirmar/testar fisicamente.
 
+**Bridge → dashboard implementado (2026-07-03, rotina cloud)**: o bridge
+(`ble_bridge.py`) subscreve agora `emergencyAlertChar` (`_on_emergency_alert()`,
+`EMERGENCY_ALERT_STRUCT = "<BBHI"`, mesmo layout do `EmergencyAlertPacket` em
+`Ble.cpp`) e reencaminha o alerta de imediato via WebSocket
+(`{"kind":"emergency_alert","alert_type":...,"alert_name":"sos_manual"|
+"fall_inactivity","seq":...,"timestamp_utc":...}`), sem passar pelo limite
+de taxa dos registos normais. No dashboard (`web/dashboard/index.html`),
+`onLiveEmergencyAlert()` regista o evento em `EMERGENCY_LOG` do paciente
+selecionado (deduplicado por `seq`, marcado `live:true`), mostra uma nova
+barra crítica persistente (`#emergencyLiveBanner`/`updateLiveEmergencyBanner()`)
+enquanto houver alertas em direto por resolver, e a vista "Registo de
+emergências" passou a distinguir "Em direto" de "Demonstração" por linha.
+Testado em Playwright real (Chromium): mensagem simulada adiciona a linha e
+mostra a barra, uma segunda mensagem com o mesmo `seq` não duplica, e
+cancelar o alerta (fluxo de confirmação reforçada já existente) esconde a
+barra — sem erros de consola. **Limitação honesta, documentada na própria
+interface**: o bridge só liga a um dispositivo físico de cada vez, por isso
+o alerta fica sempre atribuído ao paciente selecionado no momento em que
+chega, não a uma identidade confirmada pelo hardware (mesma limitação já
+registada para o seletor de paciente).
+
 **Ainda por fazer / decidir** (não implementado de propósito, fora do meu
 alcance decidir sozinho):
-- O bridge (`ble_bridge.py`) ainda não escuta `emergencyAlertChar` nem
-  reencaminha o alerta para SMS/email/push — precisa de um provedor real
+- O bridge reencaminha o alerta para o dashboard, mas ainda **não** notifica
+  externamente por SMS/email/push — precisa de um provedor real
   (ex.: Twilio) com credenciais do utilizador.
 - As regras de "cancelamento" implementadas (novo clique cancela SOS
   pendente; retomar movimento cancela vigilância de queda) são uma
@@ -627,6 +648,29 @@ Duas pesquisas alargadas (~90 fontes sobre wearables/dementia care, ~70
 fontes sobre IoMT/HAR/TinyML) trouxeram ideias concretas, priorizadas por
 relevância. Progresso por item marcado abaixo (rotina diária de melhoria
 do dashboard segue esta lista, por ordem, item a item).
+
+**Nota desta execução (2026-07-03, rotina cloud, ordem de prioridade
+atualizada pelo utilizador)**: 3 buscas dirigidas (footprint `emlearn`/
+Random Forest em nRF52 — sem números concretos novos, só confirma que
+MLP/Random Forest são as famílias que já se comprovam viáveis em Cortex-M4
+segundo a literatura, nada que mude a recomendação já registada no estudo
+de viabilidade TinyML; algoritmo de deteção de queda "ground-face
+coordinate system" — mesma referência já registada anteriormente, sem
+detalhe novo de implementação; mudanças de API do RadioLib 4.6.0→7.x).
+Esta última levou a uma leitura da discussão
+[jgromes/RadioLib#1668](https://github.com/jgromes/RadioLib/discussions/1668)
+sobre nRF52840+SX1262: o caso relatado aí (BUSY a deixar de responder)
+era causado por um limite de hardware do nRF52840 — só 2 periféricos SPI
+conseguem estar ativos ao mesmo tempo, e um 3º SPI a ser inicializado
+"empurrava" o rádio para fora. **Verificado que não se aplica aqui**: o
+nosso design só tem 2 periféricos nesta categoria a usar SPI em
+simultâneo (ecrã OLED SSD1351 + rádio LoRa Wio-SX1262) — a flash QSPI usa
+o periférico QSPI dedicado do nRF52840, distinto dos SPIM0-3, por isso
+não conta para esse limite. Não é a causa do nosso `RADIOLIB_ERR_CHIP_NOT_FOUND`
+persistente. Nada de novo e diretamente acionável sem hardware físico
+(continua bloqueado — ver "Riscos/bloqueios ativos", ponto 8); o trabalho
+concreto desta execução foi antes no bridge (ver "Deteção de emergência"
+abaixo).
 
 **Nota desta execução (2026-07-03, rotina cloud horária)**: 3 buscas
 direcionadas de pesquisa extensiva (footprint `emlearn`/Random Forest em
@@ -953,12 +997,13 @@ Migração de hardware futura possível: nRF5340 ou nRF54H20.
 ## Próximas tarefas (por prioridade)
 
 1. Deteção de emergência: confirmar pinout do Wio-SX1262 (pesquisa em curso,
-   ainda sem fonte fiável para os pinos SPI/CS/BUSY/DIO1/RESET do rádio),
-   implementar módulo de firmware (gesto SOS editável + confirmação temporizada
-   + auto-deteção queda/inatividade 60s editável), estender `Ble.cpp` com uma
-   characteristic de emergência, estender `ble_bridge.py` para reencaminhar o
-   alerta e (mais tarde) notificar externamente (canal duplo: bridge/telemóvel
-   E LoRa — decidido pelo utilizador).
+   ainda sem fonte fiável para os pinos SPI/CS/BUSY/DIO1/RESET do rádio) —
+   módulo de firmware, characteristic BLE e reencaminhamento bridge→dashboard
+   já feitos (ver secção "Deteção de emergência" acima). Falta ainda: testar
+   tudo em hardware real (bloqueado pela deteção USB intermitente) e, mais
+   tarde, notificar externamente por SMS/email/push (canal duplo:
+   bridge/telemóvel E LoRa — decidido pelo utilizador, precisa de provedor
+   com credenciais próprias).
 2. Confirmar reduções de stack em hardware real (`[STACK] ...`) assim que o
    dispositivo estiver acessível via USB (tem sido intermitente nesta sessão).
 3. Decidir e implementar app móvel (Android/iOS) e software desktop, a partir

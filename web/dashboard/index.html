@@ -369,6 +369,17 @@
   .storage-warning-banner svg{ width:16px; height:16px; flex:none; }
   .storage-warning-banner a{ color:inherit; text-decoration:underline; font-weight:700; }
 
+  /* Alerta de emergência em direto (SOS/queda) recebido via bridge —
+     ver emergencyAlertChar em Ble.cpp e handleBridgeMessage() abaixo.
+     Reutiliza a forma do aviso de armazenamento mas com cor sempre
+     crítica (nunca é um aviso "leve" — é sempre uma emergência real). */
+  .emergency-live-banner{
+    display:flex; align-items:center; gap:10px; padding:10px 20px; font-size:12.5px; font-weight:700;
+    background:var(--status-critical-bg); color:var(--status-critical);
+  }
+  .emergency-live-banner svg{ width:16px; height:16px; flex:none; }
+  .emergency-live-banner a{ color:inherit; text-decoration:underline; font-weight:700; }
+
   .legend{ display:flex; flex-wrap:wrap; gap:12px; margin-top:12px; }
   .legend-item{ display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--text-secondary); }
   .legend-swatch{ width:9px; height:9px; border-radius:2px; flex:none; }
@@ -780,6 +791,7 @@
     </div>
 
     <div id="storageWarningBanner" class="storage-warning-banner print-hide" style="display:none;"></div>
+    <div id="emergencyLiveBanner" class="emergency-live-banner print-hide" style="display:none;"></div>
     <div class="content" id="content"><!-- injected per view --></div>
   </div>
 </div>
@@ -1436,6 +1448,7 @@ function selectPatient(id){
   catch (e) { /* quota excedida ou localStorage indisponível - seleção fica só nesta sessão */ }
   updateClinicoPatientLabel();
   updateNotificationBadge();
+  updateLiveEmergencyBanner();
   renderView('pacientes');
 }
 
@@ -1472,6 +1485,68 @@ const EMERGENCY_LOG = {
 
 function currentEmergencyLog(){
   return EMERGENCY_LOG[selectedPatientId] || [];
+}
+
+// Mapeia EmergencyAlertType (Ble.h: 1=SOS manual, 2=queda+inatividade —
+// ver alert_name já traduzido pelo bridge em ble_bridge.py) para as
+// mesmas categorias usadas nas entradas de demonstração acima.
+const EMERGENCY_ALERT_TYPE_TO_LOG = {
+  sos_manual: { type: 'sos', label: 'SOS manual (cliques)' },
+  fall_inactivity: { type: 'fall', label: 'Queda + inatividade prolongada' },
+};
+
+// Chamado por handleBridgeMessage() quando chega um alerta real via
+// emergencyAlertChar (ver ble_bridge.py). Regista o evento no registo de
+// emergências do paciente atualmente selecionado.
+// LIMITAÇÃO HONESTA (já documentada para o seletor de paciente): o bridge
+// só liga a UM dispositivo físico de cada vez — o alerta é sempre
+// atribuído ao paciente selecionado na interface no momento em que chega,
+// não a um paciente identificado pelo próprio hardware.
+function onLiveEmergencyAlert(msg){
+  const seq = toFiniteNumber(msg.seq);
+  const p = selectedPatient();
+  const log = EMERGENCY_LOG[p.id] || (EMERGENCY_LOG[p.id] = []);
+
+  // A notificação BLE pode chegar duplicada (reconexão do bridge, retry
+  // da pilha) — 'seq' incrementa no firmware a cada alerta novo, por
+  // isso serve para deduplicar sem depender de tempo.
+  if (seq != null && log.some(e => e.liveSeq === seq)) return;
+
+  const meta = EMERGENCY_ALERT_TYPE_TO_LOG[msg.alert_name]
+    || { type: 'sos', label: 'Alerta de emergência (tipo desconhecido)' };
+  const ts = toFiniteNumber(msg.timestamp_utc);
+  const timeLabel = ts
+    ? new Date(ts * 1000).toLocaleString('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+    : 'agora';
+
+  log.unshift({
+    id: `E-LIVE-${seq != null ? seq : Date.now()}`,
+    type: meta.type,
+    label: meta.label,
+    time: timeLabel,
+    status: 'ativo',
+    liveSeq: seq,
+    live: true,
+  });
+
+  updateLiveEmergencyBanner();
+  if (currentView === 'emergencias') renderView('emergencias');
+}
+
+// Mostra/esconde a barra crítica de emergência em direto consoante haja
+// ou não alertas 'ativo' de origem real (live: true) para o paciente
+// selecionado. Chamada ao chegar um alerta novo e ao cancelar/resolver um
+// existente (ver confirmEmergencyCancel()), para desaparecer assim que já
+// não há nenhuma emergência em direto por resolver.
+function updateLiveEmergencyBanner(){
+  const el = document.getElementById('emergencyLiveBanner');
+  if (!el) return;
+  const active = currentEmergencyLog().filter(e => e.live && e.status === 'ativo');
+  if (!active.length) { el.style.display = 'none'; return; }
+  const label = active[0].label;
+  el.style.display = 'flex';
+  el.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+    <span><b>Alerta de emergência em direto</b> — ${label} (${selectedPatient().name}). <a href="#" onclick="renderView('emergencias'); return false;">Ver registo de emergências</a></span>`;
 }
 
 // Estado do modal de cancelamento — o código gerado (6 dígitos) é
@@ -1556,6 +1631,7 @@ function confirmEmergencyCancel(){
   }
   status.className = 'modal-status ok';
   status.textContent = 'Alerta cancelado e registado.';
+  updateLiveEmergencyBanner();
   setTimeout(() => { closeEmergencyCancelModal(); if (currentView) renderView(currentView); }, 1200);
 }
 
@@ -2819,16 +2895,17 @@ TEMPLATES.alertas = () => {
 TEMPLATES.emergencias = () => `
   <div class="card">
     <div class="card-head"><div><h3>Registo de emergências — ${selectedPatient().name}</h3><div class="card-sub">SOS manual (gesto de cliques) e deteção automática de queda + inatividade prolongada — ver módulo firmware Emergency</div></div></div>
-    <p class="empty-hint"><b>Protótipo.</b> O bridge ainda não está ligado à characteristic de alerta do dispositivo (<code>emergencyAlertChar</code>) — os eventos abaixo são de demonstração, não vieram do wearable real.</p>
+    <p class="empty-hint">O bridge (<code>ble_bridge.py</code>) escuta a characteristic <code>emergencyAlertChar</code> do dispositivo — eventos marcados <b>"Em direto"</b> abaixo vieram mesmo do wearable ligado; os restantes continuam a ser dados de demonstração. <b>Limitação honesta</b>: o bridge só liga a um dispositivo físico de cada vez, por isso um alerta em direto fica sempre atribuído ao paciente selecionado no momento em que chega, não a uma identidade confirmada pelo hardware (ver seletor de paciente).</p>
     ${currentEmergencyLog().length ? `
     <table class="data-table">
-      <thead><tr><th>ID</th><th>Tipo</th><th>Quando</th><th>Estado</th><th>Nota</th><th></th></tr></thead>
+      <thead><tr><th>ID</th><th>Tipo</th><th>Quando</th><th>Origem</th><th>Estado</th><th>Nota</th><th></th></tr></thead>
       <tbody>
         ${currentEmergencyLog().map(e => `
           <tr>
             <td class="num">${e.id}</td>
             <td>${e.label}</td>
             <td class="num">${e.time}</td>
+            <td>${e.live ? pillHtml('critical','Em direto') : pillHtml('neutral','Demonstração')}</td>
             <td>${pillHtml(e.status==='ativo'?'critical':e.status==='cancelado'?'neutral':'good', e.status==='ativo'?'Ativo':e.status==='cancelado'?'Cancelado':'Resolvido')}</td>
             <td>${e.resolvedNote || '—'}</td>
             <td>${e.status==='ativo' ? `<button class="btn-danger" onclick="openEmergencyCancelModal('${e.id}')">Cancelar alerta…</button>` : ''}</td>
@@ -3705,6 +3782,10 @@ function handleBridgeMessage(msg){
   if (msg.kind === 'status'){
     liveState.dataLossFlag = toFiniteNumber(msg.data_loss_flag) || 0;
     renderStorageWarningBanner();
+    return;
+  }
+  if (msg.kind === 'emergency_alert'){
+    onLiveEmergencyAlert(msg);
     return;
   }
   if (msg.kind === 'record'){
