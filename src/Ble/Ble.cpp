@@ -183,7 +183,16 @@ struct __attribute__((packed)) DumpStatusPacket {
   uint8_t type;
   uint8_t state;
   uint8_t reason;
-  uint8_t reserved;
+  // Antes sempre 0 (sem uso). Passou a sinalizar o estado de ocupação do
+  // ring buffer (2026-07-03), para a app avisar o médico A TEMPO de
+  // exportar os dados antes de começarem a ser substituídos (não só
+  // depois de já ter acontecido):
+  //   0 = normal (< kNearFullThreshold da capacidade ocupada)
+  //   1 = quase cheio (>= kNearFullThreshold), mas ainda não perdeu nada
+  //   2 = já a substituir registos antigos (QspiRingBuffer::droppedByErase() > 0)
+  // Reaproveita o byte já reservado em vez de crescer o pacote, para não
+  // quebrar o formato de 16 bytes já usado pela app/bridge existente.
+  uint8_t data_loss_flag;
   uint32_t seq;
   uint32_t sent_records;
   uint32_t acked_records;
@@ -265,7 +274,16 @@ void publishDumpStatus(uint8_t state, uint8_t reason, uint32_t seq) {
   st.type = kDumpStatusType;
   st.state = state;
   st.reason = reason;
-  st.reserved = 0;
+  if (QspiRingBuffer::droppedByErase() > 0) {
+    st.data_loss_flag = 2; // já a substituir dados
+  } else {
+    // kNearFullThreshold: 90% da capacidade — dá margem para o médico/
+    // cuidador exportar os dados antes de qualquer perda real acontecer.
+    constexpr float kNearFullThreshold = 0.90f;
+    const uint32_t cap = QspiRingBuffer::capacity();
+    const bool nearFull = cap > 0 && (static_cast<float>(QspiRingBuffer::count()) / cap) >= kNearFullThreshold;
+    st.data_loss_flag = nearFull ? 1 : 0;
+  }
   st.seq = seq;
   st.sent_records = s_dumpSentRecords;
   st.acked_records = s_dumpAckedRecords;

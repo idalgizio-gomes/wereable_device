@@ -3,6 +3,19 @@
 > Este ficheiro existe para retomar o trabalho sem ser preciso reler a conversa inteira.
 > Atualiza-o no fim de cada sessão de trabalho relevante.
 
+> **Nota de coordenação (sessão interativa, 2026-07-03, ~15:xx UTC)**: há
+> trabalho em curso AGORA nesta sessão interativa (não a rotina cloud) em
+> `web/dashboard/index.html` — a implementar: (1) aviso antecipado de
+> armazenamento quase cheio/a substituir dados (já commitado, ver
+> `DumpStatusPacket::data_loss_flag` em `Ble.cpp` + `renderStorageWarningBanner()`),
+> (2) nova vista "Registo de emergências" com cancelamento protegido por
+> confirmação reforçada (tipo 2FA, ainda por terminar), (3) nova vista
+> "Perfil" editável pelo próprio utilizador. Se a rotina horária correr
+> antes disto ficar commitado, por favor não avances estes três itens em
+> paralelo — escolhe outra coisa do backlog para evitar conflitos de
+> merge. Esta nota deve ser removida assim que estas três funcionalidades
+> estiverem commitadas (o próximo commit desta sessão já as remove).
+
 ## Visão geral
 
 Plataforma wearable para monitorização de rotina em contexto de demência: wearable

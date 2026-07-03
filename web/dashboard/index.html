@@ -340,6 +340,35 @@
      cuidador só ver o mesmo aviso de baixa prioridade indefinidamente. */
   .alert-escalation-note{ margin:6px 0 0; font-size:11px; font-weight:600; color:var(--status-serious); }
 
+  /* Interruptor de consentimento — ver setConsent()/loadConsent() no
+     <script>. Reutiliza a semântica de uma checkbox nativa (acessível,
+     navegável por teclado) só com aparência de toggle. */
+  .consent-toggle{ position:relative; display:inline-block; width:38px; height:22px; }
+  .consent-toggle input{ opacity:0; width:0; height:0; }
+  .consent-toggle span{
+    position:absolute; inset:0; background:var(--border-soft); border-radius:999px;
+    transition:background 0.15s;
+  }
+  .consent-toggle span::before{
+    content:''; position:absolute; width:16px; height:16px; left:3px; top:3px;
+    background:#fff; border-radius:50%; transition:transform 0.15s;
+  }
+  .consent-toggle input:checked + span{ background:var(--accent); }
+  .consent-toggle input:checked + span::before{ transform:translateX(16px); }
+  .consent-toggle input:focus-visible + span{ outline:2px solid var(--accent); outline-offset:2px; }
+
+  /* Aviso de armazenamento (ring buffer quase cheio / já a substituir
+     dados) — ver renderStorageWarningBanner() no <script>. Fica sempre
+     visível por cima do conteúdo da vista atual, em todas as vistas,
+     porque exportar a tempo importa independentemente de onde se está. */
+  .storage-warning-banner{
+    display:flex; align-items:center; gap:10px; padding:10px 20px; font-size:12.5px; font-weight:600;
+  }
+  .storage-warning-banner.level-1{ background:var(--status-warning-bg); color:var(--status-warning); }
+  .storage-warning-banner.level-2{ background:var(--status-critical-bg); color:var(--status-critical); }
+  .storage-warning-banner svg{ width:16px; height:16px; flex:none; }
+  .storage-warning-banner a{ color:inherit; text-decoration:underline; font-weight:700; }
+
   .legend{ display:flex; flex-wrap:wrap; gap:12px; margin-top:12px; }
   .legend-item{ display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--text-secondary); }
   .legend-swatch{ width:9px; height:9px; border-radius:2px; flex:none; }
@@ -625,6 +654,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V9M11 19V5M18 19v-7"/></svg>
         <span data-i18n="nav.trend">Tendência semanal</span>
       </button>
+      <button class="nav-item" data-view="emergencias">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+        <span data-i18n="nav.emergencies">Registo de emergências</span>
+      </button>
       <button class="nav-item" data-view="definicoes">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
         <span data-i18n="nav.settings">Definições</span>
@@ -645,6 +678,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
         <span data-i18n="nav.anomalies">Anomalias detetadas</span>
       </button>
+      <button class="nav-item" data-view="emergencias">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+        <span data-i18n="nav.emergencies">Registo de emergências</span>
+      </button>
       <button class="nav-item" data-view="limites">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h10M4 18h6"/></svg>
         <span data-i18n="nav.limits">Limites de duração</span>
@@ -656,6 +693,10 @@
     </nav>
 
     <div class="sidebar-footer">
+      <button class="nav-item" onclick="renderView('perfil')" style="width:100%;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <span data-i18n="nav.profile">Perfil</span>
+      </button>
       <button class="nav-item" onclick="renderView('ajuda')" style="width:100%;">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2-3 4"/><path d="M12 17h.01"/></svg>
         <span data-i18n="nav.help">Ajuda</span>
@@ -697,6 +738,7 @@
       </div>
     </div>
 
+    <div id="storageWarningBanner" class="storage-warning-banner print-hide" style="display:none;"></div>
     <div class="content" id="content"><!-- injected per view --></div>
   </div>
 </div>
@@ -749,7 +791,7 @@ const I18N = {
     'signup.institution': 'Instituição / clínica', 'signup.license': 'Nº de cédula profissional',
     'signup.submit': 'Criar conta', 'signup.haveAccount': 'Já tens conta?', 'signup.login': 'Iniciar sessão',
     'nav.summary': 'Resumo', 'nav.routine': 'Rotina diária', 'nav.vitals': 'Sinais vitais',
-    'nav.trend': 'Tendência semanal', 'nav.settings': 'Definições', 'nav.help': 'Ajuda', 'nav.logout': 'Terminar sessão',
+    'nav.trend': 'Tendência semanal', 'nav.settings': 'Definições', 'nav.help': 'Ajuda', 'nav.logout': 'Terminar sessão', 'nav.emergencies': 'Registo de emergências', 'nav.profile': 'Perfil',
     'nav.patients': 'Pacientes', 'nav.device': 'Dispositivo & firmware', 'nav.anomalies': 'Anomalias detetadas',
     'nav.limits': 'Limites de duração', 'nav.export': 'Exportar dados',
     'topbar.connecting': 'A ligar ao bridge…', 'topbar.connected': 'Wearable ligado · dados em direto',
@@ -769,7 +811,7 @@ const I18N = {
     'signup.institution': 'Institution / clinic', 'signup.license': 'Professional license number',
     'signup.submit': 'Create account', 'signup.haveAccount': 'Already have an account?', 'signup.login': 'Sign in',
     'nav.summary': 'Summary', 'nav.routine': 'Daily routine', 'nav.vitals': 'Vital signs',
-    'nav.trend': 'Weekly trend', 'nav.settings': 'Settings', 'nav.help': 'Help', 'nav.logout': 'Log out',
+    'nav.trend': 'Weekly trend', 'nav.settings': 'Settings', 'nav.help': 'Help', 'nav.logout': 'Log out', 'nav.emergencies': 'Emergency log', 'nav.profile': 'Profile',
     'nav.patients': 'Patients', 'nav.device': 'Device & firmware', 'nav.anomalies': 'Detected anomalies',
     'nav.limits': 'Duration limits', 'nav.export': 'Export data',
     'topbar.connecting': 'Connecting to bridge…', 'topbar.connected': 'Wearable connected · live data',
@@ -789,7 +831,7 @@ const I18N = {
     'signup.institution': '机构 / 诊所', 'signup.license': '执业证号',
     'signup.submit': '注册账户', 'signup.haveAccount': '已有账户？', 'signup.login': '登录',
     'nav.summary': '概览', 'nav.routine': '日常活动', 'nav.vitals': '生命体征',
-    'nav.trend': '每周趋势', 'nav.settings': '设置', 'nav.help': '帮助', 'nav.logout': '退出登录',
+    'nav.trend': '每周趋势', 'nav.settings': '设置', 'nav.help': '帮助', 'nav.logout': '退出登录', 'nav.emergencies': '紧急情况记录', 'nav.profile': '个人资料',
     'nav.patients': '患者', 'nav.device': '设备与固件', 'nav.anomalies': '检测到的异常',
     'nav.limits': '时长限制', 'nav.export': '导出数据',
     'topbar.connecting': '正在连接网桥…', 'topbar.connected': '穿戴设备已连接 · 实时数据',
@@ -809,7 +851,7 @@ const I18N = {
     'signup.institution': 'Institución / clínica', 'signup.license': 'Número de colegiado',
     'signup.submit': 'Crear cuenta', 'signup.haveAccount': '¿Ya tienes cuenta?', 'signup.login': 'Iniciar sesión',
     'nav.summary': 'Resumen', 'nav.routine': 'Rutina diaria', 'nav.vitals': 'Signos vitales',
-    'nav.trend': 'Tendencia semanal', 'nav.settings': 'Ajustes', 'nav.help': 'Ayuda', 'nav.logout': 'Cerrar sesión',
+    'nav.trend': 'Tendencia semanal', 'nav.settings': 'Ajustes', 'nav.help': 'Ayuda', 'nav.logout': 'Cerrar sesión', 'nav.emergencies': 'Registro de emergencias', 'nav.profile': 'Perfil',
     'nav.patients': 'Pacientes', 'nav.device': 'Dispositivo y firmware', 'nav.anomalies': 'Anomalías detectadas',
     'nav.limits': 'Límites de duración', 'nav.export': 'Exportar datos',
     'topbar.connecting': 'Conectando al bridge…', 'topbar.connected': 'Wearable conectado · datos en vivo',
@@ -829,7 +871,7 @@ const I18N = {
     'signup.institution': 'Institution / clinique', 'signup.license': 'Numéro professionnel',
     'signup.submit': 'Créer un compte', 'signup.haveAccount': 'Déjà un compte ?', 'signup.login': 'Se connecter',
     'nav.summary': 'Résumé', 'nav.routine': 'Routine quotidienne', 'nav.vitals': 'Signes vitaux',
-    'nav.trend': 'Tendance hebdomadaire', 'nav.settings': 'Paramètres', 'nav.help': 'Aide', 'nav.logout': 'Se déconnecter',
+    'nav.trend': 'Tendance hebdomadaire', 'nav.settings': 'Paramètres', 'nav.help': 'Aide', 'nav.logout': 'Se déconnecter', 'nav.emergencies': "Journal d'urgence", 'nav.profile': 'Profil',
     'nav.patients': 'Patients', 'nav.device': 'Appareil & firmware', 'nav.anomalies': 'Anomalies détectées',
     'nav.limits': 'Limites de durée', 'nav.export': 'Exporter les données',
     'topbar.connecting': 'Connexion au bridge…', 'topbar.connected': 'Wearable connecté · données en direct',
@@ -849,7 +891,7 @@ const I18N = {
     'signup.institution': 'Einrichtung / Klinik', 'signup.license': 'Berufszulassungsnummer',
     'signup.submit': 'Konto erstellen', 'signup.haveAccount': 'Schon ein Konto?', 'signup.login': 'Anmelden',
     'nav.summary': 'Übersicht', 'nav.routine': 'Tagesroutine', 'nav.vitals': 'Vitalwerte',
-    'nav.trend': 'Wochentrend', 'nav.settings': 'Einstellungen', 'nav.help': 'Hilfe', 'nav.logout': 'Abmelden',
+    'nav.trend': 'Wochentrend', 'nav.settings': 'Einstellungen', 'nav.help': 'Hilfe', 'nav.logout': 'Abmelden', 'nav.emergencies': 'Notfallprotokoll', 'nav.profile': 'Profil',
     'nav.patients': 'Patienten', 'nav.device': 'Gerät & Firmware', 'nav.anomalies': 'Erkannte Anomalien',
     'nav.limits': 'Dauergrenzwerte', 'nav.export': 'Daten exportieren',
     'topbar.connecting': 'Verbindung zur Bridge…', 'topbar.connected': 'Wearable verbunden · Live-Daten',
@@ -869,7 +911,7 @@ const I18N = {
     'signup.institution': 'Istituzione / clinica', 'signup.license': 'Numero di iscrizione all\'albo',
     'signup.submit': 'Crea account', 'signup.haveAccount': 'Hai già un account?', 'signup.login': 'Accedi',
     'nav.summary': 'Riepilogo', 'nav.routine': 'Routine giornaliera', 'nav.vitals': 'Parametri vitali',
-    'nav.trend': 'Tendenza settimanale', 'nav.settings': 'Impostazioni', 'nav.help': 'Aiuto', 'nav.logout': 'Esci',
+    'nav.trend': 'Tendenza settimanale', 'nav.settings': 'Impostazioni', 'nav.help': 'Aiuto', 'nav.logout': 'Esci', 'nav.emergencies': 'Registro emergenze', 'nav.profile': 'Profilo',
     'nav.patients': 'Pazienti', 'nav.device': 'Dispositivo & firmware', 'nav.anomalies': 'Anomalie rilevate',
     'nav.limits': 'Limiti di durata', 'nav.export': 'Esporta dati',
     'topbar.connecting': 'Connessione al bridge…', 'topbar.connected': 'Wearable connesso · dati in diretta',
@@ -1040,6 +1082,37 @@ function setAlertMode(mode){
   localStorage.setItem('carewear_alert_mode', mode);
   const activeItem = document.querySelector('.nav-item.active[data-view]');
   if (activeItem) renderView(activeItem.dataset.view);
+}
+
+/* ------------------------------------------------------------
+   CONSENTIMENTO E PARTILHA DE DADOS (item nº8 do backlog de investigação)
+   ------------------------------------------------------------
+   A capacidade de consentir é eticamente sensível em cuidados de
+   demência (ver PMC11990963 no backlog de investigação) — este cartão
+   dá ao Utente/Família controlo explícito sobre o que a equipa clínica
+   vê. Persistido em localStorage, com timestamp da última alteração
+   (para uma auditoria mínima de quando o consentimento mudou).
+   LIMITAÇÃO HONESTA: aplica-se só a esta conta/navegador (protótipo sem
+   backend) — um sistema real precisaria de aplicar isto também do lado
+   do servidor, não só esconder na interface.
+------------------------------------------------------------ */
+const CONSENT_KEY = 'carewear_consent';
+
+function loadConsent(){
+  const defaults = { shareVitals:true, shareRoutine:true, shareAlerts:true, lastChanged:null };
+  try {
+    const raw = localStorage.getItem(CONSENT_KEY);
+    if (raw) return { ...defaults, ...JSON.parse(raw) };
+  } catch (e) { /* localStorage indisponível ou dados corrompidos - usa omissão */ }
+  return defaults;
+}
+function setConsent(field, value){
+  const c = loadConsent();
+  c[field] = value;
+  c.lastChanged = Date.now();
+  try { localStorage.setItem(CONSENT_KEY, JSON.stringify(c)); }
+  catch (e) { /* quota excedida ou localStorage indisponível - fica só em memória */ }
+  if (currentView) renderView(currentView);
 }
 
 function buildHeatmap(seed){
@@ -1332,7 +1405,7 @@ document.addEventListener('click', (e) => {
 const VIEW_TITLE_KEYS = {
   resumo:'nav.summary', rotina:'nav.routine', vitais:'nav.vitals', tendencia:'nav.trend', definicoes:'nav.settings',
   pacientes:'nav.patients', dispositivo:'nav.device', anomalias:'nav.anomalies', limites:'nav.limits', exportar:'nav.export',
-  ajuda:'nav.help',
+  ajuda:'nav.help', emergencias:'nav.emergencies', perfil:'nav.profile',
 };
 
 // Guarda a vista atualmente ativa — usado por ações que precisam de
@@ -1882,6 +1955,35 @@ TEMPLATES.definicoes = () => `
   </div>`;
   })()}
 
+  ${(() => {
+    const c = loadConsent();
+    return `
+  <div class="card">
+    <div class="card-head"><div><h3>Consentimento e partilha de dados</h3><div class="card-sub">Controla o que a equipa clínica vê nesta conta — a capacidade de consentimento é uma questão eticamente sensível em cuidados de demência</div></div></div>
+    <table class="data-table">
+      <thead><tr><th>O que é partilhado</th><th>Com quem</th><th></th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Sinais vitais (FC, SpO₂, passos)</td>
+          <td>Equipa clínica (Médico/Técnico)</td>
+          <td><label class="consent-toggle"><input type="checkbox" ${c.shareVitals?'checked':''} onchange="setConsent('shareVitals', this.checked)"><span></span></label></td>
+        </tr>
+        <tr>
+          <td>Rotina diária e pacing</td>
+          <td>Equipa clínica (Médico/Técnico)</td>
+          <td><label class="consent-toggle"><input type="checkbox" ${c.shareRoutine?'checked':''} onchange="setConsent('shareRoutine', this.checked)"><span></span></label></td>
+        </tr>
+        <tr>
+          <td>Alertas e registo de anomalias</td>
+          <td>Equipa clínica (Médico/Técnico)</td>
+          <td><label class="consent-toggle"><input type="checkbox" ${c.shareAlerts?'checked':''} onchange="setConsent('shareAlerts', this.checked)"><span></span></label></td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="empty-hint">${c.lastChanged ? `Última alteração: ${new Date(c.lastChanged).toLocaleString('pt-PT')}.` : ''} Desligar "Alertas e registo de anomalias" oculta essa informação da conta Médico/Técnico desta pessoa (ver vistas "Pacientes" e "Anomalias detetadas") — protótipo: aplica-se só a esta conta/sessão, um sistema real precisaria de aplicar isto também do lado do servidor. Um familiar/cuidador com poder de decisão pela pessoa monitorizada pode gerir isto em nome dela quando a capacidade de consentimento estiver comprometida.</p>
+  </div>`;
+  })()}
+
   <div class="card danger-zone">
     <div class="card-head"><div><h3>Zona de risco</h3><div class="card-sub">Ações destrutivas e irreversíveis</div></div></div>
     <div style="display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;">
@@ -1974,7 +2076,9 @@ TEMPLATES.pacientes = () => `
   </div>
   <div class="card">
     <div class="card-head"><h3>Alertas por severidade — ${selectedPatient().name}</h3></div>
-    ${currentAlerts().length ? currentAlerts().map((a,i) => alertRow(a,i)).join('') : '<p class="empty-hint">Sem alertas ativos para este paciente.</p>'}
+    ${!loadConsent().shareAlerts
+      ? '<p class="empty-hint">Este utente/família não autorizou a partilha de alertas com a equipa clínica (ver Definições → Consentimento). Contacta diretamente para mais informação.</p>'
+      : (currentAlerts().length ? currentAlerts().map((a,i) => alertRow(a,i)).join('') : '<p class="empty-hint">Sem alertas ativos para este paciente.</p>')}
   </div>
 `;
 
@@ -2034,6 +2138,9 @@ TEMPLATES.dispositivo = () => `
 TEMPLATES.anomalias = () => `
   <div class="card">
     <div class="card-head"><div><h3>Registo de anomalias — ${selectedPatient().name}</h3><div class="card-sub">Deteção combinada: LSTM Autoencoder (comportamental) + regras de duração, com supressão em cascata</div></div></div>
+    ${!loadConsent().shareAlerts ? `
+    <p class="empty-hint">Este utente/família não autorizou a partilha de alertas/anomalias com a equipa clínica (ver Definições → Consentimento).</p>
+    ` : `
     <table class="data-table">
       <thead><tr><th>ID</th><th>Tipo</th><th>Detalhe</th><th>Detetor</th><th>Confiança</th><th>Severidade</th><th>Quando</th></tr></thead>
       <tbody>
@@ -2050,6 +2157,7 @@ TEMPLATES.anomalias = () => `
         `).join('') : `<tr><td colspan="7"><p class="empty-hint">Sem anomalias registadas para este paciente.</p></td></tr>`}
       </tbody>
     </table>
+    `}
   </div>
 `;
 
@@ -2661,12 +2769,38 @@ const liveState = {
   connected: false,
   hr: null, spo2: null, steps: null, freefall: false, inactivity: false,
   lastRecordAt: 0,
+  // dataLossFlag (2026-07-03): 0=normal, 1=ring buffer quase cheio (aviso
+  // antecipado — ainda dá tempo de exportar), 2=já a substituir dados
+  // antigos não consumidos. Vem de DumpStatusPacket::data_loss_flag via
+  // o bridge (ver handleBridgeMessage() abaixo e Ble.cpp/ble_bridge.py).
+  dataLossFlag: 0,
 };
 const liveHrBuffer = []; // {t: epoch_s, hr, label: "HH:MM:SS"}
 
 function fmtClock(epochSeconds){
   const d = new Date(epochSeconds * 1000);
   return d.toLocaleTimeString('pt-PT', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+}
+
+// Mostra/esconde o aviso de armazenamento (ver liveState.dataLossFlag,
+// preenchido a partir de DumpStatusPacket::data_loss_flag via bridge).
+// Pedido do utilizador (2026-07-03): avisar A TEMPO de exportar os dados
+// antes de começarem a ser substituídos, não só depois de já ter
+// acontecido — por isso há dois níveis:
+//   1 = ring buffer quase cheio, ainda sem perdas (aviso, cor de aviso)
+//   2 = já a substituir dados antigos não consumidos (cor crítica)
+function renderStorageWarningBanner(){
+  const el = document.getElementById('storageWarningBanner');
+  if (!el) return;
+  const flag = liveState.dataLossFlag;
+  if (!flag) { el.style.display = 'none'; el.className = 'storage-warning-banner print-hide'; return; }
+  el.className = `storage-warning-banner print-hide level-${flag}`;
+  el.style.display = 'flex';
+  el.innerHTML = flag === 2
+    ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+       <span>O armazenamento do wearable está cheio — dados antigos ainda não exportados estão a ser substituídos agora. <a href="#" onclick="renderView('exportar'); return false;">Exportar o que resta</a></span>`
+    : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+       <span>O armazenamento do wearable está quase cheio (≥90%) — exporta os dados em breve, antes de começarem a ser substituídos. <a href="#" onclick="renderView('exportar'); return false;">Ir para Exportar dados</a></span>`;
 }
 
 // Atualiza a pastilha de estado do dispositivo na barra superior.
@@ -2718,6 +2852,11 @@ function handleBridgeMessage(msg){
   }
   if (msg.kind === 'command_result'){
     handleCommandResult(msg);
+    return;
+  }
+  if (msg.kind === 'status'){
+    liveState.dataLossFlag = toFiniteNumber(msg.data_loss_flag) || 0;
+    renderStorageWarningBanner();
     return;
   }
   if (msg.kind === 'record'){

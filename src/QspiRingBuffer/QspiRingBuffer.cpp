@@ -386,11 +386,23 @@ bool prepareHeadSectorForWrite() {
   if ((s_meta.head % s_slotsPerSector) != 0) return true;
 
   const uint32_t targetDataSector = slotToDataSector(s_meta.head);
+  const uint32_t droppedBefore = s_meta.dropped;
 
   while (s_meta.count > 0 && slotToDataSector(s_meta.tail) == targetDataSector) {
     s_meta.tail = incIndex(s_meta.tail);
     s_meta.count--;
     s_meta.dropped++;
+  }
+
+  // Aviso único (não repetido a cada perda, para não inundar o log): a
+  // primeira vez que o buffer começa a sobrescrever registos ainda não
+  // consumidos, avisa uma vez. O sinal contínuo (para a app/dashboard)
+  // vai por BLE em DumpStatusPacket::data_loss_flag (ver Ble.cpp) — este
+  // print é só para diagnóstico durante desenvolvimento/série.
+  static bool s_dataLossWarned = false;
+  if (!s_dataLossWarned && s_meta.dropped > droppedBefore) {
+    s_dataLossWarned = true;
+    Serial.println("[QSPIRB] AVISO: ring buffer cheio — a sobrescrever registos antigos ainda nao consumidos");
   }
 
   const uint32_t physicalSector = kDataStartSector + targetDataSector;
@@ -562,6 +574,18 @@ bool push(uint16_t type, const uint8_t *payload, uint16_t len, uint32_t timestam
   if (!s_started) return false;
   if (len > kPayloadSize) return false;
   if (len > 0 && payload == nullptr) return false;
+
+  // Aviso antecipado, único (2026-07-03): a 90% da capacidade, avisa UMA
+  // vez, ANTES de o buffer começar mesmo a substituir dados antigos
+  // (isso só acontece em prepareHeadSectorForWrite(), mais abaixo). Dá
+  // tempo a quem estiver a monitorizar (ver DumpStatusPacket::data_loss_flag
+  // em Ble.cpp) de exportar os dados antes de haver qualquer perda real.
+  static bool s_nearFullWarned = false;
+  if (!s_nearFullWarned && s_meta.capacity_slots > 0 &&
+      (static_cast<float>(s_meta.count) / s_meta.capacity_slots) >= 0.90f) {
+    s_nearFullWarned = true;
+    Serial.println("[QSPIRB] AVISO: ring buffer a 90% da capacidade — exportar em breve antes de começar a substituir dados antigos");
+  }
 
   // Garante que o setor onde vamos escrever (o setor que contem o slot
   // "head") ja foi apagado e esta pronto a receber dados; se head cair
