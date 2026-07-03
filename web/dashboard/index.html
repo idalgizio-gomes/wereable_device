@@ -511,6 +511,31 @@
     .main{ margin:0 !important; }
     .print-only{ display:block !important; }
     body{ background:#fff !important; color:#000 !important; }
+
+    /* Numeração de página (2026-07-03) — suportado pelo motor de
+       impressão do Chromium via @page; noutros motores o número
+       simplesmente não aparece, sem afetar o resto do documento. */
+    @page{ margin: 18mm 15mm 20mm 15mm; @bottom-center{ content: "Página " counter(page) " de " counter(pages); font-size: 10px; color:#666; } }
+
+    .print-header{ display:flex; align-items:flex-start; gap:14px; border-bottom:2px solid #0E7A56; padding-bottom:10px; margin-bottom:14px; }
+    .print-logo{
+      flex:none; width:38px; height:38px; border-radius:9px; background:#0E7A56; color:#fff;
+      display:flex; align-items:center; justify-content:center; font-weight:800; font-size:15px; letter-spacing:0.5px;
+    }
+    .print-header h1{ font-size:19px; margin:0 0 3px; }
+    .print-meta{ font-size:11px; color:#555; margin:0; }
+    .print-patient{ margin-bottom:8px; }
+    .print-patient h2{ font-size:15px; margin:0 0 3px; }
+    .print-section-title{ font-size:13px; margin:18px 0 6px; padding-top:4px; border-top:1px solid #e2e2e2; }
+    .print-table{ width:100%; border-collapse:collapse; font-size:11.5px; margin-bottom:4px; }
+    .print-table th{
+      text-align:left; background:#f2f6f4; color:#0E7A56; font-weight:700;
+      padding:6px 8px; border-bottom:1px solid #cfe3da;
+    }
+    .print-table td{ padding:6px 8px; border-bottom:1px solid #eee; vertical-align:top; }
+    .print-table tbody tr:nth-child(even) td{ background:#fafafa; }
+    .print-empty{ text-align:center; color:#888; font-style:italic; }
+    .print-footer{ margin-top:22px; padding-top:8px; border-top:1px solid #e2e2e2; font-size:10px; color:#888; text-align:center; }
   }
 </style>
 
@@ -654,6 +679,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V9M11 19V5M18 19v-7"/></svg>
         <span data-i18n="nav.trend">Tendência semanal</span>
       </button>
+      <button class="nav-item" data-view="alertas">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+        <span data-i18n="nav.alertHistory">Histórico de alertas</span>
+      </button>
       <button class="nav-item" data-view="emergencias">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
         <span data-i18n="nav.emergencies">Registo de emergências</span>
@@ -681,6 +710,10 @@
       <button class="nav-item" data-view="anomalias">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
         <span data-i18n="nav.anomalies">Anomalias detetadas</span>
+      </button>
+      <button class="nav-item" data-view="alertas">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+        <span data-i18n="nav.alertHistory">Histórico de alertas</span>
       </button>
       <button class="nav-item" data-view="emergencias">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
@@ -828,7 +861,7 @@ const I18N = {
     'signup.institution': 'Instituição / clínica', 'signup.license': 'Nº de cédula profissional',
     'signup.submit': 'Criar conta', 'signup.haveAccount': 'Já tens conta?', 'signup.login': 'Iniciar sessão',
     'nav.summary': 'Resumo', 'nav.routine': 'Rotina diária', 'nav.vitals': 'Sinais vitais',
-    'nav.trend': 'Tendência semanal', 'nav.settings': 'Definições', 'nav.help': 'Ajuda', 'nav.logout': 'Terminar sessão', 'nav.emergencies': 'Registo de emergências', 'nav.profile': 'Perfil', 'nav.medication': 'Medicação',
+    'nav.trend': 'Tendência semanal', 'nav.settings': 'Definições', 'nav.help': 'Ajuda', 'nav.logout': 'Terminar sessão', 'nav.emergencies': 'Registo de emergências', 'nav.profile': 'Perfil', 'nav.medication': 'Medicação', 'nav.alertHistory': 'Histórico de alertas',
     'nav.patients': 'Pacientes', 'nav.device': 'Dispositivo & firmware', 'nav.anomalies': 'Anomalias detetadas',
     'nav.limits': 'Limites de duração', 'nav.export': 'Exportar dados',
     'topbar.connecting': 'A ligar ao bridge…', 'topbar.connected': 'Wearable ligado · dados em direto',
@@ -848,7 +881,7 @@ const I18N = {
     'signup.institution': 'Institution / clinic', 'signup.license': 'Professional license number',
     'signup.submit': 'Create account', 'signup.haveAccount': 'Already have an account?', 'signup.login': 'Sign in',
     'nav.summary': 'Summary', 'nav.routine': 'Daily routine', 'nav.vitals': 'Vital signs',
-    'nav.trend': 'Weekly trend', 'nav.settings': 'Settings', 'nav.help': 'Help', 'nav.logout': 'Log out', 'nav.emergencies': 'Emergency log', 'nav.profile': 'Profile', 'nav.medication': 'Medication',
+    'nav.trend': 'Weekly trend', 'nav.settings': 'Settings', 'nav.help': 'Help', 'nav.logout': 'Log out', 'nav.emergencies': 'Emergency log', 'nav.profile': 'Profile', 'nav.medication': 'Medication', 'nav.alertHistory': 'Alert history',
     'nav.patients': 'Patients', 'nav.device': 'Device & firmware', 'nav.anomalies': 'Detected anomalies',
     'nav.limits': 'Duration limits', 'nav.export': 'Export data',
     'topbar.connecting': 'Connecting to bridge…', 'topbar.connected': 'Wearable connected · live data',
@@ -868,7 +901,7 @@ const I18N = {
     'signup.institution': '机构 / 诊所', 'signup.license': '执业证号',
     'signup.submit': '注册账户', 'signup.haveAccount': '已有账户？', 'signup.login': '登录',
     'nav.summary': '概览', 'nav.routine': '日常活动', 'nav.vitals': '生命体征',
-    'nav.trend': '每周趋势', 'nav.settings': '设置', 'nav.help': '帮助', 'nav.logout': '退出登录', 'nav.emergencies': '紧急情况记录', 'nav.profile': '个人资料', 'nav.medication': '用药',
+    'nav.trend': '每周趋势', 'nav.settings': '设置', 'nav.help': '帮助', 'nav.logout': '退出登录', 'nav.emergencies': '紧急情况记录', 'nav.profile': '个人资料', 'nav.medication': '用药', 'nav.alertHistory': '警报历史',
     'nav.patients': '患者', 'nav.device': '设备与固件', 'nav.anomalies': '检测到的异常',
     'nav.limits': '时长限制', 'nav.export': '导出数据',
     'topbar.connecting': '正在连接网桥…', 'topbar.connected': '穿戴设备已连接 · 实时数据',
@@ -888,7 +921,7 @@ const I18N = {
     'signup.institution': 'Institución / clínica', 'signup.license': 'Número de colegiado',
     'signup.submit': 'Crear cuenta', 'signup.haveAccount': '¿Ya tienes cuenta?', 'signup.login': 'Iniciar sesión',
     'nav.summary': 'Resumen', 'nav.routine': 'Rutina diaria', 'nav.vitals': 'Signos vitales',
-    'nav.trend': 'Tendencia semanal', 'nav.settings': 'Ajustes', 'nav.help': 'Ayuda', 'nav.logout': 'Cerrar sesión', 'nav.emergencies': 'Registro de emergencias', 'nav.profile': 'Perfil', 'nav.medication': 'Medicación',
+    'nav.trend': 'Tendencia semanal', 'nav.settings': 'Ajustes', 'nav.help': 'Ayuda', 'nav.logout': 'Cerrar sesión', 'nav.emergencies': 'Registro de emergencias', 'nav.profile': 'Perfil', 'nav.medication': 'Medicación', 'nav.alertHistory': 'Historial de alertas',
     'nav.patients': 'Pacientes', 'nav.device': 'Dispositivo y firmware', 'nav.anomalies': 'Anomalías detectadas',
     'nav.limits': 'Límites de duración', 'nav.export': 'Exportar datos',
     'topbar.connecting': 'Conectando al bridge…', 'topbar.connected': 'Wearable conectado · datos en vivo',
@@ -908,7 +941,7 @@ const I18N = {
     'signup.institution': 'Institution / clinique', 'signup.license': 'Numéro professionnel',
     'signup.submit': 'Créer un compte', 'signup.haveAccount': 'Déjà un compte ?', 'signup.login': 'Se connecter',
     'nav.summary': 'Résumé', 'nav.routine': 'Routine quotidienne', 'nav.vitals': 'Signes vitaux',
-    'nav.trend': 'Tendance hebdomadaire', 'nav.settings': 'Paramètres', 'nav.help': 'Aide', 'nav.logout': 'Se déconnecter', 'nav.emergencies': "Journal d'urgence", 'nav.profile': 'Profil', 'nav.medication': 'Médication',
+    'nav.trend': 'Tendance hebdomadaire', 'nav.settings': 'Paramètres', 'nav.help': 'Aide', 'nav.logout': 'Se déconnecter', 'nav.emergencies': "Journal d'urgence", 'nav.profile': 'Profil', 'nav.medication': 'Médication', 'nav.alertHistory': 'Historique des alertes',
     'nav.patients': 'Patients', 'nav.device': 'Appareil & firmware', 'nav.anomalies': 'Anomalies détectées',
     'nav.limits': 'Limites de durée', 'nav.export': 'Exporter les données',
     'topbar.connecting': 'Connexion au bridge…', 'topbar.connected': 'Wearable connecté · données en direct',
@@ -928,7 +961,7 @@ const I18N = {
     'signup.institution': 'Einrichtung / Klinik', 'signup.license': 'Berufszulassungsnummer',
     'signup.submit': 'Konto erstellen', 'signup.haveAccount': 'Schon ein Konto?', 'signup.login': 'Anmelden',
     'nav.summary': 'Übersicht', 'nav.routine': 'Tagesroutine', 'nav.vitals': 'Vitalwerte',
-    'nav.trend': 'Wochentrend', 'nav.settings': 'Einstellungen', 'nav.help': 'Hilfe', 'nav.logout': 'Abmelden', 'nav.emergencies': 'Notfallprotokoll', 'nav.profile': 'Profil', 'nav.medication': 'Medikation',
+    'nav.trend': 'Wochentrend', 'nav.settings': 'Einstellungen', 'nav.help': 'Hilfe', 'nav.logout': 'Abmelden', 'nav.emergencies': 'Notfallprotokoll', 'nav.profile': 'Profil', 'nav.medication': 'Medikation', 'nav.alertHistory': 'Warnungsverlauf',
     'nav.patients': 'Patienten', 'nav.device': 'Gerät & Firmware', 'nav.anomalies': 'Erkannte Anomalien',
     'nav.limits': 'Dauergrenzwerte', 'nav.export': 'Daten exportieren',
     'topbar.connecting': 'Verbindung zur Bridge…', 'topbar.connected': 'Wearable verbunden · Live-Daten',
@@ -948,7 +981,7 @@ const I18N = {
     'signup.institution': 'Istituzione / clinica', 'signup.license': 'Numero di iscrizione all\'albo',
     'signup.submit': 'Crea account', 'signup.haveAccount': 'Hai già un account?', 'signup.login': 'Accedi',
     'nav.summary': 'Riepilogo', 'nav.routine': 'Routine giornaliera', 'nav.vitals': 'Parametri vitali',
-    'nav.trend': 'Tendenza settimanale', 'nav.settings': 'Impostazioni', 'nav.help': 'Aiuto', 'nav.logout': 'Esci', 'nav.emergencies': 'Registro emergenze', 'nav.profile': 'Profilo', 'nav.medication': 'Farmaci',
+    'nav.trend': 'Tendenza settimanale', 'nav.settings': 'Impostazioni', 'nav.help': 'Aiuto', 'nav.logout': 'Esci', 'nav.emergencies': 'Registro emergenze', 'nav.profile': 'Profilo', 'nav.medication': 'Farmaci', 'nav.alertHistory': 'Cronologia avvisi',
     'nav.patients': 'Pazienti', 'nav.device': 'Dispositivo & firmware', 'nav.anomalies': 'Anomalie rilevate',
     'nav.limits': 'Limiti di durata', 'nav.export': 'Esporta dati',
     'topbar.connecting': 'Connessione al bridge…', 'topbar.connected': 'Wearable connesso · dati in diretta',
@@ -1326,12 +1359,64 @@ function selectedPatient(){
   return PATIENTS.find(p => p.id === selectedPatientId) || PATIENTS[0];
 }
 
+/* ------------------------------------------------------------
+   APAGAR ALERTAS — histórico/página de alertas (2026-07-03, pedido do
+   utilizador)
+   ------------------------------------------------------------
+   Antes, "marcar como lida" só trocava o botão por um ✓ mas o alerta
+   continuava visível na mesma lista. Agora: ler um alerta remove-o da
+   área "Alertas recentes"/"Alertas por severidade" (ver
+   unreadActiveAlerts()) e ele passa a viver só na vista "Histórico de
+   alertas", onde o médico pode apagá-lo individualmente ou limpar tudo
+   (mesma lógica do Registo de emergências).
+------------------------------------------------------------ */
+const DELETED_ALERTS_KEY = 'carewear_deleted_alerts';
+
+function loadDeletedAlerts(){
+  try {
+    const raw = localStorage.getItem(DELETED_ALERTS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* localStorage indisponível ou dados corrompidos - ignora */ }
+  return {};
+}
+function saveDeletedAlerts(map){
+  try { localStorage.setItem(DELETED_ALERTS_KEY, JSON.stringify(map)); }
+  catch (e) { /* quota excedida ou localStorage indisponível - fica só em memória */ }
+}
+let deletedAlertsMap = loadDeletedAlerts();
+function isAlertDeleted(fullKey){ return !!deletedAlertsMap[fullKey]; }
+function deleteAlert(fullKey){
+  deletedAlertsMap[fullKey] = true;
+  saveDeletedAlerts(deletedAlertsMap);
+  updateNotificationBadge();
+  if (currentView) renderView(currentView);
+}
+function clearAllAlertsForPatient(){
+  currentAlerts().forEach(a => { deletedAlertsMap[patientAlertKey(selectedPatientId, a.key)] = true; });
+  saveDeletedAlerts(deletedAlertsMap);
+  updateNotificationBadge();
+  if (currentView) renderView(currentView);
+}
+
 // Substituem as antigas constantes globais 'alerts'/'anomalyLog' (fixas
 // na Maria Silva) — todas as vistas devem chamar estas funções, nunca
 // usar dados de um paciente diretamente, para mudar de paciente refletir
-// sempre em todo o lado.
-function currentAlerts(){ return selectedPatient().alerts; }
+// sempre em todo o lado. 'currentAlerts()' exclui alertas apagados (mas
+// inclui lidos, para a página de Histórico de alertas); 'unreadActiveAlerts()'
+// (ver mais abaixo) é o que "Alertas recentes"/"Alertas por severidade"
+// devem usar.
+function currentAlerts(){
+  return selectedPatient().alerts.filter(a => !isAlertDeleted(patientAlertKey(selectedPatientId, a.key)));
+}
 function currentAnomalyLog(){ return selectedPatient().anomalyLog; }
+
+// Alertas ainda não lidos e não apagados — o que aparece em "Alertas
+// recentes" (Resumo) e "Alertas por severidade" (Pacientes). Ler um
+// alerta (markAlertRead()) remove-o desta lista; ele continua acessível
+// em "Histórico de alertas" até ser apagado.
+function unreadActiveAlerts(){
+  return currentAlerts().filter(a => !isAlertRead(patientAlertKey(selectedPatientId, a.key)));
+}
 
 // Nº de alertas "ativos" de um paciente = não silenciados (ver
 // muteAlert()) neste momento. Calculado, não guardado à parte, para
@@ -1537,10 +1622,66 @@ function doseStatus(patientId, medId, time){
 // Adesão de hoje (%) = doses já marcadas / total de doses agendadas para
 // hoje, ao longo de todos os medicamentos deste paciente.
 function todayAdherencePct(patient){
-  const doses = patient.medications.flatMap(med => med.times.map(time => ({medId: med.id, time})));
+  const doses = patientMedications(patient).flatMap(med => med.times.map(time => ({medId: med.id, time})));
   if (!doses.length) return null;
   const taken = doses.filter(d => isDoseTakenToday(patient.id, d.medId, d.time)).length;
   return Math.round((taken / doses.length) * 100);
+}
+
+/* ------------------------------------------------------------
+   GESTÃO DE MEDICAÇÃO PELO MÉDICO (2026-07-03, pedido do utilizador)
+   ------------------------------------------------------------
+   `PATIENTS[i].medications` é o registo de base (dados de exemplo,
+   definidos no código). Isto adiciona/remove medicamentos por cima
+   dessa base, persistido em localStorage por paciente — sem alterar
+   diretamente o array `PATIENTS` (que é uma constante partilhada por
+   toda a sessão). `patientMedications(patient)` é a função que todo o
+   resto do código deve chamar em vez de `patient.medications`
+   diretamente, para ver sempre a lista atualizada.
+------------------------------------------------------------ */
+const MED_REGISTRY_KEY = 'carewear_medications_registry';
+
+function loadMedRegistry(){
+  try {
+    const raw = localStorage.getItem(MED_REGISTRY_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* localStorage indisponível ou dados corrompidos - ignora */ }
+  return {};
+}
+function saveMedRegistry(map){
+  try { localStorage.setItem(MED_REGISTRY_KEY, JSON.stringify(map)); }
+  catch (e) { /* quota excedida ou localStorage indisponível - fica só em memória */ }
+}
+function patientMedications(patient){
+  const reg = loadMedRegistry()[patient.id] || { added: [], removedIds: [] };
+  const base = patient.medications.filter(m => !reg.removedIds.includes(m.id));
+  return [...base, ...reg.added];
+}
+function addMedicationForPatient(){
+  const nameEl = document.getElementById('newMedName');
+  const doseEl = document.getElementById('newMedDose');
+  const timesEl = document.getElementById('newMedTimes');
+  const name = nameEl.value.trim();
+  const dose = doseEl.value.trim();
+  const times = timesEl.value.split(',').map(t => t.trim()).filter(Boolean);
+  if (!name || !times.length) return;
+  const reg = loadMedRegistry();
+  reg[selectedPatientId] = reg[selectedPatientId] || { added: [], removedIds: [] };
+  reg[selectedPatientId].added.push({ id: 'm' + Date.now(), name, dose, times });
+  saveMedRegistry(reg);
+  if (currentView) renderView(currentView);
+}
+// Funciona tanto para medicamentos de base (marca como removido) como
+// para medicamentos adicionados pelo médico (remove da lista de
+// adicionados) — o registo de adesão já guardado para esse medicamento
+// não é apagado, só deixa de ter novas doses agendadas.
+function removeMedicationForPatient(medId){
+  const reg = loadMedRegistry();
+  reg[selectedPatientId] = reg[selectedPatientId] || { added: [], removedIds: [] };
+  reg[selectedPatientId].removedIds.push(medId);
+  reg[selectedPatientId].added = reg[selectedPatientId].added.filter(m => m.id !== medId);
+  saveMedRegistry(reg);
+  if (currentView) renderView(currentView);
 }
 
 /* ============================================================
@@ -1628,10 +1769,28 @@ function submitSignup(){
 ------------------------------------------------------------ */
 const PROFILE_KEY = 'carewear_profile';
 
+// Campos "sensíveis" (2026-07-03, pedido do utilizador): alguns dados não
+// devem poder ser alterados com facilidade — em particular a morada, mas
+// também o NIF (identificador fiscal), porque erros/fraude nestes campos
+// têm consequências fora do próprio perfil (correspondência, faturação).
+// Alterar um destes campos não aplica de imediato — fica pendente até um
+// membro da equipa clínica aprovar (ver requestProfileFieldChange()/
+// approveProfileFieldChange() abaixo). Só se aplica ao perfil Utente/
+// Família — o perfil Médico/Técnico não representa um paciente, por isso
+// os seus dados não têm o mesmo risco associado.
+const SENSITIVE_PROFILE_FIELDS = { utente: ['nif', 'address'], clinico: [] };
+
 function loadProfile(){
   const defaults = {
-    utente: { name:'Maria Silva', email:'maria.silva@exemplo.pt' },
-    clinico: { name:'Dr. Ricardo Alves', email:'ricardo.alves@exemplo.pt', institution:'Centro de Saúde de Barcelos' },
+    utente: {
+      name:'Maria Silva', email:'maria.silva@exemplo.pt', phone:'912 345 678',
+      nif:'123 456 789', address:'Rua das Flores, 12, 4750-000 Barcelos',
+      caregiverName:'João Silva', caregiverPhone:'913 000 111', caregiverRelation:'Filho',
+    },
+    clinico: {
+      name:'Dr. Ricardo Alves', email:'ricardo.alves@exemplo.pt', phone:'914 222 333',
+      nif:'234 567 890', institution:'Centro de Saúde de Barcelos', license:'OM-12345',
+    },
   };
   try {
     const raw = localStorage.getItem(PROFILE_KEY);
@@ -1648,15 +1807,87 @@ function saveProfileField(role, field, value){
   try { localStorage.setItem(PROFILE_KEY, JSON.stringify(p)); }
   catch (e) { /* quota excedida ou localStorage indisponível - fica só em memória */ }
 }
+
+/* ------------------------------------------------------------
+   APROVAÇÃO DE ALTERAÇÕES A DADOS SENSÍVEIS DO PERFIL
+   ------------------------------------------------------------
+   Uma alteração a um campo sensível (ver SENSITIVE_PROFILE_FIELDS) fica
+   "pendente" em vez de aplicada de imediato — só a equipa clínica
+   (perfil Médico/Técnico) pode aprovar ou rejeitar, na própria vista
+   "Perfil". Protótipo: sem notificação real a ninguém, só o estado
+   guardado em localStorage.
+------------------------------------------------------------ */
+const PENDING_PROFILE_KEY = 'carewear_profile_pending';
+
+function loadPendingProfileChanges(){
+  try {
+    const raw = localStorage.getItem(PENDING_PROFILE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* localStorage indisponível ou dados corrompidos - ignora */ }
+  return {};
+}
+function savePendingProfileChanges(map){
+  try { localStorage.setItem(PENDING_PROFILE_KEY, JSON.stringify(map)); }
+  catch (e) { /* quota excedida ou localStorage indisponível - fica só em memória */ }
+}
+function requestProfileFieldChange(role, field, newValue){
+  const pending = loadPendingProfileChanges();
+  pending[role] = pending[role] || {};
+  pending[role][field] = { newValue, requestedAt: Date.now() };
+  savePendingProfileChanges(pending);
+}
+function approveProfileFieldChange(role, field){
+  const pending = loadPendingProfileChanges();
+  if (pending[role] && pending[role][field]) {
+    saveProfileField(role, field, pending[role][field].newValue);
+    delete pending[role][field];
+    savePendingProfileChanges(pending);
+  }
+  if (currentView) renderView(currentView);
+}
+function rejectProfileFieldChange(role, field){
+  const pending = loadPendingProfileChanges();
+  if (pending[role]) delete pending[role][field];
+  savePendingProfileChanges(pending);
+  if (currentView) renderView(currentView);
+}
+
 function submitProfileForm(){
   const isUtente = currentRole === 'utente';
   const role = isUtente ? 'utente' : 'clinico';
-  saveProfileField(role, 'name', document.getElementById('profileName').value.trim());
-  saveProfileField(role, 'email', document.getElementById('profileEmail').value.trim());
-  if (!isUtente) saveProfileField('clinico', 'institution', document.getElementById('profileInstitution').value.trim());
+  const current = loadProfile()[role];
+  const sensitive = SENSITIVE_PROFILE_FIELDS[role] || [];
+  let pendingCount = 0;
+
+  // Campos diretos (sem aprovação): sempre aplicados de imediato.
+  const directFields = isUtente
+    ? ['name', 'email', 'phone', 'caregiverName', 'caregiverPhone', 'caregiverRelation']
+    : ['name', 'email', 'phone', 'institution', 'license'];
+  directFields.forEach(field => {
+    const el = document.getElementById('profile_' + field);
+    if (el) saveProfileField(role, field, el.value.trim());
+  });
+
+  // Campos sensíveis: só ficam pendentes se o valor realmente mudou.
+  sensitive.forEach(field => {
+    const el = document.getElementById('profile_' + field);
+    if (!el) return;
+    const newValue = el.value.trim();
+    if (newValue && newValue !== current[field]) {
+      requestProfileFieldChange(role, field, newValue);
+      pendingCount++;
+    }
+  });
+
   applyProfileToAvatar();
   const status = document.getElementById('profileSaveStatus');
-  if (status) { status.textContent = 'Alterações guardadas.'; status.className = 'modal-status ok'; }
+  if (status) {
+    status.className = 'modal-status ok';
+    status.textContent = pendingCount > 0
+      ? `Restantes alterações guardadas. ${pendingCount} campo${pendingCount>1?'s':''} sensível${pendingCount>1?'eis':''} ficou${pendingCount>1?'ram':''} pendente${pendingCount>1?'s':''} de aprovação pela equipa clínica.`
+      : 'Alterações guardadas.';
+  }
+  if (currentView) renderView(currentView);
 }
 
 // Reflete o perfil guardado no cartão de avatar da topbar — chamado no
@@ -1685,7 +1916,20 @@ function login(){
 
   applyProfileToAvatar();
 
-  renderView(isUtente ? 'resumo' : 'pacientes');
+  // BUG CORRIGIDO (2026-07-03, reportado pelo utilizador): trocar de
+  // perfil (Utente/Família ↔ Médico/Técnico) mostrava a vista correta
+  // (via renderView()), mas o destaque "ativo" nos botões da barra
+  // lateral ficava parado no que tinha sido clicado numa sessão
+  // anterior — renderView() nunca tocava nas classes .active dos
+  // nav-items, só no conteúdo. Corrigido: limpa o estado ativo de todos
+  // os botões e marca explicitamente o botão da vista por omissão do
+  // perfil que entrou agora.
+  const defaultView = isUtente ? 'resumo' : 'pacientes';
+  document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
+  const defaultBtn = document.querySelector(`#${isUtente ? 'navUtente' : 'navClinico'} .nav-item[data-view="${defaultView}"]`);
+  if (defaultBtn) defaultBtn.classList.add('active');
+
+  renderView(defaultView);
   updateNotificationBadge();
 }
 
@@ -1752,6 +1996,7 @@ const VIEW_TITLE_KEYS = {
   resumo:'nav.summary', rotina:'nav.routine', vitais:'nav.vitals', tendencia:'nav.trend', definicoes:'nav.settings',
   pacientes:'nav.patients', dispositivo:'nav.device', anomalias:'nav.anomalies', limites:'nav.limits', exportar:'nav.export',
   ajuda:'nav.help', emergencias:'nav.emergencies', perfil:'nav.profile', medicacao:'nav.medication',
+  alertas:'nav.alertHistory',
 };
 
 // Guarda a vista atualmente ativa — usado por ações que precisam de
@@ -1827,7 +2072,7 @@ TEMPLATES.resumo = () => `
 
     <div class="card">
       <div class="card-head"><h3>Alertas recentes</h3></div>
-      ${currentAlerts().map((a,i) => alertRow(a,i)).join('')}
+      ${unreadActiveAlerts().length ? unreadActiveAlerts().map((a,i) => alertRow(a,i)).join('') : '<p class="empty-hint">Sem alertas novos — ver Histórico de alertas.</p>'}
     </div>
   </div>
 
@@ -2455,7 +2700,7 @@ TEMPLATES.pacientes = () => `
     <div class="card-head"><h3>Alertas por severidade — ${selectedPatient().name}</h3></div>
     ${!loadConsent().shareAlerts
       ? '<p class="empty-hint">Este utente/família não autorizou a partilha de alertas com a equipa clínica (ver Definições → Consentimento). Contacta diretamente para mais informação.</p>'
-      : (currentAlerts().length ? currentAlerts().map((a,i) => alertRow(a,i)).join('') : '<p class="empty-hint">Sem alertas ativos para este paciente.</p>')}
+      : (unreadActiveAlerts().length ? unreadActiveAlerts().map((a,i) => alertRow(a,i)).join('') : '<p class="empty-hint">Sem alertas novos — ver Histórico de alertas.</p>')}
   </div>
 `;
 
@@ -2538,6 +2783,39 @@ TEMPLATES.anomalias = () => `
   </div>
 `;
 
+TEMPLATES.alertas = () => {
+  const isUtente = currentRole === 'utente';
+  const all = currentAlerts(); // inclui lidos, exclui apagados
+  return `
+  <div class="card">
+    <div class="card-head">
+      <div><h3>Histórico de alertas — ${selectedPatient().name}</h3><div class="card-sub">Todos os alertas (lidos e por ler) deste paciente, incluindo os já removidos da área de alertas recentes</div></div>
+      ${!isUtente && all.length ? `<button class="btn-danger" onclick="if(confirm('Apagar TODOS os alertas deste paciente? Esta ação não pode ser desfeita.')) clearAllAlertsForPatient();">Limpar tudo</button>` : ''}
+    </div>
+    ${all.length ? `
+    <table class="data-table">
+      <thead><tr><th>Título</th><th>Detalhe</th><th>Severidade</th><th>Quando</th><th>Estado</th>${!isUtente ? '<th></th>' : ''}</tr></thead>
+      <tbody>
+        ${all.map(a => {
+          const fullKey = patientAlertKey(selectedPatientId, a.key);
+          const read = isAlertRead(fullKey);
+          return `
+          <tr>
+            <td>${a.title}</td>
+            <td>${a.desc}</td>
+            <td>${pillHtml(a.sev, a.sev==='critical'?'Crítico':a.sev==='serious'?'Sério':'Aviso')}</td>
+            <td class="num">${a.time}</td>
+            <td>${read ? pillHtml('neutral','Lido') : pillHtml('warning','Novo')}</td>
+            ${!isUtente ? `<td><button class="btn-secondary" onclick="deleteAlert('${fullKey}')">Apagar</button></td>` : ''}
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+    ` : '<p class="empty-hint">Sem alertas registados para este paciente.</p>'}
+  </div>
+`;
+};
+
 TEMPLATES.emergencias = () => `
   <div class="card">
     <div class="card-head"><div><h3>Registo de emergências — ${selectedPatient().name}</h3><div class="card-sub">SOS manual (gesto de cliques) e deteção automática de queda + inatividade prolongada — ver módulo firmware Emergency</div></div></div>
@@ -2565,10 +2843,12 @@ TEMPLATES.emergencias = () => `
 
 TEMPLATES.medicacao = () => {
   const p = selectedPatient();
+  const isUtente = currentRole === 'utente';
+  const meds = patientMedications(p);
   const todayPct = todayAdherencePct(p);
   const missedDays = p.adherenceHistory.filter(d => d.pct < 100);
 
-  const doseRows = p.medications.flatMap(med => med.times.map(time => {
+  const doseRows = meds.flatMap(med => med.times.map(time => {
     const status = doseStatus(p.id, med.id, time);
     const pill = status === 'tomado' ? pillHtml('good','Tomado')
       : status === 'atrasado' ? pillHtml('warning','Em atraso')
@@ -2590,7 +2870,7 @@ TEMPLATES.medicacao = () => {
   return `
   <div class="card">
     <div class="card-head"><div><h3>Medicação — ${p.name} <span class="sim-flag">protótipo</span></h3><div class="card-sub">Lembretes de hoje e registo de adesão</div></div></div>
-    ${p.medications.length ? `
+    ${meds.length ? `
     <table class="data-table">
       <thead><tr><th>Medicamento</th><th>Dose</th><th>Hora</th><th>Estado</th><th></th></tr></thead>
       <tbody>${doseRows}</tbody>
@@ -2600,6 +2880,33 @@ TEMPLATES.medicacao = () => {
     <p class="empty-hint">Protótipo: "Marcar como tomado" fica guardado só neste browser (localStorage), namespaced por paciente e dia — não substitui um registo clínico de adesão real nem envia lembretes (push/SMS) ao dispositivo do cuidador.</p>
   </div>
 
+  ${!isUtente ? `
+  <div class="card">
+    <div class="card-head"><div><h3>Gerir medicação (equipa clínica)</h3><div class="card-sub">Adicionar ou remover medicamentos prescritos a ${p.name}</div></div></div>
+    ${meds.length ? `
+    <table class="data-table">
+      <thead><tr><th>Medicamento</th><th>Dose</th><th>Horários</th><th></th></tr></thead>
+      <tbody>
+        ${meds.map(med => `
+          <tr>
+            <td>${med.name}</td>
+            <td class="num">${med.dose || '—'}</td>
+            <td class="num">${med.times.join(', ')}</td>
+            <td><button class="btn-secondary" onclick="removeMedicationForPatient('${med.id}')">Remover</button></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+    ` : ''}
+    <div class="note-form" style="margin-top:12px;">
+      <input id="newMedName" type="text" placeholder="Nome do medicamento (ex: Donepezilo)" style="flex:1;">
+      <input id="newMedDose" type="text" placeholder="Dose (ex: 5mg)" style="max-width:120px;">
+      <input id="newMedTimes" type="text" placeholder="Horários, separados por vírgula (ex: 08:00, 20:00)" style="flex:1;">
+      <button class="btn-secondary" onclick="addMedicationForPatient()">Adicionar</button>
+    </div>
+    <p class="empty-hint">Protótipo: guardado só neste browser (localStorage) — um sistema real ligaria isto a uma prescrição clínica com assinatura/validação, não um formulário livre.</p>
+  </div>` : ''}
+
   <div class="card">
     <div class="card-head"><div><h3>Adesão — últimos 6 dias</h3></div></div>
     <div class="device-meter">${historyRows}</div>
@@ -2608,29 +2915,110 @@ TEMPLATES.medicacao = () => {
 `;
 };
 
+// Constrói o campo HTML de um dado sensível (morada, NIF): se houver uma
+// alteração pendente de aprovação, mostra-a claramente em vez do campo
+// editável normal, para não parecer que a alteração já foi aplicada.
+function sensitiveProfileFieldHtml(role, field, label, currentValue, inputType){
+  const pending = loadPendingProfileChanges();
+  const pendingChange = pending[role] && pending[role][field];
+  if (pendingChange) {
+    return `
+    <div class="field">
+      <label>${label}</label>
+      <div class="empty-hint" style="padding:8px 10px; background:var(--status-warning-bg); border-radius:var(--radius-sm); color:var(--status-warning);">
+        Valor atual: <b>${currentValue}</b><br>
+        Alteração pedida (pendente de aprovação): <b>${pendingChange.newValue}</b>
+      </div>
+    </div>`;
+  }
+  return `
+    <div class="field">
+      <label for="profile_${field}">${label} <span class="empty-hint" style="padding:0; display:inline;">— alterações a este campo exigem aprovação da equipa clínica</span></label>
+      <input id="profile_${field}" type="${inputType || 'text'}" value="${currentValue}">
+    </div>`;
+}
+
 TEMPLATES.perfil = () => {
   const isUtente = currentRole === 'utente';
-  const p = loadProfile()[isUtente ? 'utente' : 'clinico'];
+  const role = isUtente ? 'utente' : 'clinico';
+  const p = loadProfile()[role];
   return `
   <div class="card">
     <div class="card-head"><div><h3>O meu perfil</h3><div class="card-sub">Atualiza os teus próprios dados sempre que quiseres — isto não altera os dados clínicos do paciente monitorizado</div></div></div>
     <div class="field">
-      <label for="profileName">Nome</label>
-      <input id="profileName" type="text" value="${p.name}">
+      <label for="profile_name">Nome</label>
+      <input id="profile_name" type="text" value="${p.name}">
     </div>
     <div class="field">
-      <label for="profileEmail">Email</label>
-      <input id="profileEmail" type="email" value="${p.email}">
+      <label for="profile_email">Email</label>
+      <input id="profile_email" type="email" value="${p.email}">
     </div>
+    <div class="field">
+      <label for="profile_phone">Telemóvel</label>
+      <input id="profile_phone" type="tel" value="${p.phone || ''}">
+    </div>
+    ${sensitiveProfileFieldHtml(role, 'nif', 'NIF', p.nif || '')}
+    ${isUtente ? sensitiveProfileFieldHtml(role, 'address', 'Morada', p.address || '') : ''}
     ${!isUtente ? `
     <div class="field">
-      <label for="profileInstitution">Instituição / clínica</label>
-      <input id="profileInstitution" type="text" value="${p.institution || ''}">
+      <label for="profile_institution">Instituição / clínica</label>
+      <input id="profile_institution" type="text" value="${p.institution || ''}">
+    </div>
+    <div class="field">
+      <label for="profile_license">Nº de cédula profissional</label>
+      <input id="profile_license" type="text" value="${p.license || ''}">
     </div>` : ''}
     <button class="btn-primary" onclick="submitProfileForm()" style="width:auto; padding:8px 20px;">Guardar alterações</button>
     <p class="modal-status" id="profileSaveStatus"></p>
     <p class="empty-hint">Protótipo — guardado apenas neste browser (localStorage); um backend real substituiria isto por uma conta persistida em servidor.</p>
   </div>
+
+  ${isUtente ? `
+  <div class="card">
+    <div class="card-head"><div><h3>Contacto de emergência (cuidador)</h3><div class="card-sub">Quem contactar em primeiro lugar em caso de emergência — ver Registo de emergências</div></div></div>
+    <div class="field">
+      <label for="profile_caregiverName">Nome do cuidador/familiar</label>
+      <input id="profile_caregiverName" type="text" value="${p.caregiverName || ''}">
+    </div>
+    <div class="field">
+      <label for="profile_caregiverPhone">Telemóvel do cuidador/familiar</label>
+      <input id="profile_caregiverPhone" type="tel" value="${p.caregiverPhone || ''}">
+    </div>
+    <div class="field">
+      <label for="profile_caregiverRelation">Relação com o utente</label>
+      <input id="profile_caregiverRelation" type="text" value="${p.caregiverRelation || ''}">
+    </div>
+    <button class="btn-primary" onclick="submitProfileForm()" style="width:auto; padding:8px 20px;">Guardar alterações</button>
+  </div>` : ''}
+
+  ${!isUtente ? (() => {
+    const pending = loadPendingProfileChanges();
+    const utentePending = pending.utente || {};
+    const entries = Object.entries(utentePending);
+    const fieldLabels = { nif: 'NIF', address: 'Morada' };
+    return `
+  <div class="card">
+    <div class="card-head"><div><h3>Aprovações pendentes</h3><div class="card-sub">Alterações a dados sensíveis pedidas pelo Utente/Família, à espera da tua confirmação</div></div></div>
+    ${entries.length ? `
+    <table class="data-table">
+      <thead><tr><th>Campo</th><th>Novo valor pedido</th><th>Pedido em</th><th></th></tr></thead>
+      <tbody>
+        ${entries.map(([field, change]) => `
+          <tr>
+            <td>${fieldLabels[field] || field}</td>
+            <td>${change.newValue}</td>
+            <td class="num">${new Date(change.requestedAt).toLocaleString('pt-PT')}</td>
+            <td style="display:flex; gap:8px;">
+              <button class="btn-secondary" onclick="approveProfileFieldChange('utente','${field}')">Aprovar</button>
+              <button class="btn-secondary" onclick="rejectProfileFieldChange('utente','${field}')">Rejeitar</button>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+    ` : '<p class="empty-hint">Sem alterações pendentes de aprovação.</p>'}
+  </div>`;
+  })() : ''}
 `;
 };
 
@@ -2659,19 +3047,6 @@ TEMPLATES.limites = () => `
 `;
 
 TEMPLATES.exportar = () => `
-  <div class="card">
-    <div class="card-head"><div><h3>Exportar dados</h3><div class="card-sub">Origem: dump BLE do ring buffer QSPI (registo <code>FullPlain</code> — atualmente transmitido em texto simples, não cifrado; ver PROJECT_STATUS.md)</div></div></div>
-    <table class="data-table">
-      <thead><tr><th>Intervalo</th><th>Registos</th><th>Formato</th><th></th></tr></thead>
-      <tbody>
-        <tr><td>Últimas 24h</td><td class="num">2 843</td><td>CSV</td><td><button class="btn-primary" disabled title="Exportação pendente do serviço de persistência (BD SQL) — ver PROJECT_STATUS.md" style="margin:0; padding:6px 14px; width:auto;">Descarregar</button></td></tr>
-        <tr><td>Últimos 7 dias</td><td class="num">18 210</td><td>CSV</td><td><button class="btn-primary" disabled title="Exportação pendente do serviço de persistência (BD SQL) — ver PROJECT_STATUS.md" style="margin:0; padding:6px 14px; width:auto;">Descarregar</button></td></tr>
-        <tr><td>Intervalo completo</td><td class="num">41 902</td><td>JSON</td><td><button class="btn-primary" disabled title="Exportação pendente do serviço de persistência (BD SQL) — ver PROJECT_STATUS.md" style="margin:0; padding:6px 14px; width:auto;">Descarregar</button></td></tr>
-      </tbody>
-    </table>
-    <p class="empty-hint">Exportação ainda não disponível — depende de um serviço que persista os dumps BLE numa base de dados SQL (ainda por implementar, ver "Próximas tarefas" no PROJECT_STATUS.md). Os números acima são de demonstração.</p>
-  </div>
-
   <div class="card print-hide">
     <div class="card-head"><div><h3>Resumo clínico (FHIR / PDF)</h3><div class="card-sub">Diferente da exportação acima: cobre só o que está visível nesta sessão (alertas, anomalias, tendências), não o histórico completo — por isso já funciona sem depender da base de dados</div></div></div>
     <div style="display:flex; gap:10px; flex-wrap:wrap;">
@@ -3575,29 +3950,54 @@ function exportFhirSummary(){
 // tem "Guardar como PDF" no diálogo de impressão) — evita depender de
 // bibliotecas externas de geração de PDF, que a CSP do Artifact bloqueia
 // de qualquer forma.
+// Folha de impressão melhorada (2026-07-03, pedido do utilizador): cabeçalho
+// com marca "CW" (a mesma da barra lateral, para consistência visual),
+// rodapé com nota de confidencialidade + numeração de página (via
+// contador CSS em @page, ver .print-only mais abaixo — suportado pelo
+// motor de impressão do Chromium; noutros motores a página simplesmente
+// não mostra o número, sem quebrar o resto do documento), e tabelas com
+// alinhamento e espaçamento consistentes (células com padding, cabeçalhos
+// com fundo, linhas alternadas para facilitar a leitura).
 function exportClinicalPdf(){
   const p = selectedPatient();
   const sheet = document.getElementById('clinicalPrintSheet');
   if (!sheet) return;
+  const alerts = currentAlerts();
+  const anomalies = currentAnomalyLog();
+  const generatedAt = new Date().toLocaleString('pt-PT');
+
+  const tableHtml = (headers, rows) => `
+    <table class="print-table">
+      <thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+      <tbody>
+        ${rows.length ? rows.map(cells => `<tr>${cells.map(c => `<td>${c}</td>`).join('')}</tr>`).join('')
+          : `<tr><td colspan="${headers.length}" class="print-empty">Sem registos.</td></tr>`}
+      </tbody>
+    </table>`;
+
   sheet.innerHTML = `
-    <h1 style="font-size:20px; margin-bottom:4px;">CareWear — Resumo clínico</h1>
-    <p style="font-size:12px; color:#555;">Gerado em ${new Date().toLocaleString('pt-PT')} · Protótipo — dados de demonstração, não substituem avaliação clínica direta.</p>
-    <h2 style="font-size:15px; margin-top:16px;">${p.name} · ${p.age} anos</h2>
-    <p style="font-size:12px;">Dispositivo: ${p.deviceName} · ${p.mac} · Última sincronização: ${p.lastSync}</p>
-    <h3 style="font-size:13px; margin-top:14px;">Alertas ativos</h3>
-    <table style="width:100%; border-collapse:collapse; font-size:12px;">
-      <thead><tr><th style="text-align:left; border-bottom:1px solid #ccc;">Título</th><th style="text-align:left; border-bottom:1px solid #ccc;">Detalhe</th><th style="text-align:left; border-bottom:1px solid #ccc;">Severidade</th><th style="text-align:left; border-bottom:1px solid #ccc;">Quando</th></tr></thead>
-      <tbody>
-        ${currentAlerts().map(a => `<tr><td>${a.title}</td><td>${a.desc}</td><td>${a.sev}</td><td>${a.time}</td></tr>`).join('')}
-      </tbody>
-    </table>
-    <h3 style="font-size:13px; margin-top:14px;">Registo de anomalias recente</h3>
-    <table style="width:100%; border-collapse:collapse; font-size:12px;">
-      <thead><tr><th style="text-align:left; border-bottom:1px solid #ccc;">ID</th><th style="text-align:left; border-bottom:1px solid #ccc;">Tipo</th><th style="text-align:left; border-bottom:1px solid #ccc;">Detalhe</th><th style="text-align:left; border-bottom:1px solid #ccc;">Quando</th></tr></thead>
-      <tbody>
-        ${currentAnomalyLog().map(a => `<tr><td>${a.id}</td><td>${a.type}</td><td>${a.detail}</td><td>${a.time}</td></tr>`).join('')}
-      </tbody>
-    </table>
+    <header class="print-header">
+      <div class="print-logo">CW</div>
+      <div>
+        <h1>CareWear — Resumo clínico</h1>
+        <p class="print-meta">Gerado em ${generatedAt} · Protótipo — dados de demonstração, não substituem avaliação clínica direta.</p>
+      </div>
+    </header>
+    <section class="print-patient">
+      <h2>${p.name} · ${p.age} anos</h2>
+      <p class="print-meta">Dispositivo: ${p.deviceName} · ${p.mac} · Última sincronização: ${p.lastSync}</p>
+    </section>
+    <h3 class="print-section-title">Alertas ativos</h3>
+    ${tableHtml(
+      ['Título', 'Detalhe', 'Severidade', 'Quando'],
+      alerts.map(a => [a.title, a.desc, a.sev, a.time])
+    )}
+    <h3 class="print-section-title">Registo de anomalias recente</h3>
+    ${tableHtml(
+      ['ID', 'Tipo', 'Detalhe', 'Quando'],
+      anomalies.map(a => [a.id, a.type, a.detail, a.time])
+    )}
+    <footer class="print-footer">CareWear · Documento gerado localmente, confidencial · ${p.name}</footer>
   `;
   window.print();
 }
