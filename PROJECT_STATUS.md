@@ -483,8 +483,23 @@ como reproduzir). Resumo:
   deliberadamente bem separáveis para validar a pipeline de ponta a ponta;
   dados reais serão mais ambíguos. Ver `ml/README.md` para a interpretação
   honesta completa deste número.
-- **Passos 2 e 3 do artigo (LSTM Autoencoder, detetor de duração) ainda não
-  implementados** — próxima iteração desta rotina.
+- **Passo 2 implementado: LSTM Autoencoder para deteção de anomalias
+  (2026-07-03)** — `ml/synthetic_sequences.py` (sequências diárias
+  sintéticas com 3 tipos de anomalia injetada: duração prolongada,
+  substituição contextual noturna, truncamento) + `ml/train_lstm_autoencoder.py`.
+  **Achado honesto**: AUC-ROC 0.74-0.91 por tipo de anomalia (o modelo
+  ordena corretamente anómalo vs. normal bem acima do acaso nos 3 tipos),
+  mas o recall a um limiar único fixo (percentil 95) é fraco para as duas
+  anomalias baseadas em duração — porque prolongar/encurtar um bloco não
+  muda o sinal estatístico dentro dele, só a duração total, algo que uma
+  janela de 2 minutos não vê sozinha. Isto reforça, com evidência
+  concreta, a necessidade do passo 3 (detetor de duração) em vez de ser
+  um bug a corrigir — ver `ml/README.md`, secção "Passo 2", para o
+  detalhe completo e as limitações honestas (limiar único global,
+  100% sintético, não embarcado/medido em hardware).
+- **Passo 3 do artigo (detetor de duração baseado em regras) ainda não
+  implementado** — próximo passo natural do pipeline, com mais urgência
+  depois do resultado do passo 2 acima.
 - **Footprint do Random Forest (alternativa TinyML ao XGBoost) medido de
   facto (2026-07-03)**, compilando o C gerado pelo `emlearn` com o
   toolchain ARM real (`ml/measure_rf_footprint.py`): flash não é problema
@@ -866,10 +881,19 @@ deteção de queda por acelerómetro. Aplicações concretas:
    direção: um limiar estatístico adaptado ao indivíduo, não um modelo de
    aprendizagem automática por pessoa.
 4. Resumo noturno dedicado (tempo fora da cama, inquietação) — sundowning
-   é uma preocupação distinta da atividade diurna.
+   é uma preocupação distinta da atividade diurna. **IMPLEMENTADO**: cartão
+   "Resumo noturno" na vista Resumo (`renderNightSummary()`,
+   `web/dashboard/index.html`) — dados simulados a partir do bloco
+   "dormir" da rotina (badge "dados simulados" visível). Esta entrada não
+   estava marcada como feita — corrigido aqui só para refletir o código
+   já existente (implementado numa sessão anterior), sem alterar nada.
 5. Notas/diário do cuidador ligadas à timeline — funcionalidade mais pedida
    em todas as plataformas revistas (CarePredict, etc.), fecha o fosso entre
-   dados passivos e contexto humano.
+   dados passivos e contexto humano. **IMPLEMENTADO**: cartão "Notas do
+   cuidador" na vista Rotina diária (`addCaregiverNote()`/
+   `renderCaregiverNotes()`), persistido em localStorage
+   (`carewear_caregiver_notes`) — protótipo sem base de dados. Idem nota
+   acima: código já existia, só a marcação aqui estava desatualizada.
 6. Desenho consciente de "fadiga de alerta": escalonamento gradual antes de
    alertas fortes (achado explícito na literatura de RPM).
    **IMPLEMENTADO (protótipo, em duas partes no mesmo dia, 2026-07-03)**:
