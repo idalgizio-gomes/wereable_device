@@ -607,7 +607,7 @@
     </nav>
 
     <nav class="nav-group" id="navClinico" style="display:none;">
-      <span class="nav-group-label">Consulta clínica</span>
+      <span class="nav-group-label" id="navClinicoLabel">Consulta clínica</span>
       <button class="nav-item active" data-view="pacientes">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
         <span data-i18n="nav.patients">Pacientes</span>
@@ -1009,6 +1009,64 @@ const anomalyLog = [
   {id:'A-1035', patient:'Maria Silva', type:'Fisiológica', detail:'FC 92 bpm sustentada em repouso', detector:'Limiar clínico', conf:'—', sev:'critical', time:'01/07 21:04'},
 ];
 
+/* ------------------------------------------------------------
+   PACIENTES DO MÉDICO/TÉCNICO (protótipo, dados fictícios)
+   ------------------------------------------------------------
+   Um médico/técnico tem, na realidade, vários pacientes/wearables
+   emparelhados na mesma conta — antes só havia um paciente fixo
+   ("Maria Silva") sem forma de escolher outro. Isto adiciona essa
+   escolha na vista "Pacientes" (ver TEMPLATES.pacientes e
+   selectPatient()).
+   LIMITAÇÃO HONESTA DESTE PROTÓTIPO: selecionar aqui muda a
+   identidade/dispositivo apresentados nesta vista e os rótulos ligados a
+   ela, mas os dados "ao vivo" (vitais, rotina, alertas) continuam a vir
+   de UM único bridge/dispositivo físico ligado por BLE de cada vez — o
+   bridge (ble_bridge.py) ainda não suporta escolher/alternar entre vários
+   dispositivos por MAC (ver PROJECT_STATUS.md, backlog). Ou seja: esta
+   funcionalidade resolve a escolha ao nível da interface (qual paciente
+   estou a consultar agora), mas ligar fisicamente a um wearable diferente
+   ainda depende de qual dispositivo está por perto e é encontrado pelo
+   bridge — não é (ainda) uma troca de ligação BLE dirigida por MAC.
+------------------------------------------------------------ */
+const PATIENTS = [
+  {id:'p1', name:'Maria Silva', age:72, deviceName:'Wearable', mac:'E6:ED:42:57:1F:20', lastSync:'há 4 min', status:'good', activeAlerts:2},
+  {id:'p2', name:'António Ferreira', age:79, deviceName:'Wearable', mac:'C1:4A:9B:02:D3:6E', lastSync:'há 3h', status:'warn', activeAlerts:0},
+  {id:'p3', name:'Isabel Costa', age:68, deviceName:'Wearable', mac:'A8:2F:11:9C:44:B7', lastSync:'há 1 dia', status:'off', activeAlerts:1},
+];
+const SELECTED_PATIENT_KEY = 'carewear_selected_patient_id';
+
+function loadSelectedPatientId(){
+  try {
+    const saved = localStorage.getItem(SELECTED_PATIENT_KEY);
+    if (saved && PATIENTS.some(p => p.id === saved)) return saved;
+  } catch (e) { /* localStorage indisponível - usa omissão */ }
+  return PATIENTS[0].id;
+}
+let selectedPatientId = loadSelectedPatientId();
+
+function selectedPatient(){
+  return PATIENTS.find(p => p.id === selectedPatientId) || PATIENTS[0];
+}
+
+// Chamada pelo botão "Ligar a este wearable" em cada linha da tabela de
+// pacientes (TEMPLATES.pacientes). Atualiza a seleção, persiste em
+// localStorage, e re-renderiza a vista + os rótulos ligados ao paciente
+// selecionado (nav lateral). Ver limitação honesta no comentário acima —
+// isto não troca a ligação BLE real.
+function selectPatient(id){
+  selectedPatientId = id;
+  try { localStorage.setItem(SELECTED_PATIENT_KEY, id); }
+  catch (e) { /* quota excedida ou localStorage indisponível - seleção fica só nesta sessão */ }
+  updateClinicoPatientLabel();
+  renderView('pacientes');
+}
+
+function updateClinicoPatientLabel(){
+  const p = selectedPatient();
+  const label = document.getElementById('navClinicoLabel');
+  if (label) label.textContent = `${p.name} · ${p.age} anos`;
+}
+
 /* ============================================================
    NAVEGAÇÃO ENTRE ECRÃS (login vs app; utente vs médico/técnico)
 ============================================================ */
@@ -1088,6 +1146,7 @@ function login(){
   const isUtente = currentRole === 'utente';
   document.getElementById('navUtente').style.display = isUtente ? 'flex' : 'none';
   document.getElementById('navClinico').style.display = isUtente ? 'none' : 'flex';
+  updateClinicoPatientLabel();
   const pill = document.getElementById('sidebarRolePill');
   pill.textContent = t(isUtente ? 'login.role.utente' : 'login.role.clinico');
   pill.className = 'sidebar-role-pill ' + (isUtente ? 'utente' : 'clinico');
@@ -1732,22 +1791,27 @@ TEMPLATES.ajuda = () => `
 ============================================================ */
 TEMPLATES.pacientes = () => `
   <div class="card">
-    <div class="card-head"><div><h3>Pacientes monitorizados</h3><div class="card-sub">1 dispositivo emparelhado nesta conta</div></div></div>
+    <div class="card-head"><div><h3>Pacientes monitorizados</h3><div class="card-sub">${PATIENTS.length} dispositivos emparelhados nesta conta · escolhe qual estás a consultar</div></div></div>
     <table class="data-table">
-      <thead><tr><th>Paciente</th><th>Dispositivo</th><th>Última sincronização</th><th>Estado</th><th>Alertas ativos</th></tr></thead>
+      <thead><tr><th>Paciente</th><th>Dispositivo</th><th>Última sincronização</th><th>Estado</th><th>Alertas ativos</th><th></th></tr></thead>
       <tbody>
-        <tr>
-          <td><b>Maria Silva</b> · 72 anos</td>
-          <td class="num">Wearable · E6:ED:42:57:1F:20</td>
-          <td class="num">há 4 min</td>
-          <td>${pillHtml('good','Ligado')}</td>
-          <td>${pillHtml('critical','2 ativos')}</td>
-        </tr>
+        ${PATIENTS.map(p => `
+          <tr${p.id===selectedPatientId ? ' style="background:color-mix(in srgb, var(--accent) 10%, transparent);"' : ''}>
+            <td><b>${p.name}</b> · ${p.age} anos</td>
+            <td class="num">${p.deviceName} · ${p.mac}</td>
+            <td class="num">${p.lastSync}</td>
+            <td>${pillHtml(p.status==='good'?'good':p.status==='warn'?'warning':'critical', p.status==='good'?'Ligado':p.status==='warn'?'Instável':'Desligado')}</td>
+            <td>${p.activeAlerts > 0 ? pillHtml('critical', p.activeAlerts + ' ativo' + (p.activeAlerts>1?'s':'')) : pillHtml('good','Nenhum')}</td>
+            <td>${p.id===selectedPatientId
+              ? `<span class="empty-hint" style="padding:0;">Selecionado</span>`
+              : `<button class="btn-secondary" onclick="selectPatient('${p.id}')">Selecionar</button>`}</td>
+          </tr>`).join('')}
       </tbody>
     </table>
+    <p class="empty-hint">Selecionar um paciente muda a identidade apresentada nesta conta. <b>Nota importante</b>: neste protótipo, a ligação por Bluetooth real ao wearable continua limitada a um único dispositivo físico de cada vez (o que estiver por perto e for encontrado pelo bridge) — escolher aqui um paciente diferente não troca automaticamente qual wearable físico está ligado.</p>
   </div>
   <div class="card">
-    <div class="card-head"><h3>Alertas por severidade — Maria Silva</h3></div>
+    <div class="card-head"><h3>Alertas por severidade — ${selectedPatient().name}</h3></div>
     ${alerts.map((a,i) => alertRow(a,i)).join('')}
   </div>
 `;
