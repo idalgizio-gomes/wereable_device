@@ -166,33 +166,118 @@ Decisões já tomadas com o utilizador:
 - **Deteção automática (sem SOS manual)**: queda (freefall) + inatividade
   sustentada sem resposta do utilizador. Tempo de espera **60s** (não minutos),
   também editável.
-- Pendente: mapeamento de pinos do Wio-SX1262 para a XIAO nRF52840 (a
-  variante nRF52840 usa ligação por pinos, não o conector B2B da versão
-  ESP32S3 — os pinouts NÃO são iguais entre variantes). Fontes encontradas
-  até agora mencionam D6/D7 para série e D30/D31 para I2C nalgumas variantes
-  de terceiros (Meshtastic), mas os pinos SPI/CS/BUSY/DIO1/RESET do rádio em
-  si ainda não foram confirmados numa fonte fiável — não inventar pinos sem
-  confirmação, sob risco de danificar o módulo.
+- **Pinout do Wio-SX1262 — confirmado via esquemático real** (`Pulseira_Esquemático.pdf`,
+  fornecido pelo utilizador, ficheiro "a729bfd4-...-030409c9d36a", datado
+  2026-06-30 — placa custom, não um kit de terceiros): `VCC`→3.3V, `GND`→GND,
+  `DIO1`→**D7**, `RF_SW` (controlo da antena)→**AD2** (via R13 10k). SPI
+  partilhado nas redes `MISO`/`MOSI`/`SCK`. **Ainda por confirmar**: os
+  D-numbers exatos ligados a `NRST`, `SPI_NSS` (chip-select) e `BUSY` — texto
+  pequeno demais para ler com confiança; utilizador vai reenviar um recorte
+  aproximado dessa zona antes de se escrever o driver.
 - Ainda por decidir: quem são as "entidades competentes" concretas por
   utente (família vs serviços de emergência), e o provedor de SMS/email real
   a integrar no bridge (ex.: Twilio) — precisa de conta/credenciais do
   utilizador, não posso criar isso de forma autónoma.
 
+## Descobertas do esquemático real da placa (`Pulseira_Esquemático.pdf`)
+
+O utilizador partilhou o esquemático da placa custom (não é uma XIAO "nua" —
+é um design próprio à volta da XIAO nRF52840 Sense Plus). Corrige/acrescenta
+várias suposições anteriores:
+
+1. **Há um módulo GPS real (CAM-M8Q, u-blox) na placa**, ligado por I2C.
+   Corrige a secção "Riscos" anterior, que dizia incorretamente que não
+   havia GPS no hardware — a dependência `SparkFun u-blox GNSS Arduino
+   Library` já declarada em `platformio.ini` é para este módulo, ainda sem
+   nenhum código a usá-lo. Isto abre a porta a geofencing/deteção de
+   deambulação (wandering), uma funcionalidade validada como muito relevante
+   pela investigação (ver secção seguinte).
+2. **Podem existir DOIS botões físicos** (`BT1`→AD0, `BT2`→AD1 no
+   esquemático), nenhum ligado ao pino que o firmware lê (`BTN_PIN` = pino
+   digital 0, diferente de AD0/analógico 0 na numeração Arduino/XIAO).
+   **Hipótese a confirmar com o utilizador**: o "botão partido" pode nunca
+   ter estado fisicamente partido — pode estar ligado a um pino que o
+   firmware nunca leu. Não alterado ainda; precisa de confirmação física.
+3. **Existe um MAX32664 (hub sensor biométrico da Maxim) entre o MAX30101 e
+   o resto do sistema.** O firmware atual (`Ppg.cpp`) fala diretamente com
+   um MAX30105/30101 via a biblioteca SparkFun (registos em bruto), o que
+   pode estar a ignorar esse hub. Continua a produzir leituras reais
+   (confirmado em teste), mas pode não ser o caminho pretendido pelo design
+   original — a investigar sem urgência, já que funciona.
+4. Também presentes no esquemático, sem uso no firmware ainda: um boost
+   converter de 13V (MIC2288) e um LDO (MIC5365) — função exata por
+   confirmar (possível sensor/atuador adicional não documentado no código).
+
+## Backlog de investigação — funcionalidades e decisões técnicas
+
+Duas pesquisas alargadas (~90 fontes sobre wearables/dementia care, ~70
+fontes sobre IoMT/HAR/TinyML) trouxeram ideias concretas, priorizadas por
+relevância. Nenhuma implementada ainda — registo para priorização futura.
+
+**Funcionalidades (por ordem de valor percebido):**
+1. Explicações de anomalias em linguagem simples para a família (não só
+   scores técnicos) — maior valor percebido em quase todas as fontes.
+2. Métrica de "curvas apertadas"/pacing via giroscópio como sinal precoce
+   de deambulação (wandering), complementar ao geofencing por GPS.
+3. Modelos personalizados por pessoa (não populacionais) — literatura mostra
+   consistentemente melhor deteção de agitação/BPSD do que limiares
+   genéricos.
+4. Resumo noturno dedicado (tempo fora da cama, inquietação) — sundowning
+   é uma preocupação distinta da atividade diurna.
+5. Notas/diário do cuidador ligadas à timeline — funcionalidade mais pedida
+   em todas as plataformas revistas (CarePredict, etc.), fecha o fosso entre
+   dados passivos e contexto humano.
+6. Desenho consciente de "fadiga de alerta": escalonamento gradual antes de
+   alertas fortes (achado explícito na literatura de RPM).
+7. Exportação clínica em FHIR/PDF para a área Médico/Técnico.
+8. Gestão de consentimento/partilha de dados (quem vê o quê) — relevante
+   dado o contexto de demência (capacidade de consentimento é eticamente
+   sensível, ver PMC11990963).
+9. Lembretes de medicação + registo de adesão, correlacionado com
+   atividade/vitais.
+10. Múltiplos cuidadores/família com permissões por papel.
+
+**Decisões técnicas a considerar:**
+- `emlearn` (já nos repositórios com estrela do utilizador) cobre árvores
+  tipo scikit-learn mas **não XGBoost diretamente** — `micromlgen` suporta
+  XGBoost→C nativamente e pode ser necessário como complemento.
+- Regra prática para XGBoost em MCU: profundidade ≤3, ≤~4000 árvores no
+  total, para caber em flash — o artigo original usa profundidade 6, pode
+  exigir poda.
+- Considerar `CMSIS-DSP` (extração de features/FFT) como complemento ao
+  `CMSIS-NN`/`emlearn` antes da inferência.
+- Considerar modelos pré-treinados (`OxWearables/ssl-wearables`,
+  transfer learning) em vez de treinar do zero, dado o volume de dados
+  reais ainda limitado.
+- [TIHM Dataset](https://www.nature.com/articles/s41597-023-02519-y) (dados
+  reais multi-sensor de demência, com eventos adversos rotulados) — possível
+  fonte de validação externa para o detetor de anomalias, para além dos
+  dados sintéticos do artigo.
+- Arduino framework tem custo real de RAM/flash (~280KB flash/65KB RAM só
+  para BLE básico, segundo uma fonte) — migração para nRF Connect
+  SDK/Zephyr a considerar sobretudo se `mcuboot`/OTA (já no roadmap) avançar,
+  já que mcuboot é nativo do Zephyr.
+
 ## Riscos / bloqueios ativos
 
-1. **Botão físico de ligar/desligar partido.** Bypass por série (`WAKE`/`SLEEP`)
-   é só paliativo — não substitui reparação/substituição do botão.
+1. **Botão físico de ligar/desligar — estado incerto.** Pode estar ligado a
+   um pino diferente do que o firmware lê (ver "Descobertas do esquemático"
+   acima), não necessariamente partido. Bypass por série (`WAKE`/`SLEEP`)
+   continua ativo como paliativo até isto ser esclarecido.
 2. **Sem base de dados nem backend.** O dashboard web é um protótipo de
-   interface; não há ainda serviço que decifre os pacotes BLE (AES) e os
-   persista numa BD para os dados serem reais no dashboard.
+   interface; não há ainda serviço que persista os dados numa BD SQL para
+   os dados serem reais no dashboard (só os valores "ao vivo" via bridge o
+   são atualmente).
 3. **Sem classificador HAR embarcado.** As categorias de rotina no dashboard
    são simuladas — o pipeline do artigo (XGBoost + LSTM Autoencoder) ainda não
    foi implementado no firmware nem em nenhum serviço.
-4. **GPS/LoRa** mencionados no roadmap alargado não estão no hardware/firmware
-   atual (`SparkFun u-blox GNSS` é dependência declarada em `platformio.ini`
-   mas não usada em código nenhum).
+4. **GPS presente mas sem código.** Módulo CAM-M8Q real na placa (ver acima),
+   biblioteca já declarada mas nunca inicializada em `main.cpp`.
 5. Reduções de stack (RAM/CPU) ainda **não confirmadas** com dados reais de
    hardware — ver `DEBUG_STACK_WATERMARKS`.
+6. Possível descoordenação entre o driver PPG atual (acesso direto ao
+   MAX30101) e a presença de um hub MAX32664 no design — funciona, mas pode
+   não ser o caminho pretendido (ver "Descobertas do esquemático").
 
 ## Estudo de viabilidade TinyML (preliminar, ver conversa para detalhe)
 
@@ -201,9 +286,16 @@ já a correr). Avaliação teórica (não testada/treinada ainda):
 - Detetor de duração (regras): trivial, cabe facilmente.
 - XGBoost (400 árvores × 10 classes ≈ 4000 árvores internamente): duvidoso
   sem poda agressiva — provavelmente não cabe tal como descrito no artigo.
+  **Ferramentas identificadas** (ver "Backlog de investigação" acima):
+  `emlearn` (nos repositórios com estrela do utilizador) não cobre XGBoost
+  diretamente, só árvores tipo scikit-learn — `micromlgen` suporta
+  XGBoost→C nativamente. Regra prática da literatura: profundidade ≤3,
+  ≤~4000 árvores total, para caber em flash (o artigo usa profundidade 6).
 - LSTM Autoencoder: plausível com inferência em fluxo + quantização int8,
-  mas precisa de TensorFlow Lite Micro (~20-30KB de biblioteca) ou motor
-  próprio, e medição real (não só matemática de papel).
+  mas precisa de TensorFlow Lite Micro (~20-30KB de biblioteca) ou
+  `CMSIS-NN`/`CMSIS-DSP` (ARM, otimizado para este Cortex-M4F), e medição
+  real (não só matemática de papel). Considerar também partir de um modelo
+  pré-treinado (`OxWearables/ssl-wearables`) em vez de treinar do zero.
 Recomendação registada: treinar/quantizar primeiro, medir footprint/latência
 reais nesta placa antes de decidir "tudo embarcado" vs "classificador no
 backend" (o artigo já aponta este último como caminho comum).
