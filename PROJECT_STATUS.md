@@ -179,11 +179,16 @@ Decisões já tomadas com o utilizador:
 - **Pinout do Wio-SX1262 — confirmado via esquemático real** (`Pulseira_Esquemático.pdf`,
   fornecido pelo utilizador, ficheiro "a729bfd4-...-030409c9d36a", datado
   2026-06-30 — placa custom, não um kit de terceiros): `VCC`→3.3V, `GND`→GND,
-  `DIO1`→**D7**, `RF_SW` (controlo da antena)→**AD2** (via R13 10k). SPI
-  partilhado nas redes `MISO`/`MOSI`/`SCK`. **Ainda por confirmar**: os
-  D-numbers exatos ligados a `NRST`, `SPI_NSS` (chip-select) e `BUSY` — texto
-  pequeno demais para ler com confiança; utilizador vai reenviar um recorte
-  aproximado dessa zona antes de se escrever o driver.
+  `DIO1`→**D7**, `BUSY`→**D8**, `RF_SW` (controlo da antena)→**AD2** (via
+  R13 10k). SPI partilhado nas redes `MISO`/`MOSI`/`SCK`.
+- **Módulo `Lora.h`/`Lora.cpp` criado e integrado em `main.cpp`** (via
+  RadioLib), com falha segura e não-bloqueante — testado em hardware real
+  2026-07-03: `NSS=AD3` + `NRST` não controlado (`RADIOLIB_NC`) **falhou**
+  (`RADIOLIB_ERR_CHIP_NOT_FOUND`, código -2), confirmando que essa hipótese
+  estava errada — mas o resto do arranque (BLE/IMU/PPG/storage) continuou
+  normalmente, validando o desenho "falha segura". **Próximo passo**:
+  utilizador vai reenviar um recorte aproximado da zona NRST/SPI_NSS do
+  esquemático para confirmar os pinos certos antes de nova tentativa.
 - Ainda por decidir: quem são as "entidades competentes" concretas por
   utente (família vs serviços de emergência), e o provedor de SMS/email real
   a integrar no bridge (ex.: Twilio) — precisa de conta/credenciais do
