@@ -971,6 +971,52 @@ function buildTrend(seed){
 }
 const trendData = buildTrend(3);
 
+/* ============================================================
+   LIMIARES PERSONALIZADOS POR PESSOA (protótipo)
+   ------------------------------------------------------------
+   Backlog de investigação #3 (PROJECT_STATUS.md). A literatura revista
+   (Iaboni et al. 2022, "Wearable multimodal sensors... personalized
+   machine learning models"; revisões de "adaptive reference ranges" em
+   monitorização remota) mostra consistentemente que um limiar de alerta
+   igual para todos gera mais falsos positivos/negativos do que um
+   limiar calculado a partir da própria linha de base da pessoa.
+   Esta secção calcula essa linha de base (média + desvio-padrão) a
+   partir do histórico de tendência disponível (`trendData`, 7 dias) —
+   hoje sintético, porque ainda não existe o serviço de persistência
+   (ver PROJECT_STATUS.md, "Base de dados"); quando esse serviço
+   existir, a mesma função passa a receber histórico real sem precisar
+   de alterações. NÃO é ainda um modelo de ML treinado por pessoa (isso
+   exige histórico real acumulado) — é o primeiro passo honesto nessa
+   direção: um limiar estatístico adaptado ao indivíduo, em vez de um
+   valor de referência populacional fixo.
+============================================================ */
+function mean(arr){ return arr.reduce((s,v) => s+v, 0) / arr.length; }
+function stdDev(arr){
+  const m = mean(arr);
+  return Math.sqrt(mean(arr.map(v => (v-m)**2)));
+}
+const PERSONAL_THRESHOLD_K = 2; // média + 2×desvio-padrão ~ 95% dos dias dentro do intervalo (aprox. normal)
+function computePersonalBaseline(){
+  const fc = trendData.map(d => d.fc);
+  const sono = trendData.map(d => d.sono);
+  const passos = trendData.map(d => d.passos);
+  return {
+    fc:     { mean: mean(fc),     sd: stdDev(fc) },
+    sono:   { mean: mean(sono),   sd: stdDev(sono) },
+    passos: { mean: mean(passos), sd: stdDev(passos) },
+  };
+}
+const personalBaseline = computePersonalBaseline();
+
+function getAlertMode(){
+  return localStorage.getItem('carewear_alert_mode') || 'populacional';
+}
+function setAlertMode(mode){
+  localStorage.setItem('carewear_alert_mode', mode);
+  const activeItem = document.querySelector('.nav-item.active[data-view]');
+  if (activeItem) renderView(activeItem.dataset.view);
+}
+
 function buildHeatmap(seed){
   const rnd = seedRand(seed);
   const days=['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
@@ -1719,6 +1765,49 @@ TEMPLATES.definicoes = () => `
     </table>
     <p class="empty-hint">Protótipo — estes limites ainda não estão ligados a um backend de configuração persistente.</p>
   </div>
+
+  ${(() => {
+    const mode = getAlertMode();
+    const b = personalBaseline;
+    const fcPersonal = b.fc.mean + PERSONAL_THRESHOLD_K * b.fc.sd;
+    const sonoPersonalMin = Math.max(0, b.sono.mean - PERSONAL_THRESHOLD_K * b.sono.sd);
+    const passosPersonalMin = Math.max(0, Math.round(b.passos.mean - PERSONAL_THRESHOLD_K * b.passos.sd));
+    return `
+  <div class="card">
+    <div class="card-head"><div><h3>Limiares personalizados <span class="sim-flag">protótipo</span></h3><div class="card-sub">Calculados a partir do histórico de 7 dias desta pessoa, em vez de um valor fixo igual para todos</div></div></div>
+    <div class="role-toggle" style="margin-bottom:14px;">
+      <button type="button" aria-pressed="${mode === 'populacional'}" onclick="setAlertMode('populacional')">Limiares fixos (população)</button>
+      <button type="button" aria-pressed="${mode === 'personalizado'}" onclick="setAlertMode('personalizado')">Limiares personalizados</button>
+    </div>
+    <table class="data-table">
+      <thead><tr><th>Métrica</th><th>Linha de base desta pessoa (7 dias)</th><th>Limiar fixo</th><th>Limiar personalizado</th><th>Em uso</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>FC em repouso</td>
+          <td class="num">${b.fc.mean.toFixed(0)} ± ${b.fc.sd.toFixed(1)} bpm</td>
+          <td class="num">&gt; 100 bpm</td>
+          <td class="num">&gt; ${fcPersonal.toFixed(0)} bpm</td>
+          <td>${pillHtml(mode === 'personalizado' ? 'good' : 'neutral', mode === 'personalizado' ? 'Personalizado' : 'Fixo')}</td>
+        </tr>
+        <tr>
+          <td>Sono por noite</td>
+          <td class="num">${b.sono.mean.toFixed(1)} ± ${b.sono.sd.toFixed(1)} h</td>
+          <td class="num">&lt; 5 h</td>
+          <td class="num">&lt; ${sonoPersonalMin.toFixed(1)} h</td>
+          <td>${pillHtml(mode === 'personalizado' ? 'good' : 'neutral', mode === 'personalizado' ? 'Personalizado' : 'Fixo')}</td>
+        </tr>
+        <tr>
+          <td>Passos diários</td>
+          <td class="num">${Math.round(b.passos.mean)} ± ${Math.round(b.passos.sd)}</td>
+          <td class="num">&lt; 1500</td>
+          <td class="num">&lt; ${passosPersonalMin}</td>
+          <td>${pillHtml(mode === 'personalizado' ? 'good' : 'neutral', mode === 'personalizado' ? 'Personalizado' : 'Fixo')}</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="empty-hint">Cálculo: média ± ${PERSONAL_THRESHOLD_K}×desvio-padrão do histórico de 7 dias desta pessoa (cobre cerca de 95% dos dias, assumindo uma distribuição aproximadamente normal — uma amostra de 7 dias é pequena, por isso este intervalo é só indicativo). Baseado em dados de tendência ainda sintéticos (ver "Tendência — últimos 7 dias") — quando o serviço de persistência local existir (ver PROJECT_STATUS.md, "Base de dados"), o histórico real substitui o sintético sem alterar este cálculo. Isto ainda não é um modelo de ML por pessoa — é a base estatística sobre a qual esse modelo poderia vir a ser construído.</p>
+  </div>`;
+  })()}
 
   <div class="card danger-zone">
     <div class="card-head"><div><h3>Zona de risco</h3><div class="card-sub">Ações destrutivas e irreversíveis</div></div></div>

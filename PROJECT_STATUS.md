@@ -262,6 +262,12 @@ Ficheiro: `web/dashboard/index.html` (versionado no repo).
   heatmap, tendência, FC) ganharam `role="img"` + `aria-label` descritivo —
   antes eram invisíveis para leitores de ecrã, sem qualquer alternativa
   textual.
+- **Limiares personalizados por pessoa (item 3 do backlog, protótipo)**: novo
+  cartão "Limiares personalizados" na vista Definições, com alternador
+  Limiares fixos (população) / Limiares personalizados. Calcula média ±
+  2×desvio-padrão do histórico de 7 dias desta pessoa (FC, sono, passos) a
+  partir de `trendData` e compara lado a lado com os limiares fixos atuais.
+  Ver detalhe e limitações na secção "Backlog de investigação" acima.
 
 ## Modelo de Machine Learning (`ml/`)
 
@@ -424,7 +430,8 @@ várias suposições anteriores:
 
 Duas pesquisas alargadas (~90 fontes sobre wearables/dementia care, ~70
 fontes sobre IoMT/HAR/TinyML) trouxeram ideias concretas, priorizadas por
-relevância. Nenhuma implementada ainda — registo para priorização futura.
+relevância. Progresso por item marcado abaixo (rotina diária de melhoria
+do dashboard segue esta lista, por ordem, item a item).
 
 **Funcionalidades (por ordem de valor percebido):**
 1. Explicações de anomalias em linguagem simples para a família (não só
@@ -439,7 +446,23 @@ relevância. Nenhuma implementada ainda — registo para priorização futura.
    não existe no firmware — só a visualização/conceito no dashboard.
 3. Modelos personalizados por pessoa (não populacionais) — literatura mostra
    consistentemente melhor deteção de agitação/BPSD do que limiares
-   genéricos.
+   genéricos. **IMPLEMENTADO (nível estatístico, protótipo) — 2026-07-03**:
+   pesquisa adicional desta sessão (Iaboni et al. 2022, "Wearable multimodal
+   sensors... personalized machine learning models", PMC9043905; revisões de
+   "adaptive reference ranges" em monitorização remota) confirma que
+   limiares fixos e iguais para todos geram mais falsos positivos/negativos
+   do que limiares calculados a partir da própria linha de base da pessoa.
+   Implementado em `web/dashboard/index.html` (vista Definições, cartão
+   "Limiares personalizados"): calcula média ± 2×desvio-padrão do histórico
+   de 7 dias desta pessoa (FC, sono, passos) e permite alternar entre limiar
+   fixo (população) e limiar personalizado, com persistência em
+   `localStorage` (`carewear_alert_mode`). **Não é ainda um modelo de ML
+   treinado por pessoa** — isso exigiria histórico real acumulado, que só
+   existirá depois do serviço de persistência (Prioridade 4 — Base de
+   dados) estar construído; hoje o cálculo usa o histórico de tendência
+   sintético já existente (`trendData`). É o primeiro passo honesto nessa
+   direção: um limiar estatístico adaptado ao indivíduo, não um modelo de
+   aprendizagem automática por pessoa.
 4. Resumo noturno dedicado (tempo fora da cama, inquietação) — sundowning
    é uma preocupação distinta da atividade diurna.
 5. Notas/diário do cuidador ligadas à timeline — funcionalidade mais pedida
