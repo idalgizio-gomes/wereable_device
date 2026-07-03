@@ -3125,7 +3125,7 @@ TEMPLATES.limites = () => `
 
 TEMPLATES.exportar = () => `
   <div class="card print-hide">
-    <div class="card-head"><div><h3>Resumo clínico (FHIR / PDF)</h3><div class="card-sub">Diferente da exportação acima: cobre só o que está visível nesta sessão (alertas, anomalias, tendências), não o histórico completo — por isso já funciona sem depender da base de dados</div></div></div>
+    <div class="card-head"><div><h3>Resumo clínico (FHIR / PDF)</h3><div class="card-sub">Diferente da exportação abaixo: cobre só o que está visível nesta sessão (alertas, anomalias, tendências), não o histórico completo — por isso já funciona sem depender da base de dados</div></div></div>
     <div style="display:flex; gap:10px; flex-wrap:wrap;">
       <button class="btn-secondary" onclick="exportFhirSummary()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
@@ -3137,6 +3137,22 @@ TEMPLATES.exportar = () => `
       </button>
     </div>
     <p class="empty-hint">O FHIR aqui é uma estrutura simplificada (recursos Patient + Observation), pensada para dar uma ideia do formato — não é uma implementação certificada/validada contra o standard completo. A opção de PDF usa a função de impressão do próprio browser ("Guardar como PDF" no destino).</p>
+  </div>
+
+  <div class="card print-hide">
+    <div class="card-head"><div><h3>Dados reais (CSV)</h3><div class="card-sub">Histórico persistido pelo bridge em base de dados local (SQLite) — cada amostra de sensores recebida do wearable, não só o que está visível nesta sessão. CSV é lido diretamente por praticamente qualquer ferramenta SQL/de dados (SQLite, PostgreSQL, MySQL, Excel, pandas, etc.)</div></div></div>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+      <button class="btn-secondary" onclick="exportRealCsv(24)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+        Exportar últimas 24h (CSV)
+      </button>
+      <button class="btn-secondary" onclick="exportRealCsv(24*7)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+        Exportar últimos 7 dias (CSV)
+      </button>
+      <span class="empty-hint" id="csvExportHint" style="margin:0;"></span>
+    </div>
+    <p class="empty-hint">Requer ligação ativa ao bridge (ver estado no topo da página) — sem ligação não há como pedir o histórico ao serviço de persistência.</p>
   </div>
 
   <div class="print-only" id="clinicalPrintSheet"></div>
@@ -3788,6 +3804,10 @@ function handleBridgeMessage(msg){
     onLiveEmergencyAlert(msg);
     return;
   }
+  if (msg.kind === 'csv_export'){
+    handleCsvExportResult(msg);
+    return;
+  }
   if (msg.kind === 'record'){
     // Espelha o payload real gravado pelo firmware (ImuPpgPayloadV1 /
     // FullPlain — ver storageTask em main.cpp e Ble.cpp): spo2/hr vêm a
@@ -3859,6 +3879,14 @@ function scheduleReconnect(){
 function sendWsCommand(cmd){
   if (!bridgeWs || bridgeWs.readyState !== WebSocket.OPEN) return false;
   bridgeWs.send(JSON.stringify({cmd}));
+  return true;
+}
+
+// Variante que envia campos extra além de "cmd" (ex.: {cmd:"export_csv",
+// hours:24}) — sendWsCommand() sozinho só serve pedidos sem parâmetros.
+function sendWsCommandWithArgs(cmd, extra){
+  if (!bridgeWs || bridgeWs.readyState !== WebSocket.OPEN) return false;
+  bridgeWs.send(JSON.stringify({cmd, ...extra}));
   return true;
 }
 
@@ -4023,6 +4051,53 @@ function downloadJson(filenamePrefix, data){
 
 function exportFhirSummary(){
   downloadJson('carewear-fhir-resumo', buildFhirBundle());
+}
+
+// Descarrega texto CSV já pronto (recebido do bridge) — mesma técnica de
+// Blob + <a download> usada em downloadJson(), mas sem o JSON.stringify.
+function downloadCsvText(filenamePrefix, csvText){
+  const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${filenamePrefix}-${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/* ------------------------------------------------------------
+   EXPORTAÇÃO CSV DE DADOS REAIS — ligado à base de dados SQLite do
+   bridge (bridge/storage.py), pedido do utilizador (2026-07-03):
+   "quero que dê para exportar os dados também em CSV" — CSV é lido
+   diretamente por praticamente qualquer ferramenta SQL/de dados
+   (SQLite .import, PostgreSQL COPY, MySQL LOAD DATA, Excel, pandas).
+   Diferente do FHIR/PDF acima (que só cobre o que está visível nesta
+   sessão): isto pede ao bridge o histórico real persistido em disco.
+------------------------------------------------------------ */
+function exportRealCsv(hours){
+  const hint = document.getElementById('csvExportHint');
+  if (!liveState.connected && !(bridgeWs && bridgeWs.readyState === WebSocket.OPEN)){
+    if (hint){ hint.style.color = 'var(--status-warning)'; hint.textContent = 'Sem ligação ao bridge — não é possível exportar agora.'; }
+    return;
+  }
+  const sent = sendWsCommandWithArgs('export_csv', { hours });
+  if (!sent){
+    if (hint){ hint.style.color = 'var(--status-warning)'; hint.textContent = 'Não foi possível contactar o bridge.'; }
+    return;
+  }
+  if (hint){ hint.style.color = ''; hint.textContent = 'A gerar CSV…'; }
+}
+
+function handleCsvExportResult(msg){
+  const hint = document.getElementById('csvExportHint');
+  if (msg.error || !msg.csv){
+    if (hint){ hint.style.color = 'var(--status-warning)'; hint.textContent = `Falhou: ${msg.error || 'sem dados'}.`; }
+    return;
+  }
+  downloadCsvText('carewear-dados-reais', msg.csv);
+  if (hint){ hint.style.color = 'var(--status-good)'; hint.textContent = 'CSV descarregado.'; }
 }
 
 // Monta a folha de impressão (#clinicalPrintSheet, só visível em

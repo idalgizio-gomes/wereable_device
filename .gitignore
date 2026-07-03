@@ -12,3 +12,8 @@
 ml/data/*.csv
 __pycache__/
 *.pyc
+
+# Base de dados local do bridge (bridge/storage.py) — dados reais gravados
+# pelo próprio utilizador em runtime, não código nem dados de exemplo do
+# repositório; cada instalação gera o seu próprio ficheiro.
+bridge/*.db
