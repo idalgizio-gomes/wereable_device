@@ -35,12 +35,16 @@ bool s_ready = false;
 } // namespace
 
 bool begin() {
-  // O RF_SW e' um pino simples de controlo da antena (nao faz parte do
-  // protocolo SPI do radio) — configura-se como saida digital normal,
-  // ligado (HIGH) para permitir a transmissao/receção pela antena.
-  pinMode(kPinRfSwitch, OUTPUT);
-  digitalWrite(kPinRfSwitch, HIGH);
-
+  // IMPORTANTE (bug encontrado e corrigido em 2026-07-03): o RF_SW e'
+  // partilhado entre a antena BLE (2.4GHz) e a antena LoRa (868MHz) nesta
+  // placa. Comutar este pino ANTES de confirmar que o radio LoRa
+  // realmente inicializou corta fisicamente o BLE, mesmo que a pilha BLE
+  // continue "a pensar" que esta a anunciar-se normalmente (foi visto em
+  // hardware real: LED do BLE pisca e depois apaga assim que initLora()
+  // corre a seguir a initBleDataLink()). Por isso o RF_SW so e' tocado
+  // DEPOIS de confirmarmos sucesso — se a inicializacao falhar, o pino
+  // fica no estado por omissao (nao configurado) e o BLE continua a usar
+  // a antena normalmente.
   Serial.println("[LORA] a inicializar SX1262...");
   const int16_t state = s_radio.begin(kFrequencyMHz, kBandwidthKHz, kSpreadingFactor,
                                        kCodingRate, kSyncWord, kTxPowerDbm);
@@ -55,6 +59,11 @@ bool begin() {
     s_ready = false;
     return false;
   }
+
+  // So chegamos aqui se o radio LoRa respondeu corretamente ao SPI — so
+  // agora e' seguro comutar a antena partilhada para o caminho LoRa.
+  pinMode(kPinRfSwitch, OUTPUT);
+  digitalWrite(kPinRfSwitch, HIGH);
 
   Serial.println("[LORA] SX1262 inicializado com sucesso");
   s_ready = true;

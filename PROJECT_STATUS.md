@@ -314,6 +314,36 @@ relevância. Nenhuma implementada ainda — registo para priorização futura.
 6. Possível descoordenação entre o driver PPG atual (acesso direto ao
    MAX30101) e a presença de um hub MAX32664 no design — funciona, mas pode
    não ser o caminho pretendido (ver "Descobertas do esquemático").
+7. **Bug encontrado e corrigido (2026-07-03): `Lora::begin()` cortava o BLE.**
+   O RF switch partilhado entre a antena BLE e a antena LoRa (pino `A2`,
+   `kPinRfSwitch`) era ligado incondicionalmente no início de `Lora::begin()`,
+   antes de se saber se a inicialização do rádio LoRa tinha sucesso. Como o
+   LoRa falha sempre nesta placa (pinout NSS ainda por confirmar — ver
+   "Descobertas do esquemático"), isto cortava fisicamente a antena BLE assim
+   que `initLora()` corria a seguir a `initBleDataLink()` no `setup()`,
+   mesmo com a pilha BLE a reportar-se como "a anunciar" normalmente.
+   Sintoma observado em hardware real: LED do BLE piscava e apagava-se
+   pouco depois do arranque; `BleakScanner` (via `ble_bridge.py` e testes
+   diretos) deixava de encontrar o dispositivo, nem por nome nem pelo UUID
+   do serviço custom. Corrigido em `src/Lora/Lora.cpp`: o RF switch só é
+   tocado (`pinMode`/`digitalWrite`) DEPOIS de `s_radio.begin()` confirmar
+   sucesso — em caso de falha, o pino fica no estado por omissão e o BLE
+   continua a usar a antena normalmente. **Ainda por confirmar em hardware**
+   porque a porta USB da placa deixou de ser detetada pelo Windows a meio do
+   reteste (ver ponto 8).
+8. **Bloqueio ativo (2026-07-03): placa deixou de ser detetada por USB.**
+   Depois de um upload bem-sucedido (firmware com `DEBUG_DISABLE_SLEEP=1`,
+   ainda com o bug do ponto 7 por corrigir nesse build), um ciclo de
+   desligar/religar USB pedido para destravar a porta série (que estava
+   "pendurada" a nível do Windows) resultou na placa deixar de ser detetada
+   de todo — nem porta COM, nem unidade de bootloader UF2, nem sequer um
+   "dispositivo desconhecido" no Gestor de Dispositivos. Testado com cabo
+   USB diferente e porta USB diferente do PC, sem qualquer reação do
+   Windows (nem o som habitual de dispositivo ligado). LED verde (alimentação)
+   continua aceso. Isto aponta para um problema elétrico nas linhas de
+   dados USB (cabo/porta já excluídos) — pode ser o conector USB da própria
+   placa. Ainda por resolver; o utilizador vai inspecionar visualmente o
+   conector. **Não tentar mais uploads até a placa voltar a ser detetada.**
 
 ## Estudo de viabilidade TinyML (atualizado 2026-07-03 com dados concretos)
 
