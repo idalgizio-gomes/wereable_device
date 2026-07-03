@@ -533,6 +533,47 @@ trabalho já feito aqui para o item 8 foi descartado (nunca chegou a ser
 commitado) para não duplicar, e esta execução avançou para o item 9
 (lembretes de medicação) em vez disso — ver detalhe em cada item abaixo.
 
+**Pesquisa mais aprofundada (2026-07-03, sessão interativa, pedido
+explícito do utilizador de "mais pesquisas por tema")**: 8 buscas
+adicionais, cobrindo break-glass access (segurança/saúde), rate-limiting
+de OTP por SMS, adesão a medicação com pillboxes/wearables inteligentes,
+estatísticas de não-adesão específicas de demência, resolução de
+conflitos entre cuidadores familiares, HIPAA/GDPR e consentimento
+granular, eficácia real de GPS/geofencing para wandering, e algoritmos de
+deteção de queda por acelerómetro. Aplicações concretas:
+- **Bug de segurança real corrigido** no modal de cancelamento de
+  emergência: o limite de 3 tentativas antes só acrescentava uma frase ao
+  aviso, mas continuava a aceitar tentativas indefinidamente — o
+  "bloqueio" era cosmético. Corrigido para bloquear mesmo, e adicionado
+  TTL de 5 min ao código (valor comum na indústria — Twilio/Plivo),
+  alinhado com práticas reais de OTP por SMS.
+- **Break-glass confirma o desenho já escolhido**: acesso de emergência
+  deve ser raro/auditável/temporário, nunca um bypass de rotina — o
+  registo de quem/quando em `resolvedNote` já cobre a parte de
+  auditoria.
+- **Estatística concreta de adesão em demência**: 17-42% de adesão
+  documentada, com défice cognitivo + ausência de cuidador coabitante
+  como principais fatores de risco (não "idade" isoladamente) — sugere
+  que, quando o histórico real existir, os alertas de adesão deviam
+  pesar mais para pacientes sem cuidador residente, não só a contagem de
+  doses falhadas.
+- **HIPAA/GDPR confirma o desenho de consentimento**: princípio do
+  "mínimo necessário" e revogação a qualquer momento — já é o que
+  `loadConsent()`/`setConsent()` implementam.
+- **GPS/geofencing — evidência mista, não definitiva**: revisões
+  sistemáticas recentes (2025-2026) mostram promessa mas consideram a
+  evidência de benefício clínico ainda insuficiente — reforça a decisão
+  já tomada de tratar o cartão de pacing/GPS como "sinal complementar",
+  não uma alegação de eficácia clínica provada.
+- **Deteção de queda — direção futura de firmware, não aplicada agora**:
+  a pesquisa aponta um sistema de coordenadas "ground-face" (independente
+  da orientação do dispositivo no corpo) como técnica real de redução de
+  falsos positivos, distinta do limiar simples de aceleração usado hoje
+  em `Imu.cpp`. Não implementado nesta sessão (exigiria acesso a
+  hardware para validar, indisponível — ver "Riscos/bloqueios ativos");
+  registado aqui como ideia concreta para quando o hardware voltar a
+  estar acessível.
+
 **Funcionalidades (por ordem de valor percebido):**
 1. Explicações de anomalias em linguagem simples para a família (não só
    scores técnicos) — maior valor percebido em quase todas as fontes.
