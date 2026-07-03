@@ -43,6 +43,7 @@
 #include "QspiRingBuffer/QspiRingBuffer.h" // "Diário" circular de registos guardado na flash externa (QSPI)
 #include "Clock/Clock.h"               // Relógio interno (hora/data), sincronizado via BLE
 #include "Lora/Lora.h"                 // Rádio LoRa Wio-SX1262 (experimental — ver Lora.h)
+#include "Emergency/Emergency.h"       // Deteção de emergência: SOS manual + queda/inatividade (ver Emergency.h)
 
 // ============================================================
 // FLAGS DE CONFIGURAÇÃO (interruptores para ligar/desligar comportamentos)
@@ -863,6 +864,8 @@ void setup() {
   initBleDataLink();
   Serial.println("[BOOT] step: initLora");
   initLora();
+  Serial.println("[BOOT] step: initEmergency");
+  Emergency::begin(BTN_PIN);
   Serial.println("[BOOT] step: showHourDateScreen");
   showHourDateScreen();
   Serial.println("[BOOT] step: setup done");
@@ -895,7 +898,17 @@ void loop() {
       goToSleep();
       return;
     }
+    // *** DEBUG TEMPORÁRIO ***: comando "SOS" pela série dispara um
+    // alerta de emergência de teste, sem depender do gesto de cliques no
+    // botão físico (útil enquanto esse botão estiver por confirmar/testar
+    // — ver Emergency.h e o bloqueio de deteção USB em PROJECT_STATUS.md).
+    if (serialCommandReceived("SOS")) {
+      Serial.println("[DEBUG] comando SOS recebido -> a disparar alerta de teste");
+      Emergency::triggerTestAlert();
+    }
 #endif
+    Emergency::update();
+
     if (buttonPressedStable()) {
       // (String corrigida: tinha um byte de codificacao invalido no "ã",
       // que aparecia como lixo no monitor serie.)
