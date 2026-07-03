@@ -81,6 +81,20 @@
 #define DEBUG_SERIAL_WAKE 1
 
 // ------------------------------------------------------------
+// *** DEBUG TEMPORÁRIO — REMOVER NO FIM DESTA FASE DE TESTES ***
+// A cada teste em hardware, o dispositivo entrava em SYSTEM_OFF (baixo
+// consumo) por inatividade/long-press e exigia todo o ciclo de "acordar
+// fisicamente com reset + enviar WAKE pela série" outra vez — muito lento
+// para uma sessão de testes com várias iterações seguidas. Com esta flag
+// a 1, goToSleep() fica praticamente desativado: regista a intenção no
+// Serial mas NÃO desliga o dispositivo, mantendo-o sempre ligado e
+// acessível por BLE/série. Poupança de energia fica sacrificada de
+// propósito durante o desenvolvimento. Voltar a 0 antes de qualquer uso
+// real com bateria (senão a bateria nunca dura, o dispositivo nunca
+// entra realmente em baixo consumo).
+#define DEBUG_DISABLE_SLEEP 1
+
+// ------------------------------------------------------------
 // *** DIAGNOSTICO TEMPORARIO — otimizacao de RAM ***
 // Com esta flag a 1, o loop() imprime periodicamente quanta stack cada
 // task do FreeRTOS ainda tem de folga (o minimo historico, "high water
@@ -413,6 +427,10 @@ bool waitForLongPress() {
 // ou comportamento estranho no próximo arranque.
 // ============================================================
 void goToSleep() {
+#if DEBUG_DISABLE_SLEEP
+  Serial.println("[DEBUG] goToSleep() pedido, mas DEBUG_DISABLE_SLEEP=1 -> a ignorar (dispositivo continua ligado)");
+  return;
+#endif
   Serial.println("A desligar...");
   Serial.flush();
   isRunning = false;
@@ -753,11 +771,23 @@ void setup() {
 #if DEBUG_SERIAL_WAKE
   Serial.println("[DEBUG] botao fisico indisponivel: escreve WAKE + Enter para ligar");
 #endif
+#if DEBUG_DISABLE_SLEEP
+  // Com o "dormir" desativado (ver DEBUG_DISABLE_SLEEP), nao faz sentido
+  // esperar pelo botao/WAKE aqui — arranca logo a fundo, exatamente como
+  // se um WAKE tivesse chegado, para evitar qualquer caminho que
+  // terminasse a chamar goToSleep() (que agora e' um no-op) e deixasse o
+  // setup() sair sem nunca ter ligado nada.
+  Serial.println("[DEBUG] DEBUG_DISABLE_SLEEP=1 -> a arrancar sempre, sem esperar por botao/WAKE");
+  debugForcedWake = true;
+#endif
 
+#if !DEBUG_DISABLE_SLEEP
   // Anti-glitch: se o botão não estiver a ser premido (LOW) pouco depois
   // de o chip arrancar, assume-se que o "acordar" foi espúrio (ruído
   // elétrico, ligação USB, etc.) e volta-se a dormir passados 8s sem
-  // confirmação, para poupar bateria.
+  // confirmação, para poupar bateria. Todo este bloco fica desativado
+  // quando DEBUG_DISABLE_SLEEP=1 (debugForcedWake já vem true de cima),
+  // para nenhum caminho conseguir sair do setup() sem arrancar.
   const uint32_t waitPressStart = millis();
   while (digitalRead(BTN_PIN) == HIGH) {
 #if DEBUG_SERIAL_WAKE
@@ -774,6 +804,7 @@ void setup() {
     }
     delay(5);
   }
+#endif // !DEBUG_DISABLE_SLEEP
 
   // Botão está premido ao arrancar -> só liga mesmo se for um long-press
   // (5s), para evitar ligar por engano com um toque acidental curto.
