@@ -189,6 +189,15 @@ Decisões já tomadas com o utilizador:
   normalmente, validando o desenho "falha segura". **Próximo passo**:
   utilizador vai reenviar um recorte aproximado da zona NRST/SPI_NSS do
   esquemático para confirmar os pinos certos antes de nova tentativa.
+- **Pesquisa online (2026-07-03) não encontrou pinout oficial aplicável**:
+  nenhuma fonte pública (Seeed wiki, variantes Meshtastic oficiais, fórum
+  Seeed) usa a mesma combinação DIO1=D7/BUSY=D8/RF_SW=AD2 — confirma que
+  esta é mesmo uma placa custom sem precedente documentado publicamente.
+  As variantes oficiais também usam DIO2 interno como RF switch automático
+  (sem pino de MCU dedicado), diferente do design aqui (RF_SW em AD2) — a
+  polaridade correta de RF_SW (ativo alto ou baixo) também não tem
+  documentação pública encontrada. **Conclusão**: só o recorte do
+  esquemático real resolve isto, pesquisa externa esgotada por agora.
 - Ainda por decidir: quem são as "entidades competentes" concretas por
   utente (família vs serviços de emergência), e o provedor de SMS/email real
   a integrar no bridge (ex.: Twilio) — precisa de conta/credenciais do
@@ -214,11 +223,23 @@ várias suposições anteriores:
    ter estado fisicamente partido — pode estar ligado a um pino que o
    firmware nunca leu. Não alterado ainda; precisa de confirmação física.
 3. **Existe um MAX32664 (hub sensor biométrico da Maxim) entre o MAX30101 e
-   o resto do sistema.** O firmware atual (`Ppg.cpp`) fala diretamente com
-   um MAX30105/30101 via a biblioteca SparkFun (registos em bruto), o que
-   pode estar a ignorar esse hub. Continua a produzir leituras reais
-   (confirmado em teste), mas pode não ser o caminho pretendido pelo design
-   original — a investigar sem urgência, já que funciona.
+   o resto do sistema — RISCO REAL confirmado por pesquisa (2026-07-03).**
+   O firmware atual (`Ppg.cpp`) fala diretamente com o MAX30105/30101 via a
+   biblioteca SparkFun (registos em bruto). Nos designs de referência da
+   Maxim/SparkFun, o MAX32664 deve ser o **único mestre I2C** ligado ao
+   sensor — o MCU nunca deveria "ver" o MAX30101 diretamente, só o
+   protocolo de alto nível do hub. Ter os dois ligados em paralelo às
+   mesmas linhas `S_SDA`/`S_SCL` (como parece ser o caso aqui) não é uma
+   topologia validada e pode causar leituras corrompidas ou bloqueio do
+   barramento se o hub estiver ativo ao mesmo tempo. **Confirmado pelo
+   utilizador**: o MAX32664 está soldado e ligado no design (não é uma
+   posição vazia) — não há confirmação se está a causar problemas.
+   Funciona até agora provavelmente porque o hub está inativo/em reset
+   (ver pino `IRST` no esquemático, com pull-up R8 10k e jumper JP1 — pode
+   ser o controlo de reset do hub, por confirmar). **Ação recomendada**:
+   verificar fisicamente se JP1 está montado/em que posição, e considerar
+   isolar o hub (não alimentar ou manter em reset) até se decidir usar o
+   protocolo dele em vez do acesso direto atual.
 4. Também presentes no esquemático, sem uso no firmware ainda: um boost
    converter de 13V (MIC2288) e um LDO (MIC5365) — função exata por
    confirmar (possível sensor/atuador adicional não documentado no código).
@@ -294,26 +315,38 @@ relevância. Nenhuma implementada ainda — registo para priorização futura.
    MAX30101) e a presença de um hub MAX32664 no design — funciona, mas pode
    não ser o caminho pretendido (ver "Descobertas do esquemático").
 
-## Estudo de viabilidade TinyML (preliminar, ver conversa para detalhe)
+## Estudo de viabilidade TinyML (atualizado 2026-07-03 com dados concretos)
 
 Recursos livres nesta placa: ~220KB RAM, ~638KB flash (com IMU/PPG/BLE/storage
-já a correr). Avaliação teórica (não testada/treinada ainda):
-- Detetor de duração (regras): trivial, cabe facilmente.
-- XGBoost (400 árvores × 10 classes ≈ 4000 árvores internamente): duvidoso
-  sem poda agressiva — provavelmente não cabe tal como descrito no artigo.
-  **Ferramentas identificadas** (ver "Backlog de investigação" acima):
-  `emlearn` (nos repositórios com estrela do utilizador) não cobre XGBoost
-  diretamente, só árvores tipo scikit-learn — `micromlgen` suporta
-  XGBoost→C nativamente. Regra prática da literatura: profundidade ≤3,
-  ≤~4000 árvores total, para caber em flash (o artigo usa profundidade 6).
+já a correr).
+
+- Detetor de duração (regras): trivial, cabe facilmente. Sem mudanças.
+- **XGBoost — CONFIRMADO INVIÁVEL tal como descrito no artigo, decisão
+  técnica tomada.** Pesquisa aprofundada (2026-07-03) revelou que 400
+  estimadores × 10 classes não são 400 árvores — o modo multiclasse do
+  XGBoost treina uma árvore por classe por ronda de boosting, logo o
+  modelo real tem **~4000 árvores internas**, não 400. Um precedente real
+  publicado mostrou 500 árvores a exigir 553–727KB de flash só para caber
+  — praticamente o orçamento de flash inteiro desta placa, para APENAS UM
+  OITAVO do número de árvores do artigo. `micromlgen` (que suporta
+  XGBoost→C) existe mas está sem manutenção (repo arquivado) e tem bugs
+  documentados por resolver. **Recomendação técnica (a confirmar com o
+  utilizador antes de agir)**: não portar o XGBoost tal como está —
+  treinar antes um **Random Forest com ~50-100 árvores rasas (profundidade
+  ≤4-5)** e usar `emlearn` (mantido ativamente, já comprovado em hardware
+  nRF52 real segundo a pesquisa) como caminho principal. `micromlgen`/
+  XGBoost fica só como alternativa de recurso se a precisão do Random
+  Forest não for suficiente.
 - LSTM Autoencoder: plausível com inferência em fluxo + quantização int8,
   mas precisa de TensorFlow Lite Micro (~20-30KB de biblioteca) ou
   `CMSIS-NN`/`CMSIS-DSP` (ARM, otimizado para este Cortex-M4F), e medição
   real (não só matemática de papel). Considerar também partir de um modelo
   pré-treinado (`OxWearables/ssl-wearables`) em vez de treinar do zero.
-Recomendação registada: treinar/quantizar primeiro, medir footprint/latência
-reais nesta placa antes de decidir "tudo embarcado" vs "classificador no
-backend" (o artigo já aponta este último como caminho comum).
+
+**Nota importante**: mudar de XGBoost para Random Forest é uma mudança
+metodológica em relação ao artigo científico original do projeto — decisão
+que precisa de validação do utilizador antes de se avançar com o treino,
+não só uma escolha de implementação.
 
 ## Rotinas cloud agendadas (via `/schedule`)
 

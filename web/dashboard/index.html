@@ -1174,6 +1174,13 @@ TEMPLATES.resumo = () => `
       </div>
     </div>
   </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div><h3>Resumo noturno <span class="sim-flag">dados simulados</span></h3><div class="card-sub">A agitação/deambulação noturna ("sundowning") é uma preocupação distinta da atividade diurna — pedido de investigação de plataformas semelhantes</div></div>
+    </div>
+    <div id="nightSummary"></div>
+  </div>
 `;
 AFTER_RENDER.resumo = () => {
   drawRoutineTimeline('cvRoutineToday', routineToday, 'Rotina de hoje');
@@ -1181,7 +1188,59 @@ AFTER_RENDER.resumo = () => {
   drawHeatmap('cvHeatmap');
   drawTrend('cvTrend');
   applyLiveVitals();
+  renderNightSummary();
 };
+
+/* ------------------------------------------------------------
+   RESUMO NOTURNO
+   ------------------------------------------------------------
+   Ideia da pesquisa: agitação/deambulação noturna ("sundowning") é uma
+   das preocupações mais citadas por cuidadores de pessoas com demência,
+   e é distinta da atividade diurna — merece o seu próprio resumo em vez
+   de se perder dentro da timeline geral de 24h. Calculado a partir do
+   bloco "dormir" noturno do routineToday (dados simulados, ver aviso).
+------------------------------------------------------------ */
+function buildNightRestlessness(seed){
+  const rnd = seedRand(seed);
+  const count = Math.floor(rnd() * 3); // 0-2 episódios, plausível
+  const events = [];
+  for (let i = 0; i < count; i++){
+    const minute = 22*60 + 30 + Math.floor(rnd() * (7*60 + 60 - 22*60 - 30)); // entre 22:30 e ~08:00 (cruza meia-noite em minutos "do dia")
+    events.push({ time: fmtMin(minute % (24*60)), durationMin: 3 + Math.floor(rnd()*12) });
+  }
+  return events;
+}
+const nightEvents = buildNightRestlessness(19);
+
+function renderNightSummary(){
+  const host = document.getElementById('nightSummary');
+  if (!host) return;
+  const bedBlock = routineToday.find(b => b.cat === 'dormir' && b.start >= 21*60);
+  const wakeBlock = routineToday.find(b => b.cat === 'dormir' && b.start === 0);
+  const bedTime = bedBlock ? fmtMin(bedBlock.start) : '—';
+  const wakeTime = wakeBlock ? fmtMin(wakeBlock.end) : '—';
+  const totalOutOfBedMin = nightEvents.reduce((s,e) => s + e.durationMin, 0);
+
+  host.innerHTML = `
+    <div class="activity-stat-row">
+      <div class="activity-stat"><div class="n tabular">${bedTime}</div><div class="l">Hora de deitar</div></div>
+      <div class="activity-stat"><div class="n tabular">${wakeTime}</div><div class="l">Hora de acordar</div></div>
+      <div class="activity-stat"><div class="n tabular">${nightEvents.length}</div><div class="l">Episódios de agitação</div></div>
+      <div class="activity-stat"><div class="n tabular" style="color:${totalOutOfBedMin>15?'var(--status-warning)':'var(--status-good)'}">${totalOutOfBedMin} min</div><div class="l">Tempo fora da cama (total)</div></div>
+    </div>
+    ${nightEvents.length ? `
+      <div class="activity-blocks-list">
+        ${nightEvents.map(e => `
+          <div class="activity-block-row">
+            <span class="legend-swatch" style="background:var(--cat-dormir)"></span>
+            <span class="tabular">${e.time}</span>
+            <span>Levantou-se / agitação detetada</span>
+            <span class="activity-block-dur tabular">${e.durationMin} min</span>
+          </div>`).join('')}
+      </div>
+    ` : '<p class="empty-hint">Sem episódios de agitação detetados esta noite.</p>'}
+  `;
+}
 
 let selectedActivityCat = ROUTINE_CATS[2].key; // 'atividade' por omissão
 
