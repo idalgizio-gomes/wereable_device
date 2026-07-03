@@ -440,6 +440,24 @@ class BleBridge:
                 return
             await ws.send(json.dumps({"kind": "history", "records": records, "total_records": total, "hours": hours}))
             return
+        if cmd == "get_daily_trend":
+            # Histórico REAL agregado por dia (ver storage.get_daily_summary)
+            # para a vista "Tendência semanal" do dashboard — leve o
+            # suficiente para não sobrecarregar o WebSocket/browser, ao
+            # contrário de "get_history" (registos em bruto).
+            days = msg.get("days", 7)
+            try:
+                days = float(days)
+            except (TypeError, ValueError):
+                days = 7.0
+            try:
+                summary = storage.get_daily_summary(self.db, days)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[BRIDGE] erro a agregar tendencia diaria: {exc}")
+                await ws.send(json.dumps({"kind": "daily_trend", "days_summary": [], "error": str(exc)}))
+                return
+            await ws.send(json.dumps({"kind": "daily_trend", "days_summary": summary, "days": days}))
+            return
         if cmd == "export_csv":
             # Exportação CSV (2026-07-03, pedido do utilizador) — devolve
             # o texto CSV diretamente, o dashboard trata de o transformar

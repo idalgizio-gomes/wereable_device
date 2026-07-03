@@ -209,10 +209,57 @@ def count_records(conn: sqlite3.Connection) -> int:
     return row["n"] if row else 0
 
 
+def get_daily_summary(conn: sqlite3.Connection, days: float = 7) -> list[dict]:
+    """Agrega os registos de sensores por dia civil (UTC), para a vista
+    "Tendência semanal" do dashboard poder mostrar um cartão de dados
+    REAIS a par do gráfico sintético já existente (ver PROJECT_STATUS.md,
+    "Base de dados" — próximo passo natural depois de `get_history`).
+
+    Agregação feita aqui em SQL, não devolvendo os registos em bruto:
+    `get_records_since()` pode ter dezenas de milhares de linhas numa
+    janela de vários dias (o IMU amostra a ~14-52 registos/seg) — enviar
+    isso ao browser via WebSocket e agregar em JavaScript seria lento e
+    desnecessário quando o próprio SQLite já faz isto de forma eficiente.
+
+    Por dia devolve:
+      - `record_count`: nº de registos de sensores guardados nesse dia.
+      - `avg_hr`/`hr_samples`: média de FC e quantas leituras válidas
+        existem (pode ser 0 — a leitura de FC em hardware real tem um
+        problema conhecido ainda por diagnosticar, ver PROJECT_STATUS.md,
+        "HR nunca chega a ser lido").
+      - `min_steps`/`max_steps`: extremos do contador cumulativo de
+        passos (`g_stepCount` em Imu.cpp) dentro do dia — a diferença
+        (max-min) é uma estimativa de passos nesse dia, que SUBESTIMA se
+        o dispositivo reiniciar a meio do dia (o contador não é
+        persistido, volta a 0 no arranque). Não há como distinguir isso
+        só a partir destes dados.
+
+    NÃO calcula horas de sono — não existe nenhuma deteção real de sono
+    no firmware ainda (só a rotina simulada do dashboard o faz); esse
+    campo fica de fora deliberadamente em vez de ser inventado.
+    """
+    cutoff = time.time() - days * 86400
+    rows = conn.execute(
+        """
+        SELECT
+            date(device_timestamp, 'unixepoch') AS day,
+            COUNT(*) AS record_count,
+            AVG(hr) AS avg_hr,
+            COUNT(hr) AS hr_samples,
+            MIN(steps) AS min_steps,
+            MAX(steps) AS max_steps
+        FROM sensor_records
+        WHERE received_at >= ?
+        GROUP BY day
+        ORDER BY day ASC
+        """,
+        (cutoff,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 # Próximos passos (não implementados nesta primeira versão, ver
-# PROJECT_STATUS.md): (1) expor get_records_since()/count_records() via um
-# novo comando WebSocket ("get_history") para o dashboard pedir dados
-# reais em vez de sintéticos; (2) política de retenção/limpeza para
+# PROJECT_STATUS.md): (1) política de retenção/limpeza para
 # sensor_records não crescer indefinidamente (ex.: manter só os últimos
-# N dias); (3) cifra do ficheiro .db se este serviço vier a correr fora
+# N dias); (2) cifra do ficheiro .db se este serviço vier a correr fora
 # de um ambiente de desenvolvimento local confiável.

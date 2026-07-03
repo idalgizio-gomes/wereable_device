@@ -2575,8 +2575,20 @@ TEMPLATES.tendencia = () => `
     <div class="card-head"><div><h3>Padrão semanal</h3></div></div>
     <canvas id="cvHeatmap2" height="200" role="img" aria-label="Mapa de calor do padrão semanal de intensidade de movimento por hora"></canvas>
   </div>
+  <div class="card">
+    <div class="card-head">
+      <div><h3>Histórico real (BD local do bridge)</h3>
+      <div class="card-sub">Dados reais (não simulados), agregados por dia a partir do que o bridge guardou em <code>bridge/carewear_history.db</code> desde que começou a correr — pode não cobrir os 7 dias completos ainda. Não inclui horas de sono (o firmware ainda não deteta sono; essa métrica continua só no gráfico simulado acima).</div></div>
+      <button class="btn-secondary" onclick="requestRealTrend(7)">Atualizar</button>
+    </div>
+    <table class="data-table">
+      <thead><tr><th>Dia</th><th>Registos</th><th>FC média</th><th>Passos (Δ no dia)</th></tr></thead>
+      <tbody id="realTrendBody"></tbody>
+    </table>
+    <p class="empty-hint" id="realTrendStatus"></p>
+  </div>
 `;
-AFTER_RENDER.tendencia = () => { drawTrend('cvTrend2'); drawHeatmap('cvHeatmap2'); };
+AFTER_RENDER.tendencia = () => { drawTrend('cvTrend2'); drawHeatmap('cvHeatmap2'); renderRealTrendTable(); requestRealTrend(7); };
 
 TEMPLATES.definicoes = () => `
   <div class="card">
@@ -3735,6 +3747,12 @@ const liveState = {
   // antigos não consumidos. Vem de DumpStatusPacket::data_loss_flag via
   // o bridge (ver handleBridgeMessage() abaixo e Ble.cpp/ble_bridge.py).
   dataLossFlag: 0,
+  // Histórico REAL agregado por dia (base de dados local do bridge, ver
+  // storage.get_daily_summary), pedido sob demanda na vista "Tendência
+  // semanal" — []  até chegar a primeira resposta ou se a BD ainda não
+  // tiver dados. Distinto de `trendData` (sempre sintético) — nunca são
+  // misturados no mesmo gráfico, ver renderRealTrendTable().
+  realTrend: [],
 };
 const liveHrBuffer = []; // {t: epoch_s, hr, label: "HH:MM:SS"}
 
@@ -3826,6 +3844,11 @@ function handleBridgeMessage(msg){
   }
   if (msg.kind === 'csv_export'){
     handleCsvExportResult(msg);
+    return;
+  }
+  if (msg.kind === 'daily_trend'){
+    liveState.realTrend = Array.isArray(msg.days_summary) ? msg.days_summary : [];
+    renderRealTrendTable();
     return;
   }
   if (msg.kind === 'record'){
@@ -4122,6 +4145,50 @@ function handleCsvExportResult(msg){
   }
   downloadCsvText('carewear-dados-reais', msg.csv);
   if (hint){ hint.style.color = 'var(--status-good)'; hint.textContent = 'CSV descarregado.'; }
+}
+
+/* ------------------------------------------------------------
+   HISTÓRICO REAL NA VISTA "TENDÊNCIA SEMANAL" — ligado à BD SQLite do
+   bridge (bridge/storage.py::get_daily_summary), pedido de
+   PROJECT_STATUS.md ("Base de dados" — próximo passo natural depois de
+   `get_history`/CSV). Deliberadamente um cartão SEPARADO do gráfico
+   `trendData` (sempre sintético) em vez de misturado na mesma linha —
+   evita qualquer ambiguidade sobre o que é real e o que é simulado.
+------------------------------------------------------------ */
+function requestRealTrend(days){
+  const status = document.getElementById('realTrendStatus');
+  if (!liveState.connected){
+    if (status) status.textContent = 'Sem ligação ao bridge — liga o dispositivo para veres histórico real.';
+    return;
+  }
+  const sent = sendWsCommandWithArgs('get_daily_trend', { days });
+  if (!sent){
+    if (status) status.textContent = 'Não foi possível contactar o bridge.';
+    return;
+  }
+  if (status) status.textContent = 'A carregar histórico real…';
+}
+
+function renderRealTrendTable(){
+  const body = document.getElementById('realTrendBody');
+  const status = document.getElementById('realTrendStatus');
+  if (!body) return; // vista "Tendência semanal" não está ativa agora
+  const rows = liveState.realTrend || [];
+  if (!rows.length){
+    body.innerHTML = '';
+    if (status){
+      status.textContent = liveState.connected
+        ? 'Ainda sem dados suficientes na base de dados local do bridge para estes dias.'
+        : 'Sem ligação ao bridge — liga o dispositivo para veres histórico real.';
+    }
+    return;
+  }
+  if (status) status.textContent = '';
+  body.innerHTML = rows.map(d => {
+    const hrText = d.hr_samples > 0 ? `${Math.round(d.avg_hr)} bpm (${d.hr_samples} leituras)` : 'sem leituras';
+    const stepsText = (d.max_steps != null && d.min_steps != null) ? `${d.max_steps - d.min_steps}` : '—';
+    return `<tr><td>${d.day}</td><td class="num">${d.record_count}</td><td>${hrText}</td><td class="num">${stepsText}</td></tr>`;
+  }).join('');
 }
 
 // Monta a folha de impressão (#clinicalPrintSheet, só visível em
