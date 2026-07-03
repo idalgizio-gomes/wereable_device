@@ -183,9 +183,52 @@ Ficheiro: `web/dashboard/index.html` (versionado no repo).
 - Base de dados: **decidido SQL** (motor concreto — SQLite vs Postgres/MySQL —
   por decidir quando desenharmos o serviço de persistência).
 
-## Deteção de emergência (desenhado, ainda por implementar)
+## Deteção de emergência (código completo, por confirmar em hardware real)
 
-Decisões já tomadas com o utilizador:
+**Implementado em 2026-07-03**: módulo novo `Emergency.h`/`Emergency.cpp`
+(`include/Emergency/`, `src/Emergency/`), integrado em `main.cpp`
+(`Emergency::begin(BTN_PIN)` no `setup()`, `Emergency::update()` a cada
+iteração do `loop()`). Cobre as duas formas de alerta desenhadas:
+
+- **SOS manual**: deteção de cliques do botão físico (`BTN_PIN`) por borda
+  de descida, com contagem dentro de uma janela configurável
+  (`Config::sosClickCount`/`sosClickWindowMs`, omissão 3 cliques / 1200ms),
+  seguida de um período de confirmação antes de disparar
+  (`sosConfirmDelayMs`, omissão 2500ms) — um novo clique durante essa
+  espera cancela o SOS pendente.
+- **Deteção automática**: vigia `Imu::getLatestSample().freefall` e
+  `.inactivity`; ao detetar queda, arranca um temporizador de inatividade
+  sustentada (`fallInactivityTimeoutMs`, omissão 60000ms); se a pessoa se
+  mexer antes do fim (`inactivity` volta a `false`), cancela.
+- **Alerta dual**: quando confirmado (SOS ou queda), chama
+  `Ble::notifyEmergencyAlert()` (nova characteristic `emergencyAlertChar`,
+  UUID `...200004`, notify+read, pacote `EmergencyAlertPacket` de 8 bytes)
+  e, se `Lora::isReady()`, também `Lora::sendTest()` com uma mensagem
+  distinta consoante o tipo de alerta.
+- **Comando de teste por série**: `SOS` + Enter (gated por
+  `DEBUG_SERIAL_WAKE`) dispara `Emergency::triggerTestAlert()` sem
+  depender do gesto de cliques — útil enquanto o botão físico estiver por
+  confirmar/testar fisicamente.
+
+**Ainda por fazer / decidir** (não implementado de propósito, fora do meu
+alcance decidir sozinho):
+- O bridge (`ble_bridge.py`) ainda não escuta `emergencyAlertChar` nem
+  reencaminha o alerta para SMS/email/push — precisa de um provedor real
+  (ex.: Twilio) com credenciais do utilizador.
+- As regras de "cancelamento" implementadas (novo clique cancela SOS
+  pendente; retomar movimento cancela vigilância de queda) são uma
+  decisão de implementação minha, documentada nos comentários do código,
+  ainda **não validada explicitamente pelo utilizador** — podem precisar
+  de ajuste depois de testadas em hardware real.
+- **Não testado em hardware real** — bloqueado pela deteção USB
+  intermitente da placa (ver "Riscos/bloqueios ativos", ponto 8). Assim
+  que a placa voltar a ser detetada, testar: (a) `SOS` por série dispara
+  notify em `emergencyAlertChar` (visível num scanner BLE genérico), (b)
+  o gesto de 3 cliques reais no botão físico funciona e é cancelável, (c)
+  simular queda (agitar a placa) + ficar imóvel 60s dispara o alerta
+  automático.
+
+Decisões já tomadas com o utilizador (contexto original do desenho):
 
 - **Canal de alerta**: ambos — (a) via bridge/telemóvel com internet
   (SMS/email/push aos contactos configurados) **e** (b) via LoRa (Wio-SX1262),
