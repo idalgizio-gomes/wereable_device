@@ -510,6 +510,75 @@ várias suposições anteriores:
    converter de 13V (MIC2288) e um LDO (MIC5365) — função exata por
    confirmar (possível sensor/atuador adicional não documentado no código).
 
+## Pesquisa alargada por tema (2026-07-03, sessão interativa) — 71 pesquisas
+
+A pedido explícito do utilizador ("mais pesquisas por tema"), esta sessão fez
+71 pesquisas dirigidas (23 + 23 + 25) cobrindo praticamente todas as áreas do
+projeto. Achados novos e concretos, por tema:
+
+**Hardware/firmware:**
+- **Pista nova para o mistério do LoRa**: fóruns do RadioLib mencionam que a
+  versão 4.6.0 é "recomendada como versão que funciona", com versões mais
+  recentes (a nossa é 7.5.0) a terem introduzido "mudanças significativas"
+  que já causaram `RADIOLIB_ERR_CHIP_NOT_FOUND` a outros utilizadores mesmo
+  com pinout correto. **Não aplicado nesta sessão** — fixar a versão exigiria
+  confirmar que a nossa API (`Lora.cpp`) continua compatível com a 4.6.0 (o
+  RadioLib mudou a assinatura de `begin()` entre versões) e depois testar em
+  hardware real, que está indisponível. Registado como próximo passo
+  concreto quando o hardware voltar a estar acessível — tentar ANTES de
+  gastar mais tempo à procura do pino NSS certo, porque pode ser a
+  biblioteca, não o pino.
+- Confirmado (RF PCB design): antenas partilhadas por RF switch (o nosso
+  caso, BLE+LoRa) precisam de traço de 50Ω o mais curto possível entre o
+  switch e a antena — não há nada a corrigir no firmware por causa disto,
+  é uma restrição de layout já fixa na placa fabricada.
+- USB CDC em nRF52: bug documentado (Nordic DevZone) de paragem de
+  comunicação após 3-15 min quando USB CDC e USB MSC coexistem — não é o
+  nosso caso (só CDC), mas confirma que instabilidade USB intermitente é um
+  problema conhecido da plataforma, não necessariamente hardware defeituoso.
+- nrfutil/1200bps touch: confirmado como mecanismo frágil e bem documentado
+  como origem de falhas intermitentes de upload — consistente com o que já
+  observámos.
+- XIAO nRF52840 Sense: bug conhecido é P0.14(D14)/P0.31 durante carregamento
+  da bateria — **verificado: o nosso firmware não usa D14**, por isso não é
+  a causa direta do aquecimento reportado, mas pode ainda ser relevante se o
+  design custom desta placa usar esse pino para outra coisa (a confirmar no
+  esquemático).
+
+**Dashboard/UX (25 pesquisas dedicadas, a pedido do utilizador):**
+- Confirmado: seletor de idioma sem bandeiras (só nomes nativos) já segue a
+  boa prática (evitar bandeiras — representam países, não línguas).
+- Confirmado: o stylesheet de impressão já simplifica cores corretamente
+  (fundo branco, texto preto) — padrão "hide chrome, simplify colors".
+- "5-9 métricas por ecrã" como limite recomendado — não auditado
+  exaustivamente ecrã a ecrã nesta sessão (a maioria dos nossos cartões já
+  segue isto naturalmente por estarem divididos por tema).
+- Ponto vermelho simples (não numérico) no sino de notificações já segue a
+  prática recomendada ("usar um ponto quando o que importa é que mudou
+  algo, não quantos").
+- CarePredict (concorrente direto): "por desenho, o idoso não controla o
+  dashboard" — ao contrário do nosso, que dá ao Utente/Família controlo
+  total sobre o seu próprio perfil/consentimento/dados. Diferenciação
+  válida da nossa app, não um erro de design.
+- Confirmado pela pesquisa: estados vazios devem ter CTA quando o
+  utilizador pode adicionar algo — os nossos ("sem alertas", "sem
+  anomalias", "sem eventos") são gerados pelo sistema, não pelo
+  utilizador, por isso um CTA não se aplica (decisão consciente, não
+  esquecimento).
+
+## Verificação/debugging desta sessão (2026-07-03)
+
+Depois de todas as alterações desta sessão, antes de avançar para testes
+de comunicação com o dispositivo físico:
+- **Sintaxe JS real** (parser `esprima`, não só contagem de chavetas):
+  sem erros (à parte de `??`/`?.`, que o esprima de 2018 não reconhece mas
+  são JS válido suportado por todos os browsers modernos).
+- **Sem funções/variáveis duplicadas** em todo o `<script>`.
+- **Sem IDs duplicados** em todo o HTML.
+- **Build do firmware** (`pio run`): sucesso, RAM 7.6%, Flash 25.3%, sem
+  avisos novos.
+- Estado do git: limpo, tudo commitado e sincronizado com o GitHub.
+
 ## Backlog de investigação — funcionalidades e decisões técnicas
 
 Duas pesquisas alargadas (~90 fontes sobre wearables/dementia care, ~70
