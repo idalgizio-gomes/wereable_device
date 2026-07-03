@@ -1400,9 +1400,20 @@ function currentEmergencyLog(){
 // alcance desta sessão (precisa de credenciais do utilizador).
 let emergencyCancelState = null;
 
+// Constantes de segurança do código de confirmação — alinhadas com
+// práticas reais de OTP por SMS (pesquisa 2026-07-03): TTL curto (aqui
+// 5 min, valor comum na indústria — Twilio/Plivo) e limite de tentativas
+// que efetivamente BLOQUEIA a ação (não é só uma mensagem de aviso; ver
+// bug corrigido logo abaixo). Isto também segue o princípio de "break
+// glass" de acesso de emergência em sistemas de saúde: exceção rara,
+// nunca um bypass de rotina, e sempre com registo de quem/quando (ver
+// 'resolvedNote' em confirmEmergencyCancel()).
+const EMERGENCY_CODE_TTL_MS = 5 * 60 * 1000;
+const EMERGENCY_MAX_ATTEMPTS = 3;
+
 function openEmergencyCancelModal(emergencyId){
   const code = String(Math.floor(100000 + Math.random() * 900000));
-  emergencyCancelState = { emergencyId, code, attempts: 0 };
+  emergencyCancelState = { emergencyId, code, attempts: 0, expiresAt: Date.now() + EMERGENCY_CODE_TTL_MS };
   document.getElementById('emergencyCancelCodeDisplay').textContent = code;
   document.getElementById('emergencyCancelPassword').value = '';
   document.getElementById('emergencyCancelCodeInput').value = '';
@@ -1417,6 +1428,24 @@ function closeEmergencyCancelModal(){
 function confirmEmergencyCancel(){
   const status = document.getElementById('emergencyCancelStatus');
   if (!emergencyCancelState) return;
+
+  // BUG CORRIGIDO (2026-07-03, aplicando pesquisa sobre rate-limiting de
+  // OTP): ao atingir o limite de tentativas, a versão anterior só
+  // ACRESCENTAVA uma frase ao aviso, mas continuava a aceitar tentativas
+  // novas indefinidamente — o "bloqueio" era só visual. Agora bloqueia
+  // mesmo (return antes de validar o código), e o código também expira
+  // ao fim de 5 min mesmo sem esgotar as tentativas, tal como um OTP real.
+  if (emergencyCancelState.attempts >= EMERGENCY_MAX_ATTEMPTS) {
+    status.className = 'modal-status err';
+    status.textContent = 'Demasiadas tentativas incorretas — fecha e reabre para gerar um novo código.';
+    return;
+  }
+  if (Date.now() > emergencyCancelState.expiresAt) {
+    status.className = 'modal-status err';
+    status.textContent = 'Código expirado (validade de 5 minutos) — fecha e reabre para gerar um novo.';
+    return;
+  }
+
   const password = document.getElementById('emergencyCancelPassword').value;
   const codeInput = document.getElementById('emergencyCancelCodeInput').value.trim();
 
@@ -1427,11 +1456,11 @@ function confirmEmergencyCancel(){
   }
   if (codeInput !== emergencyCancelState.code) {
     emergencyCancelState.attempts++;
+    const remaining = EMERGENCY_MAX_ATTEMPTS - emergencyCancelState.attempts;
     status.className = 'modal-status err';
-    status.textContent = `Código incorreto (tentativa ${emergencyCancelState.attempts}/3). Confirma o código mostrado acima.`;
-    if (emergencyCancelState.attempts >= 3) {
-      status.textContent += ' Demasiadas tentativas — fecha e tenta novamente.';
-    }
+    status.textContent = remaining > 0
+      ? `Código incorreto (${remaining} tentativa${remaining>1?'s':''} restante${remaining>1?'s':''}). Confirma o código mostrado acima.`
+      : 'Código incorreto. Sem mais tentativas — fecha e reabre para gerar um novo código.';
     return;
   }
 
