@@ -222,17 +222,20 @@ class BleBridge:
 
     def _on_dump_status(self, _char: BleakGATTCharacteristic, data: bytearray) -> None:
         """Callback de notificação da characteristic dumpStatusChar
-        (DumpStatusPacket, 16 bytes): type, state, reason, reserved,
+        (DumpStatusPacket, 16 bytes): type, state, reason, data_loss_flag,
         seq, sent_records, acked_records — ver Ble.cpp para o significado
-        de cada "reason".
+        de cada "reason". 'data_loss_flag' (2026-07-03): 0=normal,
+        1=ring buffer quase cheio (aviso antecipado, ainda sem perdas),
+        2=já a substituir registos antigos não consumidos.
         """
         if len(data) < 16:
             return
-        _type, state, reason, _reserved, seq, sent, acked = struct.unpack_from(
+        _type, state, reason, data_loss_flag, seq, sent, acked = struct.unpack_from(
             "<BBBBIII", data, 0
         )
         asyncio.create_task(self.broadcast({
             "kind": "status", "state": state, "reason": reason,
+            "data_loss_flag": data_loss_flag,
             "seq": seq, "sent_records": sent, "acked_records": acked,
         }))
 
