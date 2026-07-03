@@ -763,6 +763,35 @@
   </div>
 </div>
 
+<!-- Modal de cancelamento de alerta de emergência — confirmação reforçada
+     (palavra-passe + código de verificação), ver openEmergencyCancelModal()
+     no <script>. Ação de segurança crítica: cancelar por engano um alerta
+     de queda/SOS real é muito pior do que o incómodo extra de confirmar
+     duas vezes. -->
+<div class="modal-overlay" id="emergencyCancelOverlay" style="display:none;">
+  <div class="modal-box">
+    <div class="modal-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+    </div>
+    <h3>Cancelar alerta de emergência?</h3>
+    <p>Esta é uma ação de segurança crítica — só deve ser usada se tiveres a certeza de que o alerta foi um falso positivo ou que a situação já foi resolvida por outra via (ex.: o wearable ficou sem resposta a meio de um teste). Confirma a tua identidade com dois passos:</p>
+    <div class="field" style="text-align:left; margin-top:12px;">
+      <label for="emergencyCancelPassword">Palavra-passe da conta</label>
+      <input id="emergencyCancelPassword" type="password" placeholder="A tua palavra-passe">
+    </div>
+    <div class="field" style="text-align:left;">
+      <label for="emergencyCancelCodeInput">Código de verificação</label>
+      <p class="empty-hint" style="padding:2px 0 6px;">Protótipo: sem provedor de SMS/email ligado ainda, o código é mostrado aqui mesmo — confirma que o consegues copiar corretamente, como se tivesse chegado por SMS. <b>Código:</b> <span id="emergencyCancelCodeDisplay" class="tabular" style="font-weight:700; letter-spacing:2px;"></span></p>
+      <input id="emergencyCancelCodeInput" type="text" inputmode="numeric" placeholder="Ex: 123456">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeEmergencyCancelModal()">Voltar</button>
+      <button class="btn-danger" onclick="confirmEmergencyCancel()">Confirmar cancelamento</button>
+    </div>
+    <p class="modal-status" id="emergencyCancelStatus"></p>
+  </div>
+</div>
+
 <script>
 /* ============================================================
    INTERNACIONALIZAÇÃO (i18n)
@@ -1251,6 +1280,91 @@ function updateClinicoPatientLabel(){
   if (label) label.textContent = `${p.name} · ${p.age} anos`;
 }
 
+/* ------------------------------------------------------------
+   REGISTO DE EMERGÊNCIAS — SOS manual / queda+inatividade
+   ------------------------------------------------------------
+   Corresponde ao módulo firmware `Emergency` (src/Emergency/) e ao
+   alerta BLE `emergencyAlertChar` — ver PROJECT_STATUS.md. O bridge
+   ainda não escuta essa characteristic (backlog pendente), por isso os
+   eventos aqui são dados de demonstração, tal como o resto do
+   dashboard antes de haver dados reais ligados.
+   Pedido do utilizador (2026-07-03): um alerta de emergência ativo tem
+   de poder ser cancelado (ex.: se o relógio ficar sem resposta a meio de
+   um falso positivo), mas isso é uma ação de segurança crítica — exige
+   uma confirmação reforçada, ao estilo de verificação em duas etapas,
+   antes de ser aceite. Ver openEmergencyCancelModal()/confirmEmergencyCancel().
+------------------------------------------------------------ */
+const EMERGENCY_LOG = {
+  p1: [
+    {id:'E-204', type:'fall', label:'Queda + inatividade prolongada', time:'02/07 21:14', status:'resolvido', resolvedNote:'Confirmado falso alarme pela família por telefone.'},
+    {id:'E-198', type:'sos', label:'SOS manual (3 cliques)', time:'28/06 11:02', status:'resolvido', resolvedNote:'Utente pediu ajuda para se levantar, sem gravidade.'},
+  ],
+  p2: [],
+  p3: [
+    {id:'E-150', type:'fall', label:'Queda + inatividade prolongada', time:'25/06 03:40', status:'ativo'},
+  ],
+};
+
+function currentEmergencyLog(){
+  return EMERGENCY_LOG[selectedPatientId] || [];
+}
+
+// Estado do modal de cancelamento — o código gerado (6 dígitos) é
+// guardado só em memória (nunca em localStorage), e nunca é enviado a
+// lado nenhum: neste protótipo é mostrado na própria página, porque não
+// existe (ainda) integração real com SMS/email (ver PROJECT_STATUS.md,
+// decisão pendente do provedor). Serve para demonstrar o FLUXO de
+// confirmação reforçada exigido, não uma verificação de posse de um
+// segundo dispositivo real — isso só existiria com um provedor de SMS
+// real a enviar o código para o telemóvel do responsável, fora do
+// alcance desta sessão (precisa de credenciais do utilizador).
+let emergencyCancelState = null;
+
+function openEmergencyCancelModal(emergencyId){
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  emergencyCancelState = { emergencyId, code, attempts: 0 };
+  document.getElementById('emergencyCancelCodeDisplay').textContent = code;
+  document.getElementById('emergencyCancelPassword').value = '';
+  document.getElementById('emergencyCancelCodeInput').value = '';
+  document.getElementById('emergencyCancelStatus').textContent = '';
+  document.getElementById('emergencyCancelStatus').className = 'modal-status';
+  document.getElementById('emergencyCancelOverlay').style.display = 'flex';
+}
+function closeEmergencyCancelModal(){
+  document.getElementById('emergencyCancelOverlay').style.display = 'none';
+  emergencyCancelState = null;
+}
+function confirmEmergencyCancel(){
+  const status = document.getElementById('emergencyCancelStatus');
+  if (!emergencyCancelState) return;
+  const password = document.getElementById('emergencyCancelPassword').value;
+  const codeInput = document.getElementById('emergencyCancelCodeInput').value.trim();
+
+  if (!password) {
+    status.className = 'modal-status err';
+    status.textContent = 'Introduz a tua palavra-passe para confirmar a tua identidade.';
+    return;
+  }
+  if (codeInput !== emergencyCancelState.code) {
+    emergencyCancelState.attempts++;
+    status.className = 'modal-status err';
+    status.textContent = `Código incorreto (tentativa ${emergencyCancelState.attempts}/3). Confirma o código mostrado acima.`;
+    if (emergencyCancelState.attempts >= 3) {
+      status.textContent += ' Demasiadas tentativas — fecha e tenta novamente.';
+    }
+    return;
+  }
+
+  const entry = currentEmergencyLog().find(e => e.id === emergencyCancelState.emergencyId);
+  if (entry) {
+    entry.status = 'cancelado';
+    entry.resolvedNote = `Cancelado manualmente por ${document.getElementById('avatarName').textContent} em ${new Date().toLocaleString('pt-PT')}, após confirmação reforçada.`;
+  }
+  status.className = 'modal-status ok';
+  status.textContent = 'Alerta cancelado e registado.';
+  setTimeout(() => { closeEmergencyCancelModal(); if (currentView) renderView(currentView); }, 1200);
+}
+
 /* ============================================================
    NAVEGAÇÃO ENTRE ECRÃS (login vs app; utente vs médico/técnico)
 ============================================================ */
@@ -1323,6 +1437,62 @@ function submitSignup(){
   showLogin();
 }
 
+/* ------------------------------------------------------------
+   PERFIL DO UTILIZADOR — editável a qualquer momento
+   ------------------------------------------------------------
+   Pedido do utilizador (2026-07-03): uma aba onde a pessoa a usar a
+   conta (utente/família OU médico/técnico) possa atualizar os SEUS
+   PRÓPRIOS dados (nome, contacto), não os dados clínicos do paciente
+   monitorizado (isso continua em "Pacientes"/"Definições"). Persistido
+   em localStorage, por perfil (utente vs clínico guardam-se em separado,
+   já que a mesma conta pode ter sido usada nos dois papéis em sessões
+   diferentes deste protótipo).
+------------------------------------------------------------ */
+const PROFILE_KEY = 'carewear_profile';
+
+function loadProfile(){
+  const defaults = {
+    utente: { name:'Maria Silva', email:'maria.silva@exemplo.pt' },
+    clinico: { name:'Dr. Ricardo Alves', email:'ricardo.alves@exemplo.pt', institution:'Centro de Saúde de Barcelos' },
+  };
+  try {
+    const raw = localStorage.getItem(PROFILE_KEY);
+    if (raw) {
+      const saved = JSON.parse(raw);
+      return { utente: {...defaults.utente, ...saved.utente}, clinico: {...defaults.clinico, ...saved.clinico} };
+    }
+  } catch (e) { /* localStorage indisponível ou dados corrompidos - usa omissão */ }
+  return defaults;
+}
+function saveProfileField(role, field, value){
+  const p = loadProfile();
+  p[role][field] = value;
+  try { localStorage.setItem(PROFILE_KEY, JSON.stringify(p)); }
+  catch (e) { /* quota excedida ou localStorage indisponível - fica só em memória */ }
+}
+function submitProfileForm(){
+  const isUtente = currentRole === 'utente';
+  const role = isUtente ? 'utente' : 'clinico';
+  saveProfileField(role, 'name', document.getElementById('profileName').value.trim());
+  saveProfileField(role, 'email', document.getElementById('profileEmail').value.trim());
+  if (!isUtente) saveProfileField('clinico', 'institution', document.getElementById('profileInstitution').value.trim());
+  applyProfileToAvatar();
+  const status = document.getElementById('profileSaveStatus');
+  if (status) { status.textContent = 'Alterações guardadas.'; status.className = 'modal-status ok'; }
+}
+
+// Reflete o perfil guardado no cartão de avatar da topbar — chamado no
+// login e sempre que o perfil é atualizado, para não ficar desatualizado
+// enquanto se navega pelo resto da app.
+function applyProfileToAvatar(){
+  const isUtente = currentRole === 'utente';
+  const p = loadProfile()[isUtente ? 'utente' : 'clinico'];
+  const initials = p.name.split(' ').filter(Boolean).slice(0,2).map(w => w[0].toUpperCase()).join('') || '—';
+  document.getElementById('avatarInitials').textContent = initials;
+  document.getElementById('avatarName').textContent = p.name;
+  document.getElementById('avatarRole').textContent = 'Perfil: ' + t(isUtente ? 'login.role.utente' : 'login.role.clinico');
+}
+
 function login(){
   document.getElementById('view-login').style.display = 'none';
   document.getElementById('view-app').classList.add('active');
@@ -1335,9 +1505,7 @@ function login(){
   pill.textContent = t(isUtente ? 'login.role.utente' : 'login.role.clinico');
   pill.className = 'sidebar-role-pill ' + (isUtente ? 'utente' : 'clinico');
 
-  document.getElementById('avatarInitials').textContent = isUtente ? 'MS' : 'DR';
-  document.getElementById('avatarName').textContent = isUtente ? 'Maria Silva' : 'Dr. Ricardo Alves';
-  document.getElementById('avatarRole').textContent = 'Perfil: ' + t(isUtente ? 'login.role.utente' : 'login.role.clinico');
+  applyProfileToAvatar();
 
   renderView(isUtente ? 'resumo' : 'pacientes');
   updateNotificationBadge();
@@ -2160,6 +2328,57 @@ TEMPLATES.anomalias = () => `
     `}
   </div>
 `;
+
+TEMPLATES.emergencias = () => `
+  <div class="card">
+    <div class="card-head"><div><h3>Registo de emergências — ${selectedPatient().name}</h3><div class="card-sub">SOS manual (gesto de cliques) e deteção automática de queda + inatividade prolongada — ver módulo firmware Emergency</div></div></div>
+    <p class="empty-hint"><b>Protótipo.</b> O bridge ainda não está ligado à characteristic de alerta do dispositivo (<code>emergencyAlertChar</code>) — os eventos abaixo são de demonstração, não vieram do wearable real.</p>
+    ${currentEmergencyLog().length ? `
+    <table class="data-table">
+      <thead><tr><th>ID</th><th>Tipo</th><th>Quando</th><th>Estado</th><th>Nota</th><th></th></tr></thead>
+      <tbody>
+        ${currentEmergencyLog().map(e => `
+          <tr>
+            <td class="num">${e.id}</td>
+            <td>${e.label}</td>
+            <td class="num">${e.time}</td>
+            <td>${pillHtml(e.status==='ativo'?'critical':e.status==='cancelado'?'neutral':'good', e.status==='ativo'?'Ativo':e.status==='cancelado'?'Cancelado':'Resolvido')}</td>
+            <td>${e.resolvedNote || '—'}</td>
+            <td>${e.status==='ativo' ? `<button class="btn-danger" onclick="openEmergencyCancelModal('${e.id}')">Cancelar alerta…</button>` : ''}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+    ` : '<p class="empty-hint">Sem eventos de emergência registados para este paciente.</p>'}
+    <p class="empty-hint">Cancelar um alerta ativo exige confirmação reforçada (palavra-passe + código de verificação) — pensado para o caso de o wearable ficar sem resposta a meio de um falso positivo, sem abrir uma forma fácil de silenciar uma emergência real por engano.</p>
+  </div>
+`;
+
+TEMPLATES.perfil = () => {
+  const isUtente = currentRole === 'utente';
+  const p = loadProfile()[isUtente ? 'utente' : 'clinico'];
+  return `
+  <div class="card">
+    <div class="card-head"><div><h3>O meu perfil</h3><div class="card-sub">Atualiza os teus próprios dados sempre que quiseres — isto não altera os dados clínicos do paciente monitorizado</div></div></div>
+    <div class="field">
+      <label for="profileName">Nome</label>
+      <input id="profileName" type="text" value="${p.name}">
+    </div>
+    <div class="field">
+      <label for="profileEmail">Email</label>
+      <input id="profileEmail" type="email" value="${p.email}">
+    </div>
+    ${!isUtente ? `
+    <div class="field">
+      <label for="profileInstitution">Instituição / clínica</label>
+      <input id="profileInstitution" type="text" value="${p.institution || ''}">
+    </div>` : ''}
+    <button class="btn-primary" onclick="submitProfileForm()" style="width:auto; padding:8px 20px;">Guardar alterações</button>
+    <p class="modal-status" id="profileSaveStatus"></p>
+    <p class="empty-hint">Protótipo — guardado apenas neste browser (localStorage); um backend real substituiria isto por uma conta persistida em servidor.</p>
+  </div>
+`;
+};
 
 TEMPLATES.limites = () => `
   <div class="card">
