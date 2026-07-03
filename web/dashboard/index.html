@@ -407,6 +407,21 @@
   .faq-item[open] summary::before{ content:'−'; }
   .faq-item p{ margin-top:8px; padding-left:22px; font-size:12.5px; color:var(--text-secondary); line-height:1.6; }
 
+  /* notas do cuidador */
+  .note-form{ display:flex; gap:10px; align-items:flex-start; margin-bottom:14px; }
+  .note-form textarea{
+    flex:1; resize:vertical; min-height:44px; background:var(--bg-surface-2); border:1px solid var(--border);
+    border-radius:var(--radius-sm); padding:9px 11px; color:var(--text-primary); font-family:inherit; font-size:12.5px;
+  }
+  .note-form textarea:focus{ border-color:var(--accent); }
+  .note-form .btn-secondary{ flex:none; align-self:flex-start; }
+  .note-list{ display:flex; flex-direction:column; gap:2px; max-height:260px; overflow-y:auto; }
+  .note-row{ padding:9px 2px; border-bottom:1px solid var(--border-soft); }
+  .note-row:last-child{ border-bottom:none; }
+  .note-meta{ display:flex; justify-content:space-between; font-size:11px; color:var(--text-muted); margin-bottom:3px; }
+  .note-meta b{ color:var(--text-secondary); font-weight:600; }
+  .note-row p{ font-size:12.5px; color:var(--text-primary); line-height:1.5; }
+
   /* modal de confirmação */
   .modal-overlay{
     position:fixed; inset:0; background:rgba(4,8,16,0.6); backdrop-filter:blur(2px);
@@ -1181,6 +1196,17 @@ TEMPLATES.rotina = () => `
 
   <div class="card">
     <div class="card-head">
+      <div><h3>Notas do cuidador</h3><div class="card-sub">Contexto que os sensores não captam — liga observações a momentos do dia</div></div>
+    </div>
+    <div class="note-form">
+      <textarea id="noteInput" placeholder="Ex: Recusou o almoço, parecia agitada antes do jantar…" rows="2"></textarea>
+      <button class="btn-secondary" onclick="addCaregiverNote()">Adicionar nota</button>
+    </div>
+    <div class="note-list" id="noteList"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
       <div><h3>Análise por atividade <span class="sim-flag">dados simulados</span></h3><div class="card-sub">Escolhe uma categoria para ver o detalhe de hoje e a tendência semanal</div></div>
     </div>
     <div class="activity-chips" id="activityChips">
@@ -1203,7 +1229,63 @@ AFTER_RENDER.rotina = () => {
   drawRoutineTimeline('cvRoutineFull', routineToday, '');
   drawRoutineTimeline('cvRoutineAnomFull', routineAnomaly, '', true);
   renderActivityDetail(selectedActivityCat);
+  renderCaregiverNotes();
 };
+
+/* ------------------------------------------------------------
+   NOTAS DO CUIDADOR
+   ------------------------------------------------------------
+   Ideia vinda diretamente da pesquisa de plataformas semelhantes
+   (CarePredict e outras): a funcionalidade mais pedida em quase todas
+   as fontes revistas é um diário/notas do cuidador ligado à timeline —
+   fecha o fosso entre os dados passivos dos sensores e o contexto
+   humano que só uma pessoa consegue registar ("recusou o almoço",
+   "esteve agitada"). Protótipo: persistido em localStorage (só neste
+   browser) — passar para a base de dados SQL quando essa existir.
+------------------------------------------------------------ */
+const NOTES_STORAGE_KEY = 'carewear_caregiver_notes';
+
+function loadCaregiverNotes(){
+  try {
+    const raw = localStorage.getItem(NOTES_STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* localStorage indisponível ou dados corrompidos - ignora */ }
+  // Notas de exemplo, só na primeira utilização (nada ainda guardado).
+  return [
+    {text: 'Recusou o pequeno-almoço, comeu só uma torrada.', author: 'Familiar', ts: Date.parse('2026-07-02T08:35:00')},
+    {text: 'Esteve mais agitada do que o habitual antes do jantar.', author: 'Cuidador(a)', ts: Date.parse('2026-07-02T18:50:00')},
+  ];
+}
+function saveCaregiverNotes(notes){
+  try { localStorage.setItem(NOTES_STORAGE_KEY, JSON.stringify(notes)); }
+  catch (e) { /* quota excedida ou localStorage indisponível - nota fica só em memória */ }
+}
+let caregiverNotes = loadCaregiverNotes();
+
+function addCaregiverNote(){
+  const input = document.getElementById('noteInput');
+  const text = input.value.trim();
+  if (!text) return;
+  caregiverNotes.unshift({text, author: currentRole === 'utente' ? 'Familiar' : 'Médico/Técnico', ts: Date.now()});
+  saveCaregiverNotes(caregiverNotes);
+  input.value = '';
+  renderCaregiverNotes();
+}
+
+function renderCaregiverNotes(){
+  const host = document.getElementById('noteList');
+  if (!host) return;
+  if (!caregiverNotes.length){
+    host.innerHTML = '<p class="empty-hint">Ainda sem notas registadas.</p>';
+    return;
+  }
+  host.innerHTML = caregiverNotes.map(n => `
+    <div class="note-row">
+      <div class="note-meta"><b>${n.author}</b><span class="tabular">${new Date(n.ts).toLocaleString('pt-PT', {dateStyle:'short', timeStyle:'short'})}</span></div>
+      <p>${n.text.replace(/</g,'&lt;')}</p>
+    </div>
+  `).join('');
+}
 
 document.addEventListener('click', (e) => {
   const chip = e.target.closest('.activity-chip');
