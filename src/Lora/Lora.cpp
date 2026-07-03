@@ -1,3 +1,30 @@
+// ============================================================================
+// Lora.cpp
+// ----------------------------------------------------------------------------
+// Implementacao do modulo LoRa (ver Lora.h para a visao geral, a API publica
+// e — MUITO IMPORTANTE — o aviso completo sobre o nivel de confianca de cada
+// pino: NSS/NRST sao ainda uma HIPOTESE por confirmar no esquematico).
+//
+// Este ficheiro contem:
+//   - O mapeamento de pinos entre o MCU (XIAO nRF52840 Sense Plus) e o
+//     radio Wio-SX1262, centralizado num unico sitio para ser facil de
+//     corrigir quando a zona NRST/SPI_NSS do esquematico for confirmada.
+//   - Os parametros de radio LoRa (frequencia, largura de banda, spreading
+//     factor, coding rate, sync word, potencia) escolhidos para a banda
+//     ISM europeia de 868 MHz (Portugal) em modo ponto-a-ponto simples.
+//   - begin(): inicializacao "falha segura" — se o radio nao responder
+//     (ex.: pino NSS errado), regista o codigo de erro do RadioLib e
+//     devolve false SEM travar nem atrasar o resto do arranque; nada no
+//     firmware depende do LoRa ter inicializado (validado em hardware
+//     real a 2026-07-03: NSS=AD3 falhou com RADIOLIB_ERR_CHIP_NOT_FOUND
+//     e o resto do sistema — BLE/IMU/PPG/storage — arrancou normalmente).
+//   - sendTest(): transmissao unica de teste, bloqueante e sem qualquer
+//     confirmacao do recetor, usada apenas para validar deteccao +
+//     transmissao numa mesma sessao. NAO faz parte de nenhuma logica de
+//     emergencia ainda (essa esta desenhada mas por implementar — ver a
+//     seccao "Detecao de emergencia" em PROJECT_STATUS.md).
+// ============================================================================
+
 #include "Lora/Lora.h"
 
 #include <RadioLib.h>
