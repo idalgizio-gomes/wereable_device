@@ -1,3 +1,5 @@
+<!DOCTYPE html>
+<meta charset="UTF-8">
 <title>CareWear · Monitorização de Rotina</title>
 <style>
   :root{
@@ -643,7 +645,7 @@
           <svg id="themeIconMoon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg>
           <svg id="themeIconSun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
         </button>
-        <button class="icon-btn" title="Alertas" onclick="switchNav(document.querySelector('#view-app .nav-group[style]:not([style*=\"none\"]) .nav-item[data-view=\"anomalias\"], #navUtente .nav-item[data-view=\"resumo\"]'))">
+        <button class="icon-btn" title="Alertas" onclick="switchNav(document.querySelector('#view-app .nav-group[style]:not([style*=none]) .nav-item[data-view=anomalias], #navUtente .nav-item[data-view=resumo]'))">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
           <span class="badge-dot"></span>
         </button>
@@ -1069,15 +1071,30 @@ function logout(){
   document.getElementById('view-login').style.display = 'grid';
 }
 
-document.addEventListener('click', (e) => {
-  const item = e.target.closest('.nav-item');
+// Ativa visualmente um nav-item e mostra a vista correspondente — partilhado
+// entre o clique direto num item do menu e outros atalhos (ex: sino de
+// alertas na topbar, ver switchNav abaixo).
+function activateNavItem(item){
   if (!item) return;
   const view = item.dataset.view;
-  if (!view) return; // botões nav-item sem view associada (ex: "Ajuda") tratam o próprio onclick
+  if (!view) return;
   const group = item.closest('.nav-group');
   if (group) group.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
   item.classList.add('active');
   renderView(view);
+}
+
+// Atalho usado pelo sino de alertas: recebe o nav-item alvo (pode ser null
+// se o seletor não encontrar nada, ex. antes do perfil estar definido).
+function switchNav(item){
+  activateNavItem(item);
+}
+
+document.addEventListener('click', (e) => {
+  const item = e.target.closest('.nav-item');
+  if (!item) return;
+  if (!item.dataset.view) return; // botões nav-item sem view associada (ex: "Ajuda") tratam o próprio onclick
+  activateNavItem(item);
 });
 
 // Chaves i18n por vista — traduzido dinamicamente via t(), em vez de um
@@ -1137,8 +1154,8 @@ const AFTER_RENDER = {};
 TEMPLATES.resumo = () => `
   <div class="stat-row">
     ${statTile('walk','Movimento','Demonstração','', 'var(--cat-atividade)', 'stat-movement')}
-    ${statTile('moon','Sono','7h 24m','', 'var(--cat-dormir)')}
-    ${statTile('drop','Alimentação','3 refeições','', 'var(--cat-alimentacao)')}
+    ${statTile('moon','Sono','7h 24m','', 'var(--cat-dormir)', '', true)}
+    ${statTile('drop','Alimentação','3 refeições','', 'var(--cat-alimentacao)', '', true)}
     ${statTile('heart','Frequência cardíaca','—','bpm', 'var(--status-good)', 'stat-hr')}
     ${statTile('zap','SpO₂','—','%', 'var(--status-good)', 'stat-spo2')}
   </div>
@@ -1148,8 +1165,8 @@ TEMPLATES.resumo = () => `
       <div class="card-head">
         <div><h3>Rotina diária — hoje <span class="sim-flag">dados simulados</span></h3><div class="card-sub">Comparação com o template de 21 passos do artigo científico</div></div>
       </div>
-      <canvas id="cvRoutineToday" height="150"></canvas>
-      <canvas id="cvRoutineAnom" height="150" style="margin-top:10px;"></canvas>
+      <canvas id="cvRoutineToday" height="150" role="img" aria-label="Timeline de rotina diária de hoje, por categoria de atividade (dados simulados)"></canvas>
+      <canvas id="cvRoutineAnom" height="150" style="margin-top:10px;" role="img" aria-label="Timeline de rotina diária com anomalias assinaladas (dados simulados)"></canvas>
       ${legendHtml()}
     </div>
 
@@ -1162,11 +1179,11 @@ TEMPLATES.resumo = () => `
   <div class="grid-2b">
     <div class="card">
       <div class="card-head"><div><h3>Padrão semanal de atividade</h3><div class="card-sub">Intensidade de movimento por hora, últimos 7 dias</div></div></div>
-      <canvas id="cvHeatmap" height="180"></canvas>
+      <canvas id="cvHeatmap" height="180" role="img" aria-label="Mapa de calor de intensidade de movimento por hora, últimos 7 dias (dados simulados)"></canvas>
     </div>
     <div class="card">
       <div class="card-head"><div><h3>Tendência — últimos 7 dias</h3><div class="card-sub">Passos, sono e frequência cardíaca média</div></div></div>
-      <canvas id="cvTrend" height="180"></canvas>
+      <canvas id="cvTrend" height="180" role="img" aria-label="Gráfico de tendência de passos, sono e frequência cardíaca média nos últimos 7 dias"></canvas>
       <div class="legend">
         <span class="legend-item"><span class="legend-swatch" style="background:var(--cat-atividade)"></span>Passos</span>
         <span class="legend-item"><span class="legend-swatch" style="background:var(--cat-dormir)"></span>Sono (h)</span>
@@ -1249,7 +1266,7 @@ TEMPLATES.rotina = () => `
     <div class="card-head">
       <div><h3>Rotina diária — hoje <span class="sim-flag">dados simulados</span></h3><div class="card-sub">Blocos de atividade ao longo de 24h, alinhados ao template clínico</div></div>
     </div>
-    <canvas id="cvRoutineFull" height="180"></canvas>
+    <canvas id="cvRoutineFull" height="180" role="img" aria-label="Blocos de atividade ao longo de 24h, alinhados ao template clínico (dados simulados)"></canvas>
     ${legendHtml()}
   </div>
 
@@ -1279,7 +1296,7 @@ TEMPLATES.rotina = () => `
 
   <div class="card">
     <div class="card-head"><h3>Simulação com anomalias injetadas</h3></div>
-    <canvas id="cvRoutineAnomFull" height="180"></canvas>
+    <canvas id="cvRoutineAnomFull" height="180" role="img" aria-label="Rotina de 24h com anomalias injetadas assinaladas (dados simulados)"></canvas>
     ${legendHtml()}
     <p class="empty-hint">Anomalias marcadas a tracejado: substituição contextual de atividade e bloco de duração fora dos limites [d_min × 0.30, d_max × 3.00].</p>
   </div>
@@ -1393,7 +1410,7 @@ function renderActivityDetail(catKey){
         </div>`).join('') : `<p class="empty-hint">Sem blocos de "${cat.label}" registados hoje.</p>`}
     </div>
     <div class="card-sub" style="margin:14px 0 8px;">Tendência semanal — minutos por dia</div>
-    <canvas id="cvActivityWeekly" height="120"></canvas>
+    <canvas id="cvActivityWeekly" height="120" role="img" aria-label="Tendência semanal de ${cat.label} em minutos por dia (dados simulados)"></canvas>
   `;
   drawCategoryWeeklyBar('cvActivityWeekly', weekly, cat.color);
 }
@@ -1453,7 +1470,7 @@ TEMPLATES.vitais = () => `
     <div class="card-head">
       <div><h3>Frequência cardíaca <span id="hrChartLabel">— últimas 24h (demonstração)</span></h3><div class="card-sub">Leituras do sensor PPG (MAX3010x) — em direto quando o bridge está ligado</div></div>
     </div>
-    <canvas id="cvHr" height="170"></canvas>
+    <canvas id="cvHr" height="170" role="img" aria-label="Gráfico de frequência cardíaca das últimas 24h"></canvas>
   </div>
 `;
 AFTER_RENDER.vitais = () => { drawHrSeries('cvHr'); applyLiveVitals(); };
@@ -1461,7 +1478,7 @@ AFTER_RENDER.vitais = () => { drawHrSeries('cvHr'); applyLiveVitals(); };
 TEMPLATES.tendencia = () => `
   <div class="card">
     <div class="card-head"><div><h3>Tendência — últimos 7 dias</h3></div></div>
-    <canvas id="cvTrend2" height="220"></canvas>
+    <canvas id="cvTrend2" height="220" role="img" aria-label="Gráfico de tendência de passos, sono e frequência cardíaca média nos últimos 7 dias"></canvas>
     <div class="legend">
       <span class="legend-item"><span class="legend-swatch" style="background:var(--cat-atividade)"></span>Passos</span>
       <span class="legend-item"><span class="legend-swatch" style="background:var(--cat-dormir)"></span>Sono (h)</span>
@@ -1470,7 +1487,7 @@ TEMPLATES.tendencia = () => `
   </div>
   <div class="card">
     <div class="card-head"><div><h3>Padrão semanal</h3></div></div>
-    <canvas id="cvHeatmap2" height="200"></canvas>
+    <canvas id="cvHeatmap2" height="200" role="img" aria-label="Mapa de calor do padrão semanal de intensidade de movimento por hora"></canvas>
   </div>
 `;
 AFTER_RENDER.tendencia = () => { drawTrend('cvTrend2'); drawHeatmap('cvHeatmap2'); };
@@ -1669,30 +1686,31 @@ TEMPLATES.limites = () => `
 
 TEMPLATES.exportar = () => `
   <div class="card">
-    <div class="card-head"><div><h3>Exportar dados</h3><div class="card-sub">Origem: dump BLE cifrado (AES) do ring buffer QSPI</div></div></div>
+    <div class="card-head"><div><h3>Exportar dados</h3><div class="card-sub">Origem: dump BLE do ring buffer QSPI (registo <code>FullPlain</code> — atualmente transmitido em texto simples, não cifrado; ver PROJECT_STATUS.md)</div></div></div>
     <table class="data-table">
       <thead><tr><th>Intervalo</th><th>Registos</th><th>Formato</th><th></th></tr></thead>
       <tbody>
-        <tr><td>Últimas 24h</td><td class="num">2 843</td><td>CSV</td><td><button class="btn-primary" style="margin:0; padding:6px 14px; width:auto;">Descarregar</button></td></tr>
-        <tr><td>Últimos 7 dias</td><td class="num">18 210</td><td>CSV</td><td><button class="btn-primary" style="margin:0; padding:6px 14px; width:auto;">Descarregar</button></td></tr>
-        <tr><td>Intervalo completo</td><td class="num">41 902</td><td>JSON</td><td><button class="btn-primary" style="margin:0; padding:6px 14px; width:auto;">Descarregar</button></td></tr>
+        <tr><td>Últimas 24h</td><td class="num">2 843</td><td>CSV</td><td><button class="btn-primary" disabled title="Exportação pendente do serviço de persistência (BD SQL) — ver PROJECT_STATUS.md" style="margin:0; padding:6px 14px; width:auto;">Descarregar</button></td></tr>
+        <tr><td>Últimos 7 dias</td><td class="num">18 210</td><td>CSV</td><td><button class="btn-primary" disabled title="Exportação pendente do serviço de persistência (BD SQL) — ver PROJECT_STATUS.md" style="margin:0; padding:6px 14px; width:auto;">Descarregar</button></td></tr>
+        <tr><td>Intervalo completo</td><td class="num">41 902</td><td>JSON</td><td><button class="btn-primary" disabled title="Exportação pendente do serviço de persistência (BD SQL) — ver PROJECT_STATUS.md" style="margin:0; padding:6px 14px; width:auto;">Descarregar</button></td></tr>
       </tbody>
     </table>
-    <p class="empty-hint">Protótipo — a exportação real depende de um serviço que decifre e persista os dumps BLE numa base de dados (ainda por implementar).</p>
+    <p class="empty-hint">Exportação ainda não disponível — depende de um serviço que persista os dumps BLE numa base de dados SQL (ainda por implementar, ver "Próximas tarefas" no PROJECT_STATUS.md). Os números acima são de demonstração.</p>
   </div>
 `;
 
 /* ============================================================
    PEÇAS REUTILIZÁVEIS
 ============================================================ */
-function statTile(icon, label, value, unit, color, valueId){
+function statTile(icon, label, value, unit, color, valueId, sim){
   const valAttr = valueId ? ` id="${valueId}"` : '';
+  const simBadge = sim ? ` <span class="sim-flag" title="Classificação de rotina simulada — sem classificador HAR embarcado ainda">simulado</span>` : '';
   return `
     <div class="stat-tile">
       <div class="top">
         <span class="stat-icon" style="background:color-mix(in srgb, ${color} 18%, transparent); color:${color}">${iconFor(icon)}</span>
       </div>
-      <div class="label">${label}</div>
+      <div class="label">${label}${simBadge}</div>
       <div class="value"${valAttr}>${value}${unit ? `<span class="unit">${unit}</span>` : ''}</div>
     </div>`;
 }
@@ -2044,6 +2062,14 @@ function updateDeviceStatusUI(){
   }
 }
 
+// Converte um valor vindo do bridge (não confiável — canal WebSocket sem
+// autenticação) num número finito, ou null se não for um número válido.
+// Usado antes de guardar em liveState, para nunca acabar em innerHTML.
+function toFiniteNumber(v){
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 // Escreve os últimos valores conhecidos (liveState) nos cartões de
 // sinais vitais, se estiverem presentes na vista atualmente renderizada.
 // Chamado tanto quando chega um registo novo como sempre que se navega
@@ -2077,15 +2103,23 @@ function handleBridgeMessage(msg){
     // Espelha o payload real gravado pelo firmware (ImuPpgPayloadV1 /
     // FullPlain — ver storageTask em main.cpp e Ble.cpp): spo2/hr vêm a
     // null quando essa amostra em particular não trouxe leitura nova.
+    // O canal do bridge (ws://localhost:8765) não é autenticado (ver
+    // PROJECT_STATUS.md) — qualquer valor vindo de `msg` é tratado como não
+    // confiável e validado como número finito antes de entrar em liveState
+    // (e, dali, em innerHTML), para evitar XSS via WebSocket.
+    const hrNum = toFiniteNumber(msg.hr);
+    const spo2Num = toFiniteNumber(msg.spo2);
+    const stepsNum = toFiniteNumber(msg.steps);
+
     liveState.lastRecordAt = Date.now();
-    if (msg.hr != null) liveState.hr = msg.hr;
-    if (msg.spo2 != null) liveState.spo2 = msg.spo2;
-    liveState.steps = msg.steps;
+    if (hrNum != null) liveState.hr = hrNum;
+    if (spo2Num != null) liveState.spo2 = spo2Num;
+    liveState.steps = stepsNum;
     liveState.freefall = !!msg.freefall;
     liveState.inactivity = !!msg.inactivity;
 
-    if (msg.hr != null && msg.ts){
-      liveHrBuffer.push({t: msg.ts, hr: msg.hr, label: fmtClock(msg.ts)});
+    if (hrNum != null && msg.ts){
+      liveHrBuffer.push({t: msg.ts, hr: hrNum, label: fmtClock(msg.ts)});
       if (liveHrBuffer.length > LIVE_HR_WINDOW) liveHrBuffer.shift();
       // Só redesenha o gráfico se a vista "Sinais vitais" estiver ativa.
       if (document.getElementById('cvHr')) drawHrSeries('cvHr');
@@ -2117,6 +2151,7 @@ function connectBridge(){
     if (bridgeWs === ws) bridgeWs = null;
     liveState.connected = false;
     updateDeviceStatusUI();
+    resetPendingCommandButtons();
     scheduleReconnect();
   };
   ws.onerror = () => { ws.close(); };
@@ -2142,6 +2177,31 @@ function sendWsCommand(cmd){
    COMANDOS AO VIVO — "Medir agora" (FC+SpO2 forçados) e
    "Repor leituras" (destrutivo, com modal de confirmação)
 ------------------------------------------------------------ */
+// Se a ligação ao bridge cair a meio de um pedido ("Medir agora" ou "Repor
+// leituras"), o command_result correspondente nunca chega e os botões
+// ficavam presos em "a carregar" até a página ser recarregada. Chamado a
+// partir de ws.onclose para repor o estado assim que a ligação se perde.
+function resetPendingCommandButtons(){
+  const forceBtn = document.getElementById('forceReadingBtn');
+  const forceHint = document.getElementById('forceReadingHint');
+  if (forceBtn && forceBtn.disabled){
+    forceBtn.disabled = false;
+    if (forceHint){
+      forceHint.style.color = 'var(--status-warning)';
+      forceHint.textContent = 'Ligação ao bridge perdida antes de haver resposta. Tenta novamente.';
+    }
+  }
+  const resetBtn = document.getElementById('resetConfirmBtn');
+  const resetStatus = document.getElementById('resetModalStatus');
+  if (resetBtn && resetBtn.disabled){
+    resetBtn.disabled = false;
+    if (resetStatus){
+      resetStatus.className = 'modal-status err';
+      resetStatus.textContent = 'Ligação ao bridge perdida antes de haver resposta. Tenta novamente.';
+    }
+  }
+}
+
 function onForceReadingClick(){
   const btn = document.getElementById('forceReadingBtn');
   const hint = document.getElementById('forceReadingHint');
@@ -2222,8 +2282,19 @@ connectBridge();
 populateLangSelect();
 applyI18n();
 
+// Só volta a desenhar os canvases (via AFTER_RENDER), sem recriar o HTML da
+// vista inteira com renderView() — recriar o HTML apagava silenciosamente
+// texto ainda não submetido (ex: "Notas do cuidador") e edições em curso
+// (ex: limites de duração na área Médico/Técnico) sempre que a janela era
+// redimensionada.
+let resizeRedrawTimer = null;
 window.addEventListener('resize', () => {
-  const active = document.querySelector('.nav-item.active');
-  if (active && document.getElementById('view-app').classList.contains('active')) renderView(active.dataset.view);
+  clearTimeout(resizeRedrawTimer);
+  resizeRedrawTimer = setTimeout(() => {
+    const active = document.querySelector('.nav-item.active');
+    if (active && document.getElementById('view-app').classList.contains('active')){
+      AFTER_RENDER[active.dataset.view] && AFTER_RENDER[active.dataset.view]();
+    }
+  }, 150);
 });
 </script>

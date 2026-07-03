@@ -3,3 +3,12 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+
+# Dados sintéticos de ml/ são regenerados por `python synthetic_data.py`
+# (determinístico, seed fixa) — não versionados para não inchar o repo com
+# CSVs grandes a cada execução diária da rotina de ML. Os metadados
+# (contagens, parâmetros), o modelo treinado e as métricas de avaliação
+# continuam versionados em ml/data/*.meta.json, ml/models/ e ml/reports/.
+ml/data/*.csv
+__pycache__/
+*.pyc
