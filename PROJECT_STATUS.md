@@ -635,7 +635,19 @@ commitado) para não duplicar, e esta execução avançou para o item 9
    o clique manual "Marcar como tomado". Verificado sem erros de consola
    em Playwright real (Chromium): 3 pacientes, marcação de dose,
    navegação nos dois perfis, sem regressões nas restantes vistas.
+   **Nota de sincronização (mesma sessão interativa)**: uma implementação
+   paralela e mais simples (cartão dentro de "Rotina diária", em vez de
+   vista dedicada) foi feita ao mesmo tempo nesta sessão interativa —
+   removida a favor desta (mais completa e já verificada), sem perda de
+   trabalho porque nenhuma das duas tinha sido usada por um utilizador
+   real ainda.
 10. Múltiplos cuidadores/família com permissões por papel.
+    **IMPLEMENTADO (2026-07-03)**: cartão "Equipa de cuidadores" em
+    Definições — convidar (protótipo, sem envio real), permissões
+    granulares por membro (ver alertas / editar notas e medicação), e
+    remoção com **efeito imediato** (`removeCaregiver()`) — recomendação
+    explícita encontrada na pesquisa (Caring Village, Jointly: um membro
+    tem de poder ser removido da equipa sem demora).
 
 **Decisões técnicas a considerar:**
 - `emlearn` (já nos repositórios com estrela do utilizador) cobre árvores
