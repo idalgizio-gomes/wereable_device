@@ -179,9 +179,99 @@ Ficheiro: `web/dashboard/index.html` (versionado no repo).
   Artifact), com o bridge a correr.
 - Dados de classificação de rotina (Dormir/Descanso/Atividade/Alimentação/
   Higiene) continuam **simulados** — o classificador HAR ainda não está
-  embarcado no firmware.
+  embarcado no firmware (ver secção "Modelo de Machine Learning" abaixo para
+  o progresso do treino, ainda só no backend/offline).
 - Base de dados: **decidido SQL** (motor concreto — SQLite vs Postgres/MySQL —
   por decidir quando desenharmos o serviço de persistência).
+
+### Correções e melhorias (sessão 2026-07-03, rotina diária)
+
+- **Bug de rotulagem de dados simulados corrigido**: os tiles "Sono" e
+  "Alimentação" no Resumo mostravam valores fixos (`7h 24m`, `3 refeições`)
+  sem nenhum `sim-flag`/aviso, ao contrário dos restantes cartões de rotina —
+  violava diretamente a regra do projeto de nunca apresentar dados simulados
+  sem rótulo. `statTile()` ganhou um parâmetro `sim` opcional; os dois tiles
+  agora mostram o badge "simulado" tal como os cartões de rotina diária.
+- **Botão "Alertas" da topbar corrigido**: chamava `switchNav(...)`, função
+  que não existia (`ReferenceError` ao clicar, botão morto). Adicionada
+  `activateNavItem()`/`switchNav()` reutilizando a lógica do listener de
+  navegação. **Causa raiz adicional encontrada só ao testar no browser real
+  (Playwright)**: o próprio atributo `onclick` estava malformado —
+  continha `\"` (aspas duplas escapadas com barra invertida) dentro de um
+  atributo HTML delimitado por aspas duplas. HTML não suporta esse tipo de
+  escape; o parser cortava o atributo no primeiro `"` literal, partindo o
+  `querySelector(...)` a meio e gerando `SyntaxError: Invalid or unexpected
+  token` ao clicar (confirmado via `el.getAttribute('onclick')` no browser,
+  que mostrava o atributo truncado). Corrigido removendo as aspas à volta
+  dos valores dos seletores de atributo CSS (`[data-view=anomalias]` em vez
+  de `[data-view=\"anomalias\"]` — válido em CSS para identificadores
+  simples), eliminando o conflito de aspas.
+- **Corrupção de acentuação (mojibake) em todo o texto português — corrigida**:
+  o ficheiro não tinha `<!DOCTYPE html>` nem `<meta charset="UTF-8">` (nem
+  sequer `<html>`/`<head>` explícitos). Sem declaração de charset, a
+  deteção de codificação fica dependente do servidor/browser — confirmado
+  em teste real que servir o ficheiro via `python -m http.server` (um dos
+  métodos mais comuns para testar localmente) corrompia todos os
+  caracteres acentuados (`ção` → `Ã§Ã£o`, `—` → `â€”`). Corrigido
+  adicionando `<!DOCTYPE html>` + `<meta charset="UTF-8">` no topo do
+  ficheiro.
+- **XSS potencial corrigido**: valores `hr`/`spo2`/`steps` vindos do bridge
+  via WebSocket (canal `ws://localhost:8765`, não autenticado, sem Same-Origin
+  Policy em WebSocket) eram guardados sem validação e escritos com
+  `innerHTML`. Adicionada `toFiniteNumber()` — só números finitos entram em
+  `liveState`.
+- **Perda de dados ao redimensionar a janela corrigida**: o listener de
+  `resize` chamava `renderView()`, que recria o HTML da vista inteira e
+  apagava texto não submetido na textarea "Notas do cuidador" e edições em
+  curso na tabela de limites de duração. Passou a só invocar os hooks
+  `AFTER_RENDER` (redesenha canvases, não recria o DOM), com debounce de
+  150ms.
+- **Botões presos corrigidos**: se a ligação WebSocket caísse a meio de um
+  pedido "Medir agora"/"Repor leituras", o botão ficava desativado
+  indefinidamente (nunca chegava `command_result`). `resetPendingCommandButtons()`
+  agora repõe o estado em `ws.onclose`.
+- **Afirmação incorreta corrigida**: a vista "Exportar dados" descrevia a
+  origem como "dump BLE cifrado (AES)" — mas o streaming BLE **não** é
+  cifrado (`FullPlain`, ver secção acima). Texto corrigido; os três botões
+  "Descarregar" (sem handler, mortos) passaram a `disabled` com tooltip a
+  explicar que a exportação depende do serviço de persistência SQL ainda por
+  construir, em vez de parecerem funcionais e falharem silenciosamente.
+- **Acessibilidade**: todos os `<canvas>` de gráficos (timeline de rotina,
+  heatmap, tendência, FC) ganharam `role="img"` + `aria-label` descritivo —
+  antes eram invisíveis para leitores de ecrã, sem qualquer alternativa
+  textual.
+
+## Modelo de Machine Learning (`ml/`)
+
+Primeira iteração da pasta `ml/`, a implementar incrementalmente o pipeline
+do artigo científico (XGBoost + LSTM Autoencoder + detetor de duração) —
+ver `ml/README.md` para o detalhe completo (decisões técnicas, estrutura,
+como reproduzir). Resumo:
+
+- **Passo 1 implementado: classificador de atividades (XGBoost)**, treinado
+  sobre dados 100% sintéticos (`ml/synthetic_data.py`) — não existem ainda
+  dados reais rotulados de utentes. Sinal sintético gerado a 52Hz (mesma
+  taxa real do IMU) para acelerómetro+giroscópio, mais FC simulada, com as
+  mesmas 5 classes já usadas no dashboard (Dormir/Descanso/Atividade/
+  Alimentação/Higiene).
+- Features estatísticas por janela de 10s (`ml/features.py`) — abordagem
+  clássica de HAR sobre acelerómetro wearable, sem FFT nesta iteração.
+- XGBoost com `max_depth=3` (decisão deliberada, alinhada com a regra
+  prática de TinyML já documentada abaixo, mesmo treinando só no backend
+  por agora) e split de avaliação por sujeito sintético (não por janela
+  aleatória, para não inflacionar a métrica).
+- **Resultado da última execução: accuracy = 1.000** no conjunto de teste
+  (ver `ml/reports/activity_classifier_metrics.json`). **Não é uma
+  validação clínica** — as classes sintéticas foram desenhadas
+  deliberadamente bem separáveis para validar a pipeline de ponta a ponta;
+  dados reais serão mais ambíguos. Ver `ml/README.md` para a interpretação
+  honesta completa deste número.
+- **Passos 2 e 3 do artigo (LSTM Autoencoder, detetor de duração) ainda não
+  implementados** — próxima iteração desta rotina.
+- Dataset sintético gerado (`ml/data/*.csv`) não é versionado no git
+  (regenerável de forma determinística via `python synthetic_data.py`,
+  seed fixa) — só os metadados, o modelo treinado e as métricas de
+  avaliação ficam no repositório.
 
 ## Deteção de emergência (código completo, por confirmar em hardware real)
 
@@ -370,7 +460,12 @@ relevância. Nenhuma implementada ainda — registo para priorização futura.
    são atualmente).
 3. **Sem classificador HAR embarcado.** As categorias de rotina no dashboard
    são simuladas — o pipeline do artigo (XGBoost + LSTM Autoencoder) ainda não
-   foi implementado no firmware nem em nenhum serviço.
+   foi implementado no firmware nem em nenhum serviço. Progresso: o passo 1
+   (classificador XGBoost) já está implementado e treinado sobre dados
+   sintéticos em `ml/` (ver secção "Modelo de Machine Learning" acima), mas
+   isto é só o modelo treinado no backend/offline — continua sem estar
+   embarcado nem ligado ao dashboard/firmware, e sem validação em dados
+   reais.
 4. **GPS presente mas sem código.** Módulo CAM-M8Q real na placa (ver acima),
    biblioteca já declarada mas nunca inicializada em `main.cpp`.
 5. Reduções de stack (RAM/CPU): a 1ª ronda (2048/1024/1536/3072→1536/768/
@@ -489,7 +584,10 @@ Migração de hardware futura possível: nRF5340 ou nRF54H20.
    heatmap/tendência), hoje só os valores "ao vivo" via bridge são reais.
 5. HAR/deteção de anomalias: portar o pipeline do artigo científico — ver
    "Estudo de viabilidade TinyML" acima; agora também progride via rotina
-   cloud diária (pasta `ml/`).
+   cloud diária (pasta `ml/`). Passo 1 (classificador XGBoost sobre dados
+   sintéticos) feito — falta LSTM Autoencoder, detetor de duração, dados
+   sintéticos mais realistas, e só depois medir footprint/latência reais em
+   hardware antes de decidir embarcar ou não (ver `ml/README.md`).
 6. Reparar/substituir o botão físico e remover os bypasses de debug
    (`DEBUG_SERIAL_WAKE`) do firmware.
 7. Decidir quem são as "entidades competentes" concretas por utente e o
