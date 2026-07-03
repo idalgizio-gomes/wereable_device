@@ -1,0 +1,108 @@
+{
+  "accuracy": 0.9775252525252526,
+  "classification_report": {
+    "Alimentação": {
+      "precision": 0.7639257294429708,
+      "recall": 1.0,
+      "f1-score": 0.8661654135338346,
+      "support": 288.0
+    },
+    "Atividade": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 54.0
+    },
+    "Descanso": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 2196.0
+    },
+    "Dormir": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 1080.0
+    },
+    "Higiene": {
+      "precision": 1.0,
+      "recall": 0.7397660818713451,
+      "f1-score": 0.8504201680672269,
+      "support": 342.0
+    },
+    "accuracy": 0.9775252525252526,
+    "macro avg": {
+      "precision": 0.9527851458885941,
+      "recall": 0.947953216374269,
+      "f1-score": 0.9433171163202122,
+      "support": 3960.0
+    },
+    "weighted avg": {
+      "precision": 0.9828309621413069,
+      "recall": 0.9775252525252526,
+      "f1-score": 0.9773483173173575,
+      "support": 3960.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      288,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      54,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      2196,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      1080,
+      0
+    ],
+    [
+      89,
+      0,
+      0,
+      0,
+      253
+    ]
+  ],
+  "class_order": [
+    "Alimentação",
+    "Atividade",
+    "Descanso",
+    "Dormir",
+    "Higiene"
+  ],
+  "n_train_windows": 11880,
+  "n_test_windows": 3960,
+  "test_subject_ids": [
+    0,
+    6
+  ],
+  "train_subject_ids": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    7
+  ],
+  "n_estimators": 80,
+  "max_depth": 5
+}

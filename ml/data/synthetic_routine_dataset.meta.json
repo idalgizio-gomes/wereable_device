@@ -2,7 +2,7 @@
   "n_rows": 15840,
   "n_subjects": 8,
   "classes": [
-    "AlimentaÃ§Ã£o",
+    "Alimentação",
     "Atividade",
     "Descanso",
     "Dormir",
@@ -11,11 +11,11 @@
   "class_counts": {
     "Descanso": 8370,
     "Dormir": 4242,
-    "AlimentaÃ§Ã£o": 1290,
+    "Alimentação": 1290,
     "Atividade": 978,
     "Higiene": 960
   },
   "fs_hz": 52,
   "window_seconds": 10,
-  "note": "Dataset 100% sintÃ©tico, gerado por ml/synthetic_data.py. NÃ£o contÃ©m dados reais de nenhum utente. SessÃµes 'dia'/'noite' sÃ£o comprimidas (nao 24h reais) â€” ver docstring do mÃ³dulo."
+  "note": "Dataset 100% sintético, gerado por ml/synthetic_data.py. Não contém dados reais de nenhum utente. Sessões 'dia'/'noite' são comprimidas (nao 24h reais) — ver docstring do módulo."
 }
