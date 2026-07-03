@@ -175,12 +175,42 @@ dados reais de cada instalação, não código nem exemplos do repositório).
   `exportRealCsv(hours)` → `sendWsCommandWithArgs('export_csv',{hours})`
   → `handleCsvExportResult()` descarrega o CSV recebido via Blob + `<a
   download>` (mesma técnica de `exportFhirSummary()`).
-- **Ainda não feito** (próximo passo natural, não pedido explicitamente
-  ainda): ligar `get_history` aos gráficos de tendência do dashboard
-  (hoje continuam com dados sintéticos claramente rotulados como tal);
-  política de retenção/limpeza para `sensor_records`; cifra do `.db` se
-  este serviço vier a correr fora de um ambiente de desenvolvimento
-  local confiável.
+- **Histórico real ligado à vista "Tendência semanal" (2026-07-03, rotina
+  cloud)**: nova função `storage.get_daily_summary()` agrega os
+  registos por dia (FC média + nº de leituras, extremos do contador de
+  passos) diretamente em SQL — devolver os registos em bruto (como
+  `get_history` já fazia) seria demasiado lento/pesado para uma janela
+  de vários dias (~14-52 registos/seg). Novo comando WebSocket
+  `get_daily_trend` em `ble_bridge.py` expõe isto; no dashboard, novo
+  cartão "Histórico real (BD local do bridge)" na vista Tendência
+  semanal, deliberadamente **separado** do gráfico sintético
+  (`trendData`) já existente — nunca mistura dados reais e simulados na
+  mesma série. Não inclui horas de sono (nenhuma deteção real de sono
+  existe no firmware ainda). Verificado com um bridge falso (Playwright
+  real): estado sem ligação, e resposta com dias com/sem leituras de FC,
+  sem erros de consola.
+- **Política de retenção implementada (2026-07-03, rotina cloud, reforçada
+  por pesquisa aplicada desta execução)**: pesquisa sobre retenção de
+  dados de saúde encontrou uma estatística concreta — "83% dos modelos
+  de IA em saúde revistos violavam políticas de retenção do RGPD/GDPR,
+  guardando dados de pacientes por mais tempo do que o necessário" —
+  motivo direto para implementar já a limpeza automática de
+  `sensor_records`, que crescia sem limite. `storage.purge_old_sensor_records()`
+  apaga registos com mais de `DEFAULT_RETENTION_DAYS` (30, valor por
+  omissão do protótipo, **não uma decisão de compliance certificada** —
+  a retenção real de dados clínicos de um utente é uma decisão do
+  utilizador/responsável pelos dados). O bridge chama isto uma vez no
+  arranque e depois a cada 6h enquanto corre
+  (`BleBridge.periodic_retention_task()`). `emergency_alerts`
+  propositadamente **nunca** é limpo por esta política (histórico de
+  segurança, mantido para sempre). Testado com uma base de dados
+  temporária (registo com 40 dias é apagado, registo com 1 dia e o
+  alerta de emergência sobrevivem).
+- **Ainda não feito**: cifra do `.db` se este serviço vier a correr fora
+  de um ambiente de desenvolvimento local confiável; expor
+  `DEFAULT_RETENTION_DAYS` como opção configurável pelo utilizador em vez
+  de constante fixa no código (hoje só editável diretamente em
+  `storage.py`).
 
 ## Dashboard web (protótipo)
 

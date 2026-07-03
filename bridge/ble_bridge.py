@@ -210,6 +210,26 @@ class BleBridge:
         self.db = storage.init_db()
 
     RECORD_BROADCAST_MIN_INTERVAL_S = 0.25  # no maximo ~4 atualizacoes/seg
+    # Intervalo entre limpezas automaticas de sensor_records (ver
+    # storage.purge_old_sensor_records) - nao precisa de ser frequente,
+    # e' so' para o ficheiro .db nao crescer sem limite num bridge deixado
+    # a correr por muito tempo.
+    RETENTION_CHECK_INTERVAL_S = 6 * 3600
+
+    async def periodic_retention_task(self) -> None:
+        """Aplica a politica de retencao (ver storage.py, DEFAULT_RETENTION_DAYS)
+        uma vez no arranque e depois a cada RETENTION_CHECK_INTERVAL_S
+        enquanto o bridge estiver a correr. So' apaga sensor_records - o
+        registo de emergencias nunca e' apagado automaticamente."""
+        while True:
+            try:
+                deleted = storage.purge_old_sensor_records(self.db)
+                if deleted:
+                    print(f"[BRIDGE] retencao: apagados {deleted} registos de sensores "
+                          f"com mais de {storage.DEFAULT_RETENTION_DAYS} dias")
+            except Exception as exc:  # noqa: BLE001 - nunca deve derrubar o bridge
+                print(f"[BRIDGE] erro na limpeza de retencao: {exc}")
+            await asyncio.sleep(self.RETENTION_CHECK_INTERVAL_S)
 
     async def broadcast(self, payload: dict) -> None:
         if not self.ws_clients:
@@ -496,6 +516,7 @@ async def main() -> None:
     server = await websockets.serve(bridge.ws_handler, WS_HOST, WS_PORT)
     print(f"[BRIDGE] WebSocket a ouvir em ws://{WS_HOST}:{WS_PORT}")
     async with server:
+        asyncio.create_task(bridge.periodic_retention_task())
         await bridge.run_device_loop()
 
 
