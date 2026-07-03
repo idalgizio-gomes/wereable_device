@@ -156,6 +156,35 @@ backend; a decisão de embarcar (e com que algoritmo) só deve ser tomada
 depois de medir footprint/latência reais nesta placa (ver "Estudo de
 viabilidade TinyML" no PROJECT_STATUS.md).
 
+### Random Forest treinado (2026-07-03) — comparação real com o XGBoost
+
+Visto que o XGBoost fiel ao artigo não é viável para embarcar (secção
+acima), o utilizador confirmou avançar com o treino comparativo do Random
+Forest sem esperar mais, já que treinar um ou outro não faz diferença
+para o estado atual da placa (nenhum dos dois está embarcado). Script:
+`train_activity_classifier_rf.py`, reutiliza o mesmo dataset/split/
+metodologia de avaliação do script XGBoost (ver `train_activity_classifier.py`),
+para a comparação ser justa.
+
+| | XGBoost (`ml/models/activity_classifier_xgb.json`) | Random Forest (`ml/models/activity_classifier_rf.joblib`) |
+|---|---|---|
+| Nº de árvores | 300 estimadores × 5 classes = **~1500 árvores internas** | **80 árvores** |
+| Profundidade | 3 | 5 |
+| Accuracy (sujeitos de teste nunca vistos) | **1.000** | **0.978** |
+
+A diferença de accuracy é pequena (2.2 pontos percentuais) para uma
+fração do número de árvores (80 vs. ~1500) — reforça que o Random Forest
+é a via mais realista para uma eventual versão embarcada via `emlearn`,
+sem sacrificar muita qualidade face ao XGBoost. **Isto continua a não ser
+uma decisão de produção**: falta medir o footprint real via `emlearn`
+(flash/RAM/latência nesta placa) antes de decidir embarcar qualquer um
+dos dois — ver `reports/activity_classifier_rf_metrics.json` e
+`reports/activity_classifier_rf_confusion_matrix.png` para o detalhe por
+classe (nota: "Higiene" tem recall mais baixo, 0.74, no Random Forest do
+que no XGBoost — sinal de que árvores mais rasas/em menor número têm mais
+dificuldade nesta classe especificamente, algo a ter em conta se se
+avançar para esta via).
+
 ### Avaliação — split por sujeito, não por janela
 
 O conjunto de teste é composto por sujeitos sintéticos **nunca vistos no
