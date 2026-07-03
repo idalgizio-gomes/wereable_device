@@ -93,7 +93,17 @@
 // propósito durante o desenvolvimento. Voltar a 0 antes de qualquer uso
 // real com bateria (senão a bateria nunca dura, o dispositivo nunca
 // entra realmente em baixo consumo).
-#define DEBUG_DISABLE_SLEEP 1
+// Alterado de 1 para 0 em 2026-07-03 para testar a hipótese de a
+// instabilidade intermitente da ligação USB estar relacionada com o
+// dispositivo nunca entrar em SYSTEM_OFF (mais calor/consumo sustentado)
+// — ver PROJECT_STATUS.md, "Riscos/bloqueios ativos", ponto 8. O
+// utilizador considera pouco provável ser esta a causa principal (o
+// padrão observado — porta a aparecer/desaparecer em segundos — sugere
+// antes um mau contacto mecânico), mas o teste é barato de fazer e ajuda
+// a excluir ou confirmar esta hipótese. Repor para 1 se o teste não
+// mostrar melhoria, para manter a comodidade de não precisar do botão
+// físico partido durante o resto dos testes.
+#define DEBUG_DISABLE_SLEEP 0
 
 // ------------------------------------------------------------
 // *** DIAGNOSTICO TEMPORARIO — otimizacao de RAM ***

@@ -313,6 +313,19 @@
   .alert-row .title{ font-size:12.5px; font-weight:600; }
   .alert-row .desc{ font-size:11.5px; color:var(--text-secondary); margin-top:2px; line-height:1.5; }
   .alert-row .time{ font-size:10.5px; color:var(--text-muted); flex:none; margin-top:1px; }
+  /* Botão "O que significa isto?" — expande uma explicação em linguagem
+     simples por baixo do alerta, pensada para a família (não só termos
+     técnicos). Ver alertRow()/toggleAlertPlain() no <script>. */
+  .alert-explain-btn{
+    margin-top:6px; font-size:11px; font-weight:600; color:var(--accent);
+    background:none; border:none; padding:0; cursor:pointer; text-decoration:underline;
+    font-family:inherit;
+  }
+  .alert-explain-box{
+    margin-top:6px; font-size:11.5px; line-height:1.55; color:var(--text-secondary);
+    background:var(--bg-card); border:1px solid var(--border-soft); border-radius:var(--radius-sm);
+    padding:8px 10px;
+  }
 
   .legend{ display:flex; flex-wrap:wrap; gap:12px; margin-top:12px; }
   .legend-item{ display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--text-secondary); }
@@ -717,6 +730,7 @@ const I18N = {
     'topbar.connecting': 'A ligar ao bridge…', 'topbar.connected': 'Wearable ligado · dados em direto',
     'topbar.disconnected': 'Sem ligação ao bridge · a mostrar demonstração',
     'help.title': 'Ajuda & sobre', 'help.faqTitle': 'Perguntas frequentes', 'help.devTitle': 'Sobre o projeto',
+    'alert.explainShow': 'O que significa isto?', 'alert.explainHide': 'Esconder explicação',
   },
   en: {
     'app.title': 'CareWear · Routine Monitoring',
@@ -736,6 +750,7 @@ const I18N = {
     'topbar.connecting': 'Connecting to bridge…', 'topbar.connected': 'Wearable connected · live data',
     'topbar.disconnected': 'Not connected to bridge · showing demo',
     'help.title': 'Help & about', 'help.faqTitle': 'Frequently asked questions', 'help.devTitle': 'About this project',
+    'alert.explainShow': 'What does this mean?', 'alert.explainHide': 'Hide explanation',
   },
   zh: {
     'app.title': 'CareWear · 日常活动监测',
@@ -755,6 +770,7 @@ const I18N = {
     'topbar.connecting': '正在连接网桥…', 'topbar.connected': '穿戴设备已连接 · 实时数据',
     'topbar.disconnected': '未连接网桥 · 显示演示数据',
     'help.title': '帮助与关于', 'help.faqTitle': '常见问题', 'help.devTitle': '关于本项目',
+    'alert.explainShow': '这是什么意思？', 'alert.explainHide': '隐藏说明',
   },
   es: {
     'app.title': 'CareWear · Monitorización de Rutina',
@@ -774,6 +790,7 @@ const I18N = {
     'topbar.connecting': 'Conectando al bridge…', 'topbar.connected': 'Wearable conectado · datos en vivo',
     'topbar.disconnected': 'Sin conexión al bridge · mostrando demo',
     'help.title': 'Ayuda y acerca de', 'help.faqTitle': 'Preguntas frecuentes', 'help.devTitle': 'Acerca del proyecto',
+    'alert.explainShow': '¿Qué significa esto?', 'alert.explainHide': 'Ocultar explicación',
   },
   fr: {
     'app.title': 'CareWear · Suivi de Routine',
@@ -793,6 +810,7 @@ const I18N = {
     'topbar.connecting': 'Connexion au bridge…', 'topbar.connected': 'Wearable connecté · données en direct',
     'topbar.disconnected': 'Non connecté au bridge · démonstration affichée',
     'help.title': 'Aide et à propos', 'help.faqTitle': 'Questions fréquentes', 'help.devTitle': 'À propos du projet',
+    'alert.explainShow': 'Qu\'est-ce que cela signifie ?', 'alert.explainHide': 'Masquer l\'explication',
   },
   de: {
     'app.title': 'CareWear · Routineüberwachung',
@@ -812,6 +830,7 @@ const I18N = {
     'topbar.connecting': 'Verbindung zur Bridge…', 'topbar.connected': 'Wearable verbunden · Live-Daten',
     'topbar.disconnected': 'Keine Bridge-Verbindung · Demo wird angezeigt',
     'help.title': 'Hilfe & Über', 'help.faqTitle': 'Häufige Fragen', 'help.devTitle': 'Über dieses Projekt',
+    'alert.explainShow': 'Was bedeutet das?', 'alert.explainHide': 'Erklärung ausblenden',
   },
   it: {
     'app.title': 'CareWear · Monitoraggio della Routine',
@@ -831,6 +850,7 @@ const I18N = {
     'topbar.connecting': 'Connessione al bridge…', 'topbar.connected': 'Wearable connesso · dati in diretta',
     'topbar.disconnected': 'Bridge non connesso · demo mostrata',
     'help.title': 'Aiuto e informazioni', 'help.faqTitle': 'Domande frequenti', 'help.devTitle': 'Informazioni sul progetto',
+    'alert.explainShow': 'Cosa significa?', 'alert.explainHide': 'Nascondi spiegazione',
   },
 };
 const LANG_NAMES = {pt:'Português', en:'English', zh:'中文', es:'Español', fr:'Français', de:'Deutsch', it:'Italiano'};
@@ -962,11 +982,24 @@ function buildHeatmap(seed){
 }
 const heatmapData = buildHeatmap(11);
 
+// Cada alerta tem, além da descrição técnica ("desc"), um campo "plain":
+// uma explicação em linguagem simples, pensada para um familiar sem
+// formação clínica — o que aconteceu, se é normalmente preocupante, e o
+// que costuma justificar este tipo de leitura. É mostrada/escondida pelo
+// botão "O que significa isto?" em alertRow() (ver mais abaixo). Esta
+// funcionalidade corresponde ao item nº1 do backlog de investigação em
+// PROJECT_STATUS.md — a explicação em linguagem simples é o que a
+// literatura revista aponta como o que traz mais valor percebido às
+// famílias, mais do que apenas mostrar scores técnicos.
 const alerts = [
-  {sev:'critical', title:'Frequência cardíaca elevada', desc:'92 bpm sustentados durante 6 min em repouso (referência: 58–78 bpm).', time:'há 6 min'},
-  {sev:'serious',  title:'Inatividade prolongada', desc:'Sem movimento detetado desde as 14:35 (3h12min) — acima do limite configurado.', time:'há 41 min'},
-  {sev:'warning',  title:'Bloco de rotina alterado', desc:'"Atividade" da tarde substituída por padrão sedentário — fora do esperado pelo template diário.', time:'há 2h'},
-  {sev:'warning',  title:'SpO₂ no limite', desc:'Leitura de 93% às 03:14 — uma amostra isolada, sem tendência de queda.', time:'há 9h'},
+  {sev:'critical', title:'Frequência cardíaca elevada', desc:'92 bpm sustentados durante 6 min em repouso (referência: 58–78 bpm).', time:'há 6 min',
+   plain:'O coração esteve a bater mais depressa do que o normal para uma pessoa em repouso, e manteve-se assim durante vários minutos seguidos (não foi só um pico rápido). Pode acontecer por esforço recente, dor, ansiedade, febre ou desidratação — mas também pode não ter causa aparente. Vale a pena verificar como a pessoa está agora e, se se mantiver ou vier acompanhado de outros sintomas, contactar o médico.'},
+  {sev:'serious',  title:'Inatividade prolongada', desc:'Sem movimento detetado desde as 14:35 (3h12min) — acima do limite configurado.', time:'há 41 min',
+   plain:'O dispositivo não deteta movimento há mais tempo do que o habitual para esta hora do dia. Muitas vezes é só a pessoa a descansar ou a dormir uma sesta — mas se não for essa a rotina esperada a esta hora, pode valer a pena ir verificar em pessoa.'},
+  {sev:'warning',  title:'Bloco de rotina alterado', desc:'"Atividade" da tarde substituída por padrão sedentário — fora do esperado pelo template diário.', time:'há 2h',
+   plain:'A pessoa costuma estar mais ativa a esta hora do dia, mas hoje ficou mais tempo parada/sentada do que é habitual. Isto sozinho não é necessariamente preocupante (pode ser só um dia mais cansativo), mas é um desvio à rotina normal que vale a pena ter em conta, especialmente se se repetir em dias seguidos.'},
+  {sev:'warning',  title:'SpO₂ no limite', desc:'Leitura de 93% às 03:14 — uma amostra isolada, sem tendência de queda.', time:'há 9h',
+   plain:'O nível de oxigénio no sangue teve uma leitura um pouco abaixo do intervalo normal (95–100%), mas foi só uma vez, sem se manter baixo nas leituras seguintes. Isto acontece com frequência por mau contacto do sensor durante o sono (ex.: mão fora da posição) e normalmente não é motivo de alarme quando é um valor isolado — mas se voltar a acontecer de forma repetida, vale a pena falar com o médico.'},
 ];
 
 const anomalyLog = [
@@ -1172,7 +1205,7 @@ TEMPLATES.resumo = () => `
 
     <div class="card">
       <div class="card-head"><h3>Alertas recentes</h3></div>
-      ${alerts.map(a => alertRow(a)).join('')}
+      ${alerts.map((a,i) => alertRow(a,i)).join('')}
     </div>
   </div>
 
@@ -1594,7 +1627,7 @@ TEMPLATES.pacientes = () => `
   </div>
   <div class="card">
     <div class="card-head"><h3>Alertas por severidade — Maria Silva</h3></div>
-    ${alerts.map(a => alertRow(a)).join('')}
+    ${alerts.map((a,i) => alertRow(a,i)).join('')}
   </div>
 `;
 
@@ -1715,17 +1748,43 @@ function statTile(icon, label, value, unit, color, valueId, sim){
     </div>`;
 }
 
-function alertRow(a){
+// 'idx' identifica este alerta dentro do array 'alerts' (ver chamadas
+// alerts.map((a,i) => alertRow(a,i))), usado para dar um id único à caixa
+// de explicação em linguagem simples e ao botão que a mostra/esconde
+// (ver toggleAlertPlain()). Se 'a.plain' não existir (ex.: alertas vindos
+// de outra fonte no futuro, sem explicação escrita ainda), o botão
+// simplesmente não é mostrado em vez de mostrar uma caixa vazia.
+function alertRow(a, idx){
   const icon = a.sev==='critical' ? 'heart' : a.sev==='serious' ? 'warn' : 'zap';
+  const explainId = `alertPlain-${idx}`;
+  const explainBtn = a.plain
+    ? `<button type="button" class="alert-explain-btn" data-i18n="alert.explainShow" onclick="toggleAlertPlain('${explainId}', this)">${t('alert.explainShow')}</button>
+       <div class="alert-explain-box" id="${explainId}" style="display:none;">${a.plain}</div>`
+    : '';
   return `
     <div class="alert-row ${a.sev}">
       <span class="alert-icon" style="background:${SEV_BG[a.sev]}; color:${SEV_COLOR[a.sev]}">${iconFor(icon)}</span>
       <div class="body">
         <div class="title">${a.title}</div>
         <div class="desc">${a.desc}</div>
+        ${explainBtn}
       </div>
       <div class="time">${a.time}</div>
     </div>`;
+}
+
+// Mostra/esconde a caixa de explicação em linguagem simples de um alerta,
+// e atualiza o texto do próprio botão ("O que significa isto?" <->
+// "Esconder explicação") para refletir o novo estado. 'btnEl' é o próprio
+// botão clicado (passado via 'this' no onclick), para não ter de o
+// procurar outra vez no DOM.
+function toggleAlertPlain(explainId, btnEl){
+  const box = document.getElementById(explainId);
+  if (!box) return;
+  const nowVisible = box.style.display === 'none';
+  box.style.display = nowVisible ? 'block' : 'none';
+  btnEl.textContent = t(nowVisible ? 'alert.explainHide' : 'alert.explainShow');
+  btnEl.setAttribute('data-i18n', nowVisible ? 'alert.explainHide' : 'alert.explainShow');
 }
 
 function legendHtml(){
