@@ -43,19 +43,31 @@ reais multi-sensor de demência, com eventos adversos rotulados,
 
 ```
 ml/
-  features.py                    # extração de features estatísticas por janela
-  synthetic_data.py              # gerador de dados sintéticos de rotina
-  train_activity_classifier.py   # treino + avaliação do XGBoost
+  features.py                     # extração de features estatísticas por janela
+  synthetic_data.py               # gerador de dados sintéticos de rotina (passo 1)
+  synthetic_sequences.py          # gerador de sequências diárias c/ anomalias injetadas (passo 2)
+  train_activity_classifier.py    # treino + avaliação do XGBoost (passo 1)
+  train_activity_classifier_rf.py # treino + avaliação do Random Forest (alternativa TinyML, passo 1)
+  train_lstm_autoencoder.py       # treino + avaliação do LSTM Autoencoder (passo 2)
+  measure_rf_footprint.py         # footprint real (flash/RAM) do Random Forest via emlearn
   requirements.txt
   data/
     synthetic_routine_dataset.csv        # gerado, NÃO versionado (ver .gitignore)
     synthetic_routine_dataset.meta.json  # metadados do dataset gerado, versionado
   models/
     activity_classifier_xgb.json         # modelo treinado (XGBoost, formato nativo)
+    activity_classifier_rf.joblib        # modelo treinado (Random Forest)
     activity_classifier_labels.json      # classes + nomes das features, na mesma ordem do modelo
+    lstm_autoencoder.keras               # modelo treinado (LSTM Autoencoder)
+    lstm_autoencoder_scaler.joblib       # StandardScaler usado antes do autoencoder
+    lstm_autoencoder_labels.json         # nomes das features + comprimento da subsequência
   reports/
     activity_classifier_metrics.json          # accuracy, classification report, matriz de confusão
     activity_classifier_confusion_matrix.png   # visualização da matriz de confusão
+    activity_classifier_rf_metrics.json        # idem, para o Random Forest
+    activity_classifier_rf_footprint.json      # footprint real (flash/RAM) via emlearn
+    lstm_autoencoder_metrics.json              # AUC-ROC/recall geral e por tipo de anomalia
+    lstm_autoencoder_error_distribution.png    # histograma do erro de reconstrução, normal vs. anómalo
 ```
 
 Para reproduzir:
@@ -64,10 +76,12 @@ Para reproduzir:
 cd ml
 pip install -r requirements.txt
 python synthetic_data.py              # gera data/synthetic_routine_dataset.csv
-python train_activity_classifier.py   # treina e avalia, escreve em models/ e reports/
+python train_activity_classifier.py   # treina e avalia o XGBoost, escreve em models/ e reports/
+python train_activity_classifier_rf.py  # idem, Random Forest
+python train_lstm_autoencoder.py      # gera sequências sintéticas + treina/avalia o autoencoder
 ```
 
-Ambos os scripts são determinísticos (seed fixa = 42).
+Todos os scripts são determinísticos (seed fixa = 42).
 
 ## Passo 1 — Classificador de atividades (XGBoost)
 
@@ -264,6 +278,106 @@ validação externa, (b) tornar os dados sintéticos mais realistas (overlap
 entre classes, artefactos de movimento, sensor noise real medido em
 hardware), (c) validar em hardware embarcado se a via TinyML avançar.
 
+## Passo 2 — LSTM Autoencoder (deteção de anomalias comportamentais)
+
+**Implementado (2026-07-03)**: `synthetic_sequences.py` (geração de
+sequências diárias sintéticas, com anomalias injetadas) +
+`train_lstm_autoencoder.py` (treino, calibração de limiar, avaliação).
+
+### Ideia e porquê esta arquitetura
+
+Diferente do passo 1 (classifica UMA janela isolada), este passo olha para
+uma **subsequência de janelas consecutivas** (`SEQ_LEN=12` janelas de 10s =
+2 minutos de contexto) e tenta reconstruí-la. Treinado **só com sequências
+normais** (nunca vê uma anomalia durante o treino — autoencoder, não
+classificador supervisionado), o modelo aprende o padrão normal de
+transições/rotina; uma subsequência com erro de reconstrução muito acima do
+normal é sinalizada como possível anomalia. LSTM Autoencoder é a escolha do
+artigo científico de referência para este passo — mantemo-nos alinhados com
+a base científica do projeto. Arquitetura pequena deliberadamente
+(`LSTM(32)`) — este treino corre no backend/offline; embarcar isto no
+firmware exigiria TensorFlow Lite Micro/CMSIS-NN e quantização, footprint
+ainda por medir (não feito nesta sessão — ver "Próximos passos").
+
+### Dados: sequências sintéticas com anomalias injetadas (`synthetic_sequences.py`)
+
+Reutiliza as mesmas funções de geração de sinal/features de
+`synthetic_data.py` (mesmos parâmetros por classe, mesmo jitter por
+sujeito), mas gera uma **sequência ordenada no tempo** por sujeito (noite
+seguida de dia) em vez de janelas em qualquer ordem — o autoencoder precisa
+da ordem temporal para aprender transições. Três tipos de anomalia
+injetada, escolhidos para cobrir categorias distintas de desvio de rotina
+(mesma ideia já usada na simulação visual do dashboard,
+`buildRoutine(seed, anomalous)`, agora aplicada ao sinal real em vez de só
+à timeline):
+
+- `duracao_prolongada`: um bloco de Higiene fica 3-5x mais longo (ex.:
+  duche demasiado longo).
+- `substituicao_contextual`: um bloco da sessão "noite" (que devia ser
+  Dormir/Descanso) é substituído por Atividade (agitação/deambulação
+  noturna, "sundowning").
+- `truncamento`: um bloco de Alimentação é cortado a menos de metade da
+  duração (refeição interrompida).
+
+Continua 100% sintético — mesma limitação já documentada para o passo 1.
+
+### Metodologia de avaliação (4 grupos de sujeitos, sem sobreposição)
+
+Split por sujeito sintético (nunca por janela/subsequência aleatória, mesma
+lógica dos passos 1): `train` (10 sujeitos normais, ajustam os pesos) →
+`val` (3 sujeitos normais, só early stopping) → `threshold` (8 sujeitos
+normais, calibram o limiar de deteção como o percentil 95 do erro de
+reconstrução — **subiu de 3 para 8 sujeitos** depois de uma primeira
+execução mostrar sensibilidade alta a esta amostra pequena, um percentil é
+uma estimativa ruidosa com poucos pontos) → avaliação final com 3 sujeitos
+normais + 3 sujeitos por cada um dos 3 tipos de anomalia, **nenhum deles
+visto em nenhum passo anterior**.
+
+### Resultado da última execução — achado honesto, não só um número
+
+Ver `reports/lstm_autoencoder_metrics.json` e
+`reports/lstm_autoencoder_error_distribution.png`.
+
+| | Geral | `duracao_prolongada` | `substituicao_contextual` | `truncamento` |
+|---|---|---|---|---|
+| AUC-ROC (score vs. normal) | **0.876** | 0.813 | 0.910 | 0.744 |
+| Recall ao limiar (percentil 95) | 0.179 | 0.015 | 0.331 | 0.000 |
+
+**O AUC-ROC por tipo (0.74-0.91, todos bem acima de 0.5) mostra que o
+modelo consegue, de facto, ordenar corretamente subsequências anómalas
+acima de normais nos 3 tipos** — não é um modelo que não aprendeu nada.
+Mas o **recall a um limiar único e fixo é muito mau para os dois tipos de
+anomalia baseados em duração** (`duracao_prolongada`, `truncamento`), e só
+razoável para a anomalia contextual (`substituicao_contextual`). O
+histograma de erro (`reports/lstm_autoencoder_error_distribution.png`)
+explica porquê: prolongar ou encurtar um bloco de uma atividade já
+conhecida produz mais/menos do **mesmo sinal estatístico** — as
+subsequências dentro do bloco continuam a "parecer" Higiene ou Alimentação
+normais, só a DURAÇÃO TOTAL do bloco é que é anómala, algo que uma janela
+de 2 minutos não consegue ver sozinha. Já a substituição contextual
+(Atividade a meio da noite) produz um sinal que o modelo nunca viu nesse
+contexto durante o treino (a sessão "noite" é quase só Dormir/Descanso) —
+por isso é o tipo mais claramente detetado.
+
+**Isto não é um problema a "corrigir" no LSTM Autoencoder — é exatamente a
+razão pela qual o artigo de referência desenha um pipeline de 3 partes em
+vez de confiar tudo a um único modelo**: o classificador (passo 1) diz QUAL
+atividade está a decorrer, o autoencoder (este passo) deteta padrões
+CONTEXTUALMENTE atípicos, e o **detetor de duração baseado em regras**
+(passo 3, ainda por implementar) é especificamente para o que o autoencoder
+não vê — durações fora dos limites esperados. Os três são complementares,
+não redundantes; este resultado é evidência concreta disso, não só teoria.
+
+### Limitações honestas
+
+- Um único limiar global (percentil 95 de um conjunto pequeno de sujeitos)
+  serve mal tipos de anomalia com magnitudes de desvio muito diferentes —
+  limiares por contexto/pessoa (ligado ao item 3 do backlog do dashboard,
+  "modelos personalizados por pessoa") seriam um passo natural a seguir.
+- 100% sintético, com anomalias desenhadas para serem plausíveis mas não
+  clinicamente validadas — dados reais serão mais subtis e ambíguos.
+- Não embarcado nem medido em hardware — só validado no backend/offline.
+
 ## Próximos passos (por ordem)
 
 1. ~~Medir footprint real (flash/RAM) do Random Forest via `emlearn`~~ —
@@ -278,23 +392,20 @@ hardware), (c) validar em hardware embarcado se a via TinyML avançar.
    footprint estático via compilação; falta correr num nRF52840 real e
    cronometrar, bloqueado pela indisponibilidade atual do hardware — ver
    PROJECT_STATUS.md, "Riscos/bloqueios ativos").
-2. **LSTM Autoencoder para deteção de anomalias** — treinar sobre a
-   sequência de atividades classificadas (ou sobre as features brutas por
-   janela) para detetar padrões que fogem à rotina habitual de cada sujeito.
-   Vai exigir gerar também sequências sintéticas com anomalias injetadas
-   (o dashboard já tem uma visualização de protótipo disto — "Simulação com
-   anomalias injetadas" em `web/dashboard/index.html` — mas sem modelo real
-   por trás ainda). Caminhos identificados para a inferência: fluxo (um
-   instante de cada vez) + quantização int8 via `CMSIS-NN`/`CMSIS-DSP` ou
-   TensorFlow Lite Micro (~20-30KB de biblioteca); considerar partir de um
-   modelo pré-treinado
-   ([`OxWearables/ssl-wearables`](https://github.com/OxWearables/ssl-wearables),
-   aprendizagem auto-supervisionada sobre o UK-Biobank) em vez de treinar do
-   zero — a literatura mostra ganhos consistentes de F1 com esta abordagem
-   quando os dados rotulados são escassos, que é exatamente a situação aqui.
+2. ~~LSTM Autoencoder para deteção de anomalias~~ — **FEITO (2026-07-03)**:
+   ver "Passo 2 — LSTM Autoencoder" acima. Treinado e avaliado sobre
+   sequências sintéticas com anomalias injetadas; AUC-ROC 0.74-0.91 por
+   tipo, mas recall a um limiar fixo muito fraco para anomalias de
+   duração — achado honesto que reforça a necessidade do passo 3
+   (detetor de duração), não um bug a corrigir. **Ainda por fazer**:
+   footprint/latência em hardware embarcado (TensorFlow Lite
+   Micro/CMSIS-NN, não medido), limiares por contexto/pessoa em vez de um
+   único limiar global, dados sintéticos mais realistas (ver item 4).
 3. **Detetor de duração baseado em regras** — comparar a duração de cada
    bloco de atividade classificado com os limites configuráveis já
    presentes no dashboard (vista "Limites de duração", Médico/Técnico).
+   Ganhou mais urgência depois do resultado do passo 2 acima (é
+   especificamente o que o LSTM Autoencoder não consegue ver).
 4. Tornar os dados sintéticos mais realistas (overlap entre classes,
    sessões de 24h completas em vez de comprimidas, ruído medido em hardware
    real em vez de estimado).
