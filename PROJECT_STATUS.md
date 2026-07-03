@@ -3,18 +3,6 @@
 > Este ficheiro existe para retomar o trabalho sem ser preciso reler a conversa inteira.
 > Atualiza-o no fim de cada sessão de trabalho relevante.
 
-> **Nota de coordenação (sessão interativa, 2026-07-03, ~15:xx UTC)**: há
-> trabalho em curso AGORA nesta sessão interativa (não a rotina cloud) em
-> `web/dashboard/index.html` — a implementar: (1) aviso antecipado de
-> armazenamento quase cheio/a substituir dados (já commitado, ver
-> `DumpStatusPacket::data_loss_flag` em `Ble.cpp` + `renderStorageWarningBanner()`),
-> (2) nova vista "Registo de emergências" com cancelamento protegido por
-> confirmação reforçada (tipo 2FA, ainda por terminar), (3) nova vista
-> "Perfil" editável pelo próprio utilizador. Se a rotina horária correr
-> antes disto ficar commitado, por favor não avances estes três itens em
-> paralelo — escolhe outra coisa do backlog para evitar conflitos de
-> merge. Esta nota deve ser removida assim que estas três funcionalidades
-> estiverem commitadas (o próximo commit desta sessão já as remove).
 
 ## Visão geral
 
@@ -314,6 +302,56 @@ Ficheiro: `web/dashboard/index.html` (versionado no repo).
   (`alertEscalation()`), com nota visível ao cuidador; silenciar reinicia a
   contagem. Nunca escala para 'critical' automaticamente. Ver detalhe na
   secção "Backlog de investigação" acima.
+- **Aviso antecipado de armazenamento (2026-07-03, pedido do utilizador)**:
+  antes só havia perda silenciosa de dados quando o ring buffer QSPI
+  enchia (comportamento correto de "ring buffer", mas sem aviso nenhum).
+  Agora `DumpStatusPacket::data_loss_flag` (byte antes sempre 0, agora
+  reaproveitado — `Ble.cpp`) sinaliza 3 estados: 0=normal, 1=≥90% da
+  capacidade (aviso antecipado, ainda sem perdas, dá tempo de exportar),
+  2=já a substituir registos antigos não consumidos
+  (`QspiRingBuffer::droppedByErase() > 0`). O firmware também regista um
+  aviso único no Serial em cada transição (`[QSPIRB] AVISO: ...`, ver
+  `QspiRingBuffer.cpp`). O bridge (`ble_bridge.py`) reencaminha o flag via
+  WebSocket (`kind:"status"`), e o dashboard mostra uma barra de aviso
+  persistente (`renderStorageWarningBanner()`) com link direto para
+  "Exportar dados".
+- **Registo de emergências + cancelamento com confirmação reforçada
+  (2026-07-03, pedido do utilizador)**: nova vista "Registo de
+  emergências" (ambos os perfis) lista eventos SOS/queda por paciente
+  (`EMERGENCY_LOG`, dados de demonstração — o bridge ainda não escuta
+  `emergencyAlertChar`, ver backlog). Um alerta "ativo" pode ser cancelado
+  (ex.: relógio sem resposta a meio de um falso positivo), mas só depois
+  de confirmação em duas etapas: palavra-passe da conta + um código de
+  verificação de 6 dígitos. **Limitação honesta**: sem provedor de SMS/
+  email ligado (decisão pendente do utilizador), o código é mostrado na
+  própria página em vez de enviado a um segundo dispositivo — isto
+  demonstra o FLUXO de confirmação reforçada exigido, não uma verificação
+  real de posse de um segundo fator. Um sistema real precisaria de um
+  provedor (Twilio ou semelhante) a enviar o código para o telemóvel do
+  responsável.
+- **Aba de Perfil editável (2026-07-03, pedido do utilizador)**: nova
+  vista "Perfil" (rodapé da barra lateral, ambos os perfis) onde a pessoa
+  a usar a conta atualiza os SEUS PRÓPRIOS dados (nome, email,
+  instituição se for médico/técnico) — distinto dos dados clínicos do
+  paciente monitorizado. Persistido em `localStorage`
+  (`carewear_profile`), refletido no cartão de avatar da topbar.
+- **Bug real encontrado e corrigido durante verificação de sintaxe
+  (2026-07-03)**: ao instalar e correr um parser JavaScript real
+  (`esprima`, via Python) sobre o `<script>` do dashboard — em vez de só
+  contar chavetas/backticks, como nas verificações anteriores desta
+  sessão — foi apanhado um backtick literal dentro de texto num template
+  literal (`` `emergencyAlertChar` `` dentro da vista "Registo de
+  emergências"), que fechava a string prematuramente. Corrigido
+  (substituído por `<code>emergencyAlertChar</code>`). Nota para sessões
+  futuras: a verificação de balanceamento de chavetas usada antes nesta
+  sessão tinha também uma falha na extração do `<script>` (apanhava a
+  primeira ocorrência literal da string "&lt;script&gt;" dentro de um
+  comentário CSS, não a tag real) — corrigido para usar a última
+  ocorrência. Recomenda-se `pip install esprima` + parsing real em vez de
+  só contar chavetas, para verificações futuras (nota: esprima não
+  reconhece `??`/`?.`, que são JS válido/suportado por todos os
+  browsers — substituir por `||`/`.` só para efeitos de teste, não no
+  ficheiro real).
 
 ## Modelo de Machine Learning (`ml/`)
 
