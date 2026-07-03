@@ -332,6 +332,11 @@
   .alert-row.muted{ opacity:0.55; }
   .alert-mute-note{ margin:6px 0 0; font-size:11px; color:var(--text-muted); }
   .alert-mute-note .alert-explain-btn{ font-size:11px; }
+  /* Escalonamento gradual — ver alertEscalation()/occurrencesFor() no
+     <script>. Um alerta 'warning' que se repete várias vezes sem ser
+     silenciado sobe de prioridade visual (para 'serious') em vez de o
+     cuidador só ver o mesmo aviso de baixa prioridade indefinidamente. */
+  .alert-escalation-note{ margin:6px 0 0; font-size:11px; font-weight:600; color:var(--status-serious); }
 
   .legend{ display:flex; flex-wrap:wrap; gap:12px; margin-top:12px; }
   .legend-item{ display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--text-secondary); }
@@ -1049,9 +1054,11 @@ const alerts = [
   {key:'inatividade-prolongada', sev:'serious',  title:'Inatividade prolongada', desc:'Sem movimento detetado desde as 14:35 (3h12min) — acima do limite configurado.', time:'há 41 min',
    plain:'O dispositivo não deteta movimento há mais tempo do que o habitual para esta hora do dia. Muitas vezes é só a pessoa a descansar ou a dormir uma sesta — mas se não for essa a rotina esperada a esta hora, pode valer a pena ir verificar em pessoa.'},
   {key:'rotina-alterada', sev:'warning',  title:'Bloco de rotina alterado', desc:'"Atividade" da tarde substituída por padrão sedentário — fora do esperado pelo template diário.', time:'há 2h',
-   plain:'A pessoa costuma estar mais ativa a esta hora do dia, mas hoje ficou mais tempo parada/sentada do que é habitual. Isto sozinho não é necessariamente preocupante (pode ser só um dia mais cansativo), mas é um desvio à rotina normal que vale a pena ter em conta, especialmente se se repetir em dias seguidos.'},
+   plain:'A pessoa costuma estar mais ativa a esta hora do dia, mas hoje ficou mais tempo parada/sentada do que é habitual. Isto sozinho não é necessariamente preocupante (pode ser só um dia mais cansativo), mas é um desvio à rotina normal que vale a pena ter em conta, especialmente se se repetir em dias seguidos.',
+   occurrences:3},
   {key:'spo2-limite', sev:'warning',  title:'SpO₂ no limite', desc:'Leitura de 93% às 03:14 — uma amostra isolada, sem tendência de queda.', time:'há 9h',
-   plain:'O nível de oxigénio no sangue teve uma leitura um pouco abaixo do intervalo normal (95–100%), mas foi só uma vez, sem se manter baixo nas leituras seguintes. Isto acontece com frequência por mau contacto do sensor durante o sono (ex.: mão fora da posição) e normalmente não é motivo de alarme quando é um valor isolado — mas se voltar a acontecer de forma repetida, vale a pena falar com o médico.'},
+   plain:'O nível de oxigénio no sangue teve uma leitura um pouco abaixo do intervalo normal (95–100%), mas foi só uma vez, sem se manter baixo nas leituras seguintes. Isto acontece com frequência por mau contacto do sensor durante o sono (ex.: mão fora da posição) e normalmente não é motivo de alarme quando é um valor isolado — mas se voltar a acontecer de forma repetida, vale a pena falar com o médico.',
+   occurrences:1},
 ];
 
 const anomalyLog = [
@@ -2073,9 +2080,60 @@ function alertMutedUntil(key){
   return until;
 }
 
+/* ------------------------------------------------------------
+   ESCALONAMENTO GRADUAL — subir a prioridade de um alerta 'warning'
+   que se repete, em vez de o cuidador ver sempre a mesma prioridade
+   baixa para uma condição que já ocorreu várias vezes.
+   ------------------------------------------------------------
+   `occurrences` em cada alerta (ver array `alerts` acima) é o nº de
+   vezes que essa condição ocorreu nas últimas 24h — dado de exemplo
+   nesta versão protótipo (sem histórico persistido ainda, ver
+   Prioridade 4 / serviço de persistência SQLite no PROJECT_STATUS.md).
+   `alertOccurrences` (localStorage) permite ao cuidador "resolver" a
+   contagem ao silenciar o alerta, tornando a demonstração interativa.
+   DECISÃO DE SEGURANÇA (mesmo raciocínio da mitigação de silenciamento
+   acima): este mecanismo só sobe 'warning' para 'serious' — nunca gera
+   'critical' automaticamente a partir de uma simples contagem de
+   repetições, isso continua reservado a deteções clínicas reais. */
+const ALERT_OCCURRENCES_KEY = 'carewear_alert_occurrences';
+const ALERT_ESCALATION_THRESHOLD = 3; // nº de ocorrências em 24h para subir de 'warning' a 'serious'
+
+function loadAlertOccurrences(){
+  try {
+    const raw = localStorage.getItem(ALERT_OCCURRENCES_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* localStorage indisponível ou dados corrompidos - ignora */ }
+  return {};
+}
+function saveAlertOccurrences(map){
+  try { localStorage.setItem(ALERT_OCCURRENCES_KEY, JSON.stringify(map)); }
+  catch (e) { /* quota excedida ou localStorage indisponível - fica só em memória */ }
+}
+let alertOccurrences = loadAlertOccurrences();
+
+// Nº de ocorrências a usar para este alerta: o valor guardado localmente
+// (já ajustado por um silenciamento anterior) tem prioridade sobre o
+// dado de exemplo do próprio alerta.
+function occurrencesFor(a){
+  return (a.key in alertOccurrences) ? alertOccurrences[a.key] : (a.occurrences || 1);
+}
+
+function alertEscalation(a){
+  const count = occurrencesFor(a);
+  if (a.sev === 'warning' && count >= ALERT_ESCALATION_THRESHOLD) {
+    return {severity:'serious', count, escalated:true};
+  }
+  return {severity:a.sev, count, escalated:false};
+}
+
 function muteAlert(key, hours){
   mutedAlerts[key] = Date.now() + hours * 3600 * 1000;
   saveMutedAlerts(mutedAlerts);
+  // silenciar = o cuidador reconheceu o alerta, por isso a contagem que
+  // alimenta o escalonamento reinicia (tem de se repetir outra vez para
+  // voltar a subir de prioridade)
+  alertOccurrences[key] = 0;
+  saveAlertOccurrences(alertOccurrences);
   if (currentView) renderView(currentView);
 }
 function unmuteAlert(key){
@@ -2091,11 +2149,16 @@ function unmuteAlert(key){
 // de outra fonte no futuro, sem explicação escrita ainda), o botão
 // simplesmente não é mostrado em vez de mostrar uma caixa vazia.
 function alertRow(a, idx){
-  const icon = a.sev==='critical' ? 'heart' : a.sev==='serious' ? 'warn' : 'zap';
+  const esc = alertEscalation(a);
+  const icon = esc.severity==='critical' ? 'heart' : esc.severity==='serious' ? 'warn' : 'zap';
   const explainId = `alertPlain-${idx}`;
   const explainBtn = a.plain
     ? `<button type="button" class="alert-explain-btn" data-i18n="alert.explainShow" onclick="toggleAlertPlain('${explainId}', this)">${t('alert.explainShow')}</button>
        <div class="alert-explain-box" id="${explainId}" style="display:none;">${a.plain}</div>`
+    : '';
+
+  const escalationNote = esc.escalated
+    ? `<p class="alert-escalation-note">Repetiu-se ${esc.count}x nas últimas 24h — prioridade subida automaticamente de "aviso" para "grave" para reduzir o risco de ser ignorado. Silenciar reinicia a contagem.</p>`
     : '';
 
   const mutedUntil = a.key ? alertMutedUntil(a.key) : null;
@@ -2110,11 +2173,12 @@ function alertRow(a, idx){
   }
 
   return `
-    <div class="alert-row ${a.sev}${mutedUntil ? ' muted' : ''}">
-      <span class="alert-icon" style="background:${SEV_BG[a.sev]}; color:${SEV_COLOR[a.sev]}">${iconFor(icon)}</span>
+    <div class="alert-row ${esc.severity}${mutedUntil ? ' muted' : ''}">
+      <span class="alert-icon" style="background:${SEV_BG[esc.severity]}; color:${SEV_COLOR[esc.severity]}">${iconFor(icon)}</span>
       <div class="body">
         <div class="title">${a.title}</div>
         <div class="desc">${a.desc}</div>
+        ${escalationNote}
         ${explainBtn}
         ${muteControl}
       </div>

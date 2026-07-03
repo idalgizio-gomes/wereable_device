@@ -268,6 +268,12 @@ Ficheiro: `web/dashboard/index.html` (versionado no repo).
   2×desvio-padrão do histórico de 7 dias desta pessoa (FC, sono, passos) a
   partir de `trendData` e compara lado a lado com os limiares fixos atuais.
   Ver detalhe e limitações na secção "Backlog de investigação" acima.
+- **Escalonamento gradual de alertas (item 6 do backlog)**: completa a
+  mitigação de fadiga de alerta (silenciamento já existia). Alertas
+  'warning' com 3+ ocorrências em 24h sobem automaticamente para 'serious'
+  (`alertEscalation()`), com nota visível ao cuidador; silenciar reinicia a
+  contagem. Nunca escala para 'critical' automaticamente. Ver detalhe na
+  secção "Backlog de investigação" acima.
 
 ## Modelo de Machine Learning (`ml/`)
 
@@ -470,6 +476,22 @@ do dashboard segue esta lista, por ordem, item a item).
    dados passivos e contexto humano.
 6. Desenho consciente de "fadiga de alerta": escalonamento gradual antes de
    alertas fortes (achado explícito na literatura de RPM).
+   **IMPLEMENTADO (protótipo) — 2026-07-03**: a mitigação por silenciamento
+   (alertas não-críticos silenciáveis por 4h) já tinha sido adicionada numa
+   sessão anterior no mesmo dia (commit `24efbd6`, sem esta secção ter sido
+   atualizada nessa altura); esta sessão completou a parte que faltava —
+   o **escalonamento gradual em si**. Cada alerta 'warning' tem agora um
+   nº de ocorrências nas últimas 24h (`occurrences`, dado de exemplo nesta
+   versão protótipo); ao atingir 3 ocorrências sem ser silenciado, a
+   prioridade visual sobe automaticamente de "aviso" para "grave"
+   (`alertEscalation()` em `web/dashboard/index.html`), com nota explícita
+   ao cuidador e reset da contagem ao silenciar (= reconhecer o alerta).
+   Por segurança, o mecanismo nunca gera 'critical' automaticamente — só
+   sobe 'warning'→'serious'. **Limitação honesta**: a contagem de
+   ocorrências ainda não vem de um histórico real persistido (isso só é
+   possível depois do serviço de persistência da Prioridade 4); hoje é um
+   valor de exemplo por alerta, ajustável interativamente via localStorage
+   quando o cuidador silencia.
 7. Exportação clínica em FHIR/PDF para a área Médico/Técnico.
 8. Gestão de consentimento/partilha de dados (quem vê o quê) — relevante
    dado o contexto de demência (capacidade de consentimento é eticamente
