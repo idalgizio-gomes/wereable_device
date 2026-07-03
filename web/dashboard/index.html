@@ -469,6 +469,18 @@
   .modal-status{ margin-top:12px; font-size:12px; min-height:16px; }
   .modal-status.ok{ color:var(--status-good); }
   .modal-status.err{ color:var(--status-critical); }
+
+  /* Exportação de resumo clínico em PDF — ver exportClinicalPdf() no
+     <script>. Usa window.print() (sem bibliotecas externas) escondendo a
+     navegação e mostrando só o cartão de resumo clínico, marcado com a
+     classe .print-only, que fica invisível fora do modo de impressão. */
+  .print-only{ display:none; }
+  @media print{
+    .sidebar, .topbar, .nav-item, .print-hide{ display:none !important; }
+    .main{ margin:0 !important; }
+    .print-only{ display:block !important; }
+    body{ background:#fff !important; color:#000 !important; }
+  }
 </style>
 
 <!-- ============================================================
@@ -2024,6 +2036,23 @@ TEMPLATES.exportar = () => `
     </table>
     <p class="empty-hint">Exportação ainda não disponível — depende de um serviço que persista os dumps BLE numa base de dados SQL (ainda por implementar, ver "Próximas tarefas" no PROJECT_STATUS.md). Os números acima são de demonstração.</p>
   </div>
+
+  <div class="card print-hide">
+    <div class="card-head"><div><h3>Resumo clínico (FHIR / PDF)</h3><div class="card-sub">Diferente da exportação acima: cobre só o que está visível nesta sessão (alertas, anomalias, tendências), não o histórico completo — por isso já funciona sem depender da base de dados</div></div></div>
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+      <button class="btn-secondary" onclick="exportFhirSummary()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+        Exportar FHIR (JSON)
+      </button>
+      <button class="btn-secondary" onclick="exportClinicalPdf()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M6 9V2h9l5 5v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-2M6 14h4M6 18h2"/></svg>
+        Imprimir / exportar PDF
+      </button>
+    </div>
+    <p class="empty-hint">O FHIR aqui é uma estrutura simplificada (recursos Patient + Observation), pensada para dar uma ideia do formato — não é uma implementação certificada/validada contra o standard completo. A opção de PDF usa a função de impressão do próprio browser ("Guardar como PDF" no destino).</p>
+  </div>
+
+  <div class="print-only" id="clinicalPrintSheet"></div>
 `;
 
 /* ============================================================
@@ -2743,6 +2772,102 @@ function confirmReset(){
   confirmBtn.disabled = true;
   status.className = 'modal-status';
   status.textContent = 'A apagar…';
+}
+
+/* ------------------------------------------------------------
+   EXPORTAÇÃO CLÍNICA — FHIR (JSON) e PDF (via impressão do browser)
+   ------------------------------------------------------------
+   Pedido do backlog de investigação (item nº7): exportação clínica em
+   formato interoperável. Diferente da exportação de dados brutos acima
+   (que precisa da BD ainda por implementar) — cobre só os alertas,
+   anomalias e identidade do paciente atualmente visíveis nesta sessão.
+------------------------------------------------------------ */
+
+// Constrói um "Bundle" FHIR simplificado (Patient + Observation por cada
+// alerta/anomalia atual). NOTA HONESTA: isto usa a FORMA de recursos FHIR
+// (resourceType, campos reconhecíveis) para dar uma base de arranque
+// realista, mas não é uma implementação certificada — não usa códigos
+// LOINC/SNOMED reais (os "code.text" são descrição livre), e não passou
+// por validação contra o standard completo. Serve como ponto de partida
+// para uma integração real, não como substituto dela.
+function buildFhirBundle(){
+  const p = selectedPatient();
+  const nowIso = new Date().toISOString();
+  const patientResource = {
+    resourceType: 'Patient',
+    id: p.id,
+    name: [{ text: p.name }],
+    extension: [{ url: 'age', valueInteger: p.age }],
+  };
+  const observations = alerts.map((a, i) => ({
+    resourceType: 'Observation',
+    id: `alert-${a.key || i}`,
+    status: 'final',
+    code: { text: a.title },
+    subject: { reference: `Patient/${p.id}` },
+    effectiveDateTime: nowIso,
+    valueString: a.desc,
+    note: a.plain ? [{ text: a.plain }] : undefined,
+    extension: [{ url: 'severity', valueString: a.sev }],
+  }));
+  return {
+    resourceType: 'Bundle',
+    type: 'collection',
+    timestamp: nowIso,
+    entry: [{ resource: patientResource }, ...observations.map(o => ({ resource: o }))],
+  };
+}
+
+// Descarrega um ficheiro JSON gerado em memória (sem backend) — mesma
+// técnica usada noutros exportadores client-side simples: Blob + <a
+// download> temporário, sem deixar o elemento no DOM.
+function downloadJson(filenamePrefix, data){
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${filenamePrefix}-${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function exportFhirSummary(){
+  downloadJson('carewear-fhir-resumo', buildFhirBundle());
+}
+
+// Monta a folha de impressão (#clinicalPrintSheet, só visível em
+// @media print — ver CSS) com o resumo clínico atual, e chama
+// window.print(). É o browser que trata da conversão para PDF (a maioria
+// tem "Guardar como PDF" no diálogo de impressão) — evita depender de
+// bibliotecas externas de geração de PDF, que a CSP do Artifact bloqueia
+// de qualquer forma.
+function exportClinicalPdf(){
+  const p = selectedPatient();
+  const sheet = document.getElementById('clinicalPrintSheet');
+  if (!sheet) return;
+  sheet.innerHTML = `
+    <h1 style="font-size:20px; margin-bottom:4px;">CareWear — Resumo clínico</h1>
+    <p style="font-size:12px; color:#555;">Gerado em ${new Date().toLocaleString('pt-PT')} · Protótipo — dados de demonstração, não substituem avaliação clínica direta.</p>
+    <h2 style="font-size:15px; margin-top:16px;">${p.name} · ${p.age} anos</h2>
+    <p style="font-size:12px;">Dispositivo: ${p.deviceName} · ${p.mac} · Última sincronização: ${p.lastSync}</p>
+    <h3 style="font-size:13px; margin-top:14px;">Alertas ativos</h3>
+    <table style="width:100%; border-collapse:collapse; font-size:12px;">
+      <thead><tr><th style="text-align:left; border-bottom:1px solid #ccc;">Título</th><th style="text-align:left; border-bottom:1px solid #ccc;">Detalhe</th><th style="text-align:left; border-bottom:1px solid #ccc;">Severidade</th><th style="text-align:left; border-bottom:1px solid #ccc;">Quando</th></tr></thead>
+      <tbody>
+        ${alerts.map(a => `<tr><td>${a.title}</td><td>${a.desc}</td><td>${a.sev}</td><td>${a.time}</td></tr>`).join('')}
+      </tbody>
+    </table>
+    <h3 style="font-size:13px; margin-top:14px;">Registo de anomalias recente</h3>
+    <table style="width:100%; border-collapse:collapse; font-size:12px;">
+      <thead><tr><th style="text-align:left; border-bottom:1px solid #ccc;">ID</th><th style="text-align:left; border-bottom:1px solid #ccc;">Tipo</th><th style="text-align:left; border-bottom:1px solid #ccc;">Detalhe</th><th style="text-align:left; border-bottom:1px solid #ccc;">Quando</th></tr></thead>
+      <tbody>
+        ${anomalyLog.map(a => `<tr><td>${a.id}</td><td>${a.type}</td><td>${a.detail}</td><td>${a.time}</td></tr>`).join('')}
+      </tbody>
+    </table>
+  `;
+  window.print();
 }
 
 // Tenta ligar assim que a página carrega (mesmo antes do login, para o
