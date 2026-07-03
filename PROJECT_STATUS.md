@@ -996,6 +996,18 @@ Migração de hardware futura possível: nRF5340 ou nRF54H20.
 
 ## Próximas tarefas (por prioridade)
 
+0. **ORDEM DE TESTES DE HARDWARE, confirmada pelo utilizador (2026-07-03)**:
+   quando a placa voltar a estar ligada, testar por ordem de simplicidade
+   crescente, NÃO começar pelo LoRa (o utilizador pediu explicitamente
+   para não começar por aí). Primeiro confirmar que o básico continua a
+   funcionar (upload do firmware principal + leitura série normal, já
+   testado nesta sessão com sucesso — ver "Verificado em hardware real"),
+   só depois avançar para testes isolados mais arriscados/novos (ver
+   `src/test_lora_isolated.cpp` + ambiente `test_lora_isolated` em
+   `platformio.ini`, preparado mas ainda por correr em hardware — testa
+   os parâmetros do LoRa um a um, com leitura SPI em bruto, antes do
+   RadioLib completo). Esta ordem existe precisamente para isolar
+   problemas — não saltar para o código mais complexo primeiro.
 1. Deteção de emergência: confirmar pinout do Wio-SX1262 (pesquisa em curso,
    ainda sem fonte fiável para os pinos SPI/CS/BUSY/DIO1/RESET do rádio) —
    módulo de firmware, characteristic BLE e reencaminhamento bridge→dashboard
