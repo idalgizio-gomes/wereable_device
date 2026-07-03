@@ -1152,6 +1152,56 @@ function setConsent(field, value){
   if (currentView) renderView(currentView);
 }
 
+/* ------------------------------------------------------------
+   EQUIPA DE CUIDADORES — múltiplos cuidadores com permissões por papel
+   (item nº10 do backlog de investigação)
+   ------------------------------------------------------------
+   Pesquisa (2026-07-03): apps de referência (Caring Village, Jointly)
+   dão a cada membro da equipa um papel com permissões próprias (ex.:
+   restringir edição de medicação/notas privadas por papel) e permitem
+   remover alguém da equipa com efeito imediato — replicado aqui.
+------------------------------------------------------------ */
+const CAREGIVER_TEAM_KEY = 'carewear_caregiver_team';
+
+function loadCaregiverTeam(){
+  try {
+    const raw = localStorage.getItem(CAREGIVER_TEAM_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* localStorage indisponível ou dados corrompidos - ignora */ }
+  // Exemplo inicial, só na primeira utilização.
+  return [
+    { id:'cg1', name:'João Silva', role:'Familiar', canViewAlerts:true, canEdit:true },
+  ];
+}
+function saveCaregiverTeam(team){
+  try { localStorage.setItem(CAREGIVER_TEAM_KEY, JSON.stringify(team)); }
+  catch (e) { /* quota excedida ou localStorage indisponível - fica só em memória */ }
+}
+function addCaregiver(){
+  const nameInput = document.getElementById('newCaregiverName');
+  const name = nameInput.value.trim();
+  if (!name) return;
+  const role = document.getElementById('newCaregiverRole').value;
+  const team = loadCaregiverTeam();
+  team.push({ id:'cg' + Date.now(), name, role, canViewAlerts:true, canEdit: role === 'Familiar' });
+  saveCaregiverTeam(team);
+  if (currentView) renderView(currentView);
+}
+// Remoção com efeito imediato — recomendação explícita da pesquisa: um
+// familiar/cuidador tem de poder ser removido da equipa sem demora (ex.:
+// fim de contrato de um cuidador pago, ou conflito familiar).
+function removeCaregiver(id){
+  saveCaregiverTeam(loadCaregiverTeam().filter(m => m.id !== id));
+  if (currentView) renderView(currentView);
+}
+function setCaregiverPermission(id, field, value){
+  const team = loadCaregiverTeam();
+  const member = team.find(m => m.id === id);
+  if (member) member[field] = value;
+  saveCaregiverTeam(team);
+  if (currentView) renderView(currentView);
+}
+
 function buildHeatmap(seed){
   const rnd = seedRand(seed);
   const days=['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
@@ -2248,6 +2298,37 @@ TEMPLATES.definicoes = () => `
       </tbody>
     </table>
     <p class="empty-hint">${c.lastChanged ? `Última alteração: ${new Date(c.lastChanged).toLocaleString('pt-PT')}.` : ''} Desligar "Alertas e registo de anomalias" oculta essa informação da conta Médico/Técnico desta pessoa (ver vistas "Pacientes" e "Anomalias detetadas") — protótipo: aplica-se só a esta conta/sessão, um sistema real precisaria de aplicar isto também do lado do servidor. Um familiar/cuidador com poder de decisão pela pessoa monitorizada pode gerir isto em nome dela quando a capacidade de consentimento estiver comprometida.</p>
+  </div>`;
+  })()}
+
+  ${(() => {
+    const team = loadCaregiverTeam();
+    return `
+  <div class="card">
+    <div class="card-head"><div><h3>Equipa de cuidadores</h3><div class="card-sub">Vários familiares/cuidadores podem acompanhar esta pessoa, cada um com o seu próprio nível de acesso</div></div></div>
+    <table class="data-table">
+      <thead><tr><th>Nome</th><th>Papel</th><th>Vê alertas</th><th>Edita notas/medicação</th><th></th></tr></thead>
+      <tbody>
+        ${team.length ? team.map(m => `
+          <tr>
+            <td>${m.name}</td>
+            <td>${m.role}</td>
+            <td><label class="consent-toggle"><input type="checkbox" ${m.canViewAlerts?'checked':''} onchange="setCaregiverPermission('${m.id}','canViewAlerts', this.checked)"><span></span></label></td>
+            <td><label class="consent-toggle"><input type="checkbox" ${m.canEdit?'checked':''} onchange="setCaregiverPermission('${m.id}','canEdit', this.checked)"><span></span></label></td>
+            <td><button class="btn-secondary" onclick="removeCaregiver('${m.id}')">Remover</button></td>
+          </tr>
+        `).join('') : '<tr><td colspan="5"><p class="empty-hint">Ainda não convidaste ninguém para a equipa de cuidadores.</p></td></tr>'}
+      </tbody>
+    </table>
+    <div class="note-form" style="margin-top:12px;">
+      <input id="newCaregiverName" type="text" placeholder="Nome do novo cuidador/familiar" style="flex:1;">
+      <select id="newCaregiverRole">
+        <option>Familiar</option>
+        <option>Cuidador(a) pago(a)</option>
+      </select>
+      <button class="btn-secondary" onclick="addCaregiver()">Convidar</button>
+    </div>
+    <p class="empty-hint">Protótipo: o convite não envia nada a ninguém (sem backend/email real ligado) — só adiciona à lista para demonstrar as permissões por papel. Remover alguém tem efeito imediato, tal como recomendado para equipas de cuidadores reais.</p>
   </div>`;
   })()}
 
