@@ -422,6 +422,13 @@ como reproduzir). Resumo:
   honesta completa deste número.
 - **Passos 2 e 3 do artigo (LSTM Autoencoder, detetor de duração) ainda não
   implementados** — próxima iteração desta rotina.
+- **Footprint do Random Forest (alternativa TinyML ao XGBoost) medido de
+  facto (2026-07-03)**, compilando o C gerado pelo `emlearn` com o
+  toolchain ARM real (`ml/measure_rf_footprint.py`): flash não é problema
+  (~4,7-19KB de ~638KB livres), mas a quantização `int16_t` por omissão
+  do `emlearn` reduz a accuracy de 0.978 para 0.789 — ver "Estudo de
+  viabilidade TinyML" abaixo e `ml/README.md` para o detalhe e as vias
+  possíveis daqui para a frente.
 - Dataset sintético gerado (`ml/data/*.csv`) não é versionado no git
   (regenerável de forma determinística via `python synthetic_data.py`,
   seed fixa) — só os metadados, o modelo treinado e as métricas de
@@ -957,6 +964,19 @@ já a correr).
   nRF52 real segundo a pesquisa) como caminho principal. `micromlgen`/
   XGBoost fica só como alternativa de recurso se a precisão do Random
   Forest não for suficiente.
+  **Atualização (2026-07-03, rotina cloud) — footprint do Random Forest
+  medido de facto** (`ml/measure_rf_footprint.py`, compilado com o
+  toolchain ARM real para Cortex-M4F, não estimativa): ~4,7-19KB de flash
+  consoante a variante — uma fração ínfima dos ~638KB livres, confirmando
+  que o flash deixou de ser o fator limitante para este modelo (80
+  árvores, profundidade 5). **Mas revelou um problema novo, não previsto**:
+  a quantização `int16_t` usada por omissão pelo `emlearn` reduz a
+  accuracy de 0.978 para 0.789 (várias features, como a correlação entre
+  eixos, ficam entre -1 e 1 e colapsam para 0 quando truncadas sem
+  escala). Usar `dtype='float'` no `emlearn` recupera a accuracy original
+  (0.978) a troco de mais flash (~19KB, continua a caber facilmente). Ver
+  `ml/README.md`, secção "Footprint real medido via emlearn", para o
+  detalhe completo e as duas vias possíveis daqui para a frente.
 - LSTM Autoencoder: plausível com inferência em fluxo + quantização int8,
   mas precisa de TensorFlow Lite Micro (~20-30KB de biblioteca) ou
   `CMSIS-NN`/`CMSIS-DSP` (ARM, otimizado para este Cortex-M4F), e medição
