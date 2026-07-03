@@ -897,7 +897,9 @@ void loop() {
     }
 #endif
     if (buttonPressedStable()) {
-      Serial.println("Press�o detectada -> verificar 5 segundos...");
+      // (String corrigida: tinha um byte de codificacao invalido no "ã",
+      // que aparecia como lixo no monitor serie.)
+      Serial.println("Pressao detectada -> verificar 5 segundos...");
       // Suspende o PPG durante a verificação do long-press porque o
       // sensor cardíaco é sensível a movimento/vibração — não faz
       // sentido continuar a medir enquanto se aguarda a decisão do

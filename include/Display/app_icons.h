@@ -1,3 +1,24 @@
+// ============================================================================
+// app_icons.h
+// ----------------------------------------------------------------------------
+// Bitmaps (imagens monocromaticas) embutidos no firmware, usados pelo ecra
+// OLED SSD1351 durante o arranque e na interface: logotipos institucionais
+// (IPCA, 2Ai, Intellicare — mostrados em sequencia por showReady() em
+// main.cpp) e icones pequenos (coracao/SpO2) para ecras de sinais vitais.
+//
+// Formato: XBM (X BitMap) — cada byte codifica 8 pixels na horizontal,
+// bit menos significativo primeiro; 1 = pixel aceso, 0 = apagado. E o
+// formato esperado por Adafruit_GFX::drawXBitmap(). As dimensoes de cada
+// imagem (largura x altura, em pixels) estao nos #define *_width/*_height
+// respetivos, e tem de corresponder exatamente ao array de bytes — usar
+// valores errados desenha lixo no ecra (le bytes a mais/a menos).
+//
+// Nota de memoria: como sao "const", estes arrays ficam guardados na
+// flash de programa (nao gastam RAM). Ao adicionar/regenerar imagens
+// (ex.: com GIMP a exportar .xbm), manter este formato e atualizar os
+// #define de dimensoes em conjunto.
+// ============================================================================
+
 #ifndef APP_ICONS_H_
 #define APP_ICONS_H_
 
