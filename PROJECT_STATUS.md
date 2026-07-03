@@ -74,8 +74,18 @@ local e remoto sincronizados. Identidade git configurada: Idalgizio Gomes
   storageTask a gravar no ring buffer, BLE provisioning + sync de hora via
   nRF Connect (escrita manual na characteristic Current Time 0x2A2B, formato:
   10 bytes — ano LE uint16, mês, dia, hora, min, seg, +3 bytes ignorados).
-- **Pendente**: confirmar os valores `[STACK] ... free_words=` reais após as
-  reduções de stack (device estava inacessível via USB na última tentativa).
+- **Valores reais de `[STACK] ... free_words=` confirmados em 2026-07-03**
+  (captura de ~30s durante streaming BLE ativo, sem fome/atividade forçada):
+  `storage_task` livre=1420/1536 (~92% livre — muito sobredimensionado);
+  `imu_task` livre=457/768 (~60% livre — bem dimensionado);
+  `ppg_task` livre=992/1152 (~86% livre — sobredimensionado);
+  `ble_gatt_dump_task` livre=2453/2560 (~96% livre — muito sobredimensionado).
+  **Decisão do utilizador**: não reduzir mais nesta sessão (a captura foi
+  curta e pode não ter passado por todos os caminhos de código, ex.: prints
+  raros de HR/SpO2 válidos), mas fica registado para uma futura ronda de
+  otimização com mais confiança: `storage_task`→~768, `ble_gatt_dump_task`→
+  ~1280, `ppg_task`→~640 manteriam ainda 2-3x de margem sobre o observado.
+  `imu_task` já parece bem dimensionado, sem necessidade de mudança.
 
 ### Scripts obsoletos removidos
 
