@@ -153,6 +153,48 @@ bleak) → `ws://localhost:8765` → dashboard (browser).
 
 Ficheiro: `web/dashboard/index.html` (versionado no repo).
 
+**Alterações 2026-07-03 (feedback direto do utilizador sobre a interface real, com screenshot)**:
+1. **Perfil expandido**: telemóvel, NIF, morada (utente) e cédula
+   profissional (clínico) adicionados. **Campos sensíveis (NIF, morada)
+   exigem aprovação da equipa clínica** antes de serem aplicados
+   (`requestProfileFieldChange()`/`approveProfileFieldChange()`/
+   `rejectProfileFieldChange()`) — o Utente/Família submete, fica
+   pendente, e o Médico/Técnico aprova/rejeita num novo cartão
+   "Aprovações pendentes" na mesma vista Perfil. Adicionado também
+   "Contacto de emergência (cuidador)" (nome, telemóvel, relação) ao
+   perfil Utente/Família.
+2. **Bug corrigido: destaque de navegação não atualizava ao trocar de
+   perfil.** `renderView()` nunca tocava nas classes `.active` dos
+   botões da barra lateral — só `activateNavItem()` (chamada pelo clique
+   direto) o fazia. Resultado visível no screenshot do utilizador: o
+   botão "Medicação" continuava destacado depois de entrar como
+   Médico/Técnico, mesmo a mostrar a vista "Pacientes". Corrigido em
+   `login()`: limpa `.active` de todos os nav-items e marca
+   explicitamente o botão da vista por omissão do perfil que entrou.
+3. **"Marcar como lida" agora remove o alerta da área recente.** Antes só
+   trocava o botão por "✓ Lida" mas o alerta continuava visível.
+   `unreadActiveAlerts()` (novo) filtra os já lidos — usado em "Alertas
+   recentes" (Resumo) e "Alertas por severidade" (Pacientes). Nova vista
+   **"Histórico de alertas"** (ambos os perfis) mostra todos os alertas
+   (lidos e não lidos); o Médico/Técnico pode apagar individualmente
+   (`deleteAlert()`) ou limpar tudo (`clearAllAlertsForPatient()`),
+   mesma lógica do Registo de emergências.
+4. **Gestão de medicação pelo médico**: novo cartão em "Medicação"
+   (visível só ao Médico/Técnico) para adicionar (`addMedicationForPatient()`)
+   ou remover (`removeMedicationForPatient()`) medicamentos prescritos,
+   persistido por paciente em localStorage (`carewear_medications_registry`)
+   sobre os dados de base de `PATIENTS[i].medications` — sem alterar a
+   constante `PATIENTS` diretamente. `patientMedications(patient)` passou
+   a ser a função a chamar em vez de `patient.medications` diretamente.
+5. **Exportação em PDF melhorada**: cabeçalho com marca "CW", rodapé com
+   nota de confidencialidade, numeração de página (`@page` + contador CSS
+   — suportado no motor de impressão do Chromium), tabelas com
+   alinhamento/espaçamento consistente e linhas alternadas. **Removida** a
+   secção "Exportar dados" (CSV/JSON desativados, dependente da BD ainda
+   por construir) — o utilizador pediu para a tirar por não ter função
+   nenhuma enquanto essa BD não existir; a exportação FHIR/PDF (que já
+   funciona) continua.
+
 - HTML/CSS/JS autocontido, tema escuro clínico.
 - **Login + registo**: seleção de perfil (Utente/Família vs Médico/Técnico),
   e ecrã "Criar conta" com campos que se ajustam ao perfil (relação/utente
