@@ -476,23 +476,34 @@ do dashboard segue esta lista, por ordem, item a item).
    dados passivos e contexto humano.
 6. Desenho consciente de "fadiga de alerta": escalonamento gradual antes de
    alertas fortes (achado explícito na literatura de RPM).
-   **IMPLEMENTADO (protótipo) — 2026-07-03**: a mitigação por silenciamento
-   (alertas não-críticos silenciáveis por 4h) já tinha sido adicionada numa
-   sessão anterior no mesmo dia (commit `24efbd6`, sem esta secção ter sido
-   atualizada nessa altura); esta sessão completou a parte que faltava —
-   o **escalonamento gradual em si**. Cada alerta 'warning' tem agora um
-   nº de ocorrências nas últimas 24h (`occurrences`, dado de exemplo nesta
-   versão protótipo); ao atingir 3 ocorrências sem ser silenciado, a
-   prioridade visual sobe automaticamente de "aviso" para "grave"
-   (`alertEscalation()` em `web/dashboard/index.html`), com nota explícita
-   ao cuidador e reset da contagem ao silenciar (= reconhecer o alerta).
-   Por segurança, o mecanismo nunca gera 'critical' automaticamente — só
-   sobe 'warning'→'serious'. **Limitação honesta**: a contagem de
+   **IMPLEMENTADO (protótipo, em duas partes no mesmo dia, 2026-07-03)**:
+   (a) mitigação por silenciamento — alertas com severidade `serious`/
+   `warning` podem ser silenciados por 4h (`muteAlert()`/`unmuteAlert()`,
+   persistido em `localStorage`); a linha fica visualmente recessiva mas
+   nunca desaparece da lista. (b) escalonamento gradual — cada alerta
+   'warning' tem um nº de ocorrências nas últimas 24h (`occurrences`, dado
+   de exemplo nesta versão protótipo); ao atingir 3 ocorrências sem ser
+   silenciado, a prioridade visual sobe automaticamente de "aviso" para
+   "grave" (`alertEscalation()` em `web/dashboard/index.html`), com nota
+   explícita ao cuidador e reset da contagem ao silenciar (= reconhecer o
+   alerta). **Decisão de segurança não negociável, comum às duas partes**:
+   alertas `critical` nunca podem ser silenciados nem gerados
+   automaticamente por escalonamento — mostrado explicitamente na
+   interface, não apenas omitido. **Limitação honesta**: a contagem de
    ocorrências ainda não vem de um histórico real persistido (isso só é
    possível depois do serviço de persistência da Prioridade 4); hoje é um
-   valor de exemplo por alerta, ajustável interativamente via localStorage
-   quando o cuidador silencia.
+   valor de exemplo por alerta.
 7. Exportação clínica em FHIR/PDF para a área Médico/Técnico.
+   **IMPLEMENTADO (2026-07-03)**: cartão "Resumo clínico (FHIR / PDF)" na
+   vista Exportar dados — `exportFhirSummary()` gera um Bundle FHIR
+   simplificado (Patient + Observation por alerta) como download JSON;
+   `exportClinicalPdf()` monta uma folha de impressão (`@media print`) e
+   chama `window.print()` (sem bibliotecas externas, usa "Guardar como PDF"
+   do próprio browser). **Diferente** da exportação de dados brutos (que
+   continua bloqueada até existir BD) — cobre só o que está visível na
+   sessão atual (alertas + anomalias), não o histórico completo. Nota
+   honesta escrita na própria interface: não é uma implementação FHIR
+   certificada, só usa a forma dos recursos.
 8. Gestão de consentimento/partilha de dados (quem vê o quê) — relevante
    dado o contexto de demência (capacidade de consentimento é eticamente
    sensível, ver PMC11990963).
