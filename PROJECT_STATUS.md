@@ -167,6 +167,28 @@ Ficheiro: `web/dashboard/index.html` (versionado no repo).
 - Área Médico/Técnico: pacientes, estado do dispositivo/firmware (liga aos
   dados reais da otimização RAM/CPU), registo de anomalias, limites de duração
   (tabela do template do artigo, editável em protótipo), exportar dados.
+  **Seletor de paciente** (adicionado 2026-07-03, pedido do utilizador — um
+  médico tem vários pacientes): a vista "Pacientes" lista agora 3 pacientes
+  fictícios com botão "Selecionar" por linha (`selectPatient()`), persistido
+  em localStorage, atualizando o rótulo do menu lateral e o título do
+  cartão de alertas. **Limitação honesta, documentada na própria interface**:
+  isto só muda a identidade apresentada — a ligação BLE real continua
+  limitada a um único dispositivo físico de cada vez (o que estiver por
+  perto e for encontrado pelo bridge); o bridge ainda não suporta
+  selecionar/alternar por MAC. Ligar isso a sério exigiria o bridge aceitar
+  um comando `{"cmd":"connect_to","mac":"..."}` e usar esse MAC específico
+  em vez de procurar por nome — não implementado ainda, fica no backlog.
+- **Bug corrigido (2026-07-03)**: o sino de notificações na topbar não
+  fazia nada na prática — usava um `querySelector` com vários seletores
+  separados por vírgula que, por ordem de posição no DOM (não por ordem de
+  preferência), resolvia quase sempre para o botão "Resumo" dentro de
+  `#navUtente`, mesmo estando esse grupo escondido. Como o perfil por
+  omissão (Utente/Família) já mostra essa vista, clicar no sino parecia
+  não ter efeito nenhum. Corrigido com `onNotificationBellClick()`, uma
+  função que decide explicitamente pelo `currentRole` atual: no perfil
+  Utente/Família ativa a vista Resumo e desloca a página até ao cartão de
+  alertas (para dar feedback visível mesmo se já lá estava); no perfil
+  Médico/Técnico ativa a vista "Anomalias detetadas".
 - **Ligação em direto ao bridge**: a página tenta ligar-se sozinha a
   `ws://localhost:8765` ao carregar. Se conseguir, os cartões de FC/SpO2/
   passos/quedas/movimento e o gráfico de FC na vista "Sinais vitais" passam a
@@ -407,8 +429,14 @@ relevância. Nenhuma implementada ainda — registo para priorização futura.
 **Funcionalidades (por ordem de valor percebido):**
 1. Explicações de anomalias em linguagem simples para a família (não só
    scores técnicos) — maior valor percebido em quase todas as fontes.
+   **IMPLEMENTADO** (2026-07-03): toggle "O que significa isto?" em cada
+   alerta, 7 idiomas.
 2. Métrica de "curvas apertadas"/pacing via giroscópio como sinal precoce
    de deambulação (wandering), complementar ao geofencing por GPS.
+   **IMPLEMENTADO** (2026-07-03, dados simulados): cartão "Padrão de
+   deambulação (pacing)" na vista Rotina diária, com índice 0-100 e
+   tendência de 7 dias. O cálculo real a partir de gx/gy/gz do IMU ainda
+   não existe no firmware — só a visualização/conceito no dashboard.
 3. Modelos personalizados por pessoa (não populacionais) — literatura mostra
    consistentemente melhor deteção de agitação/BPSD do que limiares
    genéricos.
