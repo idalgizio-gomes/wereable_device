@@ -42,6 +42,7 @@
 #include "Ble/Ble.h"                   // Serviço Bluetooth (emparelhamento, troca de chave, sincronização de hora)
 #include "QspiRingBuffer/QspiRingBuffer.h" // "Diário" circular de registos guardado na flash externa (QSPI)
 #include "Clock/Clock.h"               // Relógio interno (hora/data), sincronizado via BLE
+#include "Lora/Lora.h"                 // Rádio LoRa Wio-SX1262 (experimental — ver Lora.h)
 
 // ============================================================
 // FLAGS DE CONFIGURAÇÃO (interruptores para ligar/desligar comportamentos)
@@ -650,6 +651,23 @@ void initBleDataLink() {
   Serial.println("[BLE] GATT-only active");
 }
 
+// LORA — inicializacao EXPERIMENTAL do radio Wio-SX1262 (ver Lora.h para
+// o aviso completo sobre pinos com confianca baixa). Deliberadamente
+// tolerante a falhas: se o radio nao responder (pino errado), regista o
+// erro e o resto do arranque continua normalmente — nada no resto do
+// firmware depende de Lora::begin() ter sucesso.
+void initLora() {
+  if (!Lora::begin()) {
+    Serial.println("[LORA] init falhou — a continuar sem radio LoRa (ver Lora.h, pinout ainda por confirmar)");
+    return;
+  }
+  Serial.println("[LORA] radio ativo");
+  // Envio de teste unico no arranque, so para validar deteccao +
+  // transmissao numa mesma sessao — nao faz parte de nenhuma logica de
+  // emergencia ainda.
+  Lora::sendTest("CareWear LoRa test");
+}
+
 // QSPI RING BUFFER — inicializa o "livro de registo" na flash externa
 // onde ficam guardadas as amostras de IMU/PPG (ver storageTask acima).
 void initQspiRingBuffer() {
@@ -806,6 +824,8 @@ void setup() {
   initPpg();
   Serial.println("[BOOT] step: initBleDataLink");
   initBleDataLink();
+  Serial.println("[BOOT] step: initLora");
+  initLora();
   Serial.println("[BOOT] step: showHourDateScreen");
   showHourDateScreen();
   Serial.println("[BOOT] step: setup done");
