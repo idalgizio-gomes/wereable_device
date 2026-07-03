@@ -332,6 +332,8 @@
   .alert-row.muted{ opacity:0.55; }
   .alert-mute-note{ margin:6px 0 0; font-size:11px; color:var(--text-muted); }
   .alert-mute-note .alert-explain-btn{ font-size:11px; }
+  .alert-actions{ display:flex; align-items:center; gap:10px; margin-top:6px; flex-wrap:wrap; }
+  .alert-read-badge{ font-size:11px; font-weight:600; color:var(--status-good); }
   /* Escalonamento gradual — ver alertEscalation()/occurrencesFor() no
      <script>. Um alerta 'warning' que se repete várias vezes sem ser
      silenciado sobe de prioridade visual (para 'serious') em vez de o
@@ -683,7 +685,7 @@
         </button>
         <button class="icon-btn" title="Alertas" onclick="onNotificationBellClick()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
-          <span class="badge-dot"></span>
+          <span class="badge-dot" id="notifBadgeDot"></span>
         </button>
         <div class="avatar-chip">
           <div class="initials" id="avatarInitials">MS</div>
@@ -1060,49 +1062,72 @@ const heatmapData = buildHeatmap(11);
 // PROJECT_STATUS.md — a explicação em linguagem simples é o que a
 // literatura revista aponta como o que traz mais valor percebido às
 // famílias, mais do que apenas mostrar scores técnicos.
-const alerts = [
-  {key:'hr-alta', sev:'critical', title:'Frequência cardíaca elevada', desc:'92 bpm sustentados durante 6 min em repouso (referência: 58–78 bpm).', time:'há 6 min',
-   plain:'O coração esteve a bater mais depressa do que o normal para uma pessoa em repouso, e manteve-se assim durante vários minutos seguidos (não foi só um pico rápido). Pode acontecer por esforço recente, dor, ansiedade, febre ou desidratação — mas também pode não ter causa aparente. Vale a pena verificar como a pessoa está agora e, se se mantiver ou vier acompanhado de outros sintomas, contactar o médico.'},
-  {key:'inatividade-prolongada', sev:'serious',  title:'Inatividade prolongada', desc:'Sem movimento detetado desde as 14:35 (3h12min) — acima do limite configurado.', time:'há 41 min',
-   plain:'O dispositivo não deteta movimento há mais tempo do que o habitual para esta hora do dia. Muitas vezes é só a pessoa a descansar ou a dormir uma sesta — mas se não for essa a rotina esperada a esta hora, pode valer a pena ir verificar em pessoa.'},
-  {key:'rotina-alterada', sev:'warning',  title:'Bloco de rotina alterado', desc:'"Atividade" da tarde substituída por padrão sedentário — fora do esperado pelo template diário.', time:'há 2h',
-   plain:'A pessoa costuma estar mais ativa a esta hora do dia, mas hoje ficou mais tempo parada/sentada do que é habitual. Isto sozinho não é necessariamente preocupante (pode ser só um dia mais cansativo), mas é um desvio à rotina normal que vale a pena ter em conta, especialmente se se repetir em dias seguidos.',
-   occurrences:3},
-  {key:'spo2-limite', sev:'warning',  title:'SpO₂ no limite', desc:'Leitura de 93% às 03:14 — uma amostra isolada, sem tendência de queda.', time:'há 9h',
-   plain:'O nível de oxigénio no sangue teve uma leitura um pouco abaixo do intervalo normal (95–100%), mas foi só uma vez, sem se manter baixo nas leituras seguintes. Isto acontece com frequência por mau contacto do sensor durante o sono (ex.: mão fora da posição) e normalmente não é motivo de alarme quando é um valor isolado — mas se voltar a acontecer de forma repetida, vale a pena falar com o médico.',
-   occurrences:1},
-];
-
-const anomalyLog = [
-  {id:'A-1042', patient:'Maria Silva', type:'Duração', detail:'Higiene 46 min acima do limite (d_max × 3.0)', detector:'Regra de duração', conf:'—', sev:'serious', time:'02/07 07:22'},
-  {id:'A-1041', patient:'Maria Silva', type:'Comportamental', detail:'Substituição contextual: "Atividade" às 09:30 (era "Descanso")', detector:'LSTM Autoencoder', conf:'0.91', sev:'warning', time:'02/07 09:31'},
-  {id:'A-1039', patient:'Maria Silva', type:'Duração', detail:'Bloco de atividade truncado (25 min abaixo do mínimo)', detector:'Regra de duração', conf:'—', sev:'warning', time:'01/07 17:12'},
-  {id:'A-1035', patient:'Maria Silva', type:'Fisiológica', detail:'FC 92 bpm sustentada em repouso', detector:'Limiar clínico', conf:'—', sev:'critical', time:'01/07 21:04'},
-];
-
 /* ------------------------------------------------------------
    PACIENTES DO MÉDICO/TÉCNICO (protótipo, dados fictícios)
    ------------------------------------------------------------
    Um médico/técnico tem, na realidade, vários pacientes/wearables
-   emparelhados na mesma conta — antes só havia um paciente fixo
-   ("Maria Silva") sem forma de escolher outro. Isto adiciona essa
-   escolha na vista "Pacientes" (ver TEMPLATES.pacientes e
-   selectPatient()).
-   LIMITAÇÃO HONESTA DESTE PROTÓTIPO: selecionar aqui muda a
-   identidade/dispositivo apresentados nesta vista e os rótulos ligados a
-   ela, mas os dados "ao vivo" (vitais, rotina, alertas) continuam a vir
-   de UM único bridge/dispositivo físico ligado por BLE de cada vez — o
-   bridge (ble_bridge.py) ainda não suporta escolher/alternar entre vários
-   dispositivos por MAC (ver PROJECT_STATUS.md, backlog). Ou seja: esta
-   funcionalidade resolve a escolha ao nível da interface (qual paciente
-   estou a consultar agora), mas ligar fisicamente a um wearable diferente
-   ainda depende de qual dispositivo está por perto e é encontrado pelo
-   bridge — não é (ainda) uma troca de ligação BLE dirigida por MAC.
+   emparelhados na mesma conta. Cada paciente tem os seus PRÓPRIOS
+   alertas, registo de anomalias e estatísticas de dispositivo (bateria,
+   ocupação do ring buffer) — BUG CORRIGIDO (2026-07-03, reportado pelo
+   utilizador): antes, mudar de paciente na vista "Pacientes" não mudava
+   os dados mostrados no "Registo de anomalias" nem em "Dispositivo &
+   firmware", que continuavam sempre a mostrar os valores fixos da Maria
+   Silva. Agora `alerts`/`anomalyLog`/estado do dispositivo vêm sempre de
+   `selectedPatient()` (ver currentAlerts()/currentAnomalyLog() abaixo).
+   NOTA HONESTA: RAM/flash de programa (.data/.bss e tamanho do binário)
+   são os MESMOS para todos os pacientes de propósito — é o mesmo
+   firmware instalado em todos os wearables, por isso esses dois valores
+   não deviam variar por paciente (só bateria e ocupação do ring buffer,
+   que dependem do uso real de cada dispositivo, fazem sentido variar).
+   LIMITAÇÃO HONESTA (continua a aplicar-se): selecionar aqui muda a
+   identidade/dados apresentados nesta conta, mas a ligação BLE real
+   continua limitada a um único dispositivo físico de cada vez — o
+   bridge (ble_bridge.py) ainda não suporta escolher/alternar entre
+   vários dispositivos por MAC (ver PROJECT_STATUS.md, backlog).
 ------------------------------------------------------------ */
 const PATIENTS = [
-  {id:'p1', name:'Maria Silva', age:72, deviceName:'Wearable', mac:'E6:ED:42:57:1F:20', lastSync:'há 4 min', status:'good', activeAlerts:2},
-  {id:'p2', name:'António Ferreira', age:79, deviceName:'Wearable', mac:'C1:4A:9B:02:D3:6E', lastSync:'há 3h', status:'warn', activeAlerts:0},
-  {id:'p3', name:'Isabel Costa', age:68, deviceName:'Wearable', mac:'A8:2F:11:9C:44:B7', lastSync:'há 1 dia', status:'off', activeAlerts:1},
+  {
+    id:'p1', name:'Maria Silva', age:72, deviceName:'Wearable', mac:'E6:ED:42:57:1F:20', lastSync:'há 4 min', status:'good',
+    battery:92, ringBufferUsed:2843, ringBufferTotal:16384,
+    alerts: [
+      {key:'hr-alta', sev:'critical', title:'Frequência cardíaca elevada', desc:'92 bpm sustentados durante 6 min em repouso (referência: 58–78 bpm).', time:'há 6 min',
+       plain:'O coração esteve a bater mais depressa do que o normal para uma pessoa em repouso, e manteve-se assim durante vários minutos seguidos (não foi só um pico rápido). Pode acontecer por esforço recente, dor, ansiedade, febre ou desidratação — mas também pode não ter causa aparente. Vale a pena verificar como a pessoa está agora e, se se mantiver ou vier acompanhado de outros sintomas, contactar o médico.'},
+      {key:'inatividade-prolongada', sev:'serious',  title:'Inatividade prolongada', desc:'Sem movimento detetado desde as 14:35 (3h12min) — acima do limite configurado.', time:'há 41 min',
+       plain:'O dispositivo não deteta movimento há mais tempo do que o habitual para esta hora do dia. Muitas vezes é só a pessoa a descansar ou a dormir uma sesta — mas se não for essa a rotina esperada a esta hora, pode valer a pena ir verificar em pessoa.'},
+      {key:'rotina-alterada', sev:'warning',  title:'Bloco de rotina alterado', desc:'"Atividade" da tarde substituída por padrão sedentário — fora do esperado pelo template diário.', time:'há 2h',
+       plain:'A pessoa costuma estar mais ativa a esta hora do dia, mas hoje ficou mais tempo parada/sentada do que é habitual. Isto sozinho não é necessariamente preocupante (pode ser só um dia mais cansativo), mas é um desvio à rotina normal que vale a pena ter em conta, especialmente se se repetir em dias seguidos.',
+       occurrences:3},
+      {key:'spo2-limite', sev:'warning',  title:'SpO₂ no limite', desc:'Leitura de 93% às 03:14 — uma amostra isolada, sem tendência de queda.', time:'há 9h',
+       plain:'O nível de oxigénio no sangue teve uma leitura um pouco abaixo do intervalo normal (95–100%), mas foi só uma vez, sem se manter baixo nas leituras seguintes. Isto acontece com frequência por mau contacto do sensor durante o sono (ex.: mão fora da posição) e normalmente não é motivo de alarme quando é um valor isolado — mas se voltar a acontecer de forma repetida, vale a pena falar com o médico.',
+       occurrences:1},
+    ],
+    anomalyLog: [
+      {id:'A-1042', type:'Duração', detail:'Higiene 46 min acima do limite (d_max × 3.0)', detector:'Regra de duração', conf:'—', sev:'serious', time:'02/07 07:22'},
+      {id:'A-1041', type:'Comportamental', detail:'Substituição contextual: "Atividade" às 09:30 (era "Descanso")', detector:'LSTM Autoencoder', conf:'0.91', sev:'warning', time:'02/07 09:31'},
+      {id:'A-1039', type:'Duração', detail:'Bloco de atividade truncado (25 min abaixo do mínimo)', detector:'Regra de duração', conf:'—', sev:'warning', time:'01/07 17:12'},
+      {id:'A-1035', type:'Fisiológica', detail:'FC 92 bpm sustentada em repouso', detector:'Limiar clínico', conf:'—', sev:'critical', time:'01/07 21:04'},
+    ],
+  },
+  {
+    id:'p2', name:'António Ferreira', age:79, deviceName:'Wearable', mac:'C1:4A:9B:02:D3:6E', lastSync:'há 3h', status:'warn',
+    battery:34, ringBufferUsed:9120, ringBufferTotal:16384,
+    alerts: [
+      {key:'sono-curto', sev:'warning', title:'Sono abaixo do habitual', desc:'4h20min de sono estimado esta noite (média das últimas 2 semanas: 6h50min).', time:'há 3h',
+       plain:'A pessoa dormiu bastante menos do que é habitual para ela. Uma noite isolada mais curta não é necessariamente grave, mas se se repetir vale a pena perceber a causa (dor, desconforto, mudança de rotina).'},
+    ],
+    anomalyLog: [
+      {id:'A-0982', type:'Duração', detail:'Sono 4h20min, abaixo de d_min × 0.30', detector:'Regra de duração', conf:'—', sev:'warning', time:'02/07 06:10'},
+      {id:'A-0975', type:'Fisiológica', detail:'Bateria do dispositivo abaixo de 40%', detector:'Diagnóstico do dispositivo', conf:'—', sev:'warning', time:'01/07 22:40'},
+    ],
+  },
+  {
+    id:'p3', name:'Isabel Costa', age:68, deviceName:'Wearable', mac:'A8:2F:11:9C:44:B7', lastSync:'há 1 dia', status:'off',
+    battery:8, ringBufferUsed:16384, ringBufferTotal:16384,
+    alerts: [],
+    anomalyLog: [
+      {id:'A-0810', type:'Fisiológica', detail:'Dispositivo desligado/sem sincronização há mais de 12h', detector:'Diagnóstico do dispositivo', conf:'—', sev:'serious', time:'01/07 09:15'},
+    ],
+  },
 ];
 const SELECTED_PATIENT_KEY = 'carewear_selected_patient_id';
 
@@ -1119,16 +1144,31 @@ function selectedPatient(){
   return PATIENTS.find(p => p.id === selectedPatientId) || PATIENTS[0];
 }
 
-// Chamada pelo botão "Ligar a este wearable" em cada linha da tabela de
-// pacientes (TEMPLATES.pacientes). Atualiza a seleção, persiste em
-// localStorage, e re-renderiza a vista + os rótulos ligados ao paciente
-// selecionado (nav lateral). Ver limitação honesta no comentário acima —
-// isto não troca a ligação BLE real.
+// Substituem as antigas constantes globais 'alerts'/'anomalyLog' (fixas
+// na Maria Silva) — todas as vistas devem chamar estas funções, nunca
+// usar dados de um paciente diretamente, para mudar de paciente refletir
+// sempre em todo o lado.
+function currentAlerts(){ return selectedPatient().alerts; }
+function currentAnomalyLog(){ return selectedPatient().anomalyLog; }
+
+// Nº de alertas "ativos" de um paciente = não silenciados (ver
+// muteAlert()) neste momento. Calculado, não guardado à parte, para
+// nunca poder ficar dessincronizado do que a tabela de alertas mostra.
+function activeAlertsCount(patient){
+  return patient.alerts.filter(a => !alertMutedUntil(patientAlertKey(patient.id, a.key))).length;
+}
+
+// Chamada pelo botão "Selecionar" em cada linha da tabela de pacientes
+// (TEMPLATES.pacientes). Atualiza a seleção, persiste em localStorage, e
+// re-renderiza a vista + os rótulos ligados ao paciente selecionado (nav
+// lateral). Ver limitação honesta no comentário acima — isto não troca a
+// ligação BLE real.
 function selectPatient(id){
   selectedPatientId = id;
   try { localStorage.setItem(SELECTED_PATIENT_KEY, id); }
   catch (e) { /* quota excedida ou localStorage indisponível - seleção fica só nesta sessão */ }
   updateClinicoPatientLabel();
+  updateNotificationBadge();
   renderView('pacientes');
 }
 
@@ -1227,6 +1267,7 @@ function login(){
   document.getElementById('avatarRole').textContent = 'Perfil: ' + t(isUtente ? 'login.role.utente' : 'login.role.clinico');
 
   renderView(isUtente ? 'resumo' : 'pacientes');
+  updateNotificationBadge();
 }
 
 function logout(){
@@ -1367,7 +1408,7 @@ TEMPLATES.resumo = () => `
 
     <div class="card">
       <div class="card-head"><h3>Alertas recentes</h3></div>
-      ${alerts.map((a,i) => alertRow(a,i)).join('')}
+      ${currentAlerts().map((a,i) => alertRow(a,i)).join('')}
     </div>
   </div>
 
@@ -1922,7 +1963,7 @@ TEMPLATES.pacientes = () => `
             <td class="num">${p.deviceName} · ${p.mac}</td>
             <td class="num">${p.lastSync}</td>
             <td>${pillHtml(p.status==='good'?'good':p.status==='warn'?'warning':'critical', p.status==='good'?'Ligado':p.status==='warn'?'Instável':'Desligado')}</td>
-            <td>${p.activeAlerts > 0 ? pillHtml('critical', p.activeAlerts + ' ativo' + (p.activeAlerts>1?'s':'')) : pillHtml('good','Nenhum')}</td>
+            <td>${(() => { const n = activeAlertsCount(p); return n > 0 ? pillHtml('critical', n + ' ativo' + (n>1?'s':'')) : pillHtml('good','Nenhum'); })()}</td>
             <td>${p.id===selectedPatientId
               ? `<span class="empty-hint" style="padding:0;">Selecionado</span>`
               : `<button class="btn-secondary" onclick="selectPatient('${p.id}')">Selecionar</button>`}</td>
@@ -1933,22 +1974,34 @@ TEMPLATES.pacientes = () => `
   </div>
   <div class="card">
     <div class="card-head"><h3>Alertas por severidade — ${selectedPatient().name}</h3></div>
-    ${alerts.map((a,i) => alertRow(a,i)).join('')}
+    ${currentAlerts().length ? currentAlerts().map((a,i) => alertRow(a,i)).join('') : '<p class="empty-hint">Sem alertas ativos para este paciente.</p>'}
   </div>
 `;
 
 TEMPLATES.dispositivo = () => `
+  ${(() => {
+    const p = selectedPatient();
+    const ringPct = ((p.ringBufferUsed / p.ringBufferTotal) * 100).toFixed(1);
+    // RAM/Flash/stack são propriedades do FIRMWARE instalado (o mesmo
+    // binário em todos os wearables desta frota), não do dispositivo
+    // físico individual — BUG CORRIGIDO (2026-07-03, reportado pelo
+    // utilizador): "os estados e folga do stack mostram sempre os mesmos
+    // dados" ao mudar de paciente. Bateria e ring buffer agora variam por
+    // paciente (dados reais de utilização de cada dispositivo); RAM/
+    // Flash/stack continuam iguais de propósito, com uma nota explícita
+    // do motivo, para não parecer um esquecimento.
+    return `
   <div class="grid-2b">
     <div class="card">
-      <div class="card-head"><div><h3>Estado do wearable</h3><div class="card-sub">XIAO nRF52840 Sense Plus · firmware BLE_GATT_DUMP_V1</div></div></div>
+      <div class="card-head"><div><h3>Estado do wearable — ${p.name}</h3><div class="card-sub">XIAO nRF52840 Sense Plus · firmware BLE_GATT_DUMP_V1 · ${p.mac}</div></div></div>
       <div class="device-meter" style="gap:14px;">
         <div>
-          <div class="meter-row"><span>Bateria</span><span class="tabular">92%</span></div>
-          <div class="meter-track"><div class="meter-fill" style="width:92%"></div></div>
+          <div class="meter-row"><span>Bateria</span><span class="tabular">${p.battery}%</span></div>
+          <div class="meter-track"><div class="meter-fill" style="width:${p.battery}%; background:${p.battery<15?'var(--status-critical)':p.battery<40?'var(--status-warning)':undefined}"></div></div>
         </div>
         <div>
-          <div class="meter-row"><span>Ring buffer (flash QSPI)</span><span class="tabular">2 843 / 16 384 registos</span></div>
-          <div class="meter-track"><div class="meter-fill" style="width:17%; background:var(--link)"></div></div>
+          <div class="meter-row"><span>Ring buffer (flash QSPI)</span><span class="tabular">${p.ringBufferUsed.toLocaleString('pt-PT')} / ${p.ringBufferTotal.toLocaleString('pt-PT')} registos</span></div>
+          <div class="meter-track"><div class="meter-fill" style="width:${ringPct}%; background:var(--link)"></div></div>
         </div>
         <div>
           <div class="meter-row"><span>RAM estática (.data/.bss)</span><span class="tabular">17 056 / 237 568 bytes</span></div>
@@ -1959,33 +2012,34 @@ TEMPLATES.dispositivo = () => `
           <div class="meter-track"><div class="meter-fill" style="width:21.4%; background:var(--cat-higiene)"></div></div>
         </div>
       </div>
+      <p class="empty-hint">RAM/Flash de programa são iguais em todos os wearables desta conta de propósito — é o mesmo firmware instalado em todos, esses valores vêm do binário compilado, não do dispositivo individual. Só a bateria e o ring buffer variam por paciente (uso real de cada dispositivo).</p>
     </div>
     <div class="card">
-      <div class="card-head"><div><h3>Folga de stack por task (FreeRTOS)</h3><div class="card-sub">uxTaskGetStackHighWaterMark — pendente confirmação em hardware</div></div></div>
+      <div class="card-head"><div><h3>Folga de stack por task (FreeRTOS)</h3><div class="card-sub">uxTaskGetStackHighWaterMark — igual para todos os dispositivos (mesmo firmware); pendente confirmação em hardware</div></div></div>
       <table class="data-table">
         <thead><tr><th>Task</th><th>Reservado</th><th>Estado</th></tr></thead>
         <tbody>
           <tr><td>imu_task</td><td class="num">768 words</td><td>${pillHtml('neutral','por confirmar')}</td></tr>
-          <tr><td>ppg_task</td><td class="num">1 152 words</td><td>${pillHtml('neutral','por confirmar')}</td></tr>
-          <tr><td>storage_task</td><td class="num">1 536 words</td><td>${pillHtml('neutral','por confirmar')}</td></tr>
-          <tr><td>ble_gatt_dump_task</td><td class="num">2 560 words</td><td>${pillHtml('neutral','por confirmar')}</td></tr>
+          <tr><td>ppg_task</td><td class="num">640 words</td><td>${pillHtml('neutral','por confirmar')}</td></tr>
+          <tr><td>storage_task</td><td class="num">768 words</td><td>${pillHtml('neutral','por confirmar')}</td></tr>
+          <tr><td>ble_gatt_dump_task</td><td class="num">1 280 words</td><td>${pillHtml('neutral','por confirmar')}</td></tr>
         </tbody>
       </table>
-      <p class="empty-hint">Reduções conservadoras aplicadas (~25% de margem); confirmar com o dispositivo ligado antes de otimizar mais.</p>
+      <p class="empty-hint">Valores da 2ª ronda de otimização (ver PROJECT_STATUS.md); ainda por confirmar em hardware real com DEBUG_STACK_WATERMARKS.</p>
     </div>
-  </div>
+  </div>`;
+  })()}
 `;
 
 TEMPLATES.anomalias = () => `
   <div class="card">
-    <div class="card-head"><div><h3>Registo de anomalias</h3><div class="card-sub">Deteção combinada: LSTM Autoencoder (comportamental) + regras de duração, com supressão em cascata</div></div></div>
+    <div class="card-head"><div><h3>Registo de anomalias — ${selectedPatient().name}</h3><div class="card-sub">Deteção combinada: LSTM Autoencoder (comportamental) + regras de duração, com supressão em cascata</div></div></div>
     <table class="data-table">
-      <thead><tr><th>ID</th><th>Paciente</th><th>Tipo</th><th>Detalhe</th><th>Detetor</th><th>Confiança</th><th>Severidade</th><th>Quando</th></tr></thead>
+      <thead><tr><th>ID</th><th>Tipo</th><th>Detalhe</th><th>Detetor</th><th>Confiança</th><th>Severidade</th><th>Quando</th></tr></thead>
       <tbody>
-        ${anomalyLog.map(a => `
+        ${currentAnomalyLog().length ? currentAnomalyLog().map(a => `
           <tr>
             <td class="num">${a.id}</td>
-            <td>${a.patient}</td>
             <td>${a.type}</td>
             <td>${a.detail}</td>
             <td>${a.detector}</td>
@@ -1993,7 +2047,7 @@ TEMPLATES.anomalias = () => `
             <td>${pillHtml(a.sev, a.sev==='critical'?'Crítico':a.sev==='serious'?'Sério':'Aviso')}</td>
             <td class="num">${a.time}</td>
           </tr>
-        `).join('')}
+        `).join('') : `<tr><td colspan="7"><p class="empty-hint">Sem anomalias registadas para este paciente.</p></td></tr>`}
       </tbody>
     </table>
   </div>
@@ -2089,6 +2143,15 @@ function statTile(icon, label, value, unit, color, valueId, sim){
 ------------------------------------------------------------ */
 const MUTED_ALERTS_KEY = 'carewear_muted_alerts';
 
+// As chaves guardadas em localStorage (silenciados, ocorrências, lidos)
+// são sempre namespaced por paciente ("idPaciente::chaveAlerta") — sem
+// isto, dois pacientes diferentes com a mesma chave de alerta (ex.: se
+// ambos tivessem um alerta 'spo2-limite') partilhariam acidentalmente o
+// mesmo estado de silêncio/leitura.
+function patientAlertKey(patientId, alertKey){
+  return `${patientId}::${alertKey}`;
+}
+
 function loadMutedAlerts(){
   try {
     const raw = localStorage.getItem(MUTED_ALERTS_KEY);
@@ -2107,6 +2170,55 @@ function alertMutedUntil(key){
   if (!until) return null;
   if (until <= Date.now()) { delete mutedAlerts[key]; saveMutedAlerts(mutedAlerts); return null; }
   return until;
+}
+
+/* ------------------------------------------------------------
+   LEITURA DE ALERTAS — "Marcar como lida"
+   ------------------------------------------------------------
+   Pedido do utilizador (2026-07-03): em vez de o indicador do sino
+   (badge-dot vermelho na topbar) desligar sozinho só por abrir a vista de
+   alertas — o que é fácil de disparar sem querer e não regista uma
+   confirmação real — cada alerta tem um botão explícito "Marcar como
+   lida". Só isso desliga o indicador (quando já não há nenhum alerta por
+   ler do paciente selecionado). Ao contrário de silenciar (que pausa o
+   alerta por um período), marcar como lida não afeta a severidade nem o
+   escalonamento — só regista que o cuidador já viu esta informação.
+------------------------------------------------------------ */
+const READ_ALERTS_KEY = 'carewear_read_alerts';
+
+function loadReadAlerts(){
+  try {
+    const raw = localStorage.getItem(READ_ALERTS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* localStorage indisponível ou dados corrompidos - ignora */ }
+  return {};
+}
+function saveReadAlerts(map){
+  try { localStorage.setItem(READ_ALERTS_KEY, JSON.stringify(map)); }
+  catch (e) { /* quota excedida ou localStorage indisponível - fica só em memória */ }
+}
+let readAlerts = loadReadAlerts();
+
+function isAlertRead(key){
+  return !!readAlerts[key];
+}
+function markAlertRead(key){
+  readAlerts[key] = true;
+  saveReadAlerts(readAlerts);
+  updateNotificationBadge();
+  if (currentView) renderView(currentView);
+}
+
+// Atualiza a visibilidade do ponto vermelho de notificação na topbar,
+// consoante existam ou não alertas por ler do paciente atualmente
+// selecionado (ver selectedPatient()). Chamada depois de login, de mudar
+// de paciente, e de marcar um alerta como lido.
+function updateNotificationBadge(){
+  const dot = document.getElementById('notifBadgeDot');
+  if (!dot) return;
+  const p = selectedPatient();
+  const hasUnread = p.alerts.some(a => !isAlertRead(patientAlertKey(p.id, a.key)));
+  dot.style.display = hasUnread ? '' : 'none';
 }
 
 /* ------------------------------------------------------------
@@ -2142,43 +2254,46 @@ let alertOccurrences = loadAlertOccurrences();
 
 // Nº de ocorrências a usar para este alerta: o valor guardado localmente
 // (já ajustado por um silenciamento anterior) tem prioridade sobre o
-// dado de exemplo do próprio alerta.
-function occurrencesFor(a){
-  return (a.key in alertOccurrences) ? alertOccurrences[a.key] : (a.occurrences || 1);
+// dado de exemplo do próprio alerta. 'fullKey' já vem namespaced por
+// paciente (ver patientAlertKey()).
+function occurrencesFor(a, fullKey){
+  return (fullKey in alertOccurrences) ? alertOccurrences[fullKey] : (a.occurrences || 1);
 }
 
-function alertEscalation(a){
-  const count = occurrencesFor(a);
+function alertEscalation(a, fullKey){
+  const count = occurrencesFor(a, fullKey);
   if (a.sev === 'warning' && count >= ALERT_ESCALATION_THRESHOLD) {
     return {severity:'serious', count, escalated:true};
   }
   return {severity:a.sev, count, escalated:false};
 }
 
-function muteAlert(key, hours){
-  mutedAlerts[key] = Date.now() + hours * 3600 * 1000;
+function muteAlert(fullKey, hours){
+  mutedAlerts[fullKey] = Date.now() + hours * 3600 * 1000;
   saveMutedAlerts(mutedAlerts);
   // silenciar = o cuidador reconheceu o alerta, por isso a contagem que
   // alimenta o escalonamento reinicia (tem de se repetir outra vez para
   // voltar a subir de prioridade)
-  alertOccurrences[key] = 0;
+  alertOccurrences[fullKey] = 0;
   saveAlertOccurrences(alertOccurrences);
   if (currentView) renderView(currentView);
 }
-function unmuteAlert(key){
-  delete mutedAlerts[key];
+function unmuteAlert(fullKey){
+  delete mutedAlerts[fullKey];
   saveMutedAlerts(mutedAlerts);
   if (currentView) renderView(currentView);
 }
 
-// 'idx' identifica este alerta dentro do array 'alerts' (ver chamadas
-// alerts.map((a,i) => alertRow(a,i))), usado para dar um id único à caixa
-// de explicação em linguagem simples e ao botão que a mostra/esconde
-// (ver toggleAlertPlain()). Se 'a.plain' não existir (ex.: alertas vindos
-// de outra fonte no futuro, sem explicação escrita ainda), o botão
-// simplesmente não é mostrado em vez de mostrar uma caixa vazia.
+// 'idx' identifica este alerta dentro do array de alertas do paciente
+// atual (ver chamadas currentAlerts().map((a,i) => alertRow(a,i))), usado
+// para dar um id único à caixa de explicação em linguagem simples e ao
+// botão que a mostra/esconde (ver toggleAlertPlain()). Se 'a.plain' não
+// existir (ex.: alertas vindos de outra fonte no futuro, sem explicação
+// escrita ainda), o botão simplesmente não é mostrado em vez de mostrar
+// uma caixa vazia.
 function alertRow(a, idx){
-  const esc = alertEscalation(a);
+  const fullKey = a.key ? patientAlertKey(selectedPatientId, a.key) : null;
+  const esc = alertEscalation(a, fullKey);
   const icon = esc.severity==='critical' ? 'heart' : esc.severity==='serious' ? 'warn' : 'zap';
   const explainId = `alertPlain-${idx}`;
   const explainBtn = a.plain
@@ -2190,16 +2305,21 @@ function alertRow(a, idx){
     ? `<p class="alert-escalation-note">Repetiu-se ${esc.count}x nas últimas 24h — prioridade subida automaticamente de "aviso" para "grave" para reduzir o risco de ser ignorado. Silenciar reinicia a contagem.</p>`
     : '';
 
-  const mutedUntil = a.key ? alertMutedUntil(a.key) : null;
+  const mutedUntil = fullKey ? alertMutedUntil(fullKey) : null;
   let muteControl = '';
   if (a.sev === 'critical') {
     muteControl = `<p class="alert-mute-note">Alertas críticos não podem ser silenciados.</p>`;
   } else if (mutedUntil) {
     const untilStr = new Date(mutedUntil).toLocaleTimeString('pt-PT', {hour:'2-digit', minute:'2-digit'});
-    muteControl = `<p class="alert-mute-note">Silenciado até às ${untilStr} — <button type="button" class="alert-explain-btn" onclick="unmuteAlert('${a.key}')">reativar agora</button></p>`;
-  } else if (a.key) {
-    muteControl = `<button type="button" class="alert-explain-btn" onclick="muteAlert('${a.key}', 4)">Silenciar por 4h</button>`;
+    muteControl = `<p class="alert-mute-note">Silenciado até às ${untilStr} — <button type="button" class="alert-explain-btn" onclick="unmuteAlert('${fullKey}')">reativar agora</button></p>`;
+  } else if (fullKey) {
+    muteControl = `<button type="button" class="alert-explain-btn" onclick="muteAlert('${fullKey}', 4)">Silenciar por 4h</button>`;
   }
+
+  const isRead = fullKey ? isAlertRead(fullKey) : false;
+  const readControl = !fullKey ? '' : isRead
+    ? `<span class="alert-read-badge">✓ Lida</span>`
+    : `<button type="button" class="alert-explain-btn" onclick="markAlertRead('${fullKey}')">Marcar como lida</button>`;
 
   return `
     <div class="alert-row ${esc.severity}${mutedUntil ? ' muted' : ''}">
@@ -2209,7 +2329,7 @@ function alertRow(a, idx){
         <div class="desc">${a.desc}</div>
         ${escalationNote}
         ${explainBtn}
-        ${muteControl}
+        <div class="alert-actions">${readControl}${muteControl}</div>
       </div>
       <div class="time">${a.time}</div>
     </div>`;
@@ -2799,7 +2919,7 @@ function buildFhirBundle(){
     name: [{ text: p.name }],
     extension: [{ url: 'age', valueInteger: p.age }],
   };
-  const observations = alerts.map((a, i) => ({
+  const observations = currentAlerts().map((a, i) => ({
     resourceType: 'Observation',
     id: `alert-${a.key || i}`,
     status: 'final',
@@ -2856,14 +2976,14 @@ function exportClinicalPdf(){
     <table style="width:100%; border-collapse:collapse; font-size:12px;">
       <thead><tr><th style="text-align:left; border-bottom:1px solid #ccc;">Título</th><th style="text-align:left; border-bottom:1px solid #ccc;">Detalhe</th><th style="text-align:left; border-bottom:1px solid #ccc;">Severidade</th><th style="text-align:left; border-bottom:1px solid #ccc;">Quando</th></tr></thead>
       <tbody>
-        ${alerts.map(a => `<tr><td>${a.title}</td><td>${a.desc}</td><td>${a.sev}</td><td>${a.time}</td></tr>`).join('')}
+        ${currentAlerts().map(a => `<tr><td>${a.title}</td><td>${a.desc}</td><td>${a.sev}</td><td>${a.time}</td></tr>`).join('')}
       </tbody>
     </table>
     <h3 style="font-size:13px; margin-top:14px;">Registo de anomalias recente</h3>
     <table style="width:100%; border-collapse:collapse; font-size:12px;">
       <thead><tr><th style="text-align:left; border-bottom:1px solid #ccc;">ID</th><th style="text-align:left; border-bottom:1px solid #ccc;">Tipo</th><th style="text-align:left; border-bottom:1px solid #ccc;">Detalhe</th><th style="text-align:left; border-bottom:1px solid #ccc;">Quando</th></tr></thead>
       <tbody>
-        ${anomalyLog.map(a => `<tr><td>${a.id}</td><td>${a.type}</td><td>${a.detail}</td><td>${a.time}</td></tr>`).join('')}
+        ${currentAnomalyLog().map(a => `<tr><td>${a.id}</td><td>${a.type}</td><td>${a.detail}</td><td>${a.time}</td></tr>`).join('')}
       </tbody>
     </table>
   `;

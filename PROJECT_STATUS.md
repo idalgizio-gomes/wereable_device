@@ -189,6 +189,33 @@ Ficheiro: `web/dashboard/index.html` (versionado no repo).
   Utente/Família ativa a vista Resumo e desloca a página até ao cartão de
   alertas (para dar feedback visível mesmo se já lá estava); no perfil
   Médico/Técnico ativa a vista "Anomalias detetadas".
+- **Bugs corrigidos (2026-07-03, reportados pelo utilizador)**:
+  1. Mudar de paciente na vista "Pacientes" não mudava os dados do
+     "Registo de anomalias" nem do "Dispositivo & firmware" — ambos
+     continuavam sempre fixos na Maria Silva. Corrigido: `alerts` e
+     `anomalyLog` deixaram de ser constantes globais e passaram a campos
+     de cada objeto em `PATIENTS` (`p.alerts`, `p.anomalyLog`), acedidos
+     via `currentAlerts()`/`currentAnomalyLog()` (sempre relativos a
+     `selectedPatient()`). Adicionados dados fictícios distintos para os
+     3 pacientes (incluindo um paciente sem alertas ativos e outro com o
+     dispositivo desligado há mais de um dia, para testar os estados
+     vazios). Bateria e ocupação do ring buffer também passaram a variar
+     por paciente (dados reais de dispositivo); **RAM/Flash de programa e
+     folga de stack continuam iguais para todos de propósito** — são
+     propriedades do firmware instalado (o mesmo binário em todos os
+     wearables), não do dispositivo individual, com uma nota explícita
+     disso na própria interface para não parecer um esquecimento.
+  2. O sino de notificações não tinha forma de "desligar" o ponto
+     vermelho — pedido do utilizador foi um botão explícito de
+     confirmação, em vez de o ponto desligar sozinho só por abrir a
+     vista (fácil de disparar sem querer). Adicionado "Marcar como lida"
+     por alerta (`markAlertRead()`), com estado persistido em
+     `localStorage` namespaced por paciente+alerta
+     (`patientAlertKey()`); o ponto vermelho (`#notifBadgeDot`) só
+     desliga quando já não há nenhum alerta por ler do paciente
+     selecionado (`updateNotificationBadge()`). Distinto de silenciar
+     (que pausa por um período e afeta o escalonamento) — marcar como
+     lida só regista que o cuidador já viu a informação.
 - **Ligação em direto ao bridge**: a página tenta ligar-se sozinha a
   `ws://localhost:8765` ao carregar. Se conseguir, os cartões de FC/SpO2/
   passos/quedas/movimento e o gráfico de FC na vista "Sinais vitais" passam a
