@@ -19,13 +19,23 @@ Escopo desta primeira versão (deliberadamente pequeno):
     precisar de as mostrar) — guarda os dados em bruto, granulares.
 
 NÃO faz (por decisão consciente, para manter o âmbito pequeno e correto):
-  - Não substitui ainda os gráficos de tendência/heatmap do dashboard
-    (esses continuam com dados sintéticos, claramente rotulados como tal)
-    — isso é um passo seguinte, de ligar o dashboard a este histórico real
-    via um novo comando WebSocket, não implementado nesta primeira versão.
   - Não faz cifra da base de dados (ficheiro SQLite em texto simples no
     disco) — aceitável para um protótipo local, mas seria um requisito
     real antes de qualquer uso fora de um ambiente de desenvolvimento.
+
+RETENÇÃO DE DADOS (`purge_old_sensor_records`, ver abaixo)
+------------------------------------------------------------
+`sensor_records` cresce indefinidamente sem limpeza (o IMU produz ~14-52
+registos/seg). Pesquisa aplicada nesta sessão confirma que reter dados de
+saúde além do necessário é um problema real e comum ("83% dos modelos de
+IA em saúde revistos violavam políticas de retenção do RGPD/GDPR, guardando
+dados de pacientes por mais tempo do que o necessário"). `DEFAULT_RETENTION_DAYS`
+abaixo é um valor por omissão razoável para um protótipo de uso pessoal,
+NÃO uma política de retenção certificada/validada legalmente — a
+decisão real de quantos dias reter dados clínicos de um utente é do
+utilizador/responsável pelos dados, não algo que este código possa decidir
+sozinho. `emergency_alerts` propositadamente NÃO é limpo por esta política
+(histórico de segurança, mantido para sempre — ver insert_emergency_alert()).
 """
 
 from __future__ import annotations
@@ -38,6 +48,11 @@ from pathlib import Path
 from typing import Optional
 
 DB_PATH = Path(__file__).parent / "carewear_history.db"
+
+# Valor por omissão para purge_old_sensor_records() (ver docstring do
+# módulo acima) — configurável por quem correr o bridge, não uma decisão
+# de compliance final.
+DEFAULT_RETENTION_DAYS = 30
 
 
 def get_connection() -> sqlite3.Connection:
@@ -258,8 +273,23 @@ def get_daily_summary(conn: sqlite3.Connection, days: float = 7) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def purge_old_sensor_records(conn: sqlite3.Connection, days: float = DEFAULT_RETENTION_DAYS) -> int:
+    """Apaga registos de sensores mais antigos que `days` dias (ver
+    política de retenção na docstring do módulo). Devolve o nº de linhas
+    apagadas, para o chamador poder registar/reportar.
+
+    Só afeta `sensor_records` — `emergency_alerts` é histórico de
+    segurança, propositadamente nunca apagado automaticamente (ver
+    insert_emergency_alert()). Chamado pelo bridge (`ble_bridge.py`) no
+    arranque e periodicamente enquanto corre (ver
+    BleBridge.periodic_retention_task()), não pelo dashboard.
+    """
+    cutoff = time.time() - days * 86400
+    cur = conn.execute("DELETE FROM sensor_records WHERE received_at < ?", (cutoff,))
+    conn.commit()
+    return cur.rowcount
+
+
 # Próximos passos (não implementados nesta primeira versão, ver
-# PROJECT_STATUS.md): (1) política de retenção/limpeza para
-# sensor_records não crescer indefinidamente (ex.: manter só os últimos
-# N dias); (2) cifra do ficheiro .db se este serviço vier a correr fora
-# de um ambiente de desenvolvimento local confiável.
+# PROJECT_STATUS.md): cifra do ficheiro .db se este serviço vier a
+# correr fora de um ambiente de desenvolvimento local confiável.
