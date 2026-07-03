@@ -1292,6 +1292,50 @@ function renderNightSummary(){
   `;
 }
 
+/* ------------------------------------------------------------
+   PACING / DEAMBULAÇÃO (deteção precoce de wandering via giroscópio)
+   ------------------------------------------------------------
+   Ideia da pesquisa: uma métrica de "curvas apertadas"/pacing (mudanças
+   de direção frequentes e de raio pequeno, medidas pelo giroscópio) é
+   apontada na literatura como sinal precoce de deambulação (wandering),
+   complementar ao geofencing por GPS — capta o padrão de "andar às
+   voltas" mesmo dentro de casa, onde o GPS não distingue bem posições
+   próximas. Aqui simulado como um índice diário (0-100, mais alto =
+   mais voltas apertadas que o habitual); o cálculo real a partir de
+   gx/gy/gz do IMU ainda não está implementado no firmware (ver
+   PROJECT_STATUS.md, item nº2 do backlog de investigação).
+------------------------------------------------------------ */
+function buildPacingTrend(seed){
+  const rnd = seedRand(seed);
+  const days = ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
+  // Índice de base plausível (rotina calma) com uma pequena tendência a
+  // subir nos últimos dias, para haver algo a comentar no cartão sem
+  // exagerar (dados sintéticos, não uma alegação clínica).
+  return days.map((day, i) => {
+    const base = 22 + rnd() * 10;
+    const drift = i >= 5 ? (i - 4) * 4 : 0; // sáb/dom ligeiramente mais altos
+    return { day, score: Math.round(Math.min(100, base + drift)) };
+  });
+}
+const pacingTrend = buildPacingTrend(31);
+
+function renderPacingSummary(){
+  const host = document.getElementById('pacingSummary');
+  if (!host) return;
+  const today = pacingTrend[pacingTrend.length - 1].score;
+  const weekAvg = Math.round(pacingTrend.reduce((s,d) => s + d.score, 0) / pacingTrend.length);
+  const level = today >= 60 ? 'warning' : today >= 40 ? 'good' : 'good';
+  const levelLabel = today >= 60 ? 'Acima do habitual' : 'Dentro do habitual';
+  host.innerHTML = `
+    <div class="activity-stat-row">
+      <div class="activity-stat"><div class="n tabular" style="color:var(--status-${level})">${today}</div><div class="l">Índice hoje (0-100)</div></div>
+      <div class="activity-stat"><div class="n tabular">${weekAvg}</div><div class="l">Média dos últimos 7 dias</div></div>
+      <div class="activity-stat"><div class="n">${pillHtml(level, levelLabel)}</div><div class="l">Estado</div></div>
+    </div>
+    <p class="empty-hint">Índice mais alto = mais mudanças de direção apertadas do que é habitual — pode indicar deambulação (wandering) dentro de casa, mesmo sem sair do alcance do GPS. Um valor isolado não é preocupante; um aumento sustentado ao longo de vários dias vale a pena observar.</p>
+  `;
+}
+
 let selectedActivityCat = ROUTINE_CATS[2].key; // 'atividade' por omissão
 
 TEMPLATES.rotina = () => `
@@ -1301,6 +1345,14 @@ TEMPLATES.rotina = () => `
     </div>
     <canvas id="cvRoutineFull" height="180" role="img" aria-label="Blocos de atividade ao longo de 24h, alinhados ao template clínico (dados simulados)"></canvas>
     ${legendHtml()}
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div><h3>Padrão de deambulação (pacing) <span class="sim-flag">dados simulados</span></h3><div class="card-sub">Curvas apertadas/mudanças de direção via giroscópio — sinal precoce de wandering, complementar ao GPS</div></div>
+    </div>
+    <div id="pacingSummary"></div>
+    <canvas id="cvPacingTrend" height="110" role="img" aria-label="Tendência do índice de pacing nos últimos 7 dias (dados simulados)"></canvas>
   </div>
 
   <div class="card">
@@ -1339,6 +1391,8 @@ AFTER_RENDER.rotina = () => {
   drawRoutineTimeline('cvRoutineAnomFull', routineAnomaly, '', true);
   renderActivityDetail(selectedActivityCat);
   renderCaregiverNotes();
+  renderPacingSummary();
+  drawPacingTrend('cvPacingTrend', pacingTrend);
 };
 
 /* ------------------------------------------------------------
@@ -1478,6 +1532,48 @@ function drawCategoryWeeklyBar(id, weekly, color){
     const hit = S.bars.find(b => mx>=b.x && mx<=b.x+b.w && my>=b.y && my<=top+plotH);
     if (!hit){ hideTip(); return; }
     showTip(e.clientX, e.clientY, `<div class="tt-title">${hit.d.day}</div><div class="tt-row"><span>Minutos</span><b>${hit.d.minutes}</b></div>`);
+  };
+  S.cv.onmouseleave = hideTip;
+}
+
+// Linha simples com pontos + tooltip, no mesmo estilo de setupCanvas/
+// colorOf já usado em drawCategoryWeeklyBar — usada para a tendência de
+// 7 dias do índice de pacing (ver buildPacingTrend()).
+function drawPacingTrend(id, data){
+  const S = setupCanvas(id, 110);
+  if (!S) return;
+  const {ctx, w, h} = S;
+  ctx.clearRect(0,0,w,h);
+  const padL=6, padR=6, top=10, bottom=20;
+  const plotW=w-padL-padR, plotH=h-top-bottom;
+  const max = 100; // índice é sempre 0-100, eixo fixo para leitura consistente entre visitas
+  const stepX = plotW / (data.length - 1);
+  const col = colorOf('var(--accent)');
+
+  const pts = data.map((d,i) => ({
+    x: padL + i*stepX,
+    y: top + plotH - (d.score/max)*plotH,
+    d,
+  }));
+
+  ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.beginPath();
+  pts.forEach((p,i) => i===0 ? ctx.moveTo(p.x,p.y) : ctx.lineTo(p.x,p.y));
+  ctx.stroke();
+
+  pts.forEach(p => {
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = resolveVar('--text-muted'); ctx.font = '10px ' + getComputedStyle(document.body).fontFamily; ctx.textBaseline='top';
+    ctx.fillText(p.d.day, p.x - 8, h-bottom+5);
+  });
+
+  S.pts = pts;
+  S.cv.onmousemove = (e) => {
+    const r = S.cv.getBoundingClientRect();
+    const mx = e.clientX-r.left, my = e.clientY-r.top;
+    const hit = S.pts.find(p => Math.abs(mx-p.x) < stepX/2 && my < top+plotH+8);
+    if (!hit){ hideTip(); return; }
+    showTip(e.clientX, e.clientY, `<div class="tt-title">${hit.d.day}</div><div class="tt-row"><span>Índice de pacing</span><b>${hit.d.score}</b></div>`);
   };
   S.cv.onmouseleave = hideTip;
 }
