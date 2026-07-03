@@ -506,6 +506,16 @@ relevância. Nenhuma implementada ainda — registo para priorização futura.
    dados USB (cabo/porta já excluídos) — pode ser o conector USB da própria
    placa. Ainda por resolver; o utilizador vai inspecionar visualmente o
    conector. **Não tentar mais uploads até a placa voltar a ser detetada.**
+   **Atualização (mesmo dia, mais tarde)**: a porta voltou a aparecer
+   várias vezes (COM4, depois COM6), de forma instável — surge, desaparece
+   em segundos, muda de número, e mesmo quando `Open()` tem sucesso não
+   chega nenhum dado pela série (nem o heartbeat "Sistema a correr..." que
+   o firmware imprime a cada segundo). Isto aponta para uma ligação física
+   marginal/intermitente (linha de dados USB com mau contacto — talvez o
+   próprio conector da placa), não um problema de driver ou de software:
+   já foi testado com cabo diferente e porta diferente do PC, sem
+   melhoria. Uploads não são fiáveis nesta condição — recomenda-se
+   inspecionar/reparar a ligação física antes de continuar a tentar.
 
 ## Estudo de viabilidade TinyML (atualizado 2026-07-03 com dados concretos)
 
