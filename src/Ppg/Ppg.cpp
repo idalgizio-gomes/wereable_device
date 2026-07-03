@@ -45,15 +45,25 @@ constexpr uint32_t TASK_LOOP_DELAY_IDLE_MS = 200;    // Pausa da task quando nao
 constexpr uint32_t TASK_LOOP_DELAY_HR_MS = 2;        // Pausa da task quando o streaming de HR esta ativo (precisa de amostrar rapido, ~100 Hz).
 constexpr uint32_t HR_STREAM_STOP_HOLDOFF_MS = 3000; // Tempo de tolerancia apos deixar de haver "inactivity" antes de desligar o streaming de HR (evita ligar/desligar aos saltos).
 constexpr uint32_t kManualHrMaxDurationMs = 30000;   // Limite superior para requestManualHr(), para nao gastar bateria indefinidamente por um pedido esquecido.
-// *** OTIMIZAÇÃO DE RAM (redução conservadora, ver DEBUG_STACK_WATERMARKS
-// em main.cpp) ***: reduzido de 1536 para 1152 words (-1536 bytes). O
-// corpo chama o driver MAX30105 e o algoritmo de SpO2 da Maxim, que usam
-// arrays estáticos (fora da stack, ver g_irBuffer/g_redBuffer) — mantém-se
-// ~25% de margem sobre a profundidade de chamadas estimada. Ainda NÃO foi
-// confirmado com uxTaskGetStackHighWaterMark() em hardware real (ver
-// taskStackHighWaterMarkWords() em Ppg.h) — confirmar margem confortável
-// antes de reduzir mais.
-constexpr uint16_t PPG_TASK_STACK_WORDS = 1152;      // Tamanho da stack (em palavras) atribuida a ppgTask.
+// *** OTIMIZAÇÃO DE RAM (2ª ronda, com dados reais de hardware) ***:
+// reduzido de 1152 para 640 words (-2048 bytes / -3584 bytes face ao
+// valor original de 1536). Justificação: captura real de
+// uxTaskGetStackHighWaterMark() em 2026-07-03 (ver DEBUG_STACK_WATERMARKS
+// em main.cpp e PROJECT_STATUS.md) mostrou apenas ~160 words realmente
+// usadas de 1152 reservadas (free=992/1152, ~86% livre) durante ~30s de
+// uso normal (streaming BLE ativo, sem forçar HR/SpO2). 640 words mantém
+// ainda ~3x de margem sobre esse uso observado (640-160=480 words livres
+// esperadas). Este é o corte mais apertado dos três (storage_task e
+// ble_gatt_dump_task ficam com mais margem) porque a task chama o driver
+// MAX30105 e o algoritmo de SpO2 da Maxim (maxim_heart_rate_and_
+// oxygen_saturation), cuja profundidade de chamadas internas é mais
+// difícil de estimar sem medir — os arrays grandes (g_irBuffer/
+// g_redBuffer, 100 amostras cada) já estão fora da stack (globais/
+// estáticos), não contam aqui. Ainda por confirmar em hardware real com
+// este novo valor — reativar DEBUG_STACK_WATERMARKS e validar que
+// free_words continua confortável acima de 0, incluindo durante uma
+// medição de SpO2 completa (ramo mais pesado desta task).
+constexpr uint16_t PPG_TASK_STACK_WORDS = 640;       // Tamanho da stack (em palavras) atribuida a ppgTask.
 constexpr uint32_t FINGER_THRESHOLD = 50000;         // Valor minimo de luz IR refletida para se considerar que ha um dedo sobre o sensor.
 constexpr int32_t SPO2_BUFFER_LEN = 100;             // Numero de amostras (IR+Red) recolhidas para cada calculo de SpO2 (exigido pelo algoritmo da Maxim).
 

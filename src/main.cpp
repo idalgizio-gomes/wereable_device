@@ -158,14 +158,20 @@ constexpr uint16_t STORAGE_REC_TYPE_IMU_PPG_V1 = 0x1001;
 // Tamanho da pilha (stack) reservada para esta tarefa do FreeRTOS, em
 // "palavras" de 32 bits. Precisa de ser suficiente para as variáveis
 // locais e chamadas de função desta task, sem desperdiçar RAM.
-// *** OTIMIZAÇÃO DE RAM (redução conservadora, ver DEBUG_STACK_WATERMARKS
-// mais abaixo) ***: reduzido de 2048 para 1536 words (-2048 bytes). O
-// corpo copia apenas structs pequenos (ImuPpgPayloadV1, ~44 bytes) e
-// chama QspiRingBuffer::push, que por sua vez fala com o driver SPI da
-// flash externa — mantém-se ~25% de margem sobre essa profundidade
-// estimada. Ainda NÃO foi confirmado com uxTaskGetStackHighWaterMark()
-// em hardware real — confirmar margem confortável antes de reduzir mais.
-constexpr uint16_t STORAGE_TASK_STACK_WORDS = 1536;
+// *** OTIMIZAÇÃO DE RAM (2ª ronda, com dados reais de hardware) ***:
+// reduzido de 1536 para 768 words (-3072 bytes / -5120 bytes face ao
+// valor original de 2048). Justificação: captura real de
+// uxTaskGetStackHighWaterMark() em 2026-07-03 (ver DEBUG_STACK_WATERMARKS
+// mais abaixo e PROJECT_STATUS.md) mostrou apenas ~116 words realmente
+// usadas de 1536 reservadas (free=1420/1536, ~92% livre) durante ~30s de
+// streaming BLE ativo. 768 words mantém ainda ~5.6x de margem sobre esse
+// uso observado (768-116=652 words livres esperadas), muito acima do
+// habitual 2-3x recomendado para código com ramos raramente exercitados
+// (ex.: o bloco de prints quando chega SpO2/HR novos). Ainda por
+// confirmar em hardware real com este novo valor — reativar
+// DEBUG_STACK_WATERMARKS e validar que free_words continua confortável
+// acima de 0 assim que o dispositivo estiver acessível.
+constexpr uint16_t STORAGE_TASK_STACK_WORDS = 768;
 // Quando não há amostra nova do IMU, a task espera este tempo (ms) antes
 // de voltar a verificar, para não gastar CPU/energia num ciclo apertado.
 constexpr uint32_t STORAGE_TASK_IDLE_MS = 5;

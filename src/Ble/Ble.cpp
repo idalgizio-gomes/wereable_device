@@ -56,15 +56,21 @@ namespace {
 // registos por janela (baseado na taxa de amostragem do IMU). Cada
 // registo é demasiado grande para um unico pacote BLE, por isso é
 // fragmentado em pedacos de kGattDumpChunkLen bytes.
-// *** OTIMIZACAO DE RAM (reducao conservadora, ver DEBUG_STACK_WATERMARKS
-// em main.cpp) ***: reduzido de 3072 para 2560 words (-2048 bytes). Corte
-// mais pequeno (~17%, vs. ~25% nas outras tasks) porque esta task chama
-// para dentro da pilha BLE/SoftDevice da Nordic (Bluefruit.*), cuja
-// profundidade de chamadas internas e mais dificil de estimar sem medir.
-// Ainda NAO foi confirmado com uxTaskGetStackHighWaterMark() em hardware
-// real (ver dumpTaskStackHighWaterMarkWords() em Ble.h) — confirmar
-// margem confortavel antes de reduzir mais.
-constexpr uint16_t kGattDumpTaskStackWords = 2560;
+// *** OTIMIZACAO DE RAM (2a ronda, com dados reais de hardware) ***:
+// reduzido de 2560 para 1280 words (-5120 bytes / -7168 bytes face ao
+// valor original de 3072). Justificacao: captura real de
+// uxTaskGetStackHighWaterMark() em 2026-07-03 (ver DEBUG_STACK_WATERMARKS
+// em main.cpp e PROJECT_STATUS.md) mostrou apenas ~107 words realmente
+// usadas de 2560 reservadas (free=2453/2560, ~96% livre) durante ~30s de
+// streaming BLE ativo. 1280 words mantem ainda ~11x de margem sobre esse
+// uso observado (1280-107=1173 words livres esperadas) — folga generosa
+// mesmo sendo esta a task que chama para dentro da pilha BLE/SoftDevice
+// da Nordic (Bluefruit.*), cuja profundidade de chamadas internas e mais
+// dificil de estimar so por inspecao de codigo. Ainda por confirmar em
+// hardware real com este novo valor — reativar DEBUG_STACK_WATERMARKS e
+// validar que free_words continua confortavel acima de 0 (ver
+// dumpTaskStackHighWaterMarkWords() em Ble.h).
+constexpr uint16_t kGattDumpTaskStackWords = 1280;
 // Atraso (ms) entre cada FRAGMENTO BLE enviado (ver sendDumpPendingRecord).
 // *** AJUSTE DE ESTABILIDADE BLE ***: estava a 0 (sem atraso nenhum), o que
 // gera ate ~208 notificacoes/seg (52 registos/seg x ate 4 fragmentos cada) —

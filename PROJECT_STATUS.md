@@ -80,12 +80,33 @@ local e remoto sincronizados. Identidade git configurada: Idalgizio Gomes
   `imu_task` livre=457/768 (~60% livre — bem dimensionado);
   `ppg_task` livre=992/1152 (~86% livre — sobredimensionado);
   `ble_gatt_dump_task` livre=2453/2560 (~96% livre — muito sobredimensionado).
-  **Decisão do utilizador**: não reduzir mais nesta sessão (a captura foi
-  curta e pode não ter passado por todos os caminhos de código, ex.: prints
-  raros de HR/SpO2 válidos), mas fica registado para uma futura ronda de
-  otimização com mais confiança: `storage_task`→~768, `ble_gatt_dump_task`→
-  ~1280, `ppg_task`→~640 manteriam ainda 2-3x de margem sobre o observado.
-  `imu_task` já parece bem dimensionado, sem necessidade de mudança.
+
+### 2ª ronda de otimização de RAM (2026-07-03, rotina diária) — stacks reduzidas com base nos dados reais acima
+
+A partir dos valores medidos em hardware real na sessão anterior (mesmo
+dia), aplicados os tamanhos-alvo já propostos, todos mantendo ≥3x de
+margem sobre o uso máximo observado (o habitual recomendado é 2-3x):
+
+| Task | Antes | Depois | Uso observado (words) | Margem nova | Poupança |
+|---|---|---|---|---|---|
+| `storage_task` (`main.cpp`) | 1536 | **768** | ~116 (1536-1420) | ~5.6x | -3072 bytes |
+| `ppg_task` (`Ppg.cpp`) | 1152 | **640** | ~160 (1152-992) | ~3x | -2048 bytes |
+| `ble_gatt_dump_task` (`Ble.cpp`) | 2560 | **1280** | ~107 (2560-2453) | ~11x | -5120 bytes |
+| `imu_task` (`Imu.cpp`) | 768 | 768 (sem alteração) | ~311 (768-457) | ~1.5x | — |
+
+Total poupado nesta ronda: **-10240 bytes (10 KB) de RAM** só em reservas
+de stack FreeRTOS, sobre as já reduzidas na 1ª ronda (que por sua vez já
+tinham poupado ~6656 bytes face aos valores originais). `imu_task` não foi
+tocada — já tem a menor margem relativa (~1.5x) das quatro, por isso fica
+como está.
+**Pendente de confirmação em hardware real**: `DEBUG_STACK_WATERMARKS`
+continua ativo em `main.cpp` — a próxima vez que o dispositivo estiver
+acessível por USB, confirmar que `free_words` de cada task se mantém
+confortavelmente acima de 0 com os novos tamanhos, incluindo durante os
+ramos mais pesados de cada task (ex.: medição de SpO2 completa em
+`ppg_task`, prints de HR/SpO2 válidos em `storage_task`). Esta rotina não
+tem acesso ao dispositivo físico, por isso não pôde validar isto
+diretamente — só a aritmética/margens de segurança acima.
 
 ### Scripts obsoletos removidos
 
@@ -309,8 +330,11 @@ relevância. Nenhuma implementada ainda — registo para priorização futura.
    foi implementado no firmware nem em nenhum serviço.
 4. **GPS presente mas sem código.** Módulo CAM-M8Q real na placa (ver acima),
    biblioteca já declarada mas nunca inicializada em `main.cpp`.
-5. Reduções de stack (RAM/CPU) ainda **não confirmadas** com dados reais de
-   hardware — ver `DEBUG_STACK_WATERMARKS`.
+5. Reduções de stack (RAM/CPU): a 1ª ronda (2048/1024/1536/3072→1536/768/
+   1152/2560 words) já tem watermarks reais de 2026-07-03 a confirmá-la
+   como segura. A 2ª ronda (aplicada nesta mesma sessão, ver secção acima
+   — 1536/1152/2560→768/640/1280 words) ainda **não foi confirmada** em
+   hardware real — ver `DEBUG_STACK_WATERMARKS`.
 6. Possível descoordenação entre o driver PPG atual (acesso direto ao
    MAX30101) e a presença de um hub MAX32664 no design — funciona, mas pode
    não ser o caminho pretendido (ver "Descobertas do esquemático").
