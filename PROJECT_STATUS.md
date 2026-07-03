@@ -517,6 +517,22 @@ fontes sobre IoMT/HAR/TinyML) trouxeram ideias concretas, priorizadas por
 relevância. Progresso por item marcado abaixo (rotina diária de melhoria
 do dashboard segue esta lista, por ordem, item a item).
 
+**Nota desta execução (2026-07-03, rotina cloud horária)**: 3 buscas
+direcionadas de pesquisa extensiva (footprint `emlearn`/Random Forest em
+nRF52 — nada de novo além do já registado no estudo de viabilidade TinyML
+abaixo; consentimento/partilha de dados em demência; deteção de quedas
+por acelerómetro/giroscópio — "FallCNN", Frontiers 2026, direção futura
+interessante mas exigiria pipeline de treino novo, não uma alteração
+direta ao código existente) não trouxeram nada de novo e imediatamente
+acionável além do que já é tratado no backlog abaixo. Ao começar a
+implementar o item 8 (consentimento), esta rotina descobriu — via
+`git fetch`/rebase, como sempre pedido antes do push — que uma sessão
+interativa em paralelo já o tinha implementado e commitado entretanto
+(`loadConsent()`/`setConsent()` em `web/dashboard/index.html`); o
+trabalho já feito aqui para o item 8 foi descartado (nunca chegou a ser
+commitado) para não duplicar, e esta execução avançou para o item 9
+(lembretes de medicação) em vez disso — ver detalhe em cada item abaixo.
+
 **Funcionalidades (por ordem de valor percebido):**
 1. Explicações de anomalias em linguagem simples para a família (não só
    scores técnicos) — maior valor percebido em quase todas as fontes.
@@ -584,9 +600,41 @@ do dashboard segue esta lista, por ordem, item a item).
    certificada, só usa a forma dos recursos.
 8. Gestão de consentimento/partilha de dados (quem vê o quê) — relevante
    dado o contexto de demência (capacidade de consentimento é eticamente
-   sensível, ver PMC11990963).
+   sensível, ver PMC11990963). **IMPLEMENTADO (2026-07-03, sessão
+   interativa em paralelo a esta rotina)**: cartão "Consentimento e
+   partilha de dados" na vista Definições (`loadConsent()`/`setConsent()`
+   em `web/dashboard/index.html`) — três interruptores (sinais vitais,
+   rotina, alertas/anomalias) que controlam se a equipa clínica vê essa
+   informação; as vistas "Pacientes" e "Anomalias detetadas" mostram uma
+   mensagem explícita em vez dos dados quando "Alertas e anomalias" está
+   desligado. Persistido em localStorage (`carewear_consent`), aplica-se
+   só a esta conta/sessão (protótipo sem backend). Esta entrada da lista
+   não estava marcada como feita — corrigido aqui só para refletir o
+   código já existente, sem alterar a implementação.
 9. Lembretes de medicação + registo de adesão, correlacionado com
-   atividade/vitais.
+   atividade/vitais. **IMPLEMENTADO (protótipo, 2026-07-03, rotina
+   cloud)**: nova vista "Medicação" (`data-view="medicacao"`, visível nos
+   dois perfis, tal como "Registo de emergências"), com tabela de doses
+   de hoje por medicamento/horário e botão "Marcar como tomado"
+   (`markDoseTaken()`), guardado em `localStorage`
+   (`carewear_medication_log`, namespaced por paciente + dia +
+   medicamento + horário — sobrevive a recarregar a página, ao contrário
+   do resto dos dados de demonstração). Estado de cada dose calculado em
+   `doseStatus()`: "Tomado" / "Pendente" / "Em atraso" (>30 min após a
+   hora prevista sem confirmação). Histórico de adesão dos últimos 6 dias
+   com dados de exemplo por paciente (`patient.adherenceHistory`,
+   claramente rotulado "simulado"). **Correlação com atividade/vitais**
+   (pedida explicitamente no backlog): implementada como uma nota que
+   aponta os dias com adesão incompleta para serem comparados manualmente
+   com a vista "Tendência semanal" — uma correspondência simples de
+   datas, não uma análise estatística automática (não fabricamos uma
+   correlação numérica sem histórico real acumulado para a sustentar; ver
+   Prioridade 4, Base de dados, para quando isso for possível a sério).
+   **Limitação honesta**: não substitui um registo clínico de adesão real
+   nem envia lembretes (push/SMS) ao dispositivo do cuidador — só regista
+   o clique manual "Marcar como tomado". Verificado sem erros de consola
+   em Playwright real (Chromium): 3 pacientes, marcação de dose,
+   navegação nos dois perfis, sem regressões nas restantes vistas.
 10. Múltiplos cuidadores/família com permissões por papel.
 
 **Decisões técnicas a considerar:**
