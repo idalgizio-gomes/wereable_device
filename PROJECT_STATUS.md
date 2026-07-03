@@ -1121,6 +1121,50 @@ Migração de hardware futura possível: nRF5340 ou nRF54H20.
      se um reset físico resolve (LED azul + heartbeat série voltam);
      se não resolver, pode ser sintoma novo a investigar antes de
      avançar para qualquer teste LoRa.
+
+   **Continuação da sessão de hardware, mesmo dia (placa reconectada)**:
+   - **Causa real do "dispositivo sem vida" identificada**: não era um
+     crash nem instabilidade nova. O commit `d053442` tinha mudado
+     `DEBUG_DISABLE_SLEEP` de 1 para 0 (só para testar uma hipótese sobre
+     a instabilidade USB, já descartada). Com o valor a 0, o firmware
+     exige um long-press do botão físico (partido/desligado) OU o
+     comando série "WAKE" dentro de 8s do arranque, senão adormece de
+     propósito (`goToSleep()`, SYSTEM OFF) — LED apaga, USB suspende.
+     Como a abertura do monitor série demorava sempre mais de 8s, o
+     dispositivo adormecia sempre antes de conseguirmos ler nada.
+     Confirmado enviando "WAKE" a tempo: o arranque prosseguiu
+     normalmente. **Reposto `DEBUG_DISABLE_SLEEP` a 1** (`src/main.cpp`),
+     como o próprio commit já prometia fazer se o teste não mostrasse
+     melhoria — recompilado e reinstalado com sucesso.
+   - Depois deste ajuste, o toque a 1200bps (usado pelo PlatformIO antes
+     de um upload) confirmou que o circuito de reset/bootloader funciona
+     bem (entra em bootloader em COM4 de forma fiável).
+   - **Teste isolado do LoRa (`test_lora_isolated`) instalado e a
+     correr** — mas ainda sem leitura série capturada dos seus 3 testes
+     (TESTE 1/2/3 do ficheiro); reposto o firmware principal logo a
+     seguir a pedido do utilizador, para poder validar a ligação real ao
+     bridge/dashboard primeiro. **Continua por confirmar em hardware.**
+   - **BLE confirmado funcional de ponta a ponta**: firmware principal
+     reinstalado, bridge (`ble_bridge.py`) ligou automaticamente
+     (`encontrado E6:ED:42:57:1F:20 — a ligar...`), pediu o "start" e
+     recebeu registos IMU em tempo real (~13/s, confirmado via
+     `bridge/storage.py::count_records()` — 78 registos novos em 6s).
+   - **Bug/limitação real encontrada — HR nunca chega a ser lido**:
+     com a placa mesmo no pulso do utilizador e o botão "Medir agora"
+     (`force_reading` → `Ppg::requestManualHr()`) usado várias vezes,
+     **nenhum registo em toda a base de dados tem HR preenchido** (`SELECT
+     COUNT(*) FROM sensor_records WHERE hr IS NOT NULL` → 0). SpO2 só
+     tem 1 registo válido (99%) em toda a história, de uma sessão
+     anterior. O caminho de código (`requestManualHr()` →
+     `g_manualHrDeadlineMs` → `wantHr` → `startHrStreaming()` →
+     `processHrSample()` em `src/Ppg/Ppg.cpp`) parece arquiteturalmente
+     correto — falta confirmar se `processHrSample()`/`computeBPM()`
+     alguma vez deteta um batimento válido (`bpm > 30 && bpm < 200`) com
+     o sensor real, ou se fica sempre a filtrar tudo como inválido. Só
+     dá para diagnosticar com leitura série ao vivo durante um pedido de
+     "Medir agora" (prints `[PPG] HR beat -> ...` esperados em
+     `Ppg.cpp:626-629`, nunca vistos ainda) — **fica como próximo passo
+     de hardware**, não implementado/corrigido nesta sessão.
 1. Deteção de emergência: confirmar pinout do Wio-SX1262 (pesquisa em curso,
    ainda sem fonte fiável para os pinos SPI/CS/BUSY/DIO1/RESET do rádio) —
    módulo de firmware, characteristic BLE e reencaminhamento bridge→dashboard
