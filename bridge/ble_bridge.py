@@ -30,6 +30,12 @@ Este script:
   4. Remonta os fragmentos de cada registo (FullPlain, 38 bytes) e reenvia
      cada registo já descodificado, em JSON, a todos os clientes WebSocket
      ligados a este script (por omissão, ws://localhost:8765).
+  5. Subscreve também emergencyAlertChar (módulo firmware Emergency — SOS
+     manual ou queda+inatividade confirmada) e reencaminha o alerta de
+     imediato para o dashboard, sem passar pelo limite de taxa dos
+     registos normais. Ainda não notifica externamente (SMS/email/push) —
+     precisa de um provedor real (ex.: Twilio) com credenciais do
+     utilizador, decisão pendente (ver PROJECT_STATUS.md).
 
 IMPORTANTE — SEM CIFRA NESTA FASE
 ----------------------------------
@@ -75,6 +81,7 @@ UUID_CURRENT_TIME = "00002a2b-0000-1000-8000-00805f9b34fb"  # 0x2A2B padrão do 
 UUID_DUMP_CTRL = "abcd1234-5678-1234-5678-abcdef200001"
 UUID_DUMP_DATA = "abcd1234-5678-1234-5678-abcdef200002"
 UUID_DUMP_STATUS = "abcd1234-5678-1234-5678-abcdef200003"
+UUID_EMERGENCY_ALERT = "abcd1234-5678-1234-5678-abcdef200004"
 
 DUMP_CTRL_START = bytes([0x01])
 DUMP_CTRL_STOP = bytes([0x02])
@@ -94,6 +101,18 @@ DUMP_CTRL_RESET_READINGS = bytes([0x04])
 # bate certo com o static_assert(sizeof(FullPlain) == 38, ...) do firmware.
 FULL_PLAIN_STRUCT = struct.Struct("<IffffffIBBhh")
 assert FULL_PLAIN_STRUCT.size == 38, "FullPlain deve ter 38 bytes, igual ao firmware"
+
+# EmergencyAlertPacket (8 bytes, ver src/Ble/Ble.cpp): type (uint8),
+# reserved (uint8, ignorado), seq (uint16), timestamp_utc (uint32).
+EMERGENCY_ALERT_STRUCT = struct.Struct("<BBHI")
+assert EMERGENCY_ALERT_STRUCT.size == 8, "EmergencyAlertPacket deve ter 8 bytes, igual ao firmware"
+
+# EmergencyAlertType (ver include/Ble/Ble.h) — os valores têm de
+# corresponder exatamente ao enum do firmware.
+EMERGENCY_ALERT_TYPE_NAMES = {
+    1: "sos_manual",       # kEmergencyAlertSosManual
+    2: "fall_inactivity",  # kEmergencyAlertFallInactivity
+}
 
 WS_HOST = "localhost"
 WS_PORT = 8765
@@ -120,6 +139,20 @@ def decode_full_plain(raw: bytes) -> dict:
         # (ver storageTask em main.cpp) — o dashboard deve ignorar zeros.
         "spo2": spo2 if spo2 != 0 else None,
         "hr": hr if hr != 0 else None,
+    }
+
+
+def decode_emergency_alert(raw: bytes) -> dict:
+    """Descodifica os 8 bytes de EmergencyAlertPacket (ver Ble.cpp):
+    type, reserved, seq, timestamp_utc. 'seq' incrementa a cada alerta
+    enviado pelo firmware — usado pelo dashboard para não duplicar o
+    mesmo alerta se a notificação BLE chegar mais do que uma vez."""
+    alert_type, _reserved, seq, timestamp_utc = EMERGENCY_ALERT_STRUCT.unpack(raw)
+    return {
+        "alert_type": alert_type,
+        "alert_name": EMERGENCY_ALERT_TYPE_NAMES.get(alert_type, "desconhecido"),
+        "seq": seq,
+        "timestamp_utc": timestamp_utc,
     }
 
 
@@ -239,6 +272,18 @@ class BleBridge:
             "seq": seq, "sent_records": sent, "acked_records": acked,
         }))
 
+    def _on_emergency_alert(self, _char: BleakGATTCharacteristic, data: bytearray) -> None:
+        """Callback de notificação de emergencyAlertChar — disparada pelo
+        módulo firmware Emergency ao confirmar um SOS manual (3 cliques)
+        ou uma queda + inatividade prolongada (ver Emergency.cpp). Reenvia
+        de imediato ao dashboard, sem o limite de taxa usado para os
+        registos normais de sensores (é raro e crítico)."""
+        if len(data) < EMERGENCY_ALERT_STRUCT.size:
+            return
+        alert = decode_emergency_alert(bytes(data[:EMERGENCY_ALERT_STRUCT.size]))
+        print(f"[BRIDGE] ALERTA DE EMERGENCIA recebido: {alert['alert_name']} (seq={alert['seq']})")
+        asyncio.create_task(self.broadcast({"kind": "emergency_alert", **alert}))
+
     async def _maybe_send_time(self, client: BleakClient) -> None:
         """Se a characteristic Current Time existir e for escrevível
         (dispositivo ainda em provisioning, à espera de hora — ver
@@ -280,6 +325,10 @@ class BleBridge:
                     # Subscreve notificacoes de dados e de estado.
                     await client.start_notify(UUID_DUMP_DATA, self._on_dump_data)
                     await client.start_notify(UUID_DUMP_STATUS, self._on_dump_status)
+                    try:
+                        await client.start_notify(UUID_EMERGENCY_ALERT, self._on_emergency_alert)
+                    except Exception as exc:  # noqa: BLE001 - nao bloqueia o resto da ligacao
+                        print(f"[BRIDGE] nao foi possivel subscrever emergencyAlertChar: {exc}")
 
                     # Pede explicitamente o inicio do streaming (o
                     # firmware so aceita este comando em modo de dados —
