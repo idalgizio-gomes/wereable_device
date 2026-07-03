@@ -46,6 +46,12 @@ namespace Imu {
     uint32_t step_count;    // Numero total de passos contados desde o arranque da task.
     bool freefall;           // true se foi detetada uma possivel queda livre.
     bool inactivity;         // true se o dispositivo esta parado ha varios segundos seguidos.
+    // Indice 0-100 de "pacing"/curvas apertadas (ver detectPacing() em
+    // Imu.cpp): proxy precoce de deambulacao (wandering), baseado na
+    // frequencia de rotacoes apertadas detetadas no giroscopio na ultima
+    // janela de 1 minuto. So e atualizado no fim de cada janela — entre
+    // janelas mantem o ultimo valor calculado.
+    uint8_t pacing_index;
   };
 
   // Inicializa a comunicacao com o sensor LSM6DS3 (I2C, endereco 0x6A) e

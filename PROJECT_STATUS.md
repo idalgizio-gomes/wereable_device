@@ -776,10 +776,46 @@ deteção de queda por acelerómetro. Aplicações concretas:
    alerta, 7 idiomas.
 2. Métrica de "curvas apertadas"/pacing via giroscópio como sinal precoce
    de deambulação (wandering), complementar ao geofencing por GPS.
-   **IMPLEMENTADO** (2026-07-03, dados simulados): cartão "Padrão de
+   **IMPLEMENTADO (2026-07-03, dados simulados)**: cartão "Padrão de
    deambulação (pacing)" na vista Rotina diária, com índice 0-100 e
-   tendência de 7 dias. O cálculo real a partir de gx/gy/gz do IMU ainda
-   não existe no firmware — só a visualização/conceito no dashboard.
+   tendência de 7 dias.
+   **Cálculo real implementado no firmware (2026-07-03, rotina cloud)**:
+   `Imu::detectPacing()` (novo, `src/Imu/Imu.cpp`) conta "curvas
+   apertadas" — rajadas da NORMA do giroscópio (`sqrt(gx²+gy²+gz²)`,
+   escolhida em vez de um único eixo por não haver orientação fixa do
+   dispositivo no pulso) acima de um limiar heurístico (45 dps, com
+   histerese de rearmamento a 15 dps e mínimo de 5 amostras consecutivas
+   — mesmo padrão rise/rearm já usado em `detectStep()`), acumuladas numa
+   janela deslizante de 1 minuto e convertidas num índice 0-100 (12+
+   curvas/min → índice 100). Novo campo `Imu::Sample::pacing_index`
+   (uint8_t), propagado por todo o pipeline: `storageTask` (`main.cpp`,
+   `ImuPpgPayloadV1` cresce 34→35 bytes, ainda bem dentro dos 44 bytes de
+   `QspiRingBuffer::kPayloadSize`) → `Ble::mapRingRecordToFull` →
+   `FullPlain` (`Ble.cpp`, **cresce de 38 para 39 bytes** — não havia
+   bytes reservados livres para reaproveitar desta vez, ao contrário do
+   que aconteceu com `data_loss_flag`; `static_assert` atualizado para
+   39, `FULL_PLAIN_STRUCT`/`decode_full_plain()` em `bridge/ble_bridge.py`
+   atualizados em conjunto para `"<IffffffIBBhhB"`) → dashboard
+   (`liveState.pacing`, preenchido em `handleBridgeMessage()`;
+   `renderPacingSummary()` mostra este valor real como "hoje — ao vivo"
+   quando o bridge está ligado, mantendo a tendência de 7 dias simulada —
+   badge do cartão ajustado de "dados simulados" para "tendência
+   simulada" para refletir isto com precisão). **Limitações honestas,
+   documentadas em comentário no próprio `Imu.cpp`**: (a) é um sinal
+   complementar, não uma deteção de wandering validada clinicamente — a
+   evidência desta família de sinais é ainda mista segundo a pesquisa já
+   registada nesta secção; (b) os limiares (45/15 dps, 12 curvas/min para
+   índice máximo) são heurísticas desta primeira iteração, por afinar
+   quando houver dados reais de uso — não há ainda histórico real de
+   wandering confirmado para calibrar contra ele; (c) usar a norma total
+   do giroscópio (em vez de um eixo fixo) não distingue rotação do
+   próprio pulso/braço de uma curva real do corpo a andar. **Não testado
+   em hardware real** — bloqueado pela indisponibilidade atual da placa
+   (ver "Riscos/bloqueios ativos", ponto 8); sintaxe C++ revista
+   manualmente (sem toolchain ARM disponível nesta rotina cloud — ver
+   nota abaixo) e sintaxe JS do dashboard confirmada com `node --check`
+   sobre o `<script>` extraído (parser real, não só contagem de
+   chavetas).
 3. Modelos personalizados por pessoa (não populacionais) — literatura mostra
    consistentemente melhor deteção de agitação/BPSD do que limiares
    genéricos. **IMPLEMENTADO (nível estatístico, protótipo) — 2026-07-03**:
