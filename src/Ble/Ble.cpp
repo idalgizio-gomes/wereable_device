@@ -45,6 +45,11 @@ static BLECharacteristic currentTimeChar(UUID16_CHR_CURRENT_TIME);
 static BLECharacteristic dumpCtrlChar   ("abcd1234-5678-1234-5678-abcdef200001");
 static BLECharacteristic dumpDataChar   ("abcd1234-5678-1234-5678-abcdef200002");
 static BLECharacteristic dumpStatusChar ("abcd1234-5678-1234-5678-abcdef200003");
+// emergencyAlertChar: notificacao dedicada a alertas de emergencia (SOS
+// manual ou queda+inatividade), separada de dumpStatusChar para nao
+// misturar semanticas (estado do streaming vs. um evento critico raro) e
+// para nao ter de alterar o formato ja fixo do DumpStatusPacket existente.
+static BLECharacteristic emergencyAlertChar("abcd1234-5678-1234-5678-abcdef200004");
 
 namespace {
 
@@ -192,9 +197,21 @@ struct FullMappedRecord {
   FullPlain payload;
 };
 
+// Pacote enviado na characteristic emergencyAlertChar sempre que o modulo
+// Emergency confirma um SOS manual ou uma queda+inatividade prolongada.
+// 'type' usa os valores de EmergencyAlertType (Ble.h); 'seq' incrementa a
+// cada alerta enviado (permite a app detetar alertas repetidos/perdidos).
+struct __attribute__((packed)) EmergencyAlertPacket {
+  uint8_t type;
+  uint8_t reserved;
+  uint16_t seq;
+  uint32_t timestamp_utc;
+};
+
 static_assert(sizeof(FullPlain) == 38, "FullPlain v2 must have 38 bytes");
 static_assert(sizeof(DumpDataPacket) == 20, "DumpDataPacket must have 20 bytes");
 static_assert(sizeof(DumpStatusPacket) == 16, "DumpStatusPacket must have 16 bytes");
+static_assert(sizeof(EmergencyAlertPacket) == 8, "EmergencyAlertPacket must have 8 bytes");
 
 // Flags "volatile" porque sao escritas dentro de callbacks BLE (que
 // correm no contexto/tarefa da stack Bluefruit) e lidas no loop
@@ -258,6 +275,9 @@ void publishDumpStatus(uint8_t state, uint8_t reason, uint32_t seq) {
     (void)dumpStatusChar.notify(reinterpret_cast<const uint8_t *>(&st), sizeof(st));
   }
 }
+
+// Contador de sequencia dos alertas de emergencia — ver EmergencyAlertPacket.
+static uint16_t s_emergencyAlertSeq = 0;
 
 // Helpers de calendario usados apenas para validar/converter a data
 // recebida via BLE (nao ha biblioteca de data/hora disponivel aqui).
@@ -935,6 +955,16 @@ bool begin() {
   dumpStatusChar.setFixedLen(sizeof(DumpStatusPacket));
   dumpStatusChar.begin();
 
+  // Characteristic dedicada a alertas de emergencia (SOS manual ou
+  // queda+inatividade prolongada) — ver Emergency.h. So o dispositivo
+  // escreve aqui (app nunca escreve, daí SECMODE_NO_ACCESS), e o valor
+  // fica disponivel por leitura mesmo que nao haja ligacao ativa no
+  // momento exato do alerta (a app pode ler ao reconectar-se).
+  emergencyAlertChar.setProperties(CHR_PROPS_NOTIFY | CHR_PROPS_READ);
+  emergencyAlertChar.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
+  emergencyAlertChar.setFixedLen(sizeof(EmergencyAlertPacket));
+  emergencyAlertChar.begin();
+
   // Servico/characteristic padrao do Bluetooth SIG para sincronizacao
   // de hora (0x2A2B). Usar o UUID standard permite, em teoria, que
   // qualquer app compativel com BLE "Current Time" consiga escrever
@@ -1162,6 +1192,24 @@ bool isBroadcastActive() {
 uint32_t dumpTaskStackHighWaterMarkWords() {
   if (s_dumpTaskHandle == nullptr) return 0;
   return static_cast<uint32_t>(uxTaskGetStackHighWaterMark(s_dumpTaskHandle));
+}
+
+void notifyEmergencyAlert(uint8_t alertType, uint32_t timestampUtc) {
+  EmergencyAlertPacket pkt{};
+  pkt.type = alertType;
+  pkt.reserved = 0;
+  pkt.seq = ++s_emergencyAlertSeq;
+  pkt.timestamp_utc = timestampUtc;
+
+  emergencyAlertChar.write(reinterpret_cast<const uint8_t *>(&pkt), sizeof(pkt));
+  if (Bluefruit.connected() > 0) {
+    (void)emergencyAlertChar.notify(reinterpret_cast<const uint8_t *>(&pkt), sizeof(pkt));
+  }
+
+  Serial.print("[BLE] alerta de emergencia enviado, tipo=");
+  Serial.print(alertType);
+  Serial.print(" seq=");
+  Serial.println(pkt.seq);
 }
 
 } // namespace Ble

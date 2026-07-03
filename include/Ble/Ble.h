@@ -107,6 +107,26 @@ bool isBroadcastActive();
 // seguranca. Devolve 0 se a task ainda nao estiver a correr.
 uint32_t dumpTaskStackHighWaterMarkWords();
 
+// Tipos de alerta de emergencia enviados via notifyEmergencyAlert().
+// Mantidos aqui (em vez de dentro do modulo Emergency) para a app/bridge
+// poder incluir este header sem depender do resto da logica de deteccao.
+enum EmergencyAlertType : uint8_t {
+  kEmergencyAlertSosManual   = 1,  // Gesto SOS manual (cliques) confirmado.
+  kEmergencyAlertFallInactivity = 2,  // Queda + inatividade prolongada sem resposta.
+};
+
+// Envia (via write local + notify, se ligado) um alerta de emergencia
+// pela characteristic dedicada 'emergencyAlertChar'. 'alertType' identifica
+// a causa (ver EmergencyAlertType) e 'timestampUtc' e o instante do evento
+// (Clock::nowUtc(), ou 0 se o relogio ainda nao estiver sincronizado).
+// Nao bloqueia nem falha de forma critica: se nao houver ligacao BLE ativa
+// no momento, o valor fica apenas escrito na characteristic (disponivel
+// para leitura numa ligacao futura) — o canal LoRa (ver Lora.h) e' o
+// caminho pensado para cobrir esse caso sem depender de um telemovel por
+// perto. Deve ser chamada pelo modulo Emergency quando deteta um gesto SOS
+// confirmado ou uma queda com inatividade prolongada.
+void notifyEmergencyAlert(uint8_t alertType, uint32_t timestampUtc);
+
 } // namespace Ble
 
 #endif
