@@ -1,0 +1,29 @@
+; Dependências Python para Bridge + Base de Dados (CareWear, 2026-07-04)
+; Usar: pip install -r bridge/requirements_db.txt
+
+; Core bridge
+bleak>=0.20.0  ; BLE scanning/communication
+websockets>=11.0  ; WebSocket server
+
+; Base de dados + ORM
+sqlalchemy>=2.0.0  ; ORM, type hints, migrations
+alembic>=1.12.0  ; Database migrations
+psycopg2-binary>=2.9.0  ; PostgreSQL adapter (opcional, não necessário para SQLite)
+
+; Cifra (campos sensíveis: NIF, morada)
+cryptography>=41.0.0  ; AES, hashing
+
+; CLI + Utilidades
+click>=8.1.0  ; Command-line interface
+python-dotenv>=1.0.0  ; Variáveis de ambiente (.env)
+pytz>=2023.3  ; Timezones
+
+; Notificações externas (futura integração)
+twilio>=8.10.0  ; SMS/email/push
+pydantic>=2.0.0  ; Validação de dados
+
+; Desenvolvimento/Testes
+pytest>=7.4.0  ; Testing framework
+pytest-asyncio>=0.21.0  ; Suporte async em tests
+black>=23.7.0  ; Code formatter
+flake8>=6.0.0  ; Linter
