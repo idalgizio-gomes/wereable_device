@@ -206,11 +206,26 @@ dados reais de cada instalação, não código nem exemplos do repositório).
   segurança, mantido para sempre). Testado com uma base de dados
   temporária (registo com 40 dias é apagado, registo com 1 dia e o
   alerta de emergência sobrevivem).
+- **Retenção configurável pelo utilizador (2026-07-04, rotina cloud)**:
+  `DEFAULT_RETENTION_DAYS` deixou de ser a única fonte de verdade — nova
+  tabela `settings` (par chave/valor) em `bridge/storage.py`
+  (`get_retention_days()`/`set_retention_days()`, limites de sanidade
+  1-3650 dias) guarda um valor efetivo, editável pelo utilizador. Dois
+  novos comandos WebSocket em `ble_bridge.py` (`get_retention_days`/
+  `set_retention_days`); `periodic_retention_task()` lê o valor a cada
+  ciclo (já não uma constante), por isso uma alteração feita a meio da
+  execução tem efeito sem reiniciar o bridge. No dashboard, novo cartão
+  "Retenção de dados locais (BD do bridge)" na vista "Exportar dados"
+  (Médico/Técnico) — mostra o valor atual (pedido ao bridge ao abrir a
+  vista), permite editar e guardar, com aviso claro de que **não é uma
+  política de retenção certificada** (decisão real continua do
+  utilizador/responsável pelos dados, só deixou de estar fixa no
+  código-fonte). Testado com um bridge falso (Playwright real): valor
+  inicial correto, gravação e persistência entre reaberturas da vista,
+  rejeição de valor inválido (0), sem regressões nos botões vizinhos
+  (CSV/FHIR) nem erros de consola.
 - **Ainda não feito**: cifra do `.db` se este serviço vier a correr fora
-  de um ambiente de desenvolvimento local confiável; expor
-  `DEFAULT_RETENTION_DAYS` como opção configurável pelo utilizador em vez
-  de constante fixa no código (hoje só editável diretamente em
-  `storage.py`).
+  de um ambiente de desenvolvimento local confiável.
 
 ## Dashboard web (protótipo)
 
@@ -813,6 +828,20 @@ deteção de queda por acelerómetro. Aplicações concretas:
   hardware para validar, indisponível — ver "Riscos/bloqueios ativos");
   registado aqui como ideia concreta para quando o hardware voltar a
   estar acessível.
+
+**Nota desta execução (2026-07-04, rotina cloud)**: pesquisa dirigida sobre
+o "ground-face coordinate system" para deteção de queda (referido acima
+como direção futura não implementada) e sobre anomalias comportamentais em
+demência não trouxe nada de novo diretamente acionável — o artigo que
+descreve a técnica em detalhe está bloqueado por paywall (403), e as
+fontes livres só confirmam a técnica genérica já conhecida (filtro
+passa-baixo para extrair o vetor gravidade, sem a fórmula exata).
+Decisão consciente: não implementar uma versão adivinhada de um algoritmo
+de deteção de queda (código de segurança) sem confiança na fonte. Com o
+backlog do dashboard (itens 1-3, 6-10) e os itens específicos de
+firmware/bridge/ML da Prioridade 3 todos concluídos, esta execução avançou
+antes para a Prioridade 4 (Base de dados) — ver "Retenção configurável
+pelo utilizador" na secção "Persistência local — SQLite" acima.
 
 **Funcionalidades (por ordem de valor percebido):**
 1. Explicações de anomalias em linguagem simples para a família (não só

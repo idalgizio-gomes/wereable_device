@@ -23,6 +23,17 @@ NÃO faz (por decisão consciente, para manter o âmbito pequeno e correto):
     disco) — aceitável para um protótipo local, mas seria um requisito
     real antes de qualquer uso fora de um ambiente de desenvolvimento.
 
+RETENÇÃO CONFIGURÁVEL (`get_retention_days`/`set_retention_days`, 2026-07-04)
+------------------------------------------------------------------------------
+`DEFAULT_RETENTION_DAYS` abaixo continua a ser o valor de arranque, mas
+deixou de ser a única fonte de verdade: uma tabela `settings` (par
+chave/valor) guarda um valor efetivo, editável pelo utilizador através do
+dashboard (vista "Exportar dados", Médico/Técnico — ver
+`bridge/ble_bridge.py`, comandos `get_retention_days`/`set_retention_days`).
+Isto não muda a natureza da decisão (continua não certificada/validada
+legalmente, ver acima) — só deixa de estar fixa no código-fonte, como
+pedido explicitamente no backlog (PROJECT_STATUS.md, Prioridade 4).
+
 RETENÇÃO DE DADOS (`purge_old_sensor_records`, ver abaixo)
 ------------------------------------------------------------
 `sensor_records` cresce indefinidamente sem limpeza (o IMU produz ~14-52
@@ -100,6 +111,18 @@ def init_db() -> sqlite3.Connection:
         )
         """
     )
+    # Tabela genérica de configuração (par chave/valor) — hoje só guarda
+    # "retention_days" (ver get_retention_days/set_retention_days abaixo),
+    # mas fica pensada para outras opções configuráveis futuras sem
+    # precisar de nova migração de esquema.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+        """
+    )
     # Índice pelo timestamp de receção — a consulta mais comum é "últimas
     # N horas", por isso o índice acelera exatamente essa operação.
     conn.execute(
@@ -107,6 +130,48 @@ def init_db() -> sqlite3.Connection:
     )
     conn.commit()
     return conn
+
+
+RETENTION_DAYS_SETTING_KEY = "retention_days"
+# Limites de sanidade do valor introduzido pelo utilizador (não é uma
+# política de compliance — só evita valores sem sentido como 0 ou
+# negativos, ou tão grandes que a limpeza nunca teria efeito prático).
+MIN_RETENTION_DAYS = 1
+MAX_RETENTION_DAYS = 3650  # 10 anos
+
+
+def get_retention_days(conn: sqlite3.Connection) -> float:
+    """Devolve a retenção atualmente configurada (dias), ou
+    `DEFAULT_RETENTION_DAYS` se o utilizador nunca a tiver alterado."""
+    row = conn.execute(
+        "SELECT value FROM settings WHERE key = ?", (RETENTION_DAYS_SETTING_KEY,)
+    ).fetchone()
+    if row is None:
+        return DEFAULT_RETENTION_DAYS
+    try:
+        return float(row["value"])
+    except (TypeError, ValueError):
+        return DEFAULT_RETENTION_DAYS
+
+
+def set_retention_days(conn: sqlite3.Connection, days: float) -> float:
+    """Atualiza a retenção configurada (ver docstring do módulo,
+    "RETENÇÃO CONFIGURÁVEL"). Lança `ValueError` se `days` estiver fora dos
+    limites de sanidade — quem chama (ver ble_bridge.py) deve apanhar isto
+    e devolver um erro claro ao dashboard, em vez de gravar um valor sem
+    sentido silenciosamente."""
+    days = float(days)
+    if not (MIN_RETENTION_DAYS <= days <= MAX_RETENTION_DAYS):
+        raise ValueError(
+            f"retenção tem de estar entre {MIN_RETENTION_DAYS} e {MAX_RETENTION_DAYS} dias"
+        )
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (RETENTION_DAYS_SETTING_KEY, str(days)),
+    )
+    conn.commit()
+    return days
 
 
 def insert_record(conn: sqlite3.Connection, record: dict) -> None:
@@ -282,7 +347,10 @@ def purge_old_sensor_records(conn: sqlite3.Connection, days: float = DEFAULT_RET
     segurança, propositadamente nunca apagado automaticamente (ver
     insert_emergency_alert()). Chamado pelo bridge (`ble_bridge.py`) no
     arranque e periodicamente enquanto corre (ver
-    BleBridge.periodic_retention_task()), não pelo dashboard.
+    BleBridge.periodic_retention_task()), não pelo dashboard. `days` por
+    omissão é `DEFAULT_RETENTION_DAYS` só como referência de leitura desta
+    função isolada — `ble_bridge.py` passa sempre o valor efetivo de
+    `get_retention_days()` (configurável, ver acima), não esta omissão.
     """
     cutoff = time.time() - days * 86400
     cur = conn.execute("DELETE FROM sensor_records WHERE received_at < ?", (cutoff,))
@@ -293,3 +361,5 @@ def purge_old_sensor_records(conn: sqlite3.Connection, days: float = DEFAULT_RET
 # Próximos passos (não implementados nesta primeira versão, ver
 # PROJECT_STATUS.md): cifra do ficheiro .db se este serviço vier a
 # correr fora de um ambiente de desenvolvimento local confiável.
+# (Retenção configurável pelo utilizador — ver get_retention_days/
+# set_retention_days acima — já deixou de estar nesta lista, 2026-07-04.)

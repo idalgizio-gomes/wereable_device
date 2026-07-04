@@ -2589,6 +2589,7 @@ TEMPLATES.tendencia = () => `
   </div>
 `;
 AFTER_RENDER.tendencia = () => { drawTrend('cvTrend2'); drawHeatmap('cvHeatmap2'); renderRealTrendTable(); requestRealTrend(7); };
+AFTER_RENDER.exportar = () => { requestRetentionSettings(); };
 
 TEMPLATES.definicoes = () => `
   <div class="card">
@@ -3179,6 +3180,20 @@ TEMPLATES.exportar = () => `
       <span class="empty-hint" id="csvExportHint" style="margin:0;"></span>
     </div>
     <p class="empty-hint">Requer ligação ativa ao bridge (ver estado no topo da página) — sem ligação não há como pedir o histórico ao serviço de persistência.</p>
+  </div>
+
+  <div class="card print-hide">
+    <div class="card-head"><div><h3>Retenção de dados locais (BD do bridge)</h3><div class="card-sub">Há quanto tempo os registos de sensores ficam guardados em <code>carewear_history.db</code> antes de serem apagados automaticamente — o registo de emergências nunca é apagado por esta política</div></div></div>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+      <label for="retentionDaysInput" style="font-size:13px; color:var(--text-secondary);">Dias a manter:</label>
+      <input id="retentionDaysInput" type="number" min="1" max="3650" step="1" style="width:90px;" class="row-input" placeholder="—">
+      <button class="btn-secondary" onclick="saveRetentionDays()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+        Guardar
+      </button>
+      <span class="empty-hint" id="retentionHint" style="margin:0;"></span>
+    </div>
+    <p class="empty-hint">Valor por omissão do protótipo: 30 dias. Não é uma política de retenção certificada — a decisão real de quantos dias reter dados clínicos de um utente é do utilizador/responsável pelos dados; este controlo só evita que fique fixa no código-fonte.</p>
   </div>
 
   <div class="print-only" id="clinicalPrintSheet"></div>
@@ -3851,6 +3866,14 @@ function handleBridgeMessage(msg){
     renderRealTrendTable();
     return;
   }
+  if (msg.kind === 'retention_days'){
+    handleRetentionDaysResult(msg);
+    return;
+  }
+  if (msg.kind === 'retention_days_result'){
+    handleRetentionDaysSaveResult(msg);
+    return;
+  }
   if (msg.kind === 'record'){
     // Espelha o payload real gravado pelo firmware (ImuPpgPayloadV1 /
     // FullPlain — ver storageTask em main.cpp e Ble.cpp): spo2/hr vêm a
@@ -4145,6 +4168,60 @@ function handleCsvExportResult(msg){
   }
   downloadCsvText('carewear-dados-reais', msg.csv);
   if (hint){ hint.style.color = 'var(--status-good)'; hint.textContent = 'CSV descarregado.'; }
+}
+
+/* ------------------------------------------------------------
+   RETENÇÃO DE DADOS CONFIGURÁVEL (item pendente do backlog,
+   PROJECT_STATUS.md, Prioridade 4 — "expor DEFAULT_RETENTION_DAYS como
+   opção configurável pelo utilizador em vez de constante fixa no
+   código"). Lê/grava o valor efetivo guardado pelo bridge (tabela
+   `settings` em bridge/storage.py), não um valor local ao browser —
+   afeta a limpeza automática real de `sensor_records`.
+------------------------------------------------------------ */
+function requestRetentionSettings(){
+  const hint = document.getElementById('retentionHint');
+  if (!bridgeWs || bridgeWs.readyState !== WebSocket.OPEN){
+    if (hint){ hint.style.color = 'var(--status-warning)'; hint.textContent = 'Sem ligação ao bridge — a mostrar o valor por omissão do protótipo (30 dias).'; }
+    return;
+  }
+  sendWsCommand('get_retention_days');
+}
+
+function handleRetentionDaysResult(msg){
+  const input = document.getElementById('retentionDaysInput');
+  const hint = document.getElementById('retentionHint');
+  if (input && msg.days != null) input.value = msg.days;
+  if (input && msg.min_days != null) input.min = msg.min_days;
+  if (input && msg.max_days != null) input.max = msg.max_days;
+  if (hint){ hint.style.color = ''; hint.textContent = ''; }
+}
+
+function saveRetentionDays(){
+  const input = document.getElementById('retentionDaysInput');
+  const hint = document.getElementById('retentionHint');
+  const days = input ? Number(input.value) : NaN;
+  if (!Number.isFinite(days) || days <= 0){
+    if (hint){ hint.style.color = 'var(--status-warning)'; hint.textContent = 'Introduz um número de dias válido (maior que 0).'; }
+    return;
+  }
+  const sent = sendWsCommandWithArgs('set_retention_days', { days });
+  if (!sent){
+    if (hint){ hint.style.color = 'var(--status-warning)'; hint.textContent = 'Sem ligação ao bridge — não é possível guardar agora.'; }
+    return;
+  }
+  if (hint){ hint.style.color = ''; hint.textContent = 'A guardar…'; }
+}
+
+function handleRetentionDaysSaveResult(msg){
+  const hint = document.getElementById('retentionHint');
+  if (!hint) return;
+  if (msg.ok){
+    hint.style.color = 'var(--status-good)';
+    hint.textContent = `Guardado — a manter registos dos últimos ${msg.days} dias.`;
+  } else {
+    hint.style.color = 'var(--status-warning)';
+    hint.textContent = `Falhou: ${msg.error || 'erro desconhecido'}.`;
+  }
 }
 
 /* ------------------------------------------------------------
