@@ -227,6 +227,64 @@ dados reais de cada instalação, não código nem exemplos do repositório).
 - **Ainda não feito**: cifra do `.db` se este serviço vier a correr fora
   de um ambiente de desenvolvimento local confiável.
 
+### Base de Dados SQL Completa — SQLAlchemy ORM (`bridge/storage_advanced.py`, 2026-07-04)
+
+Refatoração da camada de persistência com ORM e schema produção-ready:
+
+**Ficheiros novos**:
+- `bridge/schema.sql` — Referência SQL completa (13 tabelas, índices, constraints, comentários PT)
+- `bridge/storage_advanced.py` — ORM SQLAlchemy com 14 modelos (User, Patient, Device, SensorRecord, Medication, MedicationAdherence, Alert, EmergencyAlert, AnomalyDetection, PersonalizedThreshold, DailyStatistics, AuditLog, ConsentRecord, ActivityWindow)
+- `bridge/requirements_db.txt` — Dependências (sqlalchemy, alembic, cryptography, twilio, pydantic)
+
+**Tabelas principais**:
+1. **users** (família, clínico, admin) — email único, role, instituição/cédula profissional
+2. **patients** — nome, DOB, NIF/morada encriptados, contacto de emergência
+3. **devices** — MAC BLE, firmware version, battery, storage, last sync
+4. **sensor_records** — timestamp, accel/gyro (6 eixos), steps, freefall, inactivity, HR, SpO2, pacing_index — **índices em device_id+timestamp para queries rápidas**
+5. **medications** — prescrição (nome, dosage, frequency, prescribed_by_user)
+6. **medication_adherence** — histórico (taken/not_taken, timestamp, método: manual/wearable/AI)
+7. **alerts** — anomalias (type, severity, raw_data, read_at, silenced_until, escalated_at, resolved_at, resolution_note)
+8. **emergency_alerts** — SOS/queda (sequence_number dedup, timestamp_utc, response_user, response_action, confirmation_code OTP, blocked_until TTL)
+9. **anomaly_detections** — LSTM Autoencoder (type, score, start/end datetime, investigated)
+10. **personalized_thresholds** — limites por pessoa (FC min/max, SpO2 min, sleep/activity targets, steps daily)
+11. **daily_statistics** — cache (total_steps, avg/min/max HR, avg SpO2, durations por atividade, alerts/anomalies count, adherence_percent) — **atualizado incrementalmente para dashboard rápido**
+12. **consent_records** — GDPR/HIPAA (patient, scope, granted, version, signed_at, expires_at)
+13. **audit_log** — auditoria (user, action, resource_type/id, details JSONB, ip_address, created_at) — **para compliance e forensics**
+14. **activity_windows** — agregadas (date, category, start/end minutos, duration, confidence)
+
+**Queries analíticas** (classe `Analytics`):
+- `heart_rate_trends(device_id, days)` — tendência FC com avg/min/max + série completa
+- `medication_adherence_summary(patient_id, days)` — resumo por medicamento (taken%, overall%)
+- `daily_activity_distribution(device_id, date)` — distribuição do dia (sleep/rest/activity/eating/hygiene com durations e ocorrências)
+
+**Políticas de retenção automática** (classe `DataRetention`):
+- `sensor_records` — 365 dias (apaga mesmo, não soft delete — volume crescente)
+- `activity_windows` — 1825 dias (5 anos)
+- `alerts` — 2555 dias (7 anos, soft delete com `deleted_at`)
+- `emergency_alerts` — 3650 dias (10 anos, **nunca apagado automaticamente**)
+- `anomaly_detections` — 1825 dias (5 anos)
+- `medication_adherence` — 1095 dias (3 anos)
+- Método `cleanup(db, dry_run)` para chamar manualmente ou via scheduler (ex.: cron nightly)
+
+**Segurança/Compliance**:
+- Modelos com `deleted_at` (soft delete) para auditoria em `audit_log`
+- `ConsentRecord` para rastreabilidade GDPR (patient, scope, version, signed_at, expires_at)
+- Campos sensíveis (NIF, morada) marcados como `_encrypted` — cifra real a implementar com `cryptography` (AES + salt)
+- `AuditLog` JSONB com details completos (valores antigos/novos para comparar)
+- IP address registado em cada ação sensível
+
+**Motor de BD**:
+- **SQLite em desenvolvimento** (`sqlite:///./carewear.db`) — embutido, sem servidor
+- **PostgreSQL em produção** (via `DATABASE_URL` env var) — suporta JSONB nativo, constraints mais fortes, pool connection
+- Migrations via **Alembic** (próxima fase — criará versões incrementais do schema)
+
+**Próximas fases**:
+- Integração Twilio para SMS/email (alertas críticos, OTP confirmação emergência)
+- Alembic migrations (script versionado para evolução do schema)
+- Endpoints REST/GraphQL para dashboard (ligar queries analíticas a tempo real)
+- Cifra real dos campos sensíveis (derivação de chave com argon2)
+- Testes unitários com pytest (fixtures, mocks BLE)
+
 ## Dashboard web (protótipo)
 
 Ficheiro: `web/dashboard/index.html` (versionado no repo).
