@@ -1245,6 +1245,107 @@ validações não feitas, não decidir por questões que só o utilizador pode
 decidir (ex.: dados reais de pacientes, credenciais de SMS/email), e manter
 este ficheiro atualizado. Geridas em https://claude.ai/code/routines.
 
+## Lembretes de Medicação — Sistema Front-End (2026-07-04)
+
+**Ficheiro novo: `web/dashboard/medication-reminders.js`** (339 linhas)
+
+Implementação de um sistema de lembretes de medicação baseado em Browser
+Notifications API, integrado com a interface de medicações já existente no
+dashboard. Modularizado em duas classes principais:
+
+### Classe `MedicationReminder`
+
+- **Polling**: verificação a cada 5 minutos (configurável) de medicações
+  agendadas para o paciente selecionado atualmente.
+- **Janela de lembrete**: 30 minutos antes e depois da hora prevista (passa a
+  notificação quando entra nesse intervalo).
+- **Notificações nativas**: usa `Notification.API` do browser (requer
+  permissão do utilizador). Apresenta título, corpo com nome do medicamento +
+  dose + horário, e ações:
+  - ✓ Marcar como tomada (fecha notificação, chama `markDoseTaken()`)
+  - ⏰ Adiar 5 minutos (re-agenda notificação, permite "snooze")
+  - ✗ Descartar (fecha sem registar)
+- **Fallback**: se o browser não suportar Notificações ou o utilizador não
+  consentir, mostra banner flutuante no topo da página (position:fixed,
+  upper-right) com os mesmos dados e botão "Tomei agora", com
+  auto-fecho após 30 segundos.
+- **Deduplica**çao**: usa um `Set` (chave: patientId_medId_time) para evitar
+  notificações duplicadas da mesma dose até à meia-noite (quando se limpa).
+- **Inicialização automática**: injeções CSS + instância global no evento
+  `DOMContentLoaded`, chamando imediatamente `start()` para não esperar 5
+  minutos até à primeira verificação.
+
+### Classe `AdherenceAnalytics`
+
+- **Registo por dia**: método `recordDay(patientId, adherence_pct, activityLevel,
+  hrAvg)` guarda num localStorage namespaced (`carewear_adherence_analytics_*`)
+  o percentual de adesão diária + contexto (atividade/vitais, quando
+  disponível).
+- **Análise de 7 dias** (`getWeekSummary(patientId)`): devolve:
+  - `avg_adherence`: média de adesão dos últimos 7 dias (com histórico).
+  - `patterns`: string com padrão detetado (ex.: "Possível correlação:
+    menor adesão em dias mais ativos").
+  - `alert`: recomendação por severidade (🔴 crítica, 🟡 moderada, 🟢 ótima).
+  - `entries`: array com todas as entradas ([date, adherence_pct,
+    activity_level, hr_avg]).
+- **Recomendações** (`getRecommendations(patientId, patient)`): gera lista de
+  dicas baseadas no padrão semanal (ex.: "agendar medicação em períodos de
+  menor atividade" se há correlação óbvia).
+
+### Integração com código existente
+
+- Usa `patientMedications(patient)` (já existente) para obter lista de
+  medicamentos ativos.
+- Usa `isDoseTakenToday()` e `markDoseTaken()` (já existentes) para estado de
+  adesão de hoje.
+- Chama `getCurrentPatient()` (dever ser implementada — retorna paciente
+  selecionado atualmente) ou fallback a `selectedPatient()` se a função não
+  existir (para compatibilidade com dashboard utente, onde não há multi-
+  paciente).
+- Compatível com localStorage já existente (`carewear_medication_log` para
+  registro de doses de hoje).
+
+### Próximas etapas de integração (não feitas nesta sessão)
+
+1. **Adicionar ao HTML** (`index.html`):
+   - `<script src="medication-reminders.js"><script>` no `<head>` ou
+     `</body>`.
+   - Isso ativa o sistema automaticamente.
+
+2. **UI para histórico de adesão** (novo cartão em vista "Medicação"):
+   - Mostrar semana resumida com `AdherenceAnalytics.getWeekSummary()`.
+   - Recomendações em "tooltip" ou cartão separado.
+   - Possibilidade de "guardar" o histórico (hoje é ephemeral em localStorage).
+
+3. **Backend/BD** (quando `storage_advanced.py` for integrada):
+   - Substituir localStorage por queries ao SQLAlchemy ORM
+     (`MedicationAdherence` table).
+   - `AdherenceAnalytics.recordDay()` passaria a fazer INSERT numa tabela em
+     vez de localStorage.
+   - As análises mantêm a mesma interface.
+
+4. **SMS/Email/Push** via Twilio (Prioridade 5):
+   - Chamar `twilioSendNotification(user_phone, message)` em vez de (ou
+     além de) Browser Notifications.
+   - Seria uma camada extra de `MedicationReminder`, não muda a lógica
+     principal.
+
+### Validação & testes (até ao momento)
+
+- Sintaxe JavaScript: validada (sem imports externos, código puro vanilla
+  JS).
+- Integração com localStorage: testada localmente (guarda/carrega dados
+  persistentes).
+- Compatibilidade com funções existentes do dashboard: requer verificação
+  quando `index.html` for atualizado com o `<script>`.
+
+**Limitação honesta**: o sistema não envia notificações de verdade até estar
+integrado no HTML e até a função `getCurrentPatient()` ser implementada no
+dashboard. No seu estado atual (ficheiro separado), é um módulo "pronto para
+usar" que só precisa de ser incluído num HTML que já tenha as funções
+`patientMedications()`, `isDoseTakenToday()`, `markDoseTaken()` e
+`selectedPatient()`.
+
 ## Roadmap alargado (definido pelo utilizador, por implementar)
 
 Wearable · Firmware · IA embarcada · App móvel (Android/iOS) · Dashboard Web ·
