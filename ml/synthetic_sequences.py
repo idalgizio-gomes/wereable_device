@@ -105,16 +105,20 @@ def _segments_to_windows(rng, segments, jitter, session_name, feature_names,
     return rows
 
 
-def generate_subject_sequence(rng, feature_names, inject_anomaly=None):
-    """Gera a sequência completa de um sujeito sintético (noite seguida de
-    dia — um ciclo diário simplificado, ver docstring do módulo).
+def generate_subject_segments(rng, inject_anomaly=None):
+    """Gera só os segmentos (classe, duração_min) de noite+dia de um sujeito
+    sintético, sem gerar sinal/janelas — usado tanto por
+    `generate_subject_sequence` (que gera as janelas a partir destes
+    segmentos) como pelo detetor de duração baseado em regras (passo 3,
+    ver `duration_detector.py`), que trabalha ao nível do bloco inteiro, não
+    da janela de 10s.
 
-    inject_anomaly: None (sequência normal) ou um valor de ANOMALY_TYPES.
-
-    Devolve (feature_matrix [n_windows, n_features], anomaly_mask [n_windows]
-    bool, anomaly_type ou None).
+    Devolve (night_segments, day_segments, anomaly_marker, inject_anomaly)
+    — `anomaly_marker` é (session_name, idx_do_segmento) do segmento
+    alterado, ou None se `inject_anomaly` era None ou não havia bloco
+    candidato nesta sequência gerada (`inject_anomaly` devolvido também a
+    None nesse caso, para o chamador saber que a sequência ficou normal).
     """
-    jitter = _subject_jitter(rng)
     night_segments = _build_segment_sequence(rng, NIGHT_SESSION_MINUTES, NIGHT_BLOCK_MINUTES, NIGHT_CLASS_WEIGHTS)
     day_segments = _build_segment_sequence(rng, DAY_SESSION_MINUTES, DAY_BLOCK_MINUTES, DAY_CLASS_WEIGHTS)
 
@@ -128,6 +132,23 @@ def generate_subject_sequence(rng, feature_names, inject_anomaly=None):
             # nesta sequencia gerada (ex.: sem bloco de Higiene) — a
             # sequencia fica normal em vez de falhar silenciosamente.
             inject_anomaly = None
+
+    return night_segments, day_segments, anomaly_marker, inject_anomaly
+
+
+def generate_subject_sequence(rng, feature_names, inject_anomaly=None):
+    """Gera a sequência completa de um sujeito sintético (noite seguida de
+    dia — um ciclo diário simplificado, ver docstring do módulo).
+
+    inject_anomaly: None (sequência normal) ou um valor de ANOMALY_TYPES.
+
+    Devolve (feature_matrix [n_windows, n_features], anomaly_mask [n_windows]
+    bool, anomaly_type ou None).
+    """
+    jitter = _subject_jitter(rng)
+    night_segments, day_segments, anomaly_marker, inject_anomaly = generate_subject_segments(
+        rng, inject_anomaly
+    )
 
     rows = []
     rows += _segments_to_windows(rng, night_segments, jitter, "noite", feature_names, anomaly_marker)

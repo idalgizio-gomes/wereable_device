@@ -19,9 +19,11 @@ Wearable-Derived Synthetic Daily Routines" — pipeline em três partes:
    `Ble.cpp`/`kDumpCtrlResetReadings` e a tabela de limites no dashboard,
    vista "Limites de duração").
 
-**Estado atual: passo 1 (classificador de atividades) implementado e
-treinado sobre dados sintéticos** (código nesta pasta). Passos 2 e 3 ainda
-não existem neste repositório — ver "Próximos passos" abaixo.
+**Estado atual: os três passos estão implementados e avaliados sobre dados
+sintéticos** (código nesta pasta) — classificador (passo 1), LSTM
+Autoencoder (passo 2) e detetor de duração baseado em regras (passo 3).
+Nenhum está ainda embarcado no firmware nem validado com dados reais — ver
+"Próximos passos" abaixo.
 
 ## Porque não há dados reais ainda
 
@@ -49,6 +51,7 @@ ml/
   train_activity_classifier.py    # treino + avaliação do XGBoost (passo 1)
   train_activity_classifier_rf.py # treino + avaliação do Random Forest (alternativa TinyML, passo 1)
   train_lstm_autoencoder.py       # treino + avaliação do LSTM Autoencoder (passo 2)
+  duration_detector.py            # detetor de duração baseado em regras + avaliação (passo 3)
   measure_rf_footprint.py         # footprint real (flash/RAM) do Random Forest via emlearn
   requirements.txt
   data/
@@ -68,6 +71,7 @@ ml/
     activity_classifier_rf_footprint.json      # footprint real (flash/RAM) via emlearn
     lstm_autoencoder_metrics.json              # AUC-ROC/recall geral e por tipo de anomalia
     lstm_autoencoder_error_distribution.png    # histograma do erro de reconstrução, normal vs. anómalo
+    duration_detector_metrics.json             # recall por tipo de anomalia + falsos positivos (passo 3)
 ```
 
 Para reproduzir:
@@ -79,6 +83,7 @@ python synthetic_data.py              # gera data/synthetic_routine_dataset.csv
 python train_activity_classifier.py   # treina e avalia o XGBoost, escreve em models/ e reports/
 python train_activity_classifier_rf.py  # idem, Random Forest
 python train_lstm_autoencoder.py      # gera sequências sintéticas + treina/avalia o autoencoder
+python duration_detector.py           # avalia o detetor de duração baseado em regras (sem treino)
 ```
 
 Todos os scripts são determinísticos (seed fixa = 42).
@@ -378,6 +383,72 @@ não redundantes; este resultado é evidência concreta disso, não só teoria.
   clinicamente validadas — dados reais serão mais subtis e ambíguos.
 - Não embarcado nem medido em hardware — só validado no backend/offline.
 
+## Passo 3 — Detetor de duração baseado em regras (2026-07-04)
+
+**Implementado**: `duration_detector.py`, motivado diretamente pelo achado
+honesto do passo 2 acima — o LSTM Autoencoder tem recall muito fraco
+(0.000-0.331) para anomalias baseadas em duração, porque uma janela de 2
+minutos não vê a duração TOTAL de um bloco. Este passo é, ao contrário dos
+passos 1 e 2, **uma regra determinística, não um modelo treinado**: compara
+a duração de cada bloco de atividade classificado com o intervalo
+`[d_min, d_max]` esperado para essa classe+sessão (dia/noite), e sinaliza
+também como anómala qualquer classe que não seja esperada de todo nessa
+sessão (ex.: "Atividade" a meio da noite, quando só Dormir/Descanso são
+esperados).
+
+**Limitação assumida sobre os limites usados**: `[d_min, d_max]` vêm
+diretamente de `DAY_BLOCK_MINUTES`/`NIGHT_BLOCK_MINUTES` (`synthetic_data.py`)
+— os mesmos parâmetros que o gerador sintético usa para amostrar a duração
+de um bloco normal — e **não** dos valores já existentes na vista "Limites
+de duração" do dashboard (template de 21 passos, 10 classes mais
+granulares, sem correspondência 1-para-1 com as 5 classes simplificadas
+usadas aqui). Quando existir histórico real por pessoa, os limites devem
+vir daí (item 3 do backlog do dashboard), não do gerador sintético.
+
+### Avaliação (`reports/duration_detector_metrics.json`, seed=123, distinta da usada nos passos 1/2)
+
+40 sujeitos normais + 40 sujeitos por tipo de anomalia, avaliados bloco a
+bloco (não janela a janela, ao contrário dos passos 1/2):
+
+| | `duracao_prolongada` | `substituicao_contextual` | `truncamento` |
+|---|---|---|---|
+| Recall | **1.000** | **1.000** | **0.972** |
+
+Comparação direta com o LSTM Autoencoder (passo 2, recall a limiar fixo):
+0.015→**1.000**, 0.331→**1.000**, 0.000→**0.972** — confirma com números
+concretos, não só teoria, que os dois detetores são complementares: onde o
+autoencoder falha (duração), a regra simples acerta quase sempre, incluindo
+a anomalia contextual (via a checagem "classe inesperada nesta sessão",
+que também serve de regra de calendário, não só de duração).
+
+**Achado honesto sobre falsos positivos**: taxa de falsos positivos em
+blocos normais = 7.17% (154/2147), mas **100% desses falsos positivos
+(154/154) acontecem no último bloco de cada sessão** — confirmado
+medindo diretamente (não suposição), ver `false_positives_explained_by_last_block_of_session`
+no relatório. Causa raiz identificada: `_build_segment_sequence`
+(`synthetic_data.py`) corta o último bloco de cada sessão
+(`dur = min(dur, remaining)`) para a sessão somar exatamente
+`DAY_SESSION_MINUTES`/`NIGHT_SESSION_MINUTES` — um artefacto de como as
+sessões sintéticas COMPRIMIDAS são construídas, não uma anomalia real nem
+uma falha da regra. **Isto não valida especificidade em dados reais**, onde
+não existe esse corte artificial por orçamento de minutos — só confirma que
+a implementação da regra está correta e que o artefacto tem uma explicação
+concreta, não fabricada.
+
+### Limitações honestas
+
+- 100% sintético, mesma limitação já documentada nos passos 1 e 2.
+- Os limites usados são os do próprio gerador (ver acima) — não uma
+  calibração independente nem dados reais.
+- Não embarcado no firmware — hoje é um script Python de avaliação
+  offline; embarcar isto é trivial em comparação com os passos 1/2 (é só
+  comparar dois números), mas exige primeiro que o classificador do passo 1
+  esteja embarcado e a produzir blocos classificados em tempo real (ver
+  "Riscos" no PROJECT_STATUS.md — ainda não está).
+- A taxa de falsos positivos ~7% medida aqui é inteiramente um artefacto do
+  gerador sintético (ver acima) — não uma medida útil de especificidade em
+  produção.
+
 ## Próximos passos (por ordem)
 
 1. ~~Medir footprint real (flash/RAM) do Random Forest via `emlearn`~~ —
@@ -401,14 +472,18 @@ não redundantes; este resultado é evidência concreta disso, não só teoria.
    footprint/latência em hardware embarcado (TensorFlow Lite
    Micro/CMSIS-NN, não medido), limiares por contexto/pessoa em vez de um
    único limiar global, dados sintéticos mais realistas (ver item 4).
-3. **Detetor de duração baseado em regras** — comparar a duração de cada
-   bloco de atividade classificado com os limites configuráveis já
-   presentes no dashboard (vista "Limites de duração", Médico/Técnico).
-   Ganhou mais urgência depois do resultado do passo 2 acima (é
-   especificamente o que o LSTM Autoencoder não consegue ver).
+3. ~~Detetor de duração baseado em regras~~ — **FEITO (2026-07-04)**: ver
+   "Passo 3 — Detetor de duração baseado em regras" acima. Recall 0.972-1.000
+   nos 3 tipos de anomalia (vs. 0.000-0.331 do LSTM Autoencoder para os
+   mesmos tipos), confirmando a complementaridade dos dois detetores com
+   números concretos. **Ainda por fazer**: embarcar no firmware (depende do
+   passo 1 estar embarcado primeiro), e usar limites calibrados por pessoa
+   em vez dos parâmetros do gerador sintético.
 4. Tornar os dados sintéticos mais realistas (overlap entre classes,
    sessões de 24h completas em vez de comprimidas, ruído medido em hardware
-   real em vez de estimado).
+   real em vez de estimado, e um orçamento de minutos por sessão que não
+   force o corte artificial do último bloco — ver achado de falsos
+   positivos no passo 3 acima).
 
 ## Decisão pendente (não posso decidir por conta própria)
 

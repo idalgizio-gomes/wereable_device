@@ -1,0 +1,26 @@
+{
+  "n_normal_subjects": 40,
+  "n_subjects_per_anomaly_type": 40,
+  "seed": 123,
+  "n_normal_blocks_evaluated": 2147,
+  "false_positive_rate_normal_blocks": 0.07172799254774104,
+  "false_positives_explained_by_last_block_of_session": "154/154",
+  "recall_by_anomaly_type": {
+    "duracao_prolongada": {
+      "n_subjects_requested": 40,
+      "n_subjects_with_injected_block": 33,
+      "recall": 1.0
+    },
+    "substituicao_contextual": {
+      "n_subjects_requested": 40,
+      "n_subjects_with_injected_block": 40,
+      "recall": 1.0
+    },
+    "truncamento": {
+      "n_subjects_requested": 40,
+      "n_subjects_with_injected_block": 36,
+      "recall": 0.9722222222222222
+    }
+  },
+  "note": "Detetor de duração baseado em regras (passo 3 do pipeline, ver ml/README.md) — não é um modelo treinado; é uma comparação determinística contra os limites [d_min, d_max] usados pelo próprio gerador sintético (synthetic_data.py). 100% sintético. Achado honesto: TODOS os falsos positivos medidos (ver campo 'false_positives_explained_by_last_block_of_session') acontecem no último bloco de cada sessão, que o gerador corta (`dur = min(dur, remaining)`) para a sessão somar exatamente o total de minutos configurado — não é uma anomalia real nem uma falha da regra, é um artefacto da forma como as sessões sintéticas comprimidas são construídas (ver docstring do módulo). Isto não valida especificidade em dados reais, onde não existe esse corte artificial por orçamento de minutos."
+}

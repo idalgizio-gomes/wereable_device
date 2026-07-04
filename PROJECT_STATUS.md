@@ -512,9 +512,24 @@ como reproduzir). Resumo:
   um bug a corrigir — ver `ml/README.md`, secção "Passo 2", para o
   detalhe completo e as limitações honestas (limiar único global,
   100% sintético, não embarcado/medido em hardware).
-- **Passo 3 do artigo (detetor de duração baseado em regras) ainda não
-  implementado** — próximo passo natural do pipeline, com mais urgência
-  depois do resultado do passo 2 acima.
+- **Passo 3 do artigo (detetor de duração baseado em regras) implementado
+  (2026-07-04, rotina cloud)** — `ml/duration_detector.py`, motivado
+  diretamente pelo achado do passo 2 (recall fraco do LSTM Autoencoder para
+  anomalias de duração). É uma regra determinística (não treinada): compara
+  a duração de cada bloco classificado com `[d_min, d_max]` da classe+sessão
+  (os mesmos parâmetros do gerador sintético, `DAY_BLOCK_MINUTES`/
+  `NIGHT_BLOCK_MINUTES`) e sinaliza também classes inesperadas para a sessão
+  (ex.: "Atividade" de noite). **Resultado**: recall 0.972-1.000 nos 3 tipos
+  de anomalia (vs. 0.000-0.331 do LSTM Autoencoder para os mesmos tipos) —
+  confirma com números concretos a complementaridade dos dois detetores.
+  **Achado honesto**: 7.17% de falsos positivos em blocos normais, mas
+  100% desses (154/154, medido diretamente) vêm do último bloco de cada
+  sessão sintética, cortado pelo gerador para a sessão somar exatamente o
+  total de minutos configurado — artefacto do gerador, não uma anomalia
+  real nem falha da regra; não valida especificidade em dados reais. Ver
+  `ml/README.md`, secção "Passo 3", para o detalhe completo. Não embarcado
+  no firmware (depende do classificador do passo 1 estar embarcado
+  primeiro, o que ainda não aconteceu).
 - **Footprint do Random Forest (alternativa TinyML ao XGBoost) medido de
   facto (2026-07-03)**, compilando o C gerado pelo `emlearn` com o
   toolchain ARM real (`ml/measure_rf_footprint.py`): flash não é problema
@@ -842,6 +857,19 @@ backlog do dashboard (itens 1-3, 6-10) e os itens específicos de
 firmware/bridge/ML da Prioridade 3 todos concluídos, esta execução avançou
 antes para a Prioridade 4 (Base de dados) — ver "Retenção configurável
 pelo utilizador" na secção "Persistência local — SQLite" acima.
+
+**Nota desta execução (2026-07-04, rotina cloud, mesmo dia — 2ª passagem)**:
+com o backlog do dashboard e a Prioridade 3 (bridge/emlearn) confirmados
+concluídos, e a Prioridade 4 (BD SQLite) já com um protótipo funcional
+(persistência + CSV + retenção configurável), esta execução verificou o
+roteiro do pipeline de ML (`ml/README.md`, "Próximos passos") e encontrou
+aí trabalho concreto ainda por fazer, não coberto pela redação literal da
+Prioridade 3 mas claramente dentro do seu âmbito ("Firmware, bridge e ML"):
+o passo 3 do artigo científico (detetor de duração baseado em regras),
+sinalizado no próprio README como próximo passo natural depois do achado
+do passo 2. Implementado e avaliado — ver acima. Não foi tocada a base de
+dados nesta passagem (Prioridade 4 já tem um protótipo funcional e o
+roteiro de ML tinha um item concreto mais avançado na ordem de prioridade).
 
 **Funcionalidades (por ordem de valor percebido):**
 1. Explicações de anomalias em linguagem simples para a família (não só
