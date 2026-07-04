@@ -217,16 +217,22 @@ class BleBridge:
     RETENTION_CHECK_INTERVAL_S = 6 * 3600
 
     async def periodic_retention_task(self) -> None:
-        """Aplica a politica de retencao (ver storage.py, DEFAULT_RETENTION_DAYS)
-        uma vez no arranque e depois a cada RETENTION_CHECK_INTERVAL_S
-        enquanto o bridge estiver a correr. So' apaga sensor_records - o
-        registo de emergencias nunca e' apagado automaticamente."""
+        """Aplica a politica de retencao (ver storage.py,
+        get_retention_days/set_retention_days) uma vez no arranque e
+        depois a cada RETENTION_CHECK_INTERVAL_S enquanto o bridge estiver
+        a correr. So' apaga sensor_records - o registo de emergencias
+        nunca e' apagado automaticamente. Le' o valor configurado a cada
+        ciclo (em vez de o guardar numa variavel) para uma alteracao feita
+        pelo dashboard a meio da execucao (ver handle_dashboard_command,
+        comando set_retention_days) ter efeito no proximo ciclo sem
+        precisar de reiniciar o bridge."""
         while True:
             try:
-                deleted = storage.purge_old_sensor_records(self.db)
+                days = storage.get_retention_days(self.db)
+                deleted = storage.purge_old_sensor_records(self.db, days=days)
                 if deleted:
                     print(f"[BRIDGE] retencao: apagados {deleted} registos de sensores "
-                          f"com mais de {storage.DEFAULT_RETENTION_DAYS} dias")
+                          f"com mais de {days} dias")
             except Exception as exc:  # noqa: BLE001 - nunca deve derrubar o bridge
                 print(f"[BRIDGE] erro na limpeza de retencao: {exc}")
             await asyncio.sleep(self.RETENTION_CHECK_INTERVAL_S)
@@ -495,6 +501,33 @@ class BleBridge:
                 await ws.send(json.dumps({"kind": "csv_export", "csv": "", "error": str(exc)}))
                 return
             await ws.send(json.dumps({"kind": "csv_export", "csv": csv_text, "hours": hours}))
+            return
+        if cmd == "get_retention_days":
+            # Item pendente do backlog (PROJECT_STATUS.md, Prioridade 4):
+            # expor a retenção como opção configurável pelo utilizador em
+            # vez de constante fixa no código (ver storage.py).
+            days = storage.get_retention_days(self.db)
+            await ws.send(json.dumps({
+                "kind": "retention_days",
+                "days": days,
+                "default_days": storage.DEFAULT_RETENTION_DAYS,
+                "min_days": storage.MIN_RETENTION_DAYS,
+                "max_days": storage.MAX_RETENTION_DAYS,
+            }))
+            return
+        if cmd == "set_retention_days":
+            days = msg.get("days")
+            try:
+                saved = storage.set_retention_days(self.db, days)
+            except (TypeError, ValueError) as exc:
+                await ws.send(json.dumps({"kind": "retention_days_result", "ok": False, "error": str(exc)}))
+                return
+            except Exception as exc:  # noqa: BLE001
+                print(f"[BRIDGE] erro a gravar retencao configurada: {exc}")
+                await ws.send(json.dumps({"kind": "retention_days_result", "ok": False, "error": str(exc)}))
+                return
+            print(f"[BRIDGE] retencao configurada pelo dashboard: {saved} dias")
+            await ws.send(json.dumps({"kind": "retention_days_result", "ok": True, "days": saved}))
 
     async def ws_handler(self, ws: "websockets.ServerConnection") -> None:
         self.ws_clients.add(ws)
