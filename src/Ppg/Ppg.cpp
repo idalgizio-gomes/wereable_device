@@ -330,10 +330,27 @@ void setupForSpo2() {
 // ativo. O canal verde e' o preferido para deteccao de batimento porque
 // tem melhor relacao sinal/ruido para variacoes de volume sanguineo na
 // pele e consome menos energia do que manter os tres LEDs ligados.
+//
+// sampleAverage=1 (nao 8, como estava antes e como o test/HR.cpp de
+// referencia tambem usa): o registo FIFO_CONFIG (SMP_AVE) do MAX3010x
+// faz a media de N amostras do ADC por CADA entrada nova na FIFO,
+// dividindo a taxa efetiva de novas amostras por N (confirmado no
+// datasheet Maxim/SparkFun: "reduce the amount of data throughput by
+// averaging and decimating adjacent samples"). Com sampleAverage=8 e
+// sampleRate=100, a FIFO so' recebia uma amostra nova a cada ~80ms
+// (~12.5 Hz reais), nao a cada 10ms (100 Hz) como lowPassFilter()/
+// highPassFilter() (Fs=100 fixo) e HR_SAMPLE_INTERVAL_MS (10ms)
+// assumem — um desfasamento de 8x entre a taxa real e a taxa suposta
+// pelo pipeline de filtros. sampleAverage=1 alinha a taxa real da FIFO
+// com essa suposicao (o ruido extra da amostra unica, sem media no
+// chip, e' precisamente o que o passa-baixo por software de 5Hz ja
+// existe para filtrar). Suspeita direta (nao confirmada em hardware,
+// bloqueado por USB — ver PROJECT_STATUS.md) para o "HR nunca detetado"
+// da sessao de hardware de 2026-07-03.
 void setupForHr() {
   g_sensor.wakeUp();
   const byte ledBrightness = 0x5F;
-  const byte sampleAverage = 8;
+  const byte sampleAverage = 1;
   const byte ledMode = 3;      // Red + IR + Green
   const int sampleRate = 100;
   const int pulseWidth = 411;

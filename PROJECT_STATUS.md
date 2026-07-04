@@ -1276,6 +1276,33 @@ Migração de hardware futura possível: nRF5340 ou nRF54H20.
      "Medir agora" (prints `[PPG] HR beat -> ...` esperados em
      `Ppg.cpp:626-629`, nunca vistos ainda) — **fica como próximo passo
      de hardware**, não implementado/corrigido nesta sessão.
+   - **Suspeita concreta encontrada e corrigida por pesquisa aplicada
+     (2026-07-04, rotina cloud, Prioridade 1)**: `setupForHr()`
+     (`src/Ppg/Ppg.cpp`) configurava `sampleAverage=8` com
+     `sampleRate=100`. Confirmado no datasheet Maxim/SparkFun e no
+     código-fonte da `SparkFun_MAX3010x_Sensor_Library`
+     ([MAX30105.cpp](https://github.com/sparkfun/SparkFun_MAX3010x_Sensor_Library/blob/master/src/MAX30105.cpp),
+     [hookup guide](https://learn.sparkfun.com/tutorials/max30105-particle-and-pulse-ox-sensor-hookup-guide/all)):
+     o registo `SMP_AVE` da FIFO faz média de N amostras do ADC por
+     **cada** entrada nova na FIFO, dividindo a taxa efetiva de dados
+     por N — com `sampleAverage=8`, a FIFO só recebia uma amostra nova a
+     cada ~80ms (~12.5 Hz reais), não a cada 10ms (100 Hz) como
+     `lowPassFilter()`/`highPassFilter()` (`Fs=100` fixo no código) e
+     `HR_SAMPLE_INTERVAL_MS` (10ms) assumem — um desfasamento de **8x**
+     entre a taxa real e a taxa suposta pelo pipeline de filtros que
+     deteta o batimento (zero-crossing da derivada). O mesmo erro já
+     estava no sketch de referência `test/HR.cpp` (não é uma regressão
+     introduzida por este projeto, já vinha de lá). Corrigido:
+     `sampleAverage` de 8 para 1 em `setupForHr()` (o modo de SpO2,
+     `setupForSpo2()`, usa `sampleAverage=4` mas alimenta o algoritmo
+     oficial da Maxim, desenhado para essa taxa — não tocado). **Nível de
+     confiança honesto**: isto é uma causa plausível e bem fundamentada
+     (matemática do datasheet + código da biblioteca, não uma suposição),
+     mas **não confirmada como A causa** nem testada em hardware real —
+     continua bloqueado pela deteção USB intermitente (ver "Riscos/
+     bloqueios ativos", ponto 8). Próximo passo de hardware: repetir o
+     teste "Medir agora" com este firmware e confirmar se aparecem prints
+     `[PPG] HR beat -> ...` (Ppg.cpp) que nunca apareceram antes.
 1. Deteção de emergência: confirmar pinout do Wio-SX1262 (pesquisa em curso,
    ainda sem fonte fiável para os pinos SPI/CS/BUSY/DIO1/RESET do rádio) —
    módulo de firmware, characteristic BLE e reencaminhamento bridge→dashboard
