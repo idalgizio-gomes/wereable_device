@@ -505,20 +505,28 @@ Refatoração da camada de persistência com ORM e schema produção-ready:
 **Segurança/Compliance**:
 - Modelos com `deleted_at` (soft delete) para auditoria em `audit_log`
 - `ConsentRecord` para rastreabilidade GDPR (patient, scope, version, signed_at, expires_at)
-- Campos sensíveis (NIF, morada) marcados como `_encrypted` — cifra real a implementar com `cryptography` (AES + salt)
+- Campos sensíveis (NIF, morada): cifra real implementada 2026-07-07 —
+  AES-256-GCM, chave derivada via Argon2id (`bridge/crypto_utils.py`, ver
+  secção "Cifra real dos campos sensíveis (NIF, morada) + Alembic" abaixo)
 - `AuditLog` JSONB com details completos (valores antigos/novos para comparar)
 - IP address registado em cada ação sensível
 
 **Motor de BD**:
 - **SQLite em desenvolvimento** (`sqlite:///./carewear.db`) — embutido, sem servidor
 - **PostgreSQL em produção** (via `DATABASE_URL` env var) — suporta JSONB nativo, constraints mais fortes, pool connection
-- Migrations via **Alembic** (próxima fase — criará versões incrementais do schema)
+- Migrations via **Alembic** (`bridge/migrations/`, configurado 2026-07-07 —
+  ver secção "Cifra real dos campos sensíveis (NIF, morada) + Alembic" abaixo)
 
 **Próximas fases**:
 - Integração Twilio para SMS/email (alertas críticos, OTP confirmação emergência)
-- Alembic migrations (script versionado para evolução do schema)
+  — bloqueado, precisa de credenciais/conta do utilizador.
 - Endpoints REST/GraphQL para dashboard (ligar queries analíticas a tempo real)
-- Cifra real dos campos sensíveis (derivação de chave com argon2)
+  — novo subsistema (framework, rotas, autenticação), ainda por começar.
+- ~~Alembic migrations (script versionado para evolução do schema)~~ —
+  **feito (2026-07-07, rotina cloud)**, ver secção "Cifra real dos campos
+  sensíveis (NIF, morada) + Alembic" abaixo.
+- ~~Cifra real dos campos sensíveis (derivação de chave com argon2)~~ —
+  **feito (2026-07-07, rotina cloud)**, ver secção seguinte.
 - ~~Testes unitários com pytest~~ — **primeira suite feita (2026-07-07,
   rotina cloud)**, ver secção seguinte.
 
@@ -583,6 +591,106 @@ testado sem acesso à placa física).
 — o módulo continua **não integrado** no `ble_bridge.py` (que usa
 `storage.py`, a versão mais simples já em produção). Testes de integração
 bridge↔BD avançada ficam por fazer quando/se essa integração avançar.
+
+### Cifra real dos campos sensíveis (NIF, morada) + Alembic (2026-07-07, rotina cloud)
+
+Duas das quatro "Próximas fases" registadas na secção acima (2026-07-04)
+ainda estavam por fazer nesta data — esta execução seguiu a ordem de
+prioridade do projeto (0-2 hardware bloqueado, 3 app móvel fora do âmbito
+de uma execução autónoma, 4 = esta), depois de sincronizar com
+`origin/main` (o checkout local desta rotina estava numa branch antiga,
+59 commits atrás — ver nota de processo abaixo) e confirmar que nenhuma
+rotina paralela tinha tocado nestes dois itens ainda hoje.
+
+**Nota de processo (não é uma alteração de código)**: esta execução
+começou com o checkout local numa branch (`claude/wonderful-goldberg-ypuyq1`)
+criada localmente e nunca publicada no GitHub, muito atrás do `origin/main`
+real — um `git fetch origin --prune` revelou o estado verdadeiro do
+repositório, incluindo um branch remoto extra `Main` (maiúscula, já
+identificado e documentado por outra rotina, ver "Verificação de bugs —
+2ª passagem" abaixo) e confirmou que `origin/main` continha 58 commits não
+vistos localmente. Resolvido com `git checkout main && git merge --ff-only
+origin/main` (fast-forward puro, sem perda de trabalho — a branch local
+antiga não tinha nenhum commit que não estivesse já em `origin/main`).
+Registado aqui como lembrete, reforçando a nota já deixada por outra
+rotina horas antes: fazer sempre `git fetch`/verificar o estado real do
+repositório antes de assumir o que já foi feito, especialmente com
+múltiplas sessões a correr no mesmo dia.
+
+**1. Cifra real dos campos sensíveis** (`bridge/crypto_utils.py`, novo):
+`Patient.nif_encrypted`/`address_encrypted` (`storage_advanced.py`)
+estavam nomeados como "encriptados" desde 2026-07-04 mas guardavam sempre
+texto simples — a cifra nunca tinha sido implementada, só prometida na
+documentação (o mesmo tipo de lacuna já encontrada e corrigida noutra
+parte do projeto, ver "Histórico: o 'modo de dados' BLE não estava
+cifrado" acima). Implementado:
+
+- Chave derivada com **Argon2id** (`argon2-cffi`, parâmetros OWASP para
+  derivação de chave: time_cost=3, memory_cost=64MiB, parallelism=4) a
+  partir de duas variáveis de ambiente novas — `CAREWEAR_DB_ENCRYPTION_KEY`
+  (frase-passe) + `CAREWEAR_DB_ENCRYPTION_SALT_HEX` (sal, hex ≥16 bytes) —
+  nunca no código-fonte, mesmo padrão já usado para `CAREWEAR_AES_KEY_HEX`
+  no bridge BLE.
+- Cifra por campo com **AES-256-GCM** (autenticada — ao contrário do
+  AES-CTR do streaming BLE, aqui a latência de um MAC completo por campo
+  não é um problema, por isso não há razão para abrir mão da autenticação).
+  Nonce aleatório por chamada, prefixo `enc:` no valor guardado para
+  distinguir de texto simples legado.
+- **Degrada de forma visível, nunca finge cifrar**: sem as duas variáveis
+  de ambiente configuradas, `encrypt_field()`/`decrypt_field()` devolvem o
+  valor tal como está (com um aviso único no arranque) — mesma filosofia já
+  aplicada à cifra BLE quando `CAREWEAR_AES_KEY_HEX` está ausente.
+- `Patient.nif`/`Patient.address` (novas propriedades Python) cifram/
+  decifram automaticamente através destas colunas — nenhum código que use
+  `Patient` precisa de chamar `encrypt_field()`/`decrypt_field()`
+  diretamente.
+- **`schema.sql` corrigido**: a coluna `nif` tinha `UNIQUE`, o que deixa de
+  fazer sentido com cifra autenticada (nonce aleatório por escrita produz
+  ciphertext sempre diferente para o mesmo NIF — uma constraint `UNIQUE`
+  sobre ciphertext nunca detetaria duplicados, só rejeitaria escritas por
+  coincidência). Renomeada para `nif_encrypted`/`address_encrypted`
+  (alinhado com os nomes já usados no ORM) e removida a `UNIQUE`.
+  Colunas alargadas de 255 para 512 bytes (overhead da cifra + base64 em
+  moradas mais longas).
+- **Testado**: `bridge/tests/test_crypto_utils.py` (13 testes novos —
+  cifra desativada por omissão, roundtrip com/sem Unicode, dois valores
+  iguais produzem ciphertext diferente, texto simples legado continua
+  legível depois de a cifra ser ativada, falha fechada — `RuntimeError` —
+  se a chave desaparecer entretanto, falha com frase-passe errada) +
+  4 testes novos em `test_storage_advanced.py` (`TestPatientSensitiveFields`,
+  integração das propriedades `nif`/`address` com o modelo ORM). **34/34
+  testes passam** (16 já existentes + 18 novos), SQLite em memória, sem
+  hardware nem toolchain ARM envolvidos.
+- **Limitação honesta**: perder a frase-passe OU o sal torna os campos já
+  cifrados irrecuperáveis (não há backdoor nem recuperação — documentado
+  no `bridge/README.md` novo, secção "Base de dados avançada"). Rotação de
+  chave (recifrar tudo com uma chave nova) não implementada — ficaria para
+  quando/se este módulo avançar para produção real. `storage_advanced.py`
+  continua **não integrado** em `ble_bridge.py` (mesma limitação já
+  registada na secção anterior) — esta cifra protege um módulo ainda em
+  protótipo, não dados reais de utentes em produção.
+
+**2. Alembic configurado** (`bridge/alembic.ini`, `bridge/migrations/`,
+novos): schema deixou de depender só de `Base.metadata.create_all()`
+(cria tudo de uma vez, sem histórico de alterações) — `bridge/migrations/env.py`
+aponta para `storage_advanced.Base.metadata` e reutiliza a mesma variável
+`DATABASE_URL` já usada pela aplicação (nunca duplica a URL em
+`alembic.ini`), com `render_as_batch=True` em SQLite (necessário porque
+SQLite não suporta `ALTER TABLE` para a maioria das operações — sem efeito
+em PostgreSQL/produção). Gerada e **testada de facto** a migração inicial
+(`migrations/versions/daaeabc42ec5_schema_inicial.py`, via
+`--autogenerate`, não escrita à mão): `alembic upgrade head` contra uma
+BD SQLite temporária cria as 15 tabelas esperadas, `alembic downgrade
+base` remove-as todas — confirmado a correr os dois comandos, não só
+assumido. Documentado em `bridge/README.md` (nova secção "Base de dados
+avançada").
+
+**Ainda por fazer** (ver "Próximas fases" acima, atualizada): Twilio
+(bloqueado, precisa de credenciais do utilizador) e endpoints REST/GraphQL
+para ligar as queries analíticas ao dashboard em tempo real — este último
+é um novo subsistema (escolha de framework, rotas, autenticação), fora do
+âmbito de uma única execução desta rotina; fica registado como o próximo
+item concreto da Prioridade 4.
 
 ## Dashboard web (protótipo)
 

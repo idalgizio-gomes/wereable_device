@@ -48,3 +48,41 @@ sensores (evita mostrar valores fabricados) — regista um aviso e ignora-os.
 entregue a chave ao bridge automaticamente — quem provisiona o
 dispositivo tem de configurar o bridge manualmente com a mesma chave.
 Ver o cabeçalho de `ble_bridge.py` para o desenho completo do protocolo.
+
+## Base de dados avançada (`storage_advanced.py`, protótipo)
+
+**Ainda não integrada em `ble_bridge.py`** (que continua a usar
+`storage.py`, a versão simples já em produção) — ver PROJECT_STATUS.md,
+secção "Base de Dados SQL Completa". Para experimentar isoladamente:
+
+```
+pip install -r requirements_db.txt
+cd bridge && python -m pytest tests/ -v   # 34 testes, SQLite em memória
+```
+
+### Migrações (Alembic)
+
+O schema é gerido pelo Alembic a partir de `storage_advanced.Base.metadata`
+— nunca editar tabelas diretamente numa BD já em uso.
+
+```
+export DATABASE_URL=sqlite:///./carewear.db   # ou postgresql://... em produção
+alembic upgrade head          # aplica todas as migrações pendentes
+alembic revision --autogenerate -m "descrição da alteração"   # depois de mudar um modelo
+```
+
+### Cifra dos campos sensíveis (NIF, morada)
+
+`Patient.nif`/`Patient.address` cifram automaticamente com AES-256-GCM
+(chave derivada via Argon2id, ver `crypto_utils.py`) antes de gravar.
+Sem estas duas variáveis, os valores ficam em **texto simples** (com aviso
+no arranque) — nunca finge cifrar com uma chave previsível:
+
+```
+export CAREWEAR_DB_ENCRYPTION_KEY=<frase-passe longa e secreta>
+export CAREWEAR_DB_ENCRYPTION_SALT_HEX=$(python3 -c "import os; print(os.urandom(16).hex())")
+```
+
+Guardar as duas variáveis em local seguro — perder a frase-passe ou o sal
+torna os campos já cifrados **irrecuperáveis** (não há forma de recuperar
+uma chave Argon2id sem os dois inputs originais).

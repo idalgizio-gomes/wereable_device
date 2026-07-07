@@ -27,8 +27,14 @@ CREATE TABLE IF NOT EXISTS patients (
     uuid TEXT UNIQUE NOT NULL,
     name TEXT NOT NULL,
     date_of_birth DATE NOT NULL,
-    nif TEXT UNIQUE,  -- Número de Identificação Fiscal (sensível, aprovação obrigatória)
-    address TEXT,  -- (sensível)
+    -- nif/address: cifrados com AES-256-GCM (chave derivada via Argon2id,
+    -- ver bridge/crypto_utils.py) antes de gravar — cada valor cifrado usa
+    -- um nonce aleatório, por isso o mesmo NIF produz ciphertexts distintos
+    -- em cada escrita; SEM UNIQUE aqui de propósito (ao contrário de uma
+    -- versão anterior deste ficheiro) — uma restrição UNIQUE sobre
+    -- ciphertext não deteta NIFs duplicados, só duplicaria erros.
+    nif_encrypted TEXT,  -- Número de Identificação Fiscal (sensível, aprovação obrigatória)
+    address_encrypted TEXT,  -- (sensível)
     phone TEXT,
     emergency_contact_name TEXT,
     emergency_contact_phone TEXT,
