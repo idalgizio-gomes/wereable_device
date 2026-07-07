@@ -3726,7 +3726,6 @@ function drawHrSeries(id){
   ctx.clearRect(0,0,w,h);
   const padL=30, padR=8, top=14, bottom=22;
   const plotW=w-padL-padR, plotH=h-top-bottom;
-  const min=50,max=105;
 
   // Em modo "ao vivo" (bridge ligado) desenha o buffer real recebido por
   // WebSocket (liveHrBuffer); caso contrário, cai para a série simulada
@@ -3736,11 +3735,25 @@ function drawHrSeries(id){
   const label = document.getElementById('hrChartLabel');
   if (label) label.textContent = live ? '— ao vivo' : '— últimas 24h (demonstração)';
 
+  // Escala do eixo Y calculada a partir dos valores reais da série (fixo
+  // em 50-105 antes disto) — um valor fora desse intervalo fixo (ex.:
+  // deteção de HR com ruído, ver "Sessão de hardware real" no
+  // PROJECT_STATUS.md, 175-187 bpm) ficava desenhado fora do canvas,
+  // invisível, sem qualquer indicação de que algo estava a ser cortado.
+  const values = series.map(d => d.hr);
+  const dataMin = Math.min(...values), dataMax = Math.max(...values);
+  const pad = Math.max(5, (dataMax - dataMin) * 0.15);
+  let min = Math.floor((dataMin - pad) / 5) * 5;
+  let max = Math.ceil((dataMax + pad) / 5) * 5;
+  if (max - min < 20) { const mid = (max + min) / 2; min = mid - 10; max = mid + 10; }
+
   const xAt = (i) => padL + (i/(series.length-1))*plotW;
   const yAt=(v)=> top + plotH - ((v-min)/(max-min))*plotH;
 
   ctx.strokeStyle=resolveVar('--border-soft'); ctx.fillStyle=resolveVar('--text-muted'); ctx.font='10px '+getComputedStyle(document.body).fontFamily;
-  [50,65,80,95].forEach(v=>{ const y=yAt(v); ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(w-padR,y); ctx.stroke(); ctx.fillText(v, 2, y-4); });
+  const tickCount = 4;
+  Array.from({length: tickCount + 1}, (_, i) => Math.round(min + (i * (max - min) / tickCount)))
+    .forEach(v=>{ const y=yAt(v); ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(w-padR,y); ctx.stroke(); ctx.fillText(v, 2, y-4); });
 
   // área
   const grad = ctx.createLinearGradient(0,top,0,top+plotH);
@@ -4013,44 +4026,49 @@ function sendWsCommandWithArgs(cmd, extra){
 // Duração real do pedido "Medir agora" no firmware/bridge (ver
 // DUMP_CTRL_FORCE_READING_SECONDS em bridge/ble_bridge.py — mantido em
 // sincronia manualmente, os dois lados não partilham este valor em
-// tempo de execução). Usado só para o countdown visual; o botão só é
-// reativado de facto quando chega o command_result ou este tempo esgota
-// (ver forceReadingTimeoutId), o que vier primeiro.
+// tempo de execução).
+//
+// BUG CORRIGIDO (2026-07-07, reportado pelo utilizador: "o countdown não
+// funciona"): a 1ª versão parava o countdown assim que chegava o
+// command_result — mas o bridge envia esse command_result LOGO A SEGUIR
+// à escrita GATT (handle_dashboard_command() em ble_bridge.py), não
+// depois da janela real de 15s de medição no dispositivo. Na prática o
+// countdown desaparecia quase instantaneamente (~1s), parecendo não
+// funcionar. Agora o countdown corre sempre até ao fim dos
+// FORCE_READING_SECONDS reais — command_result só interrompe cedo se
+// ok=false (falha real, não há nada por onde esperar).
 const FORCE_READING_SECONDS = 15;
 let forceReadingIntervalId = null;
-let forceReadingTimeoutId = null;
 
 function stopForceReadingCountdown(){
   if (forceReadingIntervalId != null){ clearInterval(forceReadingIntervalId); forceReadingIntervalId = null; }
-  if (forceReadingTimeoutId != null){ clearTimeout(forceReadingTimeoutId); forceReadingTimeoutId = null; }
+}
+
+function finishForceReadingCountdown(message, isWarning){
+  stopForceReadingCountdown();
+  const btn = document.getElementById('forceReadingBtn');
+  const hint = document.getElementById('forceReadingHint');
+  if (btn) btn.disabled = false;
+  if (hint){
+    hint.style.color = isWarning ? 'var(--status-warning)' : 'var(--status-good)';
+    hint.textContent = message;
+  }
 }
 
 function startForceReadingCountdown(){
   stopForceReadingCountdown();
   const hint = document.getElementById('forceReadingHint');
   let remaining = FORCE_READING_SECONDS;
-  if (hint){
-    hint.style.color = '';
-    hint.textContent = `A pedir leitura ao dispositivo… (~${remaining}s)`;
-  }
+  const render = () => { if (hint) hint.textContent = `A medir… (~${remaining}s restantes)`; };
+  if (hint) hint.style.color = '';
+  render();
   forceReadingIntervalId = setInterval(() => {
     remaining -= 1;
     if (remaining <= 0){
-      // O command_result normalmente chega antes disto, mas se a
-      // notificação BLE se perder no ar (sem confirmação/retransmissão,
-      // ver bridge/ble_bridge.py), o botão não pode ficar preso para
-      // sempre — reativa-o com um aviso honesto em vez de um valor.
-      clearInterval(forceReadingIntervalId);
-      forceReadingIntervalId = null;
-      const btn = document.getElementById('forceReadingBtn');
-      if (btn) btn.disabled = false;
-      if (hint){
-        hint.style.color = 'var(--status-warning)';
-        hint.textContent = 'Sem resposta do dispositivo dentro do tempo esperado. Tenta novamente.';
-      }
+      finishForceReadingCountdown('Leitura concluída — os valores devem estar atualizados.', false);
       return;
     }
-    if (hint) hint.textContent = `A pedir leitura ao dispositivo… (~${remaining}s)`;
+    render();
   }, 1000);
 }
 
@@ -4096,15 +4114,12 @@ function onForceReadingClick(){
 
 function handleCommandResult(msg){
   if (msg.cmd === 'force_reading'){
-    stopForceReadingCountdown();
-    const btn = document.getElementById('forceReadingBtn');
-    const hint = document.getElementById('forceReadingHint');
-    if (btn) btn.disabled = false;
-    if (hint){
-      hint.style.color = msg.ok ? 'var(--status-good)' : 'var(--status-warning)';
-      hint.textContent = msg.ok
-        ? 'Pedido enviado — os valores devem atualizar em alguns segundos.'
-        : `Falhou: ${msg.error || 'erro desconhecido'}.`;
+    // Só ok=false interrompe o countdown cedo (falha real confirmada
+    // pelo bridge). ok=true só confirma que o comando FOI ENVIADO — a
+    // medição em si continua a decorrer no dispositivo, por isso o
+    // countdown continua a correr (ver nota acima).
+    if (!msg.ok){
+      finishForceReadingCountdown(`Falhou: ${msg.error || 'erro desconhecido'}.`, true);
     }
   }
   if (msg.cmd === 'reset_readings'){
