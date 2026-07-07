@@ -2737,3 +2737,74 @@ Ficheiros alterados: `ml/train_lstm_autoencoder.py` (código da métrica),
 idênticas às anteriores — ver acima), `ml/README.md` (secção "Passo 2" e
 item 5 novo em "Próximos passos"). Ver `ml/README.md` para o detalhe
 completo e a interpretação honesta por tipo de anomalia.
+
+## `bridge/requirements_db.txt` inválido para o `pip` + CI de testes do bridge (2026-07-07, rotina cloud)
+
+Nota de processo (já norma): `git fetch origin main` + fast-forward antes de
+começar — o checkout local estava 61 commits atrás do `origin/main` real
+(as três passagens de varredura de bugs, a correção de `ml/`/PR-AUC e a
+nova API REST já lá estavam). Com Prioridades 0-2 e 6-8 bloqueadas
+(hardware/decisão do utilizador) e a Prioridade 3 (app móvel) fora do
+âmbito de uma execução autónoma, e depois de rever o histórico do dia (já
+três varreduras de bugs feitas, dashboard/`ml/`/CI já corrigidos por
+rotinas paralelas), esta execução tentou reproduzir de facto o passo
+"`pip install -r bridge/requirements_db.txt`" descrito em `bridge/README.md`
+e nesta mesma secção acima (protocolo "medir, não assumir" já seguido
+noutras sessões) — em vez de assumir que continuava a funcionar.
+
+**Bug real encontrado e corrigido**: `bridge/requirements_db.txt` usa `;`
+como marcador de comentário em todas as suas linhas (herdado desde a sua
+criação em 2026-07-04) — mas o formato de `requirements.txt` do `pip` só
+reconhece `#` como comentário; `;` depois de um nome de pacote é
+interpretado como um **marcador de ambiente** (`nome; python_version>=...`).
+A primeira linha do ficheiro é *só* um comentário (`; Dependências
+Python...`), sem nome de pacote nenhum antes do `;` — `pip` tenta compilar
+isso como uma `Marker` vazia e rebenta imediatamente com
+`InvalidMarker: Expected a marker variable or quoted string`, **antes de
+instalar uma única dependência**. Reproduzido diretamente (venv limpo,
+`pip install -r bridge/requirements_db.txt`): falha 100% das vezes, para
+qualquer pessoa que siga literalmente a instrução já documentada em
+`bridge/README.md` (duas ocorrências) e nesta secção do ficheiro. Isto
+bloqueava por completo o caminho de instalação documentado para
+`storage_advanced.py`, Alembic, `crypto_utils.py` e `bridge/api.py` — tudo
+o que a Prioridade 4 construiu nas últimas sessões. **Corrigido**: todos os
+comentários (de linha inteira e em fim de linha) trocados de `;` para `#`,
+sem alterar nenhuma versão/dependência.
+
+**Verificado de facto, não só assumido** (venv limpo nesta rotina cloud):
+- `pip install -r bridge/requirements_db.txt` — sucesso completo, todas as
+  dependências instaladas (incluía já `fastapi`/`uvicorn`/`httpx` da API
+  REST e `pytest`/`pytest-asyncio` dos testes).
+- `python -m py_compile` sobre os 5 módulos do bridge (`ble_bridge.py`,
+  `storage.py`, `storage_advanced.py`, `crypto_utils.py`, `api.py`) — sem
+  erros de sintaxe.
+- `cd bridge && python -m pytest tests/ -v` — **46/46 testes passam** (a
+  suite cresceu desde os "16/16" registados na sessão que criou
+  `test_storage_advanced.py": entretanto `test_crypto_utils.py` e
+  `test_api.py` foram adicionados por sessões paralelas, também confirmados
+  a passar aqui).
+
+**Lacuna relacionada, também corrigida**: não existia nenhuma CI a correr
+esta suite de testes Python — só o firmware C++ tinha CI real (`c-cpp.yml`,
+corrigido numa sessão anterior no mesmo dia). Ou seja, todas as correções
+recentes a `storage_advanced.py`, `crypto_utils.py`, `ble_bridge.py` e
+`bridge/api.py` (várias delas nas 3 passagens de varredura de bugs de hoje)
+dependiam inteiramente de cada rotina lembrar-se de instalar dependências e
+correr `pytest` manualmente — sem nenhuma rede de segurança automática a
+apanhar uma regressão futura num push. Adicionado
+`.github/workflows/bridge-tests.yml` (novo, mesmo padrão do `c-cpp.yml`
+já existente): instala `bridge/requirements_db.txt` com cache de pip e
+corre `pytest tests/ -v` a partir de `bridge/`, em cada push/PR para
+`main`. YAML validado com `yaml.safe_load` antes de commitar (mesma
+prática já usada na correção da CI do firmware).
+
+**Ainda por fazer** (fora do âmbito desta correção pontual): não existe CI
+equivalente para `ml/` (os scripts de treino são pesados — TensorFlow,
+vários minutos — e produzem artefactos versionados manualmente; correr o
+pipeline completo em CI a cada push exigiria decidir o que testar de facto,
+ex.: só `duration_detector.py`/`features.py` com `pytest`, sem retreinar os
+modelos — não decidido nem implementado aqui). `storage_advanced.py`
+continua sem ligação real ao streaming BLE (`ble_bridge.py` usa
+`storage.py`, ver limitação já registada na secção da suite de testes,
+acima) — este CI só protege contra regressões de import/lógica, não é um
+teste de integração ponta a ponta.
