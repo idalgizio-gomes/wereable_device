@@ -1874,6 +1874,44 @@ lista "Próximas etapas de integração" abaixo, agora resolvida):
   o `<script>` principal extraído de `index.html` — ambos sem erros.
 - Testado em Playwright real (Chromium), ver ponto 3 acima.
 
+### UI do resumo semanal de adesão ligada (2026-07-07, rotina cloud completa)
+
+Resolvido o item "ainda por fazer" nº 4 acima (`recordDay()`/`getWeekSummary()`/
+`getRecommendations()` nunca eram chamados, por isso `AdherenceAnalytics`
+ficava sempre vazia):
+
+- `markDoseTaken()` (`web/dashboard/index.html`) passou a chamar
+  `window.adherenceAnalytics.recordDay(patientId, todayAdherencePct(patient))`
+  sempre que uma dose é confirmada — só regista a percentagem de adesão de
+  **hoje**, recalculada a partir de cliques reais, nunca um valor simulado.
+  Não passa `activityLevel`/`hrAvg` (2º/3º argumentos de `recordDay()`) por
+  agora — não há ainda um mapeamento honesto de "nível de atividade"
+  (alto/médio/baixo) a partir dos dados existentes do dashboard sem
+  inventar uma categorização; fica registado como possível extensão futura,
+  não feita aqui para não fabricar uma correlação sem base.
+- Novo cartão **"Análise de adesão"** em `TEMPLATES.medicacao`, com o rótulo
+  "dados reais deste browser" — **deliberadamente separado** do cartão já
+  existente "Adesão — últimos 6 dias" (que continua a usar
+  `patient.adherenceHistory`, dados de exemplo fixos no código), mesma
+  regra do resto do projeto de nunca misturar dados reais e simulados na
+  mesma série. Mostra a média dos dias registados, o alerta/padrão
+  calculado por `AdherenceAnalytics`, e a lista de recomendações; antes de
+  haver qualquer dia registado, mostra um estado vazio explícito ("regista-se
+  um dia de cada vez... não é um histórico retroativo") em vez de aparentar
+  dados que não existem.
+- **Testado em Playwright real (Chromium)**: vista "Medicação" antes de
+  marcar qualquer dose mostra o estado vazio do novo cartão; depois de
+  clicar "Marcar como tomado", o cartão passa a mostrar "Média dos
+  últimos..." com a percentagem recalculada, sem erros de consola (só o
+  aviso esperado de WebSocket recusado, sem bridge a correr) — confirmado
+  também que o cartão de histórico simulado antigo continua a renderizar
+  sem alterações. Sintaxe do `<script>` principal revalidada com
+  `node --check` depois da alteração.
+- **Limitação honesta**: continua sem ligação a `storage_advanced.py` —
+  o histórico de `AdherenceAnalytics` vive só em `localStorage` deste
+  browser, perde-se ao limpar dados do browser ou trocar de dispositivo,
+  tal como o resto dos dados de demonstração do protótipo.
+
 ## Roadmap alargado (definido pelo utilizador, por implementar)
 
 Wearable · Firmware · IA embarcada · App móvel (Android/iOS) · Dashboard Web ·
