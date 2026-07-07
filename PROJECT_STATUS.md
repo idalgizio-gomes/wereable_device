@@ -2916,3 +2916,122 @@ LoRa (`test_lora_isolated`, nunca chegou a ler-se em série), gesto de
 emergência de 3 cliques (`Emergency::triggerTestAlert()`/SOS físico,
 corrigido no código mas nunca confirmado em hardware — dispara um alerta
 real, avisar o utilizador antes), GPS (sem código ainda).
+
+**Bug real corrigido — gráfico de FC com eixo Y fixo (50-105 bpm)
+escondia os valores de HR com ruído** (`web/dashboard/index.html`,
+`drawHrSeries()`): reportado pelo utilizador ("a área de visualização só
+vai de 50 a 100, valores ficam de fora, não visíveis"). Com os 175-187
+bpm confirmados no teste de HR acima, `yAt(187)` calculava uma coordenada
+bem acima do topo do canvas — a linha do gráfico saía do desenho sem
+qualquer indicação visual de que havia um valor cortado. Corrigido:
+`min`/`max` do eixo passam a ser calculados a partir do `dataMin`/`dataMax`
+reais da série (ao vivo ou de demonstração) com uma margem de 15%,
+arredondados a múltiplos de 5, com um intervalo mínimo de 20 bpm (evita um
+gráfico "achatado" quando a série é muito estável). Os 4 traços de grelha
+horizontais passam a ser calculados proporcionalmente ao novo intervalo,
+em vez dos valores fixos `[50,65,80,95]`.
+
+**Bug real corrigido — countdown do "Medir agora" parecia não funcionar**
+(reportado pelo utilizador logo depois de testar): a implementação do
+countdown (ver "Dashboard: countdown do 'Medir agora' implementado" acima,
+mesma sessão) parava assim que chegava o `command_result` do bridge — mas
+o bridge envia esse `command_result` LOGO A SEGUIR à escrita GATT
+(`handle_dashboard_command()` em `bridge/ble_bridge.py`), não depois da
+janela real de 15s de medição no dispositivo. Na prática o countdown
+desaparecia quase instantaneamente (~1s após o clique), dando a impressão
+de nunca ter aparecido. Corrigido: o countdown agora corre sempre até ao
+fim real de `FORCE_READING_SECONDS` (15s); `command_result` só o
+interrompe cedo quando `ok=false` (falha confirmada, não há nada por onde
+esperar) — em caso de sucesso, o botão só reativa quando o tempo real da
+medição termina, com a mensagem "Leitura concluída — os valores devem
+estar atualizados."
+
+Verificação de ambas as correções: parser JS real (esprima) sobre o
+`<script>` principal extraído — sem erros novos introduzidos (o único erro
+reportado é a limitação já conhecida do esprima com `??`/`?.`, numa linha
+pré-existente não relacionada); confirmado que não há definições
+duplicadas das funções tocadas (`grep -c`, 1 ocorrência cada).
+
+**Passos: também confirmados falsos positivos** (reportado pelo
+utilizador com a placa no pulso). Lido `detectStep()` em `src/Imu/Imu.cpp`:
+o detetor é um limiar simples sobre a magnitude da aceleração
+("high-pass" contra uma média móvel lenta, `kStepRiseThreshold=0.20g`,
+`kStepRefractoryMs=320ms`), sem validação cruzada com o giroscópio nem
+plausibilidade de cadência — vulnerável a abanar o pulso, gestos com a
+mão ou vibração, que produzem o mesmo pico de aceleração de um passo real
+(fraqueza clássica de pedómetros só-de-acelerómetro). **Não corrigido
+nesta sessão** — ver plano abaixo.
+
+## Plano de testes de hardware pendentes (2026-07-07, a pedido do utilizador)
+
+Este plano cobre os itens ainda por testar/corrigir com a placa real, por
+ordem de prioridade e risco. Regra do utilizador (já registada em
+"Próximas tarefas"): não começar pelo mais arriscado/complexo (LoRa).
+
+### 1. HR — detetor a contar ruído como batimentos extra (prioridade alta, já em curso)
+- **Estado**: `sampleAverage` corrigido (2026-07-04) resolveu o
+  desfasamento de taxa; batimentos detetados pela primeira vez
+  confirmados hoje, mas a ~175-187 bpm (implausível em repouso).
+- **Hipótese**: `detectHeartbeat()` (`Ppg.cpp`) deteta cruzamento de zero
+  da derivada sem exigir amplitude mínima de pico — pode estar a contar
+  ruído/harmónicos como batimentos extra.
+- **Próximo passo concreto**: capturar série ao vivo do sinal PPG em
+  bruto (antes do filtro/derivada) durante um "Medir agora" real, para
+  confirmar visualmente se há 1 pico por batimento ou vários. Se
+  confirmado, adicionar um limiar de amplitude mínima ao
+  `detectHeartbeat()` (não só o cruzamento de zero) e/ou alargar o
+  refratário. **Não implementar a correção às cegas sem essa captura** —
+  já houve uma hipótese anterior (`sampleAverage`) que só se confirmou
+  com dados reais, não só leitura de código.
+
+### 2. Passos — falsos positivos por movimento do pulso sem andar (prioridade alta, novo)
+- **Estado**: confirmado hoje pelo utilizador ("contagem também está
+  inconsistente, teve falsos positivos") com a placa no pulso.
+- **Hipótese**: limiar simples de aceleração (`detectStep()`, `Imu.cpp`)
+  sem cruzamento com o giroscópio nem verificação de cadência regular —
+  qualquer gesto de pulso com magnitude de aceleração parecida a um passo
+  conta como passo.
+- **Próximo passo concreto**: repetir o teste com dois cenários
+  controlados e comparados (contagem manual do utilizador vs. `steps`
+  reportado): (a) andar um número conhecido de passos sem mexer muito o
+  pulso; (b) ficar parado a abanar/gesticular com o pulso sem andar.
+  Só depois de ver os números dos dois cenários decidir a correção
+  (candidatos: exigir uma cadência mínima entre passos consecutivos
+  dentro de um intervalo plausível, ou cruzar com o giroscópio para
+  distinguir marcha de gesto).
+
+### 3. SpO2 — dados insuficientes para validar (prioridade média)
+- **Estado**: 1 leitura válida (100%) confirmada hoje, histórico com
+  quase nenhum dado.
+- **Próximo passo**: repetir "Medir agora" várias vezes com o sensor bem
+  encostado à pele e comparar contra um oxímetro de referência, se
+  disponível — sem isso não há como validar exatidão, só presença de
+  leitura.
+
+### 4. Emergência — gesto SOS de 3 cliques (prioridade média, ação sensível)
+- **Estado**: corrigido no código (`delayPollingEmergency()`,
+  `Emergency::triggerTestAlert()` via comando série `SOS`) mas **nunca
+  testado em hardware real**.
+- **Atenção**: disparar isto gera um alerta de emergência real no
+  dashboard (`emergency_alert`) — **confirmar com o utilizador antes de
+  correr**, para não ser uma surpresa se estiver a demonstrar o dashboard
+  a alguém nesse momento.
+- **Próximo passo**: com o bridge ligado e o dashboard aberto na vista de
+  alertas, enviar `SOS` pela série (bypass, já que o botão físico está
+  partido) e confirmar: (a) o alerta aparece no dashboard; (b) o fluxo de
+  cancelamento por OTP funciona como esperado; (c) o firmware não
+  bloqueia nada mais enquanto o alerta está pendente.
+
+### 5. LoRa — nunca chegou a ler-se em série (prioridade baixa, mais arriscado)
+- **Estado**: `test_lora_isolated` preparado desde 2026-07-03, nunca
+  corrido/lido em série (sessão anterior ficou bloqueada antes de
+  chegar aqui, ver "Próximas tarefas" acima).
+- **Próximo passo**: só depois dos itens 1-4. Compilar e enviar o
+  ambiente isolado (`pio run -e test_lora_isolated -t upload`), abrir
+  série e capturar os 3 testes (TESTE 1/2/3) do ficheiro, um de cada vez,
+  sem assumir que o pino NSS está certo — é precisamente isso que este
+  teste deve confirmar/negar.
+
+### 6. GPS — sem código ainda (fora do âmbito de "testar o que existe")
+- Não há nada para testar; fica de fora deste plano até haver
+  implementação (fora do âmbito desta rotina de testes de hardware).
