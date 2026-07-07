@@ -44,7 +44,7 @@ local e remoto sincronizados. Identidade git configurada: Idalgizio Gomes
 | `Ble` | `src/Ble/`, `include/Ble/` | Comentado. Bug corrigido: nome BLE ausente no advertising de provisioning (agora usa `Bluefruit.ScanResponse.addName()`). Stack reduzida 3072→2560 words. Prints não regulados de `gattDumpTask` agora atrás de `kGattDumpVerboseLogs`. |
 | `Storage` | `src/Storage/`, `include/Storage/` | Comentado. |
 | `Clock` | `src/Clock/`, `include/Clock/` | Comentado. |
-| `QspiRingBuffer` | `src/QspiRingBuffer/`, `include/QspiRingBuffer/` | Comentado. Ring buffer de 64 bytes/slot na flash externa. |
+| `QspiRingBuffer` | `src/QspiRingBuffer/`, `include/QspiRingBuffer/` | Comentado. Ring buffer de 64 bytes/slot na flash externa. Nova função `advanceTail()` (2026-07-07, ver secção "Otimização de CPU/flash" abaixo) elimina uma leitura QSPI redundante por registo no caminho de streaming BLE. |
 
 `STORAGE_TASK_STACK_WORDS` (em `main.cpp`) reduzido 2048→1536 words.
 
@@ -108,6 +108,123 @@ ramos mais pesados de cada task (ex.: medição de SpO2 completa em
 `ppg_task`, prints de HR/SpO2 válidos em `storage_task`). Esta rotina não
 tem acesso ao dispositivo físico, por isso não pôde validar isto
 diretamente — só a aritmética/margens de segurança acima.
+
+### Otimização de CPU/flash (2026-07-07, rotina diária) — leitura QSPI redundante eliminada do streaming BLE
+
+Com as reduções de stack (RAM) já feitas em rondas anteriores e sem
+watermarks novos de hardware para justificar mais cortes, esta execução
+procurou desperdício de CPU/latência em vez de RAM. Achado concreto em
+`src/QspiRingBuffer/QspiRingBuffer.cpp`/`src/Ble/Ble.cpp`:
+
+- **Problema**: o caminho de streaming BLE (`gattDumpTask`/
+  `peekImuPpgRecord`, `Ble.cpp`) já seguia corretamente o padrão "peek()
+  (lê sem remover) → envia por BLE → só depois pop() (remove)" para nunca
+  perder um registo se o envio falhar a meio. Mas `pop()` volta sempre a
+  fazer o próprio trabalho que `peek()` acabara de fazer sobre o
+  **mesmo** slot: uma transação QSPI (`readSlot()`) + validação CRC
+  FNV-1a sobre ~60 bytes + `memcpy` de 44 bytes (`decodeSlot()`) — tudo
+  isso só para deitar fora o resultado (`discard`) e avançar `tail`.  Ao
+  ritmo do IMU (até ~52 registos/seg), isto duplicava as transações de
+  leitura QSPI nesse caminho: até ~104 leituras+descodificações/seg em
+  vez de ~52.
+- **Correção**: nova função `QspiRingBuffer::advanceTail()` — faz só a
+  contabilidade (`tail`/`count`/`markMetaDirty()`), sem tocar na flash,
+  pensada especificamente para o caso em que o chamador já tem a certeza
+  (por ter acabado de chamar `peek()` com sucesso sobre o mesmo registo)
+  de que o slot é válido. Substituiu as duas chamadas a `pop()` que
+  existiam só para descartar um registo já lido (`peekImuPpgRecord()`, ao
+  saltar um registo de tipo inesperado; e o corpo principal de
+  `gattDumpTask()`, depois de um envio bem-sucedido). `pop()` em si não
+  foi alterada (continua a existir e a ser usada por `selfTest()`, e
+  continua a ser a função certa a chamar quando o chamador NÃO já tem o
+  registo validado em mãos).
+- **Poupança por registo enviado**: 1 transação QSPI (`readBuffer` de 64
+  bytes) + 1 checksum FNV-1a sobre ~60 bytes + 1 `memcpy` de 44 bytes
+  evitados — a ~52 registos/seg, isto elimina até ~52 leituras QSPI/seg
+  supérfluas (metade do total anterior nesse caminho).
+- **Build**: sem toolchain ARM disponível de início nesta rotina cloud
+  (mesma limitação já documentada noutras secções), esta execução tentou
+  `pip install platformio` + `pio run` pela primeira vez — o pacote
+  `platformio` instalou-se sem problema, mas a instalação da toolchain
+  ARM (`https://files.seeedstudio.com/...`) foi bloqueada pelo proxy do
+  ambiente (`403 Forbidden`), por isso `pio run` não chegou a compilar.
+  Revisão manual feita em alternativa: leitura direta do diff, e um
+  script Python que confirma que o desequilíbrio de chavetas/parênteses
+  em `Ble.cpp` (proveniente de comentários com parênteses aninhados, não
+  de código real — já existia antes desta alteração) se manteve
+  **exatamente igual** antes/depois da edição (129/128 chavetas,
+  890/897 parênteses em ambas as versões), ou seja, a edição não
+  introduziu nenhum desequilíbrio novo. `QspiRingBuffer.cpp`/`.h`
+  (ficheiros novos/alterados sem esse ruído de comentários) têm chavetas
+  e parênteses perfeitamente equilibrados. **A CI corrigida nesta mesma
+  data** (ver "Verificação de bugs" mais abaixo, item 1) deve compilar
+  isto de facto no primeiro push — será a primeira confirmação real de
+  build para esta alteração.
+- **Não testado em hardware real** (mesma limitação de sempre — placa
+  indisponível nesta rotina cloud, ver "Riscos/bloqueios ativos", ponto
+  8): o comportamento lógico é idêntico ao anterior (mesma sequência de
+  avanço de `tail`/`count`), só a leitura de flash redundante foi
+  removida, por isso o risco de regressão funcional é baixo, mas fica
+  pendente de confirmação — em particular, confirmar que o streaming BLE
+  continua a enviar/consumir registos corretamente (contagem de
+  `sent_records`/`acked_records` em `DumpStatusPacket` a bater certo com
+  o esperado) depois de atualizar o firmware.
+
+### Otimização de CPU (2026-07-07, rotina diária) — commit SQLite síncrono a bloquear o event loop do bridge
+
+Área nova para esta rotina (bridge Python, não tocado nas rondas
+anteriores de otimização, que se focaram só no firmware). Achado em
+`bridge/storage.py` (`get_connection()`/`insert_record()`):
+
+- **Problema**: `insert_record()` é chamado de forma síncrona, direto no
+  event loop `asyncio`, a partir de `_on_dump_data()` em
+  `bridge/ble_bridge.py` — o callback de notificação BLE que corre a
+  cada registo de sensores descodificado, até ~52/seg (mesma taxa do
+  IMU referida em várias secções acima). `get_connection()` não
+  configurava nenhum `PRAGMA` de desempenho, por isso cada
+  `conn.commit()` usava o modo por omissão do SQLite (rollback journal +
+  `synchronous=FULL`), que faz até 2 `fsync()` síncronos (journal +
+  ficheiro principal) por commit — uma operação de disco que tipicamente
+  custa alguns a várias dezenas de milissegundos. Como isto corre no
+  único thread do event loop, cada commit bloqueava nesse intervalo o
+  envio de mensagens WebSocket, o processamento de outras notificações
+  BLE (incluindo `dumpStatusChar`/`emergencyAlertChar`) e a task
+  periódica de retenção — ao ritmo documentado, até ~52 (ou ~104, com os
+  2 fsyncs) bloqueios do event loop por segundo, só para persistência
+  local. Note-se que isto é distinto do `RECORD_BROADCAST_MIN_INTERVAL_S`
+  já existente (`ble_bridge.py`), que só limita a taxa do broadcast por
+  WebSocket — a escrita na base de dados acontecia sempre, a toda a
+  taxa, sem nenhuma mitigação.
+- **Correção**: `get_connection()` passou a configurar
+  `PRAGMA journal_mode=WAL` + `PRAGMA synchronous=NORMAL` na ligação.
+  Em WAL, `commit()` só acrescenta ao ficheiro `-wal` (sem `fsync` a cada
+  escrita — o SQLite faz checkpoint para o ficheiro principal
+  periodicamente e de forma automática), o que reduz drasticamente o
+  custo de cada commit sem mudar a lógica de "um commit por registo" já
+  existente. **Decisão deliberada de NÃO acumular/atrasar commits**
+  (alternativa mais agressiva considerada e descartada): o bridge não
+  tem hoje nenhum mecanismo de "flush no encerramento" (`asyncio.run(main())`
+  termina diretamente com `KeyboardInterrupt`, sem bloco `finally` a
+  fechar a base de dados) — atrasar commits arriscaria perder mais
+  registos num encerramento abrupto do que perde hoje, e adicionar essa
+  infraestrutura de flush-on-shutdown só para permitir o batching seria
+  mais mudança do que esta rotina considera justificada por uma única
+  passagem. WAL evita o bloqueio do event loop sem introduzir esse
+  risco novo.
+- **Validado localmente** (Python real, não fabricado): script de teste
+  cria uma base de dados temporária, chama `storage.init_db()`, confirma
+  `PRAGMA journal_mode` a devolver `"wal"`, insere um registo de exemplo
+  e confirma que `count_records()`/`get_records_since()` continuam a
+  funcionar normalmente. `python3 -m py_compile` sobre
+  `bridge/storage.py`/`bridge/ble_bridge.py` sem erros.
+- **Limitação honesta**: não foi medido o tempo de `commit()` antes/depois
+  com um perfilador real (ex.: `time.perf_counter()` à volta da chamada,
+  em hardware/disco real) — a justificação acima é baseada no
+  comportamento documentado e amplamente conhecido do SQLite (fsync por
+  commit no modo rollback-journal vs. WAL), não numa medição própria
+  desta execução. Fica como próximo passo se se quiser confirmar o
+  ganho em número concretos (ex.: `EXPLAIN`/temporização real com o
+  bridge ligado a um dispositivo real).
 
 ### Scripts obsoletos removidos
 
@@ -1897,3 +2014,39 @@ Revisão dirigida a esta própria alteração (chavetas/aspas YAML validadas
 com `yaml.safe_load` em Python, nomes dos ambientes conferidos byte a byte
 contra `platformio.ini`) feita antes de commitar, como já é norma neste
 projeto.
+
+## Otimização diária de RAM/CPU/desempenho — 2026-07-07
+
+Rotina diária de otimização (ver "Rotinas cloud agendadas" acima). Com as
+reduções de stack FreeRTOS já feitas em rondas anteriores e sem
+watermarks novos de hardware para justificar mais cortes de RAM, esta
+execução procurou desperdício de CPU/latência em vez de RAM — ver as
+duas secções detalhadas acima:
+
+1. **Firmware**: eliminada uma leitura QSPI + descodificação redundante
+   por registo no caminho de streaming BLE (`QspiRingBuffer::advanceTail()`,
+   `src/QspiRingBuffer/QspiRingBuffer.cpp`/`.h`, usada em
+   `src/Ble/Ble.cpp`) — ver secção "Otimização de CPU/flash (2026-07-07,
+   rotina diária)" acima para o detalhe completo. **Pendente de
+   confirmação em hardware real** (build não tentado localmente com
+   sucesso — proxy do ambiente bloqueou o download da toolchain ARM do
+   PlatformIO; a CI corrigida nesta mesma data deve compilar isto no
+   primeiro push, ver "Verificação de bugs" acima).
+2. **Bridge**: `bridge/storage.py` passou a usar
+   `PRAGMA journal_mode=WAL` + `synchronous=NORMAL`, evitando que cada
+   `conn.commit()` (chamado a cada registo de sensores, até ~52/seg)
+   bloqueie o único thread do event loop `asyncio` do bridge com `fsync`
+   síncrono — ver secção "Otimização de CPU (2026-07-07, rotina diária)
+   — commit SQLite síncrono" acima para o detalhe completo. Validado
+   localmente com uma base de dados temporária (Python real).
+
+Áreas revistas sem alterações por não terem oportunidades novas e
+concretas (já cobertas por rondas anteriores, ver secções respetivas
+acima): `Serial.print`/`Serial.printf` em hot loops do firmware (IMU
+52Hz, PPG, dump BLE) — já rate-limited ou atrás de `kGattDumpVerboseLogs`;
+dashboard web (`web/dashboard/index.html`,
+`web/dashboard/medication-reminders.js`) — canvases já só redesenham
+quando a vista ativa muda, dados sintéticos já calculados uma vez ao
+nível do módulo (não a cada render), listeners de eventos já anexados
+uma única vez, sem `setInterval` demasiado agressivo. Nenhuma alteração
+artificial foi feita nestas áreas só para ter algo a registar.
