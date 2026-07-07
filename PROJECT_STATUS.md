@@ -219,6 +219,54 @@ completo nesta execução:
   hardware. Próximo passo quando a placa voltar a estar acessível:
   confirmar que o bridge consegue decifrar um registo real, com a chave
   correta configurada.
+- **Bug de segurança real encontrado e corrigido (2026-07-07, rotina cloud,
+  revisão dirigida à cifra AES-CTR adicionada pela execução anterior)**:
+  o desenho original só envia os 32 bits BAIXOS do contador persistente de
+  64 bits como nonce (campo `nonce` de `DumpDataPacket`, limitado a
+  `uint32_t` para não crescer o pacote além do MTU por omissão — ver
+  acima). O comentário original do código assumia que isto era
+  "suficiente para nunca repetir durante vários anos de streaming
+  contínuo", mas a conta exata é mais apertada do que essa frase sugere:
+  a ~52 registos/seg contínuos, 2^32 registos esgotam-se em **~2.6 anos**
+  — passado esse ponto, o valor truncado enviado pelo ar recomeçaria a
+  **repetir os nonces usados no início da vida da mesma chave**, uma
+  quebra real da confidencialidade do CTR (permite recuperar o XOR de
+  dois registos diferentes cifrados com o mesmo par chave+nonce a quem
+  gravar o tráfego BLE). Como este firmware não suporta rotação de chave
+  (`aesKeyCallback()` rejeita qualquer escrita nova enquanto já existir
+  uma chave em flash — só um apagar completo da flash interna permite
+  reprovisionar), um dispositivo em campo por vários anos atingiria este
+  limite sem qualquer aviso. **Corrigido em `src/Ble/Ble.cpp`**:
+  `allocateNonce()`/`reserveNonceBatch()` agora recusam-se a continuar
+  (falha fechada, mesmo tratamento que qualquer outra falha de reserva de
+  nonce — o registo fica pendente e o streaming cifrado para) assim que o
+  contador persistido ultrapassa `kMaxNonceValue` (0xFFFFFFFF), com um
+  aviso único e claro no Serial (`[BLEG] AVISO CRITICO: ...`) a explicar
+  que é preciso reprovisionar uma chave nova. **Não é uma correção
+  completa do limite de 2.6 anos** (isso exigiria crescer o campo nonce
+  ou negociar um MTU maior, uma decisão de protocolo/hardware fora do
+  âmbito desta revisão pontual — ver "Estudo de viabilidade"/limitações
+  do design acima), mas fecha a lacuna real: em vez de reutilizar nonces
+  silenciosamente, o dispositivo agora para de enviar dados cifrados e
+  avisa, dando ao responsável pelo dispositivo a oportunidade de agir
+  antes de qualquer quebra de confidencialidade acontecer. Revisão feita
+  por leitura direta do código (sem toolchain ARM/hardware nesta rotina,
+  mesma limitação já documentada acima) + verificação de balanceamento de
+  chavetas/parênteses/colchetes com um script Python sobre o ficheiro
+  inteiro (124/124, 600/600, 23/23) — não testado em hardware real.
+- **Limitação adicional, confirmada por pesquisa aplicada nesta revisão
+  (2026-07-07)**: AES-CTR cifra mas não autentica — não há MAC/tag de
+  integridade no pacote, por isso o modo escolhido protege a
+  confidencialidade dos dados mas não deteta nem impede alteração/injeção
+  de pacotes por alguém que consiga transmitir na mesma characteristic
+  BLE (fonte: comparação com AES-GCM/AES-CCM, recomendados pelo NIST/BSI
+  precisamente por incluírem autenticação; ver também RFC 3686, que impõe
+  o mesmo aviso para AES-CTR em IPsec). **Não implementado nesta
+  execução** — adicionar um MAC exigiria crescer ainda mais o pacote (já
+  apertado a 20 bytes, ver acima) ou reduzir mais o `chunk_len`, uma
+  decisão de protocolo/hardware que não me compete tomar sozinho fora de
+  uma revisão pontual; registado aqui como limitação honesta e possível
+  trabalho futuro, não uma falha desta revisão.
 
 ### Persistência local — SQLite (`bridge/storage.py`, 2026-07-03)
 
@@ -999,6 +1047,38 @@ sinalizado no próprio README como próximo passo natural depois do achado
 do passo 2. Implementado e avaliado — ver acima. Não foi tocada a base de
 dados nesta passagem (Prioridade 4 já tem um protótipo funcional e o
 roteiro de ML tinha um item concreto mais avançado na ordem de prioridade).
+
+**Nota desta execução (2026-07-07, rotina cloud)**: com o backlog do
+dashboard (itens 1-10), a Prioridade 3 nomeada (bridge↔`emergencyAlertChar`,
+footprint real do Random Forest) e um protótipo funcional de Prioridade 4
+(BD SQLite) todos já confirmados concluídos por execuções anteriores, e
+com uma execução paralela tendo aplicado a Prioridade 1 diretamente à
+Prioridade 3 horas antes desta (cifra AES-CTR do "modo de dados", ver
+secção acima) — sem ainda ter sido revista por ninguém, e explicitamente
+marcada "não compilada nem testada em hardware" pela própria execução que
+a escreveu — esta execução decidiu que a ação de maior valor concreto
+disponível era rever essa mudança em vez de abrir uma frente nova
+(consistente com a "REGRA NOVA": revisão dirigida ao que foi alterado
+antes de seguir em frente, mesmo quando a alteração não foi desta
+execução). Duas pesquisas dirigidas feitas primeiro (Prioridade 1):
+(a) deteção de quedas/anomalias comportamentais em demência — nada de
+concretamente novo e acionável além do já registado (um estudo de 2026
+sobre deteção de quedas com sensores ultrassónicos + RNN/LSTM híbrido
+atinge 98.14%, mas usa uma modalidade de sensor — ultrassom ambiente —
+diferente do acelerómetro wearable deste projeto, não diretamente
+aplicável sem hardware novo); (b) boas práticas de exaustão de nonce
+AES-CTR em IoT — confirmou que a mitigação aplicada (falha fechada ao
+esgotar o espaço de nonces) é a abordagem correta para quem não pode
+mudar de modo de cifra, e revelou uma limitação adicional (CTR não
+autentica, sem MAC) documentada honestamente acima, não implementada
+(cresceria o pacote outra vez). A revisão em si encontrou e corrigiu um
+bug de segurança real (nonce de 32 bits pode repetir ao fim de ~2.6 anos
+de streaming contínuo, silenciosamente) — ver "Cifra AES-CTR do 'modo de
+dados'" acima para o detalhe completo. Nada mais de concreto ficou por
+fazer nas Prioridades 1-4 nesta execução além desta revisão — a
+Prioridade 5 (varredura completa de bugs) não chegou a ser necessária
+porque esta revisão dirigida já tinha trabalho real e concreto disponível
+dentro do âmbito da Prioridade 3.
 
 **Funcionalidades (por ordem de valor percebido):**
 1. Explicações de anomalias em linguagem simples para a família (não só

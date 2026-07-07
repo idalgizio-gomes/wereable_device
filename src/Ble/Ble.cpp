@@ -642,13 +642,49 @@ static uint64_t s_nonceNext = 0;
 static uint64_t s_nonceReservedUntil = 0;
 static bool s_nonceBatchInitialized = false;
 
+// BUG DE SEGURANCA ENCONTRADO E CORRIGIDO NESTA REVISAO (2026-07-07,
+// verificacao dirigida da cifra AES-CTR adicionada nesta mesma rotina):
+// so' os 32 bits BAIXOS do contador persistente (64 bits) viajam no
+// pacote (campo "nonce" de DumpDataPacket, ver mais abaixo) — o
+// comentario original desta seccao assumia que isso era "suficiente para
+// nunca repetir durante varios anos de streaming continuo", mas a conta
+// exata e' mais apertada do que isso sugere: a ~52 registos/seg
+// continuos, 2^32 registos esgotam-se em ~2.6 anos. Sem proteccao, ao
+// ultrapassar esse ponto o valor truncado enviado pelo ar comecaria a
+// REPETIR os nonces usados no inicio da vida desta chave — quebra real da
+// seguranca do CTR (permite recuperar o XOR de dois registos diferentes
+// cifrados com a mesma chave+nonce). Falha agora FECHADA em vez de
+// silenciosa: uma vez atingido o limite, allocateNonce()/
+// reserveNonceBatch() recusam-se a continuar (o streaming de dados para,
+// tal como aconteceria com qualquer outra falha de reserva de nonce), e
+// nao ha' streaming sem cifra como alternativa (ver sendDumpPendingRecord()).
+// So' resolvido reprovisionando o dispositivo com uma chave AES nova.
+constexpr uint64_t kMaxNonceValue = 0xFFFFFFFFULL; // maior valor representavel no campo "nonce" (uint32)
+static bool s_nonceKeyExhaustedWarned = false;
+
+void warnNonceExhausted() {
+  if (s_nonceKeyExhaustedWarned) return;
+  s_nonceKeyExhaustedWarned = true;
+  Serial.println("[BLEG] AVISO CRITICO: espaco de nonces AES-CTR desta chave "
+                  "esgotado (2^32 registos cifrados) - streaming de dados "
+                  "parado para nunca reutilizar um nonce com a mesma chave. "
+                  "Reprovisionar o dispositivo com uma chave AES nova "
+                  "(requer apagar a flash interna, ver aesKeyCallback) para "
+                  "retomar o streaming.");
+}
+
 // Reserva (escreve na flash, uma unica vez) o proximo lote de
 // kNonceBatchSize nonces, a partir do valor persistido atual (0 se ainda
 // nao existir nenhum, ou seja, primeira vez que o dispositivo cifra
-// dados). Devolve false se a escrita falhar (ex.: erro de flash).
+// dados). Devolve false se a escrita falhar (ex.: erro de flash) ou se o
+// espaco de nonces desta chave ja estiver esgotado (ver aviso acima).
 bool reserveNonceBatch() {
   uint64_t current = 0;
   (void)Storage::counter_load(current); // falha (nunca guardado) -> current fica 0, comeca do zero
+  if (current > kMaxNonceValue) {
+    warnNonceExhausted();
+    return false;
+  }
   const uint64_t newBoundary = current + kNonceBatchSize;
   if (!Storage::counter_save(newBoundary)) return false;
   s_nonceNext = current;
@@ -662,9 +698,15 @@ bool reserveNonceBatch() {
 // dados" em encryptRecord(), acima, para a razao de nao reutilizar o
 // rec_seq do ring buffer). So' toca a flash quando o lote atual se esgota
 // (ver reserveNonceBatch()) — no caso comum e' apenas um incremento em RAM.
+// Devolve false (sem incrementar nada) se o espaco de nonces de 32 bits
+// desta chave ja estiver esgotado — ver kMaxNonceValue acima.
 bool allocateNonce(uint64_t &outNonce) {
   if (!s_nonceBatchInitialized || s_nonceNext >= s_nonceReservedUntil) {
     if (!reserveNonceBatch()) return false;
+  }
+  if (s_nonceNext > kMaxNonceValue) {
+    warnNonceExhausted();
+    return false;
   }
   outNonce = s_nonceNext;
   s_nonceNext++;
