@@ -2504,3 +2504,62 @@ Verificação adicional feita antes de commitar: `node --check` sobre o
 `<script>` extraído do `index.html` (última ocorrência da tag, mesma
 lição já registada noutra sessão sobre o bug de extração) e sobre
 `medication-reminders.js` — sem erros de sintaxe.
+
+## Modelo de Machine Learning — PR-AUC no LSTM Autoencoder (2026-07-07, rotina cloud)
+
+Nota de processo: esta execução começou (como já é norma) com `git fetch
+origin main` + rebase antes de decidir o que fazer — o checkout local
+estava 57 commits atrás do `origin/main` real. Isso evitou duplicar
+trabalho: a correção de `bridge/storage_advanced.py` que esta execução
+tinha preparado de forma totalmente independente (mesmos 3 bugs: import
+`JSONB` inválido, tabela `patient_caregivers` em falta, `Alert.deleted_at`
+em falta) já tinha sido feita e commitada horas antes por outra rotina
+paralela (ver "Verificação de bugs — 3ª passagem", item 1, e o commit
+"Adiciona 1ª suite de testes a storage_advanced.py") — descartado sem
+commitar, para não duplicar, tal como já é prática registada neste
+ficheiro noutras ocasiões.
+
+Com as Prioridades 0-2 e 7-8 bloqueadas (hardware/decisão do utilizador), a
+Prioridade 3 (app móvel) fora do âmbito de uma execução autónoma (exige
+decisões de arquitetura/plataforma), e a Prioridade 4 (BD SQL) já
+extensivamente corrigida e testada por rotinas paralelas nesta mesma data,
+esta execução avançou para o item concreto mais recente e ainda por fazer
+do roteiro de `ml/` (Prioridade 5/roteiro `ml/README.md`, "Próximos
+passos"): a métrica PR-AUC, registada horas antes por outra rotina como
+"próximo passo honesto, não implementado" depois do achado de que a
+precisão do LSTM Autoencoder a um limiar fixo colapsou (0.276→0.035) ao
+mudar para sessões sintéticas de 24h.
+
+**Implementado e executado de facto** (ambiente com `pip install -r
+ml/requirements.txt`, incluindo `tensorflow-cpu`, instalado nesta rotina):
+`train_lstm_autoencoder.py` passou a calcular `average_precision_score`
+(PR-AUC/average precision), geral e por tipo de anomalia, ao lado do
+AUC-ROC já existente, e a registar a prevalência da classe anómala no
+conjunto de avaliação (`eval_anomalous_prevalence`) para dar contexto ao
+número — um PR-AUC só é interpretável em relação à prevalência de base,
+não isoladamente. Reexecutado o script (mesma seed=42, mesma geração de
+dados — os valores de `auc_roc`/`recall`/`precision` já existentes saíram
+byte a byte idênticos aos já commitados, confirmando que é mesmo uma
+adição pura de métrica, não uma retreinagem com resultados diferentes).
+
+**Resultado honesto**: PR-AUC geral = **0.040**, ~3,1x acima da
+prevalência de base (0.013) — confirma que o modelo continua a ordenar
+subsequências anómalas melhor do que o acaso (mesma direção que o AUC-ROC
+já sugeria), mas o valor absoluto continua baixo. Por tipo:
+`substituicao_contextual` continua a mais distinguível (PR-AUC 0.143,
+~7,3x a sua prevalência), `duracao_prolongada` e `truncamento` bem mais
+fracos (2,1x e 5,2x a respetiva prevalência, PR-AUC absoluto <0.06). **Não
+é uma correção do problema de fundo** — só uma medição mais justa dele:
+PR-AUC não fabrica sensibilidade que o modelo não tem, só evita que um
+AUC-ROC estável esconda o colapso de precisão a um limiar fixo. A mitigação
+real (limiares por pessoa/contexto) continua por implementar, bloqueada
+pela ausência de histórico real por pessoa (depende da Prioridade 4 — Base
+de Dados — estar em produção, o que ainda não está).
+
+Ficheiros alterados: `ml/train_lstm_autoencoder.py` (código da métrica),
+`ml/reports/lstm_autoencoder_metrics.json` (novos campos `pr_auc`,
+`pr_auc_vs_eval_normal` por tipo, `eval_anomalous_prevalence`,
+`pr_auc_note`), `ml/models/lstm_autoencoder.keras` (retreinado, métricas
+idênticas às anteriores — ver acima), `ml/README.md` (secção "Passo 2" e
+item 5 novo em "Próximos passos"). Ver `ml/README.md` para o detalhe
+completo e a interpretação honesta por tipo de anomalia.

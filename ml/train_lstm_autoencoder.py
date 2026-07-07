@@ -42,7 +42,7 @@ valida a pipeline de deteção de ponta a ponta no backend.
 import json
 
 import numpy as np
-from sklearn.metrics import precision_recall_fscore_support, roc_auc_score
+from sklearn.metrics import average_precision_score, precision_recall_fscore_support, roc_auc_score
 from sklearn.preprocessing import StandardScaler
 
 import synthetic_sequences as seq
@@ -211,16 +211,26 @@ def main():
         # de anomalia muito distintos entre si têm separabilidade muito
         # diferente (ver ml/README.md).
         type_auc = None
+        type_pr_auc = None
         if len(anomalous_errors) and len(eval_normal_errors):
             type_labels = [1] * len(anomalous_errors) + [0] * len(eval_normal_errors)
             type_scores = list(anomalous_errors) + list(eval_normal_errors)
             type_auc = float(roc_auc_score(type_labels, type_scores))
+            # PR-AUC (average precision): ao contrário do ROC-AUC, é sensível
+            # à prevalência da classe positiva (anómala) — mais informativo
+            # do que "precision a um limiar fixo" quando essa prevalência é
+            # pequena (ver ml/README.md, achado das sessões de 24h: precisão
+            # a limiar fixo caiu 0.276->0.035 sem o modelo ter piorado,
+            # AUC-ROC manteve-se estável — sintoma clássico de desequilíbrio
+            # de classes que o ROC-AUC não capta bem).
+            type_pr_auc = float(average_precision_score(type_labels, type_scores))
         per_anomaly_metrics[anomaly_type] = {
             "n_subsequences_anomalous": int(y_anom.sum()),
             "n_subsequences_normal_same_subjects": int((~y_anom).sum()),
             "recall_at_threshold": recall,
             "mean_reconstruction_error": float(np.mean(anomalous_errors)) if len(anomalous_errors) else None,
             "auc_roc_vs_eval_normal": type_auc,
+            "pr_auc_vs_eval_normal": type_pr_auc,
         }
         all_scores += list(anomalous_errors) + list(normal_errors_same_subjects)
         all_labels += [1] * len(anomalous_errors) + [0] * len(normal_errors_same_subjects)
@@ -232,6 +242,7 @@ def main():
         all_labels, predictions, average="binary", zero_division=0
     )
     auc = float(roc_auc_score(all_labels, all_scores))
+    pr_auc = float(average_precision_score(all_labels, all_scores))
 
     metrics = {
         "seq_len_windows": SEQ_LEN,
@@ -252,8 +263,10 @@ def main():
             "recall": float(recall),
             "f1": float(f1),
             "auc_roc": auc,
+            "pr_auc": pr_auc,
             "n_eval_subsequences": int(len(all_labels)),
             "n_eval_anomalous": int(all_labels.sum()),
+            "eval_anomalous_prevalence": float(all_labels.mean()),
         },
         "per_anomaly_type": per_anomaly_metrics,
         "note": (
@@ -264,6 +277,17 @@ def main():
             "validação clínica: anomalias comportamentais reais em demência "
             "são muito mais subtis e ambíguas do que as simuladas aqui. Ver "
             "ml/README.md para a interpretação honesta completa."
+        ),
+        "pr_auc_note": (
+            "pr_auc (average precision) foi adicionado para complementar "
+            "precision/recall a um limiar fixo, que se revelou muito "
+            "sensível à prevalência da classe anómala depois da mudança "
+            "para sessões de 24h (ver ml/README.md, Passo 2) — ao contrário "
+            "do ROC-AUC, o PR-AUC é sensível a essa prevalência, por isso "
+            "compara-se diretamente com eval_anomalous_prevalence: um "
+            "PR-AUC muito acima da prevalência de base indica que o modelo "
+            "ainda ordena bem as subsequências anómalas, mesmo quando um "
+            "limiar único fixo tem má precisão."
         ),
     }
 
