@@ -120,6 +120,15 @@ bool loadAesKey(uint8_t *buf, size_t bufLen, size_t &outLen) {
   return outLen == sz;
 }
 
+bool removeAesKey() {
+  // InternalFS.remove() devolve true tanto se apagou como se o ficheiro
+  // já não existia (ver Adafruit_LittleFS) — tratamos os dois casos como
+  // sucesso, já que o estado desejado ("sem chave guardada") foi
+  // atingido em ambos.
+  InternalFS.remove(PATH_AES);
+  return !hasAesKey();
+}
+
 bool hasAesKey() {
   File f(InternalFS);
   if (!f.open(PATH_AES, FILE_O_READ)) return false;

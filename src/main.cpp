@@ -952,6 +952,21 @@ void loop() {
         Serial.println("[DEBUG] comando SOS recebido -> a disparar alerta de teste");
         Emergency::triggerTestAlert();
       }
+      // *** DEBUG TEMPORÁRIO ***: apaga a chave AES guardada em flash
+      // (ver Storage::removeAesKey()), para permitir reprovisionar via
+      // aesKeyChar depois de um mismatch entre a chave em uso e a que o
+      // bridge tem configurada (aesKeyChar só aceita a primeira escrita
+      // enquanto houver uma chave gravada — sem isto, o único jeito de
+      // corrigir um mismatch seria apagar toda a flash interna). Não
+      // apaga o ring buffer QSPI (chip externo, módulo separado) nem
+      // desliga o streaming — o próximo registo simplesmente não será
+      // cifrado corretamente até chegar uma chave nova.
+      if (strcmp(serialLine, "CLEARKEY") == 0) {
+        bool ok = Storage::removeAesKey();
+        Serial.println(ok
+          ? "[DEBUG] comando CLEARKEY recebido -> chave AES apagada; reprovisiona via aesKeyChar"
+          : "[DEBUG] comando CLEARKEY recebido -> falha ao apagar a chave AES");
+      }
     }
 #endif
     Emergency::update();
