@@ -606,9 +606,14 @@ bool peekImuPpgRecord(FullMappedRecord &out) {
       return true;
     }
 
-    // Remove entradas antigas/invalidas para nao bloquear o dump.
-    QspiRingBuffer::Record discard{};
-    if (!QspiRingBuffer::pop(discard)) return false;
+    // Remove a entrada antiga/invalida para nao bloquear o dump.
+    // *** OTIMIZACAO DE CPU/FLASH (2026-07-07) ***: usa advanceTail() em
+    // vez de pop() — `rec` ja foi lido e descodificado com sucesso pelo
+    // peek() logo acima (so nao serve o tipo esperado por
+    // mapRingRecordToFull); reler o mesmo slot da flash so para o deitar
+    // fora seria uma transacao QSPI + CRC redundante (ver comentario
+    // completo em QspiRingBuffer::advanceTail()).
+    if (!QspiRingBuffer::advanceTail()) return false;
   }
   return false;
 }
@@ -1001,8 +1006,19 @@ void gattDumpTask(void *arg) {
         break;
       }
 
-      QspiRingBuffer::Record discard{};
-      if (!QspiRingBuffer::pop(discard)) {
+      // *** OTIMIZACAO DE CPU/FLASH (2026-07-07, rotina diaria) ***: usa
+      // advanceTail() em vez de pop(). O registo pendente (identificado
+      // por s_dumpPendingSeq) ja foi lido e descodificado com sucesso
+      // pelo peek() dentro de prepareDumpPendingRecord() e acabou de ser
+      // enviado por BLE com sucesso (sendDumpPendingRecord(), logo
+      // acima) — reler e descodificar o MESMO slot da flash outra vez so
+      // para confirmar a remocao era uma transacao QSPI (readSlot) + CRC
+      // FNV-1a + memcpy de 44 bytes redundantes em CADA registo do
+      // streaming, ate ~52/seg (taxa do IMU). Ver comentario completo em
+      // QspiRingBuffer::advanceTail(). discard.seq (agora removido) era
+      // sempre igual a s_dumpPendingSeq, por isso usa-se esta variavel
+      // diretamente abaixo.
+      if (!QspiRingBuffer::advanceTail()) {
         publishDumpStatus(DUMP_STREAMING, 8, s_dumpPendingSeq);
         break;
       }
@@ -1012,7 +1028,7 @@ void gattDumpTask(void *arg) {
       sentInWindow++;
 
       if ((sentInWindow % kDumpStatusEveryRecords) == 0) {
-        publishDumpStatus(DUMP_STREAMING, 2, discard.seq);
+        publishDumpStatus(DUMP_STREAMING, 2, s_dumpPendingSeq);
       }
 
       // Cede o processador cooperativamente de vez em quando (yield),

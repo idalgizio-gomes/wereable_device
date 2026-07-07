@@ -73,9 +73,34 @@ def get_connection() -> sqlite3.Connection:
     única mas pode chamar a ligação a partir de diferentes callbacks —
     não há acesso concorrente real (é tudo sequencial no mesmo event
     loop), por isso isto é seguro aqui.
+
+    *** OTIMIZAÇÃO DE CPU (2026-07-07, rotina diária) ***: `PRAGMA
+    journal_mode=WAL` + `synchronous=NORMAL`. `insert_record()` (abaixo)
+    é chamado de forma síncrona, direto no event loop asyncio, a partir
+    de `_on_dump_data()` em `ble_bridge.py` — o callback de notificação
+    BLE que corre a cada registo de sensores, até ~52/seg (taxa do IMU,
+    ver comentário de `_on_dump_data`). Com o modo por omissão do SQLite
+    (rollback journal + `synchronous=FULL`), CADA `conn.commit()` faz até
+    2 `fsync()` (journal + ficheiro principal) — uma operação de disco
+    síncrona que tipicamente custa alguns a várias dezenas de
+    milissegundos, bloqueando o único thread do event loop nesse
+    intervalo (atrasando o envio de WebSockets, outras notificações BLE
+    e a task de retenção periódica, tudo a correr no mesmo loop). Ao
+    ritmo documentado, isso é até ~52 fsyncs/seg (~104 com o modo por
+    omissão) só para persistência local. Em WAL, `commit()` só acrescenta
+    ao ficheiro `-wal` (sem fsync a cada escrita, com checkpoint
+    periódico automático do próprio SQLite) — no mesmo protótipo local
+    de uso pessoal já documentado acima (sem requisitos de durabilidade
+    contra perda de energia), isto elimina a bloqueio do event loop por
+    registo sem mudar a lógica de commit-por-registo já existente (ao
+    contrário de acumular/atrasar commits, que arriscaria perder mais
+    registos num encerramento abrupto do bridge — não há hoje nenhum
+    "flush no shutdown" a que isso pudesse ficar ligado).
     """
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
     return conn
 
 

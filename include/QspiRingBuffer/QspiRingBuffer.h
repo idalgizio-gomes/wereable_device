@@ -111,6 +111,23 @@ bool peek(Record &out);
 // valido para devolver.
 bool pop(Record &out);
 
+// Remove logicamente o registo em tail (avanca tail, decrementa count,
+// marca os metadados como "sujos" para o proximo flush) SEM voltar a ler
+// nem a descodificar o slot da flash. So e seguro chamar isto depois de
+// um peek() bem sucedido sobre o MESMO registo, sem qualquer outra
+// push()/pop()/advanceTail()/format() a acontecer entre os dois — ou
+// seja, quando o chamador ja tem a certeza (por ja ter lido o registo
+// com sucesso momentos antes) de que o slot em tail e valido, e so quer
+// confirmar o consumo. Ao contrario de pop(), NAO tenta recuperar de
+// slots corrompidos (nao ha nada para recuperar: o slot ja foi validado
+// pelo peek() anterior). Pensado para o padrao "peek() -> usa o registo
+// -> confirma remocao", ja usado pelo dump BLE (ver peekImuPpgRecord()
+// e gattDumpTask() em Ble.cpp), onde reler o mesmo slot da flash com
+// pop() so para o descartar seria uma leitura QSPI + CRC + memcpy
+// redundantes por cada registo. Retorna false se o buffer ja estava
+// vazio.
+bool advanceTail();
+
 // Indica se o buffer nao tem nenhum registo pendente para ler.
 bool isEmpty();
 

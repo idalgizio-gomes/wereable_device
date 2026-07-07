@@ -663,6 +663,28 @@ bool pop(Record &out) {
 }
 
 // Ver documentacao completa em QspiRingBuffer.h.
+// *** OTIMIZACAO DE CPU/FLASH (2026-07-07, rotina diaria) ***: esta funcao
+// existe para o chamador poder confirmar o consumo de um registo ja lido
+// por peek() sem pagar o custo de o reler da flash. Antes desta funcao
+// existir, o unico caminho disponivel para "avancar tail" apos um peek()
+// bem sucedido era pop(), que faz sempre um novo readSlot() (transacao
+// QSPI) + decodeSlot() (checksum FNV-1a sobre ~60 bytes + memcpy de 44
+// bytes) — repetindo exatamente o trabalho que peek() já tinha acabado de
+// fazer sobre o MESMO slot, so para deitar fora o resultado. No caminho
+// quente do streaming BLE (gattDumpTask/peekImuPpgRecord em Ble.cpp), isto
+// corria a ate ~52 registos/seg (taxa do IMU), ou seja, ate ~52 leituras
+// QSPI + descodificacoes por segundo eram puro desperdicio, chegando a
+// duplicar o numero de transacoes de flash nesse caminho. Ver Ble.cpp para
+// os dois pontos onde pop() foi substituido por advanceTail().
+bool advanceTail() {
+  if (!s_started || s_meta.count == 0) return false;
+  s_meta.tail = incIndex(s_meta.tail);
+  s_meta.count--;
+  markMetaDirty();
+  return true;
+}
+
+// Ver documentacao completa em QspiRingBuffer.h.
 bool isEmpty() {
   return count() == 0;
 }
