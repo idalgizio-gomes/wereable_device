@@ -17,8 +17,10 @@
     "recall": 0.19823788546255505,
     "f1": 0.05897771952817824,
     "auc_roc": 0.8488654669397834,
+    "pr_auc": 0.03974271849706443,
     "n_eval_subsequences": 17789,
-    "n_eval_anomalous": 227
+    "n_eval_anomalous": 227,
+    "eval_anomalous_prevalence": 0.012760694811400304
   },
   "per_anomaly_type": {
     "duracao_prolongada": {
@@ -26,22 +28,26 @@
       "n_subsequences_normal_same_subjects": 4309,
       "recall_at_threshold": 0.00847457627118644,
       "mean_reconstruction_error": 0.2772450668095485,
-      "auc_roc_vs_eval_normal": 0.7989559951584555
+      "auc_roc_vs_eval_normal": 0.7989559951584555,
+      "pr_auc_vs_eval_normal": 0.0565773345345104
     },
     "substituicao_contextual": {
       "n_subsequences_anomalous": 87,
       "n_subsequences_normal_same_subjects": 4344,
       "recall_at_threshold": 0.47126436781609193,
       "mean_reconstruction_error": 0.46949480944493455,
-      "auc_roc_vs_eval_normal": 0.9282009448514744
+      "auc_roc_vs_eval_normal": 0.9282009448514744,
+      "pr_auc_vs_eval_normal": 0.14303011879815683
     },
     "truncamento": {
       "n_subsequences_anomalous": 22,
       "n_subsequences_normal_same_subjects": 4386,
       "recall_at_threshold": 0.13636363636363635,
       "mean_reconstruction_error": 0.3670327252860718,
-      "auc_roc_vs_eval_normal": 0.8614455409724037
+      "auc_roc_vs_eval_normal": 0.8614455409724037,
+      "pr_auc_vs_eval_normal": 0.02578926427901608
     }
   },
-  "note": "Avaliado inteiramente sobre dados sintéticos com anomalias INJETADAS (ver synthetic_sequences.py) — as anomalias aqui são desenhadas para serem claramente distinguíveis do padrão normal, para validar a pipeline de deteção de ponta a ponta. NÃO é uma validação clínica: anomalias comportamentais reais em demência são muito mais subtis e ambíguas do que as simuladas aqui. Ver ml/README.md para a interpretação honesta completa."
+  "note": "Avaliado inteiramente sobre dados sintéticos com anomalias INJETADAS (ver synthetic_sequences.py) — as anomalias aqui são desenhadas para serem claramente distinguíveis do padrão normal, para validar a pipeline de deteção de ponta a ponta. NÃO é uma validação clínica: anomalias comportamentais reais em demência são muito mais subtis e ambíguas do que as simuladas aqui. Ver ml/README.md para a interpretação honesta completa.",
+  "pr_auc_note": "pr_auc (average precision) foi adicionado para complementar precision/recall a um limiar fixo, que se revelou muito sensível à prevalência da classe anómala depois da mudança para sessões de 24h (ver ml/README.md, Passo 2) — ao contrário do ROC-AUC, o PR-AUC é sensível a essa prevalência, por isso compara-se diretamente com eval_anomalous_prevalence: um PR-AUC muito acima da prevalência de base indica que o modelo ainda ordena bem as subsequências anómalas, mesmo quando um limiar único fixo tem má precisão."
 }

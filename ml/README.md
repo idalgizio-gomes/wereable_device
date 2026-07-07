@@ -388,6 +388,8 @@ Ver `reports/lstm_autoencoder_metrics.json` e
 | AUC-ROC (score vs. normal) | **0.849** (0.876) | 0.799 (0.813) | 0.928 (0.910) | 0.861 (0.744) |
 | Recall ao limiar (percentil 95) | 0.198 (0.179) | 0.008 (0.015) | 0.471 (0.331) | 0.136 (0.000) |
 | Precisão ao limiar (percentil 95) | **0.035** (0.276) | — | — | — |
+| PR-AUC (average precision) | **0.040** | 0.057 | 0.143 | 0.026 |
+| Prevalência da classe anómala no eval | 1.28% | 2.66% | 1.96% | 0.50% |
 
 **Achado honesto novo, específico da mudança para 24h**: a precisão geral
 caiu de 0.276 para 0.035 — não porque o modelo piorou (o AUC-ROC, que não
@@ -401,10 +403,28 @@ positivos (5% de uma população normal muito maior) passa a dominar os
 verdadeiros positivos (uma fatia de anomalias agora proporcionalmente mais
 rara) — um efeito de diluição/desequilíbrio de classes esperado ao mudar
 para sessões realistas, não um bug. Reforça a mesma conclusão já registada
-abaixo: um limiar único e global serve mal este problema; limiares por
-pessoa/contexto (ou uma métrica que penalize menos o desequilíbrio, ex.:
-PR-AUC em vez de contagem de falsos positivos a um limiar fixo) seriam o
-próximo passo honesto, não implementado nesta execução.
+abaixo: um limiar único e global serve mal este problema.
+
+**PR-AUC implementado e medido (2026-07-07, mesma rotina que tornou os
+dados sintéticos mais realistas)** — a métrica sugerida acima como próximo
+passo honesto. Resultado, **também honesto**: o PR-AUC geral (0.040) fica
+~3,1x acima da prevalência de base (0.013, o valor esperado de um
+classificador aleatório) — confirma que o modelo ainda ordena as
+subsequências anómalas melhor do que o acaso, na mesma direção que o
+AUC-ROC já sugeria, mas **em termos absolutos continua baixo**: PR-AUC não
+"resolve" o problema do limiar único, só o mede de forma mais justa (sem
+depender de escolher um ponto de corte arbitrário). Por tipo, o padrão
+acompanha o recall já visto — `substituicao_contextual` continua o mais
+distinguível (PR-AUC 0.143, ~7,3x a sua prevalência de 1,96%),
+`duracao_prolongada` e `truncamento` ficam bem mais fracos (2,1x e 5,2x a
+respetiva prevalência, mas com PR-AUC absoluto <0.06). **Conclusão honesta,
+não só um número**: mudar de métrica não substitui a necessidade real de
+limiares por pessoa/contexto (ou uma estratégia de alerta por "top-k mais
+anómalo" em vez de um corte fixo) — PR-AUC serve para *medir* o problema
+sem o esconder atrás de um AUC-ROC estável, não para *resolver* o recall
+fraco das anomalias de duração. Ver `reports/lstm_autoencoder_metrics.json`
+(`pr_auc`, `pr_auc_vs_eval_normal` por tipo, `eval_anomalous_prevalence`)
+para os números completos.
 
 **O AUC-ROC por tipo (0.80-0.93, todos bem acima de 0.5) mostra que o
 modelo consegue, de facto, ordenar corretamente subsequências anómalas
@@ -567,9 +587,18 @@ não segue os mesmos limites usados para gerar os dados.
    descoberto ao mudar para 24h, documentado no Passo 2: a precisão do
    LSTM Autoencoder a um limiar fixo caiu bastante (0.276→0.035) por
    diluição de classes (anomalias de duração fixa tornam-se uma fatia menor
-   de um dia inteiro) — registado como novo item a considerar (limiares
-   adaptados à proporção normal/anómala esperada, ou métrica menos sensível
-   a desequilíbrio como PR-AUC).
+   de um dia inteiro).
+5. ~~Métrica menos sensível ao desequilíbrio de classes (PR-AUC)~~ —
+   **FEITO (2026-07-07, mesma rotina)**: `train_lstm_autoencoder.py` passou
+   a calcular `average_precision_score` (PR-AUC), geral e por tipo de
+   anomalia, ao lado do AUC-ROC já existente — ver "Passo 2", secção
+   "PR-AUC implementado e medido", para o resultado honesto completo
+   (PR-AUC geral 0.040, ~3,1x a prevalência de base, mas baixo em termos
+   absolutos — a métrica mede o problema com mais justiça, não o resolve).
+   **Ainda por fazer**: limiares adaptados por pessoa/contexto em vez de um
+   único limiar global (a mitigação real, não só de medição, para o recall
+   fraco das anomalias de duração) — exige histórico real por pessoa
+   (Prioridade 4, Base de Dados) para calibrar, não implementado ainda.
 
 ## Decisão pendente (não posso decidir por conta própria)
 
