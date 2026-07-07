@@ -63,8 +63,20 @@ def split_by_subject(df, test_fraction=TEST_SUBJECT_FRACTION, seed=42):
 def train(df, feature_cols):
     train_df, test_df, test_subjects = split_by_subject(df)
 
+    # BUG CORRIGIDO (2026-07-07, rotina cloud): o encoder era ajustado só
+    # com train_df["label"] — como a divisão é por sujeito (não por
+    # janela), é possível (por azar da amostra aleatória de sujeitos) uma
+    # classe mais rara (ex.: "Higiene") ficar inteiramente do lado do
+    # teste e ausente do treino; nesse caso encoder.transform(test_df[...])
+    # rebentava com "ValueError: y contains previously unseen labels" — não
+    # acontece com os 8 sujeitos/seed=42 atuais (confirmado), mas é uma
+    # armadilha real para a próxima iteração do dataset (mais sujeitos/
+    # sementes diferentes, já no roteiro do ml/README.md). Ajustar o
+    # encoder ao conjunto completo de classes (antes da divisão) evita
+    # isto — o mesmo padrão já usado em measure_rf_footprint.py.
     encoder = LabelEncoder()
-    y_train = encoder.fit_transform(train_df["label"])
+    encoder.fit(df["label"])
+    y_train = encoder.transform(train_df["label"])
     y_test = encoder.transform(test_df["label"])
     X_train = train_df[feature_cols]
     X_test = test_df[feature_cols]

@@ -1651,3 +1651,163 @@ Migração de hardware futura possível: nRF5340 ou nRF54H20.
    consegue decifrar um registo real e mostrar dados corretos no
    dashboard. Bloqueado pela mesma indisponibilidade de hardware das
    restantes tarefas (ver "Riscos/bloqueios ativos", ponto 8).
+
+## Verificação de bugs (rotina automática) — 2026-07-07
+
+Com o backlog do dashboard (itens 1-10), a Prioridade 3 nomeada
+(bridge↔`emergencyAlertChar`, footprint real do Random Forest, cifra
+AES-CTR) e um protótipo funcional de Prioridade 4 (BD SQLite) todos já
+confirmados concluídos por execuções anteriores (a última delas horas
+antes desta, na mesma data), esta execução seguiu a ordem de prioridade:
+
+**Prioridade 1 (pesquisa aplicada) — nada de novo com segurança acionável
+agora**: três pesquisas dirigidas não cobertas nas notas anteriores desta
+mesma data — (a) `CryptoCell`/coprocessador AES-CCM/AAR nativo do
+nRF52840: confirmado que o SoC tem um coprocessador de hardware
+128-bit AES/ECB/CCM/AAR dedicado (distinto do software `CryptoCell-310`,
+que exige a biblioteca `nrf_cc310` da SDK Nordic, não integrada no BSP
+Adafruit usado por este projeto Arduino/PlatformIO) — migrar a cifra
+`FullPlain` deste coprocessador para o modo CCM de hardware resolveria de
+raiz a limitação já documentada "AES-CTR cifra mas não autentica", mas
+exigiria reescrever todo o caminho de cifra sem toolchain ARM nem
+hardware disponíveis nesta rotina para validar — registado como direção
+concreta futura, não implementado; (b) deteção de quedas/agitação em
+demência: nada de novo aplicável sem hardware novo (um estudo de 2026 com
+98.14% usa sensores ultrassónicos ambiente, não acelerómetro wearable);
+(c) MAC truncado de 4 bytes em AES-CCM* para redes de baixa potência:
+confirmado como prática real do IEEE 802.15.4 (não uma invenção desta
+rotina), o que valida a viabilidade de um dia fechar a lacuna "sem
+autenticação" da cifra atual — mas continua a ser uma decisão de
+protocolo/hardware (cresce o pacote BLE já apertado a 20 bytes), não uma
+correção que me compete tomar sozinho fora de uma revisão pontual, tal
+como já registado na sessão anterior. Prioridades 2-4 confirmadas sem
+nenhum item concreto novo por fazer (backlog do dashboard completo,
+bridge↔emergência e footprint TinyML feitos, BD SQLite com protótipo
+funcional) — por isso esta execução avançou para a Prioridade 5.
+
+**Prioridade 5 (varredura completa de bugs)**: 4 revisões dirigidas em
+paralelo (firmware C++, bridge Python, dashboard JS/HTML, pipeline `ml/`),
+cada uma instruída a ler primeiro este ficheiro/`ml/README.md` para não
+repetir limitações já documentadas. Achados reais, todos corrigidos nesta
+execução (revisão própria de cada correção feita antes de commitar, por
+`node --check`/`py_compile`/verificação de delta de chavetas-parênteses
+sem toolchain ARM, e um teste Playwright real para o dashboard):
+
+1. **Contador persistente de nonce AES-CTR não era resistente a
+   corrupção/escrita cortada — corrigido** (`src/Storage/Storage.cpp`,
+   `include/Storage/Storage.h`, `src/Ble/Ble.cpp`). `counter_save()` faz
+   `remove()`+`open()`+`write()` (não é uma transação atómica do
+   filesystem); `counter_load()` tratava QUALQUER falha de leitura
+   (ficheiro em falta OU corrompido/tamanho errado, ex.: escrita cortada
+   por perda de energia a meio de `counter_save()`, ~1x a cada ~21min de
+   streaming contínuo) da mesma forma que "nunca guardado" —
+   `reserveNonceBatch()` interpretava isso como "começa do zero",
+   reutilizando nonces já usados com a mesma chave AES (nunca rotacionada
+   sem apagar a flash inteira) e quebrando silenciosamente a
+   confidencialidade do CTR — a mesma classe de vulnerabilidade que a
+   revisão anterior desta data já tinha corrigido por outra via
+   (esgotamento do contador), mas por um caminho diferente e não coberto
+   por essa correção. **Corrigido**: o ficheiro do contador passou a ter
+   um magic number + checksum simples (`CounterRecord`), permitindo
+   `counter_load()` distinguir "ficheiro nunca criado" (primeiro arranque
+   genuíno, seguro começar do zero) de "ficheiro existe mas está
+   corrompido" (novo parâmetro de saída opcional `corrupted`); em caso de
+   corrupção, `reserveNonceBatch()` falha FECHADA (streaming de dados
+   para, aviso único `[BLEG] AVISO CRITICO: contador... corrompido`),
+   nunca assume zero silenciosamente. Não testado em hardware real (mesma
+   limitação já documentada — sem toolchain ARM/hardware nesta rotina),
+   só revisto por leitura direta do código; nota: isto muda o formato do
+   ficheiro `/counter.bin` (cresce ~16 bytes), mas nenhum dispositivo real
+   ainda produziu dados neste formato (cifra nunca testada em hardware),
+   por isso não há migração a fazer.
+2. **Bridge: `broadcast()` podia rebentar com `RuntimeError` sob ligação/
+   desligação concorrente de clientes WebSocket — corrigido**
+   (`bridge/ble_bridge.py`). Iterava diretamente sobre `self.ws_clients`
+   (um `set` partilhado) enquanto estava suspenso num `await ws.send(...)`
+   — se `ws_handler` fizesse `add()`/`discard()` no mesmo set nesse
+   intervalo (ex.: um separador do dashboard a recarregar mesmo quando um
+   registo/status chegava), o Python lança "Set changed size during
+   iteration", perdendo essa mensagem para os clientes ainda não
+   alcançados nessa iteração. Corrigido: itera sobre `list(self.ws_clients)`
+   (uma cópia), imune a mutações concorrentes do set original.
+3. **Bridge: fragmentos BLE incompletos nunca eram limpos —
+   fuga de memória real — corrigido** (`bridge/ble_bridge.py`,
+   `_pending_fragments`). `notify()` não é um transporte com confirmação;
+   se um fragmento de um registo se perdesse, essa entrada nunca recebia
+   todos os fragmentos e por isso nunca era removida — a ~14-52
+   registos/seg, mesmo uma perda de pacotes pequena acumula milhares de
+   entradas órfãs numa sessão de várias horas. Corrigido: cada entrada
+   guarda agora `created_at` (timestamp), e `_prune_stale_fragments()`
+   (nova função, chamada a cada fragmento incompleto recebido) remove
+   entradas mais velhas que `PENDING_FRAGMENT_TIMEOUT_S` (5s) — evita a
+   fuga de memória e também o risco secundário identificado pela revisão
+   (uma entrada antiga a ser "herdada" por um `rec_seq` reciclado depois
+   deste, um contador `uint32`, dar a volta ao fim de anos de streaming
+   contínuo).
+4. **Dashboard: três bugs reais em `medication-reminders.js`, todos
+   corrigidos e verificados em Playwright real (Chromium)**:
+   (a) `showFallbackAlert()` interpolava `patient.id` sem aspas no
+   `onclick` gerado (`markDoseTaken(${patient.id}, ...)`, mas `patient.id`
+   é uma string tipo `'p1'`) — o HTML resultante tentava avaliar `p1` como
+   variável, `ReferenceError` ao clicar, o botão "Tomei agora" do cartão
+   de fallback nunca marcava a dose nem fechava o cartão. Corrigido
+   (aspas à volta dos três argumentos). (b) `options.actions` +
+   `notification.onaction` na notificação nativa do browser nunca
+   funcionavam — essa API só é entregue via evento `notificationclick` de
+   um Service Worker, que este projeto não tem; os botões "✓ Tomei
+   agora/⏰ Adiar/✗ Fechar" da notificação nativa eram sempre inertes
+   (confirmado por pesquisa da spec — não é o que `PROJECT_STATUS.md`
+   descrevia antes desta correção). Corrigido: removida a API falsa;
+   `onclick` da notificação foca a janela e navega para a vista
+   "Medicação" (`activateNavItem`), e o cartão de fallback com botão
+   funcional passa a ser sempre mostrado também quando a notificação
+   nativa é usada, garantindo que há sempre uma ação real disponível.
+   (c) Duas doses com a mesma hora prevista (ex.: dois medicamentos às
+   08:00) faziam a segunda ser silenciosamente descartada — `showFallbackAlert()`
+   usava um único ID de elemento fixo (`medicationReminder`) partilhado
+   por todos os alertas do dia; se já existisse um cartão (de OUTRA dose),
+   o segundo nunca aparecia, mas ficava marcado como "já mostrado" até à
+   meia-noite. Corrigido: cada dose tem agora um cartão com ID único
+   (paciente+medicamento+hora) dentro de um contentor empilhável
+   (`#medicationReminderStack`, flex column) — testado com duas doses na
+   mesma hora, ambos os cartões aparecem e cada um marca a dose certa ao
+   clicar (verificado com Playwright real, incluindo o clique no botão
+   "Tomei agora" chamando `markDoseTaken` com os argumentos corretos e
+   removendo só o seu próprio cartão).
+5. **`ml/`: `LabelEncoder` ajustado só ao split de treino — corrigido**
+   (`train_activity_classifier.py`, `train_activity_classifier_rf.py`).
+   Como a divisão treino/teste é por sujeito sintético (não por janela),
+   é possível — por azar da amostra aleatória de sujeitos — uma classe
+   mais rara (ex.: "Higiene") ficar inteiramente do lado do teste e
+   ausente do treino; nesse caso `encoder.transform(test_df[...])`
+   rebentava com `ValueError: y contains previously unseen labels`,
+   reproduzido diretamente com outros parâmetros (`n_subjects=4, seed=9`).
+   Não acontece com os 8 sujeitos/seed=42 usados atualmente (confirmado
+   por re-execução real desta rotina, accuracy idêntica à já documentada:
+   XGBoost 1.000, Random Forest 0.981 — a pequena diferença face ao 0.978
+   já registado é deriva de versão do `scikit-learn` do ambiente, não
+   deste fix, confirmado reproduzindo o mesmo valor com e sem a
+   correção), mas era uma armadilha real para a próxima iteração do
+   dataset já prevista no roteiro (`ml/README.md`, "mais sujeitos/
+   sementes diferentes"). Corrigido ajustando o encoder ao conjunto
+   completo de classes antes da divisão — o mesmo padrão que
+   `measure_rf_footprint.py` já usava corretamente (o código estava
+   inconsistente entre scripts). **Modelos/relatórios treinados
+   (`ml/models/activity_classifier_rf.*`, `ml/reports/
+   activity_classifier_rf_metrics.json`) NÃO foram re-commitados** — a
+   correção não muda o comportamento do dataset atual (todas as classes
+   já estão presentes nos dois lados), por isso não há motivo para
+   substituir o modelo já treinado e avaliado só por causa deste fix
+   defensivo; a pequena diferença de accuracy (0.978→0.981) observada
+   numa reexecução de verificação é deriva de ambiente, não uma
+   retreinagem intencional — evitado para não fabricar/substituir
+   resultados sem uma decisão explícita de retreinar.
+6. **`ml/data/synthetic_routine_dataset.meta.json`**: mojibake de
+   acentuação corrigido (`Alimenta�o` → `Alimentação`, etc.) —
+   encontrado incidentalmente durante a revisão do pipeline de ML,
+   mesma classe de bug (ficheiro gravado sem UTF-8 explícito) já corrigida
+   noutros ficheiros do projeto em sessões anteriores.
+
+As 4 revisões dirigidas (firmware, bridge, dashboard, `ml/`) desta
+Prioridade 5 estão agora todas concluídas e os achados reais corrigidos
+acima.

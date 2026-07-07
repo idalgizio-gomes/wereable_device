@@ -99,7 +99,14 @@ namespace Storage {
   // Lê o valor atual do contador persistente para "counter".
   // Devolve false se ainda não existir contador guardado (ex.: antes da
   // primeira transferência BLE), deixando "counter" a 0.
-  bool counter_load(uint64_t &counter);
+  // Se 'corrupted' não for nullptr, é posto a true quando o ficheiro
+  // EXISTE mas está corrompido/incompleto (magic/checksum não batem certo)
+  // — distinto de "nunca guardado". Quem chama não deve tratar os dois
+  // casos da mesma forma quando o contador protege nonces AES-CTR (ver
+  // reserveNonceBatch() em Ble.cpp): assumir 0 silenciosamente num
+  // ficheiro corrompido pode reutilizar um nonce já usado com a mesma
+  // chave.
+  bool counter_load(uint64_t &counter, bool *corrupted = nullptr);
 
   // Guarda o valor de "counter" na flash, substituindo o valor anterior.
   bool counter_save(uint64_t counter);

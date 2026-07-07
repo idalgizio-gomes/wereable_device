@@ -661,6 +661,7 @@ static bool s_nonceBatchInitialized = false;
 // So' resolvido reprovisionando o dispositivo com uma chave AES nova.
 constexpr uint64_t kMaxNonceValue = 0xFFFFFFFFULL; // maior valor representavel no campo "nonce" (uint32)
 static bool s_nonceKeyExhaustedWarned = false;
+static bool s_nonceCounterCorruptWarned = false;
 
 void warnNonceExhausted() {
   if (s_nonceKeyExhaustedWarned) return;
@@ -680,7 +681,27 @@ void warnNonceExhausted() {
 // espaco de nonces desta chave ja estiver esgotado (ver aviso acima).
 bool reserveNonceBatch() {
   uint64_t current = 0;
-  (void)Storage::counter_load(current); // falha (nunca guardado) -> current fica 0, comeca do zero
+  bool corrupted = false;
+  Storage::counter_load(current, &corrupted);
+  // BUG CORRIGIDO (2026-07-07, rotina cloud): antes, qualquer falha de
+  // counter_load() (incl. ficheiro CORROMPIDO, nao so' "nunca guardado")
+  // era tratada como "comeca do zero" - reutilizando nonces ja usados com
+  // a mesma chave AES apos uma escrita cortada por perda de energia (ver
+  // Storage::counter_load(), agora com deteccao de corrupcao via
+  // magic+checksum). Ficheiro genuinamente ausente (primeiro arranque)
+  // continua seguro comecar do zero; ficheiro EXISTENTE mas corrompido
+  // falha fechado, tal como o esgotamento do espaco de nonces abaixo.
+  if (corrupted) {
+    if (!s_nonceCounterCorruptWarned) {
+      s_nonceCounterCorruptWarned = true;
+      Serial.println("[BLEG] AVISO CRITICO: contador persistente de nonce AES-CTR "
+                      "corrompido (magic/checksum invalido) - streaming de dados "
+                      "parado para nunca arriscar reutilizar um nonce com a mesma "
+                      "chave. Reprovisionar o dispositivo com uma chave AES nova "
+                      "para retomar o streaming.");
+    }
+    return false;
+  }
   if (current > kMaxNonceValue) {
     warnNonceExhausted();
     return false;

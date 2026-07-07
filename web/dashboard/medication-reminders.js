@@ -112,78 +112,87 @@ class MedicationReminder {
       badge: '💊',
       icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="50%" x="50%" dominant-baseline="middle" text-anchor="middle" font-size="50">💊</text></svg>',
       requireInteraction: true, // mantém a notificação visível até o utilizador interagir
-      actions: [
-        { action: 'take', title: '✓ Tomei agora', icon: '✓' },
-        { action: 'snooze', title: '⏰ Lembrar em 5 min', icon: '⏰' },
-        { action: 'dismiss', title: '✗ Fechar', icon: '✗' }
-      ]
     };
-
+    // NOTA (bug corrigido): `options.actions` + `notification.onaction` só
+    // são entregues através do evento `notificationclick` de um Service
+    // Worker (`ServiceWorkerRegistration.showNotification()`) — esta app
+    // não tem nenhum Service Worker, por isso a instância simples
+    // `Notification` nunca dispara `onaction`; os botões "Tomei agora/
+    // Lembrar/Fechar" da notificação nativa nunca funcionavam. Em vez de
+    // fingir que existem, mostra-se sempre também o cartão com ação real
+    // (`showFallbackAlert`), que tem um botão funcional testado.
     const notification = new Notification(title, options);
-    
+
     notification.onclick = () => {
       notification.close();
-      // Focar a aba do dashboard
+      // Focar a aba do dashboard e levar o cuidador à vista de Medicação,
+      // onde pode de facto marcar a dose como tomada.
       if (window.focus) window.focus();
+      const medNavItem = document.querySelector('.nav-item[data-view="medicacao"]:not([style*="display: none"])')
+        || document.querySelector('.nav-item[data-view="medicacao"]');
+      if (medNavItem && typeof activateNavItem === 'function') activateNavItem(medNavItem);
     };
 
-    notification.onaction = (event) => {
-      if (event.action === 'take') {
-        // Marcar como tomada
-        if (typeof markDoseTaken === 'function') {
-          markDoseTaken(patient.id, medication.id, time);
-          console.log(`[MedicationReminder] ${medication.name} marcada como tomada em ${time}`);
-        }
-        notification.close();
-      } else if (event.action === 'snooze') {
-        // Lembrar em 5 minutos
-        notification.close();
-        setTimeout(() => this.showNotification(medication, time, patient), 5 * 60 * 1000);
-      } else if (event.action === 'dismiss') {
-        notification.close();
-      }
-    };
+    this.showFallbackAlert(medication, time, patient);
   }
 
   showFallbackAlert(medication, time, patient) {
-    // Se notificações do browser não estiverem disponíveis,
-    // mostrar um cartão de alerta no topo da página
-    const banner = document.getElementById('medicationReminder');
-    if (!banner) {
-      const div = document.createElement('div');
-      div.id = 'medicationReminder';
-      div.style.cssText = `
+    // Se notificações do browser não estiverem disponíveis (ou mesmo
+    // quando estão, ver showNotification() — os botões da notificação
+    // nativa nunca funcionam sem Service Worker), mostrar um cartão de
+    // alerta no topo da página. Cada dose tem o seu próprio cartão (ID
+    // único por paciente+medicamento+hora) dentro de um contentor
+    // empilhável — evita que uma segunda dose com a mesma hora prevista
+    // seja silenciosamente descartada por já existir um cartão de OUTRA
+    // dose (bug corrigido: antes usava um único ID fixo partilhado).
+    let stack = document.getElementById('medicationReminderStack');
+    if (!stack) {
+      stack = document.createElement('div');
+      stack.id = 'medicationReminderStack';
+      stack.style.cssText = `
         position: fixed;
         top: 20px;
         right: 20px;
-        background: var(--status-warning-bg, rgba(250,178,25,0.14));
-        border: 1px solid var(--status-warning, #fab219);
-        border-radius: var(--radius-md, 10px);
-        padding: 16px;
-        max-width: 300px;
-        font-family: var(--font-ui, sans-serif);
-        color: var(--text-primary, white);
         z-index: 9999;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-        animation: slideIn 0.3s ease-out;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        max-width: 300px;
       `;
-      
-      const content = `
-        <strong>💊 ${medication.name}</strong><br>
-        ${medication.dose} às ${time}<br>
-        <button onclick="if(markDoseTaken) { markDoseTaken(${patient.id}, '${medication.id}', '${time}'); this.parentElement.parentElement.style.display='none'; }" style="margin-top:8px; padding:6px 12px; background:var(--accent,#3FD6C0); border:none; border-radius:4px; cursor:pointer; color:var(--accent-ink,#04211D);">
-          ✓ Tomei agora
-        </button>
-      `;
-      
-      div.innerHTML = content;
-      document.body.appendChild(div);
-      
-      // Auto-fechar após 30 segundos
-      setTimeout(() => {
-        if (div.parentElement) div.remove();
-      }, 30 * 1000);
+      document.body.appendChild(stack);
     }
+
+    const bannerId = `medicationReminder_${patient.id}_${medication.id}_${time}`.replace(/[^a-zA-Z0-9_]/g, '_');
+    if (document.getElementById(bannerId)) return; // já mostrado, não duplicar
+
+    const div = document.createElement('div');
+    div.id = bannerId;
+    div.style.cssText = `
+      background: var(--status-warning-bg, rgba(250,178,25,0.14));
+      border: 1px solid var(--status-warning, #fab219);
+      border-radius: var(--radius-md, 10px);
+      padding: 16px;
+      font-family: var(--font-ui, sans-serif);
+      color: var(--text-primary, white);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      animation: slideIn 0.3s ease-out;
+    `;
+
+    const content = `
+      <strong>💊 ${medication.name}</strong><br>
+      ${medication.dose} às ${time}<br>
+      <button onclick="if(typeof markDoseTaken==='function') { markDoseTaken('${patient.id}', '${medication.id}', '${time}'); } document.getElementById('${bannerId}').remove();" style="margin-top:8px; padding:6px 12px; background:var(--accent,#3FD6C0); border:none; border-radius:4px; cursor:pointer; color:var(--accent-ink,#04211D);">
+        ✓ Tomei agora
+      </button>
+    `;
+
+    div.innerHTML = content;
+    stack.appendChild(div);
+
+    // Auto-fechar após 30 segundos
+    setTimeout(() => {
+      if (div.parentElement) div.remove();
+    }, 30 * 1000);
   }
 
   // Adicionar CSS animation se ainda não existir

@@ -46,8 +46,13 @@ MAX_DEPTH = 5
 def train(df, feature_cols):
     train_df, test_df, test_subjects = split_by_subject(df)
 
+    # Mesmo bug/correção de train_activity_classifier.py (2026-07-07,
+    # rotina cloud): ajustar o encoder ao conjunto completo de classes,
+    # não só train_df, evita um "unseen labels" se uma classe rara ficar
+    # inteiramente do lado do teste numa divisão por sujeito.
     encoder = LabelEncoder()
-    y_train = encoder.fit_transform(train_df["label"])
+    encoder.fit(df["label"])
+    y_train = encoder.transform(train_df["label"])
     y_test = encoder.transform(test_df["label"])
     X_train = train_df[feature_cols]
     X_test = test_df[feature_cols]
