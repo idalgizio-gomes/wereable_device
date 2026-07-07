@@ -2808,3 +2808,11 @@ continua sem ligação real ao streaming BLE (`ble_bridge.py` usa
 `storage.py`, ver limitação já registada na secção da suite de testes,
 acima) — este CI só protege contra regressões de import/lógica, não é um
 teste de integração ponta a ponta.
+
+**Confirmado a passar em CI real (2026-07-07, mesmo push)**: verificado via
+`actions_get`/`get_workflow_run` da API do GitHub — a primeira execução do
+novo workflow "Bridge Python tests" (`run_id=28888296568`, commit
+`7e046fe`) terminou `completed`/`success`. Não é só um ficheiro YAML válido
+sem sinal de vida (a mesma lição já registada para a correção da CI do
+PlatformIO) — está mesmo a instalar `bridge/requirements_db.txt` e a correr
+os 46 testes reais em cada push a `main`.
