@@ -1456,46 +1456,51 @@ dashboard. Modularizado em duas classes principais:
 - Compatível com localStorage já existente (`carewear_medication_log` para
   registro de doses de hoje).
 
-### Próximas etapas de integração (não feitas nesta sessão)
+### Integração no dashboard concluída (2026-07-07, rotina cloud)
 
-1. **Adicionar ao HTML** (`index.html`):
-   - `<script src="medication-reminders.js"><script>` no `<head>` ou
-     `</body>`.
-   - Isso ativa o sistema automaticamente.
+O ficheiro tinha ficado órfão desde 2026-07-04 — escrito e revisto, mas nunca
+incluído em `index.html`, por isso não corria de todo (item explícito na
+lista "Próximas etapas de integração" abaixo, agora resolvida):
 
-2. **UI para histórico de adesão** (novo cartão em vista "Medicação"):
-   - Mostrar semana resumida com `AdherenceAnalytics.getWeekSummary()`.
-   - Recomendações em "tooltip" ou cartão separado.
-   - Possibilidade de "guardar" o histórico (hoje é ephemeral em localStorage).
+1. **`<script src="medication-reminders.js"></script>` adicionado no fim de
+   `index.html`** (depois do `<script>` principal, para que
+   `selectedPatient()`/`patientMedications()`/`isDoseTakenToday()`/
+   `markDoseTaken()` já estejam definidas quando `DOMContentLoaded` corre).
+   Isto ativa o sistema automaticamente, tal como planeado.
+2. **Bug real encontrado e corrigido antes de ativar** (revisão dirigida a
+   esta alteração): `checkAndNotify()` fazia `getCurrentPatient ?
+   getCurrentPatient() : null` — uma referência nua a um identificador nunca
+   declarado em lado nenhum (`getCurrentPatient()` não existe em
+   `index.html`, ao contrário do que o comentário do ficheiro assumia).
+   Isto lança sempre `ReferenceError` em JavaScript (diferente de aceder a
+   uma propriedade indefinida), o que travaria o sistema de lembretes
+   assim que `start()` corresse — nunca chegaria a mostrar uma notificação.
+   Corrigido para `typeof getCurrentPatient === 'function' ? ... :
+   typeof selectedPatient === 'function' ? selectedPatient() : null`,
+   implementando o *fallback* a `selectedPatient()` que já estava
+   documentado como intenção mas nunca escrito no código. Mesmo tratamento
+   aplicado por consistência a `patientMedications`/`isDoseTakenToday`/
+   `markDoseTaken` (que já existiam e não estavam a falhar, mas ficam
+   protegidas de futuras reordenações de scripts).
+3. **Verificado em Playwright real (Chromium)**: página carrega sem erros de
+   consola (só o aviso esperado de WebSocket recusado, sem bridge a
+   correr); login como Utente/Família, vista "Medicação" mostra a tabela de
+   doses normalmente, "Marcar como tomado" continua a funcionar sem
+   regressões; `console.log` confirma "Sistema de lembretes ativo" sem
+   exceções.
+4. **Ainda por fazer** (fora do âmbito desta correção pontual, já registado
+   antes): UI dedicada ao resumo semanal de `AdherenceAnalytics`
+   (`getWeekSummary()`/`getRecommendations()` continuam por chamar — a
+   classe está instanciada em `window.adherenceAnalytics` mas nada ainda
+   invoca `recordDay()`, por isso não acumula histórico próprio); ligação a
+   `storage_advanced.py`; envio real de SMS/email/push (Twilio, decisão
+   pendente do utilizador).
 
-3. **Backend/BD** (quando `storage_advanced.py` for integrada):
-   - Substituir localStorage por queries ao SQLAlchemy ORM
-     (`MedicationAdherence` table).
-   - `AdherenceAnalytics.recordDay()` passaria a fazer INSERT numa tabela em
-     vez de localStorage.
-   - As análises mantêm a mesma interface.
+### Validação & testes
 
-4. **SMS/Email/Push** via Twilio (Prioridade 5):
-   - Chamar `twilioSendNotification(user_phone, message)` em vez de (ou
-     além de) Browser Notifications.
-   - Seria uma camada extra de `MedicationReminder`, não muda a lógica
-     principal.
-
-### Validação & testes (até ao momento)
-
-- Sintaxe JavaScript: validada (sem imports externos, código puro vanilla
-  JS).
-- Integração com localStorage: testada localmente (guarda/carrega dados
-  persistentes).
-- Compatibilidade com funções existentes do dashboard: requer verificação
-  quando `index.html` for atualizado com o `<script>`.
-
-**Limitação honesta**: o sistema não envia notificações de verdade até estar
-integrado no HTML e até a função `getCurrentPatient()` ser implementada no
-dashboard. No seu estado atual (ficheiro separado), é um módulo "pronto para
-usar" que só precisa de ser incluído num HTML que já tenha as funções
-`patientMedications()`, `isDoseTakenToday()`, `markDoseTaken()` e
-`selectedPatient()`.
+- Sintaxe JavaScript: `node --check` sobre `medication-reminders.js` e sobre
+  o `<script>` principal extraído de `index.html` — ambos sem erros.
+- Testado em Playwright real (Chromium), ver ponto 3 acima.
 
 ## Roadmap alargado (definido pelo utilizador, por implementar)
 
