@@ -2363,3 +2363,79 @@ para uma eventual versão embarcada, e um limiar/métrica do LSTM Autoencoder
 menos sensível ao desequilíbrio introduzido pelas sessões de 24h (ex.:
 PR-AUC em vez de contagem de falsos positivos a um limiar fixo — não
 implementado nesta execução).
+
+## Dashboard web — 4 bugs reais corrigidos (2026-07-07, rotina cloud)
+
+Com o backlog do dashboard (itens 1-10) e três rondas de varredura de bugs
+já feitas hoje por rotinas paralelas (ver secções "Verificação de bugs"
+acima), esta rotina pediu uma revisão independente e dedicada só ao
+dashboard (`web/dashboard/index.html` + `medication-reminders.js`),
+instruída a não repetir os achados já corrigidos e a só reportar bugs
+reais, reproduzíveis. Encontrou 4 problemas novos, todos corrigidos e
+verificados nesta execução:
+
+1. **O ponto vermelho de notificações ficava preso para sempre depois de
+   apagar um alerta não lido sem o marcar como lido primeiro — corrigido**
+   (`updateNotificationBadge()`). Calculava `hasUnread` a partir de
+   `p.alerts` em bruto (inclui alertas já apagados), ao contrário de todo
+   o resto da UI que usa `unreadActiveAlerts()` (exclui apagados).
+   Cenário: paciente com um alerta não lido; Médico/Técnico vai a
+   "Histórico de alertas" e clica "Apagar" diretamente — o alerta some da
+   interface, mas o ponto vermelho fica aceso para sempre, sem nenhuma
+   ação na interface capaz de o desligar (o botão "Marcar como lida"
+   também já não existe, porque o alerta foi apagado). Corrigido: a
+   função passou a usar `unreadActiveAlerts().length > 0`. **Verificado
+   com Playwright real**: 4 alertas não lidos apagados diretamente (sem
+   marcar como lidos) — badge visível antes, escondido depois,
+   `unreadActiveAlerts()` a 0.
+2. **Lembretes de medicação paravam de disparar a partir do 2º dia de
+   utilização contínua — corrigido** (`medication-reminders.js`,
+   `checkAndNotify()`). `notifKey` não incluía a data (só
+   paciente+medicamento+hora); `shownNotifications` (um `Set` em memória)
+   só era limpo se, por coincidência, alguma dose estivesse agendada perto
+   da meia-noite. Cenário: cuidador deixa o dashboard aberto (uso normal
+   de um painel de monitorização contínua) — o lembrete das 08:00 do dia 1
+   fica guardado na chave `pX_medY_08:00`; no dia 2, à mesma hora, a
+   mesma chave já existe no Set e a notificação nunca mais aparece,
+   silenciosamente, até a página ser recarregada. Corrigido: `notifKey`
+   passou a incluir a data local (`AAAA-M-D`), com poda das chaves de dias
+   anteriores a cada verificação (evita o Set crescer sem limite). **Verificado
+   isoladamente** (script Node com `Date` simulado via `vm`, sem browser):
+   notificação dispara no dia 1, não duplica na mesma chamada do mesmo
+   dia, e dispara de novo no dia 2 — confirmando que o bug estava mesmo
+   presente antes da correção e desaparece depois.
+3. **XSS real: texto livre inserido em `innerHTML` sem escaping em 5
+   pontos — corrigido** (`web/dashboard/index.html`). Nome de medicamento
+   (tabela de doses de hoje e "Gerir medicação"), valor de campo de perfil
+   sensível pendente de aprovação (NIF/morada, nas duas vistas — Utente e
+   Médico/Técnico) entravam diretamente em `innerHTML`, ao contrário do
+   padrão de escaping já usado para notas do cuidador/nome de cuidador.
+   Cenário: Médico/Técnico introduz `<img src=x onerror=...>` como nome
+   de medicamento — o script injetado executaria sempre que a vista
+   "Medicação" desse paciente fosse aberta, nesta sessão ou em qualquer
+   sessão futura no mesmo browser (persistido em `localStorage`).
+   Corrigido: nova função utilitária `escapeHtml()` (generaliza o padrão
+   já usado noutros pontos, incluindo agora aspas `"` para uso seguro
+   também em atributos), aplicada aos 5 pontos identificados. **Verificado
+   com Playwright real**: nome de medicamento `<img src=x
+   onerror="window.__xss=true">` submetido via formulário real — o script
+   NÃO executa (`window.__xss` continua `undefined`) e o DOM mostra o
+   texto escapado (`&lt;img src=x onerror=...`).
+4. **Interruptores de consentimento/permissões sem nome acessível (WCAG
+   4.1.2) — corrigido** (`web/dashboard/index.html`, cartões
+   "Consentimento e partilha de dados" e "Equipa de cuidadores"). Os 5
+   checkboxes (`.consent-toggle`) não tinham `aria-label` nem texto
+   associado além de um `<span>` puramente decorativo (o "toggle" visual)
+   — um utilizador de leitor de ecrã ouvia só "checkbox, não marcado",
+   sem saber o que estava a ativar/desativar numa funcionalidade
+   explicitamente "eticamente sensível" (consentimento de dados clínicos).
+   Corrigido: `aria-label` descritivo em cada um dos 5 checkboxes
+   (reutilizando `escapeHtml()` para os que incluem o nome do cuidador).
+   **Verificado com Playwright real**: 5/5 checkboxes com `aria-label`,
+   texto do primeiro confirmado ("Partilhar sinais vitais (FC, SpO₂,
+   passos) com a equipa clínica").
+
+Verificação adicional feita antes de commitar: `node --check` sobre o
+`<script>` extraído do `index.html` (última ocorrência da tag, mesma
+lição já registada noutra sessão sobre o bug de extração) e sobre
+`medication-reminders.js` — sem erros de sintaxe.
