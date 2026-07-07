@@ -2323,6 +2323,22 @@ do Random Forest):
   real em vez de estimado — continua bloqueado pela indisponibilidade da
   placa (ver "Riscos/bloqueios ativos", ponto 8).
 
+**Nota de sincronização (mesmo dia)**: a meio desta execução, um
+`git fetch`/rebase revelou que uma rotina paralela (ver "Verificação de
+bugs — 3ª passagem" acima) tinha corrigido, no mesmo dia, três bugs em
+`ml/features.py`/`train_activity_classifier.py`/`_rf.py`/
+`train_lstm_autoencoder.py` (off-by-one no `_zero_crossing_rate`,
+`classification_report()` sem `labels=` explícito, seed do TensorFlow não
+fixada) — os modelos já treinados nesta execução tinham sido gerados
+ANTES dessas correções chegarem via rebase. Para não deixar artefactos
+commitados desalinhados com o código corrigido, todo o pipeline foi
+reexecutado depois do rebase (dataset, XGBoost, Random Forest, footprint,
+detetor de duração, LSTM Autoencoder) — os números abaixo já refletem essa
+segunda execução, pós-correção. Efeito prático das correções nos números:
+nenhum na accuracy do classificador (o off-by-one é ~0.2% da janela, sem
+impacto mensurável), e o LSTM Autoencoder passou a ser reproduzível entre
+execuções graças a `keras.utils.set_random_seed`.
+
 Todos os modelos foram retreinados/reavaliados sobre o novo dataset (72 402
 janelas, antes 15 840) e os relatórios/modelos em `ml/models/`/`ml/reports/`
 substituídos em conformidade — resultados honestos, não inventados:
@@ -2332,7 +2348,7 @@ mesma conclusão qualitativa de antes: quantização `int16_t` destrói
 accuracy, `float` recupera-a), detetor de duração recall 0.925-1.000 (era
 0.972-1.000, variação normal de reamostragem, não um efeito da correção).
 **Achado novo, honesto, não escondido**: o LSTM Autoencoder perdeu muita
-precisão a um limiar fixo (0.276→0.038) ao mudar para sessões de 24h — não
+precisão a um limiar fixo (0.276→0.035) ao mudar para sessões de 24h — não
 por o modelo ter piorado (AUC-ROC manteve-se na mesma gama, 0.80-0.93 por
 tipo), mas porque uma anomalia de duração fixa passou a ser uma fatia bem
 menor de um dia inteiro, um efeito de diluição/desequilíbrio de classes
