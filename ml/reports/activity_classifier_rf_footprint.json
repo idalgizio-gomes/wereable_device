@@ -1,29 +1,29 @@
 {
-  "baseline_sklearn_accuracy": 0.9775252525252526,
+  "baseline_sklearn_accuracy": 0.9917081260364843,
   "methods": {
     "inline_int16": {
       "method": "inline",
       "dtype": "int16_t",
-      "flash_bytes": 10540,
+      "flash_bytes": 14012,
       "ram_bytes": 0,
-      "c_accuracy": 0.7893939393939394,
-      "generated_c_lines": 2518
+      "c_accuracy": 0.7948037589828635,
+      "generated_c_lines": 5354
     },
     "inline_float": {
       "method": "inline",
       "dtype": "float",
-      "flash_bytes": 19136,
+      "flash_bytes": 27836,
       "ram_bytes": 0,
-      "c_accuracy": 0.9775252525252526,
-      "generated_c_lines": 2518
+      "c_accuracy": 0.9913211719181868,
+      "generated_c_lines": 5354
     },
     "loadable_int16": {
       "method": "loadable",
       "dtype": "int16_t",
-      "flash_bytes": 4841,
+      "flash_bytes": 10513,
       "ram_bytes": 28,
-      "c_accuracy": 0.7893939393939394,
-      "generated_c_lines": 520
+      "c_accuracy": 0.7948037589828635,
+      "generated_c_lines": 1229
     }
   },
   "free_flash_budget_bytes": 653312,

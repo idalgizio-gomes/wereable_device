@@ -2291,3 +2291,59 @@ commitar (repro isolado em Python para os bugs do bridge/ml, Playwright
 real para os 4 do dashboard, `node --check` sobre o `<script>` extraído,
 contagem de chavetas para o firmware sem toolchain ARM disponível nesta
 rotina cloud).
+## Modelo de Machine Learning — item 4 do roteiro concluído (2026-07-07, rotina cloud)
+
+Nota de processo (não uma alteração de código): esta execução começou com
+o checkout local desta rotina cloud desatualizado face ao `origin/main`
+real (um `git fetch` explícito confirmou isto e resolveu com um simples
+fast-forward, sem perda de trabalho nenhuma) — registado aqui só como
+lembrete para futuras rotinas: fazer sempre `git fetch origin main` antes
+de assumir o estado do repositório, especialmente havendo múltiplas
+sessões/rotinas a correr sobre o mesmo repositório no mesmo dia.
+
+Progresso concreto (Prioridade 3, item 4 do roteiro em `ml/README.md`,
+"Tornar os dados sintéticos mais realistas"), com ambiente Python+ML
+instalado nesta rotina (`pip install -r ml/requirements.txt`, mais
+`gcc-arm-none-eabi` via `apt-get` para conseguir remedir o footprint real
+do Random Forest):
+
+- **Sobreposição deliberada entre classes vizinhas** em `synthetic_data.py`
+  (`CLASS_PARAMS` passou de constantes fixas por classe a intervalos
+  amostrados por janela, com overlap intencional ex.: "Atividade" vs.
+  "Higiene") — corrige a limitação já assinalada de as classes serem
+  artificialmente bem separáveis (accuracy XGBoost 1.000, suspeita, não
+  prova de qualidade).
+- **Sessões de 24h completas** em vez de comprimidas (16h+8h = 1440 min,
+  antes 240+90=330 min).
+- **Corrigido o corte artificial do último bloco de cada sessão**
+  (`_build_segment_sequence` deixou de forçar `dur = min(dur, remaining)`)
+  — eliminou por completo o achado de falsos positivos do detetor de
+  duração (passo 3): 7.17%→**0.0%**.
+- **Não feito** (não podia ser, honestamente): ruído medido em hardware
+  real em vez de estimado — continua bloqueado pela indisponibilidade da
+  placa (ver "Riscos/bloqueios ativos", ponto 8).
+
+Todos os modelos foram retreinados/reavaliados sobre o novo dataset (72 402
+janelas, antes 15 840) e os relatórios/modelos em `ml/models/`/`ml/reports/`
+substituídos em conformidade — resultados honestos, não inventados:
+XGBoost 1.000→**0.996**, Random Forest 0.978→**0.992**, footprint do RF
+remedido com o toolchain ARM real (~14-28KB de flash conforme a variante,
+mesma conclusão qualitativa de antes: quantização `int16_t` destrói
+accuracy, `float` recupera-a), detetor de duração recall 0.925-1.000 (era
+0.972-1.000, variação normal de reamostragem, não um efeito da correção).
+**Achado novo, honesto, não escondido**: o LSTM Autoencoder perdeu muita
+precisão a um limiar fixo (0.276→0.038) ao mudar para sessões de 24h — não
+por o modelo ter piorado (AUC-ROC manteve-se na mesma gama, 0.80-0.93 por
+tipo), mas porque uma anomalia de duração fixa passou a ser uma fatia bem
+menor de um dia inteiro, um efeito de diluição/desequilíbrio de classes
+esperado, não um bug. Ver `ml/README.md` (secções "Passo 1", "Passo 2",
+"Passo 3" e "Próximos passos") para o detalhe completo e a interpretação
+honesta de cada número.
+
+**Ainda por fazer** (ver `ml/README.md`, "Próximos passos"/"Decisão
+pendente"): ruído real de hardware (bloqueado), decisão do utilizador entre
+XGBoost (`micromlgen`, sem manutenção) e Random Forest (`emlearn`, mantido)
+para uma eventual versão embarcada, e um limiar/métrica do LSTM Autoencoder
+menos sensível ao desequilíbrio introduzido pelas sessões de 24h (ex.:
+PR-AUC em vez de contagem de falsos positivos a um limiar fixo — não
+implementado nesta execução).

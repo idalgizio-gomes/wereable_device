@@ -31,14 +31,17 @@ Limitação assumida (documentada, não escondida):
   do dashboard, "modelos personalizados por pessoa"), não dos parâmetros do
   próprio gerador sintético.
 - Consequência da limitação acima: como os limites usados para sinalizar
-  SÃO os mesmos usados para gerar os dados "normais", seria de esperar
-  falsos positivos ~0 por construção — **mas a avaliação mede 7.17%**,
-  inteiramente explicado pelo último bloco de cada sessão sintética, que o
-  próprio gerador corta (`dur = min(dur, remaining)`) para a sessão somar
-  exatamente o total de minutos configurado (não é uma anomalia real; ver
-  `run_evaluation()`/`ml/README.md` para o detalhe medido). Isto **não**
-  valida a especificidade da regra sobre variabilidade humana real (essa só
-  pode ser medida com dados reais, ainda não disponíveis).
+  SÃO os mesmos usados para gerar os dados "normais", é de esperar falsos
+  positivos ~0 por construção. **Até 2026-07-04 isso não se verificava**
+  (7.17% de falsos positivos, 100% deles no último bloco de cada sessão,
+  que o gerador cortava com `dur = min(dur, remaining)` para a sessão
+  somar exatamente o total configurado — artefacto do gerador, não uma
+  anomalia real). **Corrigido em 2026-07-07** (item 4 do roteiro,
+  `_build_segment_sequence` em `synthetic_data.py` deixou de cortar o
+  último bloco — ver docstring aí): reavaliado, falsos positivos = 0.0%
+  (ver `reports/duration_detector_metrics.json`). Isto **não** valida a
+  especificidade da regra sobre variabilidade humana real (essa só pode
+  ser medida com dados reais, ainda não disponíveis).
 """
 
 import json
@@ -71,12 +74,14 @@ def evaluate_subject(night_segments, day_segments, anomaly_marker):
     (`anomaly_marker`, o mesmo formato devolvido por
     `synthetic_sequences.generate_subject_segments`).
 
-    `is_last_of_session` fica marcado no último bloco de cada sessão — o
-    gerador sintético (`_build_segment_sequence` em `synthetic_data.py`)
-    corta esse bloco (`dur = min(dur, remaining)`) para a sessão somar
-    exatamente `DAY_SESSION_MINUTES`/`NIGHT_SESSION_MINUTES`, o que pode
-    produzir uma duração normal mais curta que `d_min` sem ser uma
-    anomalia real — ver nota de falsos positivos no docstring do módulo."""
+    `is_last_of_session` fica marcado no último bloco de cada sessão —
+    até 2026-07-04 o gerador sintético cortava esse bloco
+    (`dur = min(dur, remaining)`), o que produzia falsos positivos (ver
+    docstring do módulo); desde a correção de 2026-07-07 em
+    `_build_segment_sequence` (synthetic_data.py) o último bloco já não é
+    cortado, mantido aqui só para continuar a discriminar esse caso no
+    relatório de avaliação (campo
+    `false_positives_explained_by_last_block_of_session`)."""
     anomalous_session, anomalous_idx = anomaly_marker if anomaly_marker else (None, None)
 
     rows = []
@@ -148,15 +153,15 @@ def run_evaluation(n_normal_subjects=40, n_subjects_per_anomaly=40, seed=123):
             "ml/README.md) — não é um modelo treinado; é uma comparação "
             "determinística contra os limites [d_min, d_max] usados pelo "
             "próprio gerador sintético (synthetic_data.py). 100% sintético. "
-            "Achado honesto: TODOS os falsos positivos medidos (ver campo "
-            "'false_positives_explained_by_last_block_of_session') "
-            "acontecem no último bloco de cada sessão, que o gerador corta "
-            "(`dur = min(dur, remaining)`) para a sessão somar exatamente "
-            "o total de minutos configurado — não é uma anomalia real nem "
-            "uma falha da regra, é um artefacto da forma como as sessões "
-            "sintéticas comprimidas são construídas (ver docstring do "
-            "módulo). Isto não valida especificidade em dados reais, onde "
-            "não existe esse corte artificial por orçamento de minutos."
+            "Até 2026-07-04, TODOS os falsos positivos vinham do último "
+            "bloco de cada sessão, cortado artificialmente pelo gerador "
+            "(ver histórico no docstring do módulo) — corrigido em "
+            "2026-07-07 (synthetic_data.py deixou de cortar o último "
+            "bloco); esta avaliação já reflete a correção "
+            "(false_positive_rate_normal_blocks=0.0 esperado). Isto não "
+            "valida especificidade em dados reais, onde a variabilidade "
+            "humana real não segue os mesmos limites usados para gerar "
+            "os dados sintéticos."
         ),
     )
 
