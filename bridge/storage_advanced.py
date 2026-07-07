@@ -24,6 +24,8 @@ from sqlalchemy import (
 from sqlalchemy.orm import sessionmaker, relationship, Session, declarative_base
 from sqlalchemy.pool import StaticPool
 
+from crypto_utils import decrypt_field, encrypt_field
+
 # ============================================================
 # CONFIGURAÇÃO
 # ============================================================
@@ -110,8 +112,12 @@ class Patient(Base):
     uuid = Column(String(36), unique=True, nullable=False)
     name = Column(String(255), nullable=False)
     date_of_birth = Column(DateTime, nullable=False)
-    nif_encrypted = Column(String(255))  # Encriptado, aprovação obrigatória
-    address_encrypted = Column(String(255))  # Encriptado
+    # Cifrados com AES-256-GCM (chave derivada via Argon2id, ver crypto_utils.py)
+    # através das propriedades nif/address abaixo — nunca atribuir estas duas
+    # colunas *_encrypted diretamente. 512 bytes (não 255) para acomodar o
+    # overhead da cifra (nonce + tag + base64) em moradas mais longas.
+    nif_encrypted = Column(String(512))  # aprovação obrigatória, ver dashboard
+    address_encrypted = Column(String(512))
     phone = Column(String(20))
     emergency_contact_name = Column(String(255))
     emergency_contact_phone = Column(String(20))
@@ -128,6 +134,24 @@ class Patient(Base):
     __table_args__ = (
         Index("idx_patient_uuid", "uuid"),
     )
+
+    @property
+    def nif(self) -> Optional[str]:
+        """NIF em texto simples (decifrado sob pedido, nunca guardado assim)."""
+        return decrypt_field(self.nif_encrypted)
+
+    @nif.setter
+    def nif(self, value: Optional[str]) -> None:
+        self.nif_encrypted = encrypt_field(value)
+
+    @property
+    def address(self) -> Optional[str]:
+        """Morada em texto simples (decifrada sob pedido, nunca guardada assim)."""
+        return decrypt_field(self.address_encrypted)
+
+    @address.setter
+    def address(self, value: Optional[str]) -> None:
+        self.address_encrypted = encrypt_field(value)
 
 
 class Device(Base):

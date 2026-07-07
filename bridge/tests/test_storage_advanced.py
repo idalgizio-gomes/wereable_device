@@ -328,3 +328,61 @@ class TestDataRetention:
         sa.DataRetention.cleanup(db, dry_run=False)
 
         assert db.query(sa.EmergencyAlert).count() == 1
+
+
+class TestPatientSensitiveFields:
+    """`Patient.nif`/`Patient.address` passam por `crypto_utils.encrypt_field()`/
+    `decrypt_field()` (ver bridge/crypto_utils.py e test_crypto_utils.py para
+    a correção da cifra em si) -- esta classe cobre só a integração com o
+    modelo ORM, com as duas funções isoladas via monkeypatch (o
+    comportamento da cifra real já está coberto em test_crypto_utils.py)."""
+
+    def test_plaintext_fallback_when_encryption_not_configured(self, db):
+        """Nesta suite (ver conftest.py) nenhuma variável de ambiente de
+        cifra está definida -- por desenho, `encrypt_field()`/`decrypt_field()`
+        degradam para texto simples de forma visível, nunca silenciosa."""
+        patient = _make_patient(db, uuid="pat-nif-1")
+        patient.nif = "123456789"
+        patient.address = "Rua Teste, 1"
+        db.commit()
+        db.refresh(patient)
+
+        assert patient.nif == "123456789"
+        assert patient.address == "Rua Teste, 1"
+        # Sem cifra configurada, a coluna subjacente também fica em texto
+        # simples -- comportamento documentado, não escondido.
+        assert patient.nif_encrypted == "123456789"
+        assert patient.address_encrypted == "Rua Teste, 1"
+
+    def test_setter_calls_encrypt_field(self, db, monkeypatch):
+        monkeypatch.setattr(sa, "encrypt_field", lambda v: None if v is None else f"enc:FAKE:{v}")
+        patient = _make_patient(db, uuid="pat-nif-2")
+        patient.nif = "987654321"
+        db.commit()
+        db.refresh(patient)
+
+        assert patient.nif_encrypted == "enc:FAKE:987654321"
+
+    def test_getter_calls_decrypt_field(self, db, monkeypatch):
+        monkeypatch.setattr(sa, "encrypt_field", lambda v: None if v is None else f"enc:FAKE:{v}")
+        monkeypatch.setattr(
+            sa, "decrypt_field",
+            lambda v: v[len("enc:FAKE:"):] if v and v.startswith("enc:FAKE:") else v,
+        )
+        patient = _make_patient(db, uuid="pat-nif-3")
+        patient.nif = "555555555"
+        db.commit()
+        db.refresh(patient)
+
+        assert patient.nif_encrypted == "enc:FAKE:555555555"
+        assert patient.nif == "555555555"
+
+    def test_none_stays_none(self, db):
+        patient = _make_patient(db, uuid="pat-nif-4")
+        db.commit()
+        db.refresh(patient)
+
+        assert patient.nif is None
+        assert patient.address is None
+        assert patient.nif_encrypted is None
+        assert patient.address_encrypted is None
