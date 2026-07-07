@@ -56,11 +56,12 @@ class MedicationReminder {
 
   checkAndNotify() {
     const now = new Date();
-    const currentPatient = getCurrentPatient ? getCurrentPatient() : null;
-    
+    const currentPatient = (typeof getCurrentPatient === 'function') ? getCurrentPatient()
+      : (typeof selectedPatient === 'function') ? selectedPatient() : null;
+
     if (!currentPatient) return; // sem paciente selecionado
 
-    const meds = patientMedications ? patientMedications(currentPatient) : [];
+    const meds = (typeof patientMedications === 'function') ? patientMedications(currentPatient) : [];
     
     for (const med of meds) {
       if (!med.times || !Array.isArray(med.times)) continue;
@@ -79,7 +80,7 @@ class MedicationReminder {
           // Só notificar uma vez por dia
           if (!this.shownNotifications.has(notifKey)) {
             // Verificar se já foi marcada como tomada
-            const taken = isDoseTakenToday ? isDoseTakenToday(currentPatient.id, med.id, time) : false;
+            const taken = (typeof isDoseTakenToday === 'function') ? isDoseTakenToday(currentPatient.id, med.id, time) : false;
             
             if (!taken) {
               this.showNotification(med, time, currentPatient);
@@ -129,7 +130,7 @@ class MedicationReminder {
     notification.onaction = (event) => {
       if (event.action === 'take') {
         // Marcar como tomada
-        if (markDoseTaken) {
+        if (typeof markDoseTaken === 'function') {
           markDoseTaken(patient.id, medication.id, time);
           console.log(`[MedicationReminder] ${medication.name} marcada como tomada em ${time}`);
         }
