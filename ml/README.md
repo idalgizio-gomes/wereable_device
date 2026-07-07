@@ -111,13 +111,31 @@ Todos os scripts são determinísticos (seed fixa = 42).
   ainda não explorada a fundo.
 - **Limitação assumida**: os parâmetros de sinal por classe (amplitude,
   frequência, ruído) são a nossa própria modelação plausível, não os
-  parâmetros exatos do artigo (não publicados) nem dados reais. As sessões
-  "dia"/"noite" são comprimidas (240 min / 90 min), não dias de 24h
-  completos — mantém o dataset pequeno e rápido de gerar nesta primeira
-  iteração. Gerar dias completos fica registado como melhoria futura.
-- Dataset da última execução: 15 840 janelas de 10s, 8 sujeitos sintéticos,
-  desequilibrado entre classes (Descanso e Dormir dominam, refletindo uma
-  rotina plausível — ver `data/synthetic_routine_dataset.meta.json`).
+  parâmetros exatos do artigo (não publicados) nem dados reais — o ruído em
+  particular continua **estimado**, nunca medido no acelerómetro/giroscópio
+  reais do wearable (bloqueado pela indisponibilidade de hardware, ver
+  PROJECT_STATUS.md, "Riscos"). Isto não foi resolvido nesta iteração.
+- **Atualizado em 2026-07-07 (item 4 do roteiro "Próximos passos"), duas
+  limitações da primeira iteração foram corrigidas**:
+  1. As sessões "dia"/"noite" passaram de comprimidas (240 min / 90 min) a
+     um **dia completo de 24h** (960 min / 480 min = 16h+8h) — ver
+     `DAY_SESSION_MINUTES`/`NIGHT_SESSION_MINUTES` em `synthetic_data.py`.
+  2. Os parâmetros de sinal por classe deixaram de ser constantes fixas e
+     passaram a **intervalos amostrados por janela**, com **sobreposição
+     deliberada** entre classes vizinhas em intensidade/frequência (ex.:
+     "Atividade" e "Higiene" partilham uma faixa de amplitude/frequência) —
+     ver comentário em `CLASS_PARAMS`. Motivação: a primeira iteração
+     tornava as classes artificialmente bem separáveis (accuracy XGBoost
+     1.000 — sinal de dataset fácil demais, não de classificador excelente,
+     já assinalado como limitação antes de se corrigir). Dados reais nunca
+     serão tão bem separados quanto sinais gerados com constantes fixas por
+     classe.
+- Dataset da última execução (pós-correção 2026-07-07): 72 402 janelas de
+  10s, 8 sujeitos sintéticos, desequilibrado entre classes (Descanso e
+  Dormir dominam, refletindo uma rotina plausível — ver
+  `data/synthetic_routine_dataset.meta.json`). Cresceu ~4,6x face à
+  iteração anterior (15 840 janelas), consequência direta de simular um dia
+  completo de 24h em vez de uma sessão comprimida.
 
 ### Features (`features.py`)
 
@@ -189,20 +207,28 @@ para a comparação ser justa.
 |---|---|---|
 | Nº de árvores | 300 estimadores × 5 classes = **~1500 árvores internas** | **80 árvores** |
 | Profundidade | 3 | 5 |
-| Accuracy (sujeitos de teste nunca vistos) | **1.000** | **0.978** |
+| Accuracy (sujeitos de teste nunca vistos) | **0.996** | **0.992** |
 
-A diferença de accuracy é pequena (2.2 pontos percentuais) para uma
-fração do número de árvores (80 vs. ~1500) — reforça que o Random Forest
-é a via mais realista para uma eventual versão embarcada via `emlearn`,
-sem sacrificar muita qualidade face ao XGBoost. **Isto continua a não ser
-uma decisão de produção**: falta medir o footprint real via `emlearn`
-(flash/RAM/latência nesta placa) antes de decidir embarcar qualquer um
-dos dois — ver `reports/activity_classifier_rf_metrics.json` e
+*(Números atualizados em 2026-07-07 após o dataset passar a ter sessões de
+24h completas e sobreposição deliberada entre classes — ver secção "Dados
+sintéticos" acima; antes desta mudança eram 1.000/0.978. A queda face ao
+XGBoost anterior é pequena porque a sobreposição introduzida é moderada,
+não extrema — o objetivo era deixar de ter uma accuracy perfeita
+suspeita, não fabricar um modelo artificialmente mau.)*
+
+A diferença de accuracy entre os dois é pequena (0.4 pontos percentuais)
+para uma fração do número de árvores (80 vs. ~1500) — reforça que o Random
+Forest é a via mais realista para uma eventual versão embarcada via
+`emlearn`, sem sacrificar muita qualidade face ao XGBoost. **Isto continua
+a não ser uma decisão de produção**: falta medir latência real (o
+footprint de flash/RAM já foi medido — ver secção seguinte) antes de
+decidir embarcar qualquer um dos dois — ver
+`reports/activity_classifier_rf_metrics.json` e
 `reports/activity_classifier_rf_confusion_matrix.png` para o detalhe por
-classe (nota: "Higiene" tem recall mais baixo, 0.74, no Random Forest do
-que no XGBoost — sinal de que árvores mais rasas/em menor número têm mais
-dificuldade nesta classe especificamente, algo a ter em conta se se
-avançar para esta via).
+classe (nota: "Higiene" continua a ser a classe mais confundida em ambos
+os modelos — precision/recall 0.89/0.94 no Random Forest, 0.94/0.98 no
+XGBoost — consistente com ser a classe com overlap de amplitude/frequência
+desenhado deliberadamente com "Atividade").
 
 ### Footprint real medido via `emlearn` (2026-07-03, `measure_rf_footprint.py`)
 
@@ -215,9 +241,16 @@ completos.
 
 | Variante | Flash | RAM | Accuracy (código C real, compilado e corrido) |
 |---|---|---|---|
-| `inline`, quantizado (`int16_t`, omissão do `emlearn`) | **10 540 bytes** (~10,3 KB) | 0 bytes | **0.789** |
-| `inline`, `float` (limiares não quantizados) | **19 136 bytes** (~18,7 KB) | 0 bytes | **0.978** |
-| `loadable` (tabela de dados, só suporta `int16_t`) | **4 841 bytes** (~4,7 KB) | 28 bytes | **0.789** |
+| `inline`, quantizado (`int16_t`, omissão do `emlearn`) | **14 012 bytes** (~13,7 KB) | 0 bytes | **0.795** |
+| `inline`, `float` (limiares não quantizados) | **27 836 bytes** (~27,2 KB) | 0 bytes | **0.991** |
+| `loadable` (tabela de dados, só suporta `int16_t`) | **10 513 bytes** (~10,3 KB) | 28 bytes | **0.795** |
+
+*(Números remedidos em 2026-07-07 sobre o Random Forest retreinado no
+dataset de 24h com sobreposição entre classes — accuracy sklearn de
+referência 0.992, ver tabela acima; ligeiramente maiores em bytes que a
+medição de 2026-07-03 porque o modelo tem agora mais variância a
+codificar nas árvores, mas a conclusão qualitativa é a mesma: flash não é
+fator limitante, quantização `int16_t` continua a destruir accuracy.)*
 
 **Duas conclusões, uma boa e uma que exige atenção antes de qualquer
 decisão de embarcar:**
@@ -264,24 +297,29 @@ Janelas do mesmo sujeito partilham o mesmo "jitter" individual e estariam
 fortemente correlacionadas — uma amostragem aleatória de janelas inflacionaria
 artificialmente a métrica de avaliação.
 
-### Resultado da última execução
+### Resultado da última execução (atualizado 2026-07-07)
 
-**Accuracy = 1.000** no conjunto de teste (2 sujeitos sintéticos nunca vistos
-no treino, 3 960 janelas). Ver `reports/activity_classifier_metrics.json` e
-`reports/activity_classifier_confusion_matrix.png` para o detalhe por classe.
+**Accuracy = 0.996** no conjunto de teste (2 sujeitos sintéticos nunca vistos
+no treino, 18 090 janelas, dataset de 24h com overlap entre classes). Ver
+`reports/activity_classifier_metrics.json` e
+`reports/activity_classifier_confusion_matrix.png` para o detalhe por classe
+— "Higiene" é a classe com mais confusão (precision 0.94, recall 0.98),
+consistente com o overlap deliberado desenhado com "Atividade" (ver secção
+"Dados sintéticos" acima).
 
 **Interpretação honesta deste resultado — não é uma validação clínica:**
-100% de accuracy é o resultado esperado, não uma surpresa nem uma prova de
-qualidade do modelo. As classes sintéticas foram desenhadas com sinais
-claramente separáveis (amplitudes/frequências bem distintas por classe, ruído
-moderado) para poderem validar a pipeline de ponta a ponta rapidamente. Dados
-reais serão muito mais ambíguos entre classes (ex.: "Descanso" vs. "Higiene"
-sentada, ou "Alimentação" vs. outro gesto repetitivo de mão) e um modelo
-treinado só nestes dados sintéticos **não deve ser considerado validado para
-uso real** — falta ainda: (a) dados reais rotulados ou o TIHM Dataset como
-validação externa, (b) tornar os dados sintéticos mais realistas (overlap
-entre classes, artefactos de movimento, sensor noise real medido em
-hardware), (c) validar em hardware embarcado se a via TinyML avançar.
+antes desta correção (2026-07-07) a accuracy era exatamente 1.000 — resultado
+esperado do dataset anterior, não uma prova de qualidade do modelo, porque as
+classes sintéticas tinham sinais claramente separáveis por construção
+(constantes fixas por classe). Isso foi corrigido: `CLASS_PARAMS` passou a
+intervalos com sobreposição deliberada entre classes vizinhas, o que já reduz
+a accuracy de 1.000 para 0.996 e torna os erros por classe visíveis e
+interpretáveis (ver acima). **Mesmo assim, isto não deve ser considerado
+validado para uso real** — a sobreposição introduzida é uma escolha de
+design nossa, não medida em dados reais. Falta ainda: (a) dados reais
+rotulados ou o TIHM Dataset como validação externa, (b) ruído de sensor real
+medido em hardware (continua bloqueado — sem placa disponível), (c) validar
+em hardware embarcado se a via TinyML avançar.
 
 ## Passo 2 — LSTM Autoencoder (deteção de anomalias comportamentais)
 
@@ -339,16 +377,36 @@ normais + 3 sujeitos por cada um dos 3 tipos de anomalia, **nenhum deles
 visto em nenhum passo anterior**.
 
 ### Resultado da última execução — achado honesto, não só um número
+(reavaliado 2026-07-07 sobre sequências de 24h, ver "Dados sintéticos"
+acima; números entre parêntesis = resultado anterior, sessões comprimidas)
 
 Ver `reports/lstm_autoencoder_metrics.json` e
 `reports/lstm_autoencoder_error_distribution.png`.
 
 | | Geral | `duracao_prolongada` | `substituicao_contextual` | `truncamento` |
 |---|---|---|---|---|
-| AUC-ROC (score vs. normal) | **0.876** | 0.813 | 0.910 | 0.744 |
-| Recall ao limiar (percentil 95) | 0.179 | 0.015 | 0.331 | 0.000 |
+| AUC-ROC (score vs. normal) | **0.847** (0.876) | 0.797 (0.813) | 0.929 (0.910) | 0.862 (0.744) |
+| Recall ao limiar (percentil 95) | 0.211 (0.179) | 0.008 (0.015) | 0.506 (0.331) | 0.136 (0.000) |
+| Precisão ao limiar (percentil 95) | **0.038** (0.276) | — | — | — |
 
-**O AUC-ROC por tipo (0.74-0.91, todos bem acima de 0.5) mostra que o
+**Achado honesto novo, específico da mudança para 24h**: a precisão geral
+caiu de 0.276 para 0.038 — não porque o modelo piorou (o AUC-ROC, que não
+depende de um limiar específico, manteve-se na mesma gama, 0.75-0.93 por
+tipo), mas porque **um bloco anómalo de duração fixa passou a ser uma
+fatia muito menor do total** quando a sessão cresce de ~5,5h comprimidas
+para 24h reais — a proporção de subsequências efetivamente anómalas caiu
+de 335/4001 (8,4%) para 227/17789 (1,3%). Com um limiar fixo calibrado no
+percentil 95 das subsequências normais, o número absoluto de falsos
+positivos (5% de uma população normal muito maior) passa a dominar os
+verdadeiros positivos (uma fatia de anomalias agora proporcionalmente mais
+rara) — um efeito de diluição/desequilíbrio de classes esperado ao mudar
+para sessões realistas, não um bug. Reforça a mesma conclusão já registada
+abaixo: um limiar único e global serve mal este problema; limiares por
+pessoa/contexto (ou uma métrica que penalize menos o desequilíbrio, ex.:
+PR-AUC em vez de contagem de falsos positivos a um limiar fixo) seriam o
+próximo passo honesto, não implementado nesta execução.
+
+**O AUC-ROC por tipo (0.80-0.93, todos bem acima de 0.5) mostra que o
 modelo consegue, de facto, ordenar corretamente subsequências anómalas
 acima de normais nos 3 tipos** — não é um modelo que não aprendeu nada.
 Mas o **recall a um limiar único e fixo é muito mau para os dois tipos de
@@ -408,32 +466,44 @@ vir daí (item 3 do backlog do dashboard), não do gerador sintético.
 ### Avaliação (`reports/duration_detector_metrics.json`, seed=123, distinta da usada nos passos 1/2)
 
 40 sujeitos normais + 40 sujeitos por tipo de anomalia, avaliados bloco a
-bloco (não janela a janela, ao contrário dos passos 1/2):
+bloco (não janela a janela, ao contrário dos passos 1/2). Reavaliado em
+2026-07-07 sobre o gerador corrigido (ver "Achado honesto" abaixo):
 
 | | `duracao_prolongada` | `substituicao_contextual` | `truncamento` |
 |---|---|---|---|
-| Recall | **1.000** | **1.000** | **0.972** |
+| Recall | 0.925 (1.000) | **1.000** | 0.925 (0.972) |
+
+*(entre parêntesis: valor antes da correção do gerador de 2026-07-07 —
+pequena variação, dentro do ruído esperado de reamostrar sujeitos
+sintéticos diferentes; não é um efeito da correção em si, que só afetava o
+último bloco de sessões normais, não os blocos com anomalia injetada.)*
 
 Comparação direta com o LSTM Autoencoder (passo 2, recall a limiar fixo):
-0.015→**1.000**, 0.331→**1.000**, 0.000→**0.972** — confirma com números
+0.008→**0.925**, 0.506→**1.000**, 0.136→**0.925** — confirma com números
 concretos, não só teoria, que os dois detetores são complementares: onde o
 autoencoder falha (duração), a regra simples acerta quase sempre, incluindo
 a anomalia contextual (via a checagem "classe inesperada nesta sessão",
 que também serve de regra de calendário, não só de duração).
 
-**Achado honesto sobre falsos positivos**: taxa de falsos positivos em
-blocos normais = 7.17% (154/2147), mas **100% desses falsos positivos
-(154/154) acontecem no último bloco de cada sessão** — confirmado
-medindo diretamente (não suposição), ver `false_positives_explained_by_last_block_of_session`
-no relatório. Causa raiz identificada: `_build_segment_sequence`
-(`synthetic_data.py`) corta o último bloco de cada sessão
+**Achado honesto sobre falsos positivos — CORRIGIDO em 2026-07-07**: até
+2026-07-04, a taxa de falsos positivos em blocos normais era 7.17%
+(154/2147), com **100% desses falsos positivos (154/154) a acontecer no
+último bloco de cada sessão** — confirmado medindo diretamente (não
+suposição). Causa raiz identificada: `_build_segment_sequence`
+(`synthetic_data.py`) cortava o último bloco de cada sessão
 (`dur = min(dur, remaining)`) para a sessão somar exatamente
 `DAY_SESSION_MINUTES`/`NIGHT_SESSION_MINUTES` — um artefacto de como as
-sessões sintéticas COMPRIMIDAS são construídas, não uma anomalia real nem
-uma falha da regra. **Isto não valida especificidade em dados reais**, onde
-não existe esse corte artificial por orçamento de minutos — só confirma que
-a implementação da regra está correta e que o artefacto tem uma explicação
-concreta, não fabricada.
+sessões sintéticas COMPRIMIDAS eram construídas, não uma anomalia real nem
+uma falha da regra. **Corrigido** (item 4 do roteiro "Próximos passos",
+2026-07-07): `_build_segment_sequence` deixou de cortar o último bloco —
+a sessão agora termina assim que a duração acumulada atinge o alvo,
+podendo ultrapassá-lo ligeiramente, mas cada bloco mantém sempre a sua
+duração amostrada por inteiro. Reavaliado: **taxa de falsos positivos =
+0.0%** (0/8626 blocos normais, ver `false_positive_rate_normal_blocks` no
+relatório). **Isto continua a não validar especificidade em dados reais**
+— confirma só que, dentro do próprio mundo sintético, a regra já não gera
+falsos positivos por um artefacto do gerador; a variabilidade humana real
+não segue os mesmos limites usados para gerar os dados.
 
 ### Limitações honestas
 
@@ -445,9 +515,11 @@ concreta, não fabricada.
   comparar dois números), mas exige primeiro que o classificador do passo 1
   esteja embarcado e a produzir blocos classificados em tempo real (ver
   "Riscos" no PROJECT_STATUS.md — ainda não está).
-- A taxa de falsos positivos ~7% medida aqui é inteiramente um artefacto do
-  gerador sintético (ver acima) — não uma medida útil de especificidade em
-  produção.
+- A taxa de falsos positivos de 0.0% medida aqui reflete um gerador
+  sintético sem artefactos de truncamento, não uma medida de
+  especificidade em produção — dados reais têm variabilidade que este
+  gerador não modela (ex.: uma pessoa real pode genuinamente ter um duche
+  mais longo que o intervalo `[d_min, d_max]` sem isso ser uma anomalia).
 
 ## Próximos passos (por ordem)
 
@@ -479,11 +551,25 @@ concreta, não fabricada.
    números concretos. **Ainda por fazer**: embarcar no firmware (depende do
    passo 1 estar embarcado primeiro), e usar limites calibrados por pessoa
    em vez dos parâmetros do gerador sintético.
-4. Tornar os dados sintéticos mais realistas (overlap entre classes,
-   sessões de 24h completas em vez de comprimidas, ruído medido em hardware
-   real em vez de estimado, e um orçamento de minutos por sessão que não
-   force o corte artificial do último bloco — ver achado de falsos
-   positivos no passo 3 acima).
+4. ~~Tornar os dados sintéticos mais realistas~~ — **PARCIALMENTE FEITO
+   (2026-07-07)**: 3 das 4 sub-tarefas concluídas —
+   (a) overlap deliberado entre classes vizinhas (`CLASS_PARAMS` passou de
+   constantes a intervalos, ver "Dados sintéticos" no Passo 1), reduzindo a
+   accuracy do XGBoost de um suspeito 1.000 para 0.996, com erros
+   interpretáveis por classe; (b) sessões de 24h completas em vez de
+   comprimidas (960+480 min = 16h+8h, antes 240+90 min); (d) corrigido o
+   corte artificial do último bloco de cada sessão
+   (`_build_segment_sequence`), que eliminou os falsos positivos do
+   detetor de duração (7.17%→0.0%, ver Passo 3). **Ainda por fazer**: (c)
+   ruído medido em hardware real em vez de estimado — continua bloqueado
+   pela indisponibilidade da placa (ver PROJECT_STATUS.md, "Riscos"), não
+   há forma honesta de simular isto sem uma medição real. Efeito colateral
+   descoberto ao mudar para 24h, documentado no Passo 2: a precisão do
+   LSTM Autoencoder a um limiar fixo caiu bastante (0.276→0.038) por
+   diluição de classes (anomalias de duração fixa tornam-se uma fatia menor
+   de um dia inteiro) — registado como novo item a considerar (limiares
+   adaptados à proporção normal/anómala esperada, ou métrica menos sensível
+   a desequilíbrio como PR-AUC).
 
 ## Decisão pendente (não posso decidir por conta própria)
 

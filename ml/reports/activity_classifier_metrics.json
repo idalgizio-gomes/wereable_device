@@ -1,85 +1,85 @@
 {
-  "accuracy": 1.0,
+  "accuracy": 0.9957435046987286,
   "classification_report": {
     "Alimentação": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1-score": 1.0,
-      "support": 288.0
+      "precision": 0.9911209766925638,
+      "recall": 0.9922222222222222,
+      "f1-score": 0.991671293725708,
+      "support": 1800.0
     },
     "Atividade": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1-score": 1.0,
-      "support": 54.0
+      "precision": 0.9978401727861771,
+      "recall": 0.9777777777777777,
+      "f1-score": 0.9877071084981294,
+      "support": 1890.0
     },
     "Descanso": {
-      "precision": 1.0,
+      "precision": 0.9997303855486654,
       "recall": 1.0,
-      "f1-score": 1.0,
-      "support": 2196.0
+      "f1-score": 0.9998651745988945,
+      "support": 7416.0
     },
     "Dormir": {
       "precision": 1.0,
-      "recall": 1.0,
-      "f1-score": 1.0,
-      "support": 1080.0
+      "recall": 0.9998373983739838,
+      "f1-score": 0.9999186925766322,
+      "support": 6150.0
     },
     "Higiene": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1-score": 1.0,
-      "support": 342.0
+      "precision": 0.9367088607594937,
+      "recall": 0.9760191846522782,
+      "f1-score": 0.9559600704638873,
+      "support": 834.0
     },
-    "accuracy": 1.0,
+    "accuracy": 0.9957435046987286,
     "macro avg": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1-score": 1.0,
-      "support": 3960.0
+      "precision": 0.9850800791573799,
+      "recall": 0.9891713166052524,
+      "f1-score": 0.9870244679726504,
+      "support": 18090.0
     },
     "weighted avg": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1-score": 1.0,
-      "support": 3960.0
+      "precision": 0.9958624330411725,
+      "recall": 0.9957435046987286,
+      "f1-score": 0.9957736626150531,
+      "support": 18090.0
     }
   },
   "confusion_matrix": [
     [
-      288,
+      1786,
+      0,
+      1,
+      0,
+      13
+    ],
+    [
+      0,
+      1848,
       0,
       0,
+      42
+    ],
+    [
+      0,
+      0,
+      7416,
       0,
       0
     ],
     [
       0,
-      54,
       0,
-      0,
+      1,
+      6149,
       0
     ],
     [
+      16,
+      4,
       0,
       0,
-      2196,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      1080,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      342
+      814
     ]
   ],
   "class_order": [
@@ -89,8 +89,8 @@
     "Dormir",
     "Higiene"
   ],
-  "n_train_windows": 11880,
-  "n_test_windows": 3960,
+  "n_train_windows": 54312,
+  "n_test_windows": 18090,
   "test_subject_ids": [
     0,
     6

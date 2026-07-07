@@ -1,96 +1,96 @@
 {
-  "accuracy": 0.9775252525252526,
+  "accuracy": 0.9917081260364843,
   "classification_report": {
-    "Alimentação": {
-      "precision": 0.7639257294429708,
-      "recall": 1.0,
-      "f1-score": 0.8661654135338346,
-      "support": 288.0
+    "AlimentaÃ§Ã£o": {
+      "precision": 0.9787828029034059,
+      "recall": 0.9738888888888889,
+      "f1-score": 0.9763297131718184,
+      "support": 1800.0
     },
     "Atividade": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1-score": 1.0,
-      "support": 54.0
+      "precision": 0.9940443963183541,
+      "recall": 0.9714285714285714,
+      "f1-score": 0.9826063687449826,
+      "support": 1890.0
     },
     "Descanso": {
       "precision": 1.0,
       "recall": 1.0,
       "f1-score": 1.0,
-      "support": 2196.0
+      "support": 7416.0
     },
     "Dormir": {
       "precision": 1.0,
       "recall": 1.0,
       "f1-score": 1.0,
-      "support": 1080.0
+      "support": 6150.0
     },
     "Higiene": {
-      "precision": 1.0,
-      "recall": 0.7397660818713451,
-      "f1-score": 0.8504201680672269,
-      "support": 342.0
+      "precision": 0.8860045146726863,
+      "recall": 0.9412470023980816,
+      "f1-score": 0.9127906976744186,
+      "support": 834.0
     },
-    "accuracy": 0.9775252525252526,
+    "accuracy": 0.9917081260364843,
     "macro avg": {
-      "precision": 0.9527851458885941,
-      "recall": 0.947953216374269,
-      "f1-score": 0.9433171163202122,
-      "support": 3960.0
+      "precision": 0.9717663427788892,
+      "recall": 0.9773128925431085,
+      "f1-score": 0.974345355918244,
+      "support": 18090.0
     },
     "weighted avg": {
-      "precision": 0.9828309621413069,
-      "recall": 0.9775252525252526,
-      "f1-score": 0.9773483173173575,
-      "support": 3960.0
+      "precision": 0.9920110956055744,
+      "recall": 0.9917081260364843,
+      "f1-score": 0.991806907821877,
+      "support": 18090.0
     }
   },
   "confusion_matrix": [
     [
-      288,
+      1753,
       0,
       0,
+      0,
+      47
+    ],
+    [
+      0,
+      1836,
+      0,
+      0,
+      54
+    ],
+    [
+      0,
+      0,
+      7416,
       0,
       0
     ],
     [
       0,
-      54,
       0,
       0,
+      6150,
       0
     ],
     [
+      38,
+      11,
       0,
       0,
-      2196,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      1080,
-      0
-    ],
-    [
-      89,
-      0,
-      0,
-      0,
-      253
+      785
     ]
   ],
   "class_order": [
-    "Alimentação",
+    "AlimentaÃ§Ã£o",
     "Atividade",
     "Descanso",
     "Dormir",
     "Higiene"
   ],
-  "n_train_windows": 11880,
-  "n_test_windows": 3960,
+  "n_train_windows": 54312,
+  "n_test_windows": 18090,
   "test_subject_ids": [
     0,
     6

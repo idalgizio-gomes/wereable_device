@@ -3,44 +3,44 @@
   "seq_step_windows": 6,
   "window_seconds": 10,
   "detection_threshold_percentile": 95,
-  "detection_threshold_mse": 0.5669703047277774,
+  "detection_threshold_mse": 0.45829734036752895,
   "n_train_subjects": 10,
   "n_val_subjects": 3,
   "n_threshold_subjects": 8,
   "n_eval_normal_subjects": 3,
   "n_eval_subjects_per_anomaly": 3,
   "epochs_trained": 40,
-  "final_train_loss": 0.12183497101068497,
-  "final_val_loss": 0.1556483805179596,
+  "final_train_loss": 0.16787195205688477,
+  "final_val_loss": 0.16614454984664917,
   "overall": {
-    "precision": 0.2764976958525346,
-    "recall": 0.1791044776119403,
-    "f1": 0.21739130434782608,
-    "auc_roc": 0.876055076499662,
-    "n_eval_subsequences": 4001,
-    "n_eval_anomalous": 335
+    "precision": 0.037706205813040065,
+    "recall": 0.21145374449339208,
+    "f1": 0.064,
+    "auc_roc": 0.8469119098253288,
+    "n_eval_subsequences": 17789,
+    "n_eval_anomalous": 227
   },
   "per_anomaly_type": {
     "duracao_prolongada": {
-      "n_subsequences_anomalous": 135,
-      "n_subsequences_normal_same_subjects": 953,
-      "recall_at_threshold": 0.014814814814814815,
-      "mean_reconstruction_error": 0.3298042529651284,
-      "auc_roc_vs_eval_normal": 0.8128785320274682
+      "n_subsequences_anomalous": 118,
+      "n_subsequences_normal_same_subjects": 4309,
+      "recall_at_threshold": 0.00847457627118644,
+      "mean_reconstruction_error": 0.272349993632728,
+      "auc_roc_vs_eval_normal": 0.7967506941920204
     },
     "substituicao_contextual": {
-      "n_subsequences_anomalous": 175,
-      "n_subsequences_normal_same_subjects": 812,
-      "recall_at_threshold": 0.3314285714285714,
-      "mean_reconstruction_error": 0.5413868415865327,
-      "auc_roc_vs_eval_normal": 0.9102330293819655
+      "n_subsequences_anomalous": 87,
+      "n_subsequences_normal_same_subjects": 4344,
+      "recall_at_threshold": 0.5057471264367817,
+      "mean_reconstruction_error": 0.4614537731563543,
+      "auc_roc_vs_eval_normal": 0.9285058996038129
     },
     "truncamento": {
-      "n_subsequences_anomalous": 25,
-      "n_subsequences_normal_same_subjects": 914,
-      "recall_at_threshold": 0.0,
-      "mean_reconstruction_error": 0.18723061362768212,
-      "auc_roc_vs_eval_normal": 0.7435866261398176
+      "n_subsequences_anomalous": 22,
+      "n_subsequences_normal_same_subjects": 4386,
+      "recall_at_threshold": 0.13636363636363635,
+      "mean_reconstruction_error": 0.3625765753941375,
+      "auc_roc_vs_eval_normal": 0.8622093140112155
     }
   },
   "note": "Avaliado inteiramente sobre dados sintéticos com anomalias INJETADAS (ver synthetic_sequences.py) — as anomalias aqui são desenhadas para serem claramente distinguíveis do padrão normal, para validar a pipeline de deteção de ponta a ponta. NÃO é uma validação clínica: anomalias comportamentais reais em demência são muito mais subtis e ambíguas do que as simuladas aqui. Ver ml/README.md para a interpretação honesta completa."
