@@ -31,8 +31,20 @@ espera dela — isso substitui ter de usar o nRF Connect manualmente.
 
 ## Nota sobre segurança
 
-Os dados dos sensores são transmitidos **sem cifra** nesta fase do firmware
-(ver comentário `FullPlain` em `src/Ble/Ble.cpp`) — apesar de existir troca
-de chave AES para outros fins, essa cifra ainda não está aplicada ao
-streaming de dados. Não usar em rede não confiável sem essa lacuna ser
-fechada primeiro.
+**Atualizado 2026-07-07**: os dados dos sensores já vão cifrados com
+AES-CTR pelo ar (ver `encryptRecord()` em `src/Ble/Ble.cpp`) — mas este
+bridge só consegue decifrá-los se souber a MESMA chave AES trocada com o
+dispositivo, através da variável de ambiente `CAREWEAR_AES_KEY_HEX`
+(hexadecimal, 32/48/64 caracteres = 16/24/32 bytes):
+
+```
+export CAREWEAR_AES_KEY_HEX=<a mesma chave escrita no dispositivo>
+python ble_bridge.py
+```
+
+Sem essa variável definida, o bridge não interpreta os registos de
+sensores (evita mostrar valores fabricados) — regista um aviso e ignora-os.
+**Limitação honesta**: não existe (ainda) uma app de provisioning que
+entregue a chave ao bridge automaticamente — quem provisiona o
+dispositivo tem de configurar o bridge manualmente com a mesma chave.
+Ver o cabeçalho de `ble_bridge.py` para o desenho completo do protocolo.

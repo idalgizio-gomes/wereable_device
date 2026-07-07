@@ -116,14 +116,14 @@ de uma versão antiga (SPIFFS + CSV) incompatível com o protocolo BLE binário
 atual (`DumpDataPacket`/`DumpStatusPacket`, comandos START/STOP via
 `dumpCtrlChar`). Substituídos por `bridge/ble_bridge.py` (ver abaixo).
 
-### Correção importante: o "modo de dados" BLE NÃO está cifrado
+### Histórico: o "modo de dados" BLE não estava cifrado (RESOLVIDO 2026-07-07)
 
-Apesar de existir troca e persistência de uma chave AES (`aesKeyChar`), o
-registo transmitido no streaming de sensores chama-se `FullPlain` no código
-(`src/Ble/Ble.cpp`) — vai em texto simples. Há um comentário no firmware a
-dizer que a versão cifrada é "eventual" (futura, não implementada). Isto tinha
-sido descrito incorretamente como "cifrado" numa versão anterior deste
-ficheiro — corrigido.
+Apesar de existir troca e persistência de uma chave AES (`aesKeyChar`) desde
+o início do projeto, o registo transmitido no streaming de sensores
+(`FullPlain`, `src/Ble/Ble.cpp`) ia em texto simples — a biblioteca
+`rweather/Crypto` já estava declarada em `platformio.ini` mas nunca tinha
+sido usada. Ver secção "Cifra AES-CTR do modo de dados (2026-07-07)" mais
+abaixo para a implementação que fechou esta lacuna.
 
 ## Bridge BLE ↔ WebSocket (`bridge/ble_bridge.py`)
 
@@ -147,7 +147,78 @@ bleak) → `ws://localhost:8765` → dashboard (browser).
   escritas em `dumpCtrlChar` (0x03/0x04), com resposta `command_result`
   (ok/erro) para a interface dar feedback. Canal não autenticado — só deve
   ser exposto em localhost.
-- Dependências: `pip install -r bridge/requirements.txt` (bleak, websockets).
+- Dependências: `pip install -r bridge/requirements.txt` (bleak, websockets,
+  pycryptodome).
+
+### Cifra AES-CTR do "modo de dados" (2026-07-07, rotina cloud, Prioridade 1 aplicada à Prioridade 3)
+
+Pesquisa aplicada (nRF52840 + cifra de dados BLE) confirmou que a
+biblioteca `rweather/Crypto` já estava declarada em `platformio.ini` desde
+o início do projeto mas nunca tinha sido usada — o registo `FullPlain` ia
+pelo ar em texto simples apesar de o dispositivo já trocar/guardar uma
+chave AES para outros fins (ver histórico acima). Implementado por
+completo nesta execução:
+
+- **Firmware** (`src/Ble/Ble.cpp`, `encryptRecord()`): cada `FullPlain`
+  (39 bytes) é cifrado com AES-CTR (128/192/256 bits, conforme o
+  comprimento da chave — 16/24/32 bytes) antes de ser fragmentado. IV de
+  16 bytes = `[nonce de 32 bits][0x00000000][contador de bloco de 8
+  bytes]`, `setCounterSize(8)`.
+- **Nonce nunca reutilizado, mesmo depois de "Repor leituras"**: o desenho
+  inicial mais óbvio (usar o `rec_seq` do ring buffer QSPI como nonce) foi
+  descartado ao perceber, em revisão própria antes de commitar, que
+  `QspiRingBuffer::format()` reinicia `rec_seq` em 1 mas **não** apaga a
+  chave AES — reutilizar `rec_seq` como nonce repetiria o par
+  (chave, nonce) depois de um "Repor leituras", quebrando a segurança do
+  CTR. Usa-se em vez disso um contador de 64 bits dedicado, persistido em
+  LittleFS (`Storage::counter_load()`/`counter_save()` — infraestrutura
+  que já existia no ficheiro, preparada por uma sessão anterior mas nunca
+  ligada a nenhuma cifra real), nunca tocado por `format()`.
+- **Bug próprio encontrado e corrigido antes de commitar (revisão dirigida
+  desta tarefa)**: a primeira versão obtinha um nonce novo com uma
+  escrita na flash INTERNA a cada registo — até ~52/seg à taxa do IMU,
+  o que esgotaria os ciclos de escrita da flash em horas/dias e
+  introduzia atrasos (ms por escrita) capazes de recriar as desconexões
+  BLE já resolvidas anteriormente. Corrigido para alocar nonces em
+  **lotes de 65536 em RAM** (`allocateNonce()`/`reserveNonceBatch()`),
+  com uma única escrita de flash a cada ~21 minutos de streaming
+  contínuo — não a cada registo.
+- **Bug próprio corrigido em `aesKeyCallback()`**: a validação antiga
+  aceitava qualquer comprimento entre 16 e 32 bytes (ex.: 20), que não
+  corresponde a nenhuma variante AES real e bloquearia
+  silenciosamente todo o streaming (`encryptRecord()` falharia sempre).
+  Restrito agora a exatamente 16, 24 ou 32 bytes.
+- **Wire format**: `DumpDataPacket` ganhou um campo `nonce` (uint32).
+  Para não crescer o pacote além do MTU BLE por omissão (nunca validado
+  nesta placa), `kGattDumpChunkLen` encolheu de 12 para 8 bytes — o
+  pacote continua com 20 bytes no total, mas um registo passa de 4 para 5
+  fragmentos.
+- **Bridge** (`bridge/ble_bridge.py`, `decrypt_full_plain()`): decifra com
+  a mesma lógica de contador, implementada "à mão" com AES em modo ECB
+  bloco a bloco (não um modo CTR de alto nível de alguma biblioteca), para
+  controlar byte a byte a construção do bloco de contador e garantir que
+  bate certo com o firmware. **Validado com um script de teste dedicado**
+  (não fabricado): 600 casos aleatórios (200 por cada tamanho de chave
+  16/24/32 bytes) confirmando round-trip cifra→decifra correto, mais
+  verificação de que nonces diferentes produzem keystreams diferentes.
+- **Limitação honesta, por resolver numa fase futura**: não existe (ainda)
+  uma app de provisioning que entregue a chave AES ao bridge de forma
+  automática e segura — só o dispositivo a recebe hoje. Solução desta
+  fase: variável de ambiente `CAREWEAR_AES_KEY_HEX` (quem provisiona o
+  dispositivo configura o bridge manualmente com a mesma chave). Sem essa
+  variável, o bridge descarta os registos de sensores em vez de os
+  interpretar como texto simples (o que produziria valores fabricados).
+- **Não testado com o par firmware↔bridge real**: sem toolchain ARM nem
+  hardware acessíveis nesta rotina cloud (ver "Riscos/bloqueios ativos"),
+  o firmware não foi compilado — só revisto manualmente (sintaxe,
+  balanceamento de chavetas/parênteses verificado com um script) e
+  desenhado a partir do código-fonte real do `CTR.cpp`/`CTR.h` da
+  biblioteca (consultado via pesquisa, não assumido de memória). O
+  protocolo de cifra/decifra em si foi validado byte a byte em Python
+  (round-trip determinístico), não o par firmware↔bridge real em
+  hardware. Próximo passo quando a placa voltar a estar acessível:
+  confirmar que o bridge consegue decifrar um registo real, com a chave
+  correta configurada.
 
 ### Persistência local — SQLite (`bridge/storage.py`, 2026-07-03)
 
@@ -1488,3 +1559,10 @@ Migração de hardware futura possível: nRF5340 ou nRF54H20.
 7. Decidir quem são as "entidades competentes" concretas por utente e o
    provedor de SMS/email a integrar (ex.: Twilio) — decisão do utilizador,
    precisa de conta/credenciais próprias.
+8. Confirmar em hardware real a cifra AES-CTR do "modo de dados" (ver
+   secção "Cifra AES-CTR do modo de dados", 2026-07-07) — compilar o
+   firmware (sem toolchain ARM nesta rotina cloud), fazer upload, e
+   confirmar que o bridge (com `CAREWEAR_AES_KEY_HEX` configurada)
+   consegue decifrar um registo real e mostrar dados corretos no
+   dashboard. Bloqueado pela mesma indisponibilidade de hardware das
+   restantes tarefas (ver "Riscos/bloqueios ativos", ponto 8).

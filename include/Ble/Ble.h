@@ -28,6 +28,9 @@
 // pairing/bonding BLE nativo) — a seguranca dos dados sensiveis (por
 // exemplo a chave AES) é garantida pela logica da aplicacao (guardada
 // uma unica vez em flash) e nao pelo emparelhamento BLE em si.
+// Desde 2026-07-07 o proprio conteudo dos registos do "modo de dados"
+// tambem vai cifrado (AES-CTR, ver encryptRecord() em Ble.cpp) — antes ia
+// em texto simples apesar de a chave AES ja ser trocada/guardada.
 #ifndef BLE_H_
 #define BLE_H_
 
