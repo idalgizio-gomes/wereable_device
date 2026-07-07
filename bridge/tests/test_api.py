@@ -75,6 +75,10 @@ class TestAuth:
         resp = client.get("/api/devices/1/heart-rate-trends", headers={"X-API-Key": "errada"})
         assert resp.status_code == 401
 
+    def test_empty_key_rejected(self, client):
+        resp = client.get("/api/devices/1/heart-rate-trends", headers={"X-API-Key": ""})
+        assert resp.status_code == 401
+
     def test_correct_key_accepted(self, client, db):
         _, device = _make_patient_device(db)
         resp = client.get(

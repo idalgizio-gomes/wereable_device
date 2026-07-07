@@ -758,6 +758,24 @@ Ficheiros novos: `bridge/api.py`, `bridge/tests/test_api.py`. Ficheiros
 alterados: `bridge/requirements_db.txt` (`fastapi`, `uvicorn`, `httpx`),
 `bridge/README.md` (nova secção "API REST somente-leitura").
 
+**Bug de segurança real corrigido nesta mesma API (2026-07-07, rotina
+cloud, execução seguinte)**: `_require_api_key()` comparava a chave
+recebida com a configurada usando `!=` — uma comparação de strings normal
+em Python sai assim que encontra o primeiro byte diferente, o que teoricamente
+permite reconstruir a chave certa por temporização (medir quanto tempo
+demora cada tentativa a ser rejeitada), em vez de só por força bruta cega.
+Não é o tipo de bug que se vê a olho num code review superficial — só
+salta à vista quando se lê esta função lado a lado com `crypto_utils.py`
+(cifra dos campos sensíveis) e a cifra AES-CTR do streaming BLE, ambas já
+cuidadosas com este tipo de detalhe (nonces aleatórios, chaves nunca
+hard-coded). Corrigido com `hmac.compare_digest()` (tempo constante,
+biblioteca standard do Python). Adicionado `TestAuth.test_empty_key_rejected`
+a `bridge/tests/test_api.py` — **47 testes** no total do bridge, todos a
+passar. Risco prático baixo (protótipo local, chave estática de qualquer
+forma marcada como "não pronta para produção" acima), mas a correção é
+trivial e sem custo, por isso feita já em vez de só registada como
+limitação.
+
 ## Dashboard web (protótipo)
 
 Ficheiro: `web/dashboard/index.html` (versionado no repo).

@@ -27,6 +27,7 @@ para a cifra AES-CTR/AES-GCM do projeto).
 """
 from __future__ import annotations
 
+import hmac
 import os
 from datetime import datetime
 from typing import Optional
@@ -78,7 +79,12 @@ def _require_api_key(x_api_key: Optional[str] = Header(default=None)) -> None:
             )
             _warned_no_api_key = True
         raise HTTPException(status_code=503, detail=f"{API_KEY_ENV_VAR} não configurada no servidor")
-    if x_api_key != configured:
+    # Comparação em tempo constante — "!=" numa string compara byte a byte e
+    # sai assim que encontra a primeira diferença, o que teoricamente permite
+    # a um atacante reconstruir a chave certa por temporização (mede-se
+    # quanto tempo demora a rejeitar cada tentativa). `hmac.compare_digest`
+    # evita esse atalho.
+    if not hmac.compare_digest(x_api_key or "", configured):
         raise HTTPException(status_code=401, detail="Chave de API inválida ou ausente")
 
 
