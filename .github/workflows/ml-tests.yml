@@ -1,0 +1,31 @@
+name: ML pipeline tests
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies (lightweight subset — sem TensorFlow/XGBoost/emlearn)
+        # ml/requirements.txt inclui TensorFlow/XGBoost/emlearn para os scripts
+        # de treino (pesados, minutos por execução, produzem artefactos
+        # versionados manualmente — ver PROJECT_STATUS.md, "ainda por fazer"
+        # desta secção). Os módulos cobertos por esta suite (features.py,
+        # duration_detector.py e as suas dependências synthetic_data.py/
+        # synthetic_sequences.py) só precisam de numpy/pandas.
+        run: pip install numpy pandas pytest
+
+      - name: Run pytest (ml/tests)
+        working-directory: ml
+        run: python -m pytest tests/ -v
