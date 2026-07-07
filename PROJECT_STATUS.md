@@ -2816,3 +2816,103 @@ novo workflow "Bridge Python tests" (`run_id=28888296568`, commit
 sem sinal de vida (a mesma lição já registada para a correção da CI do
 PlatformIO) — está mesmo a instalar `bridge/requirements_db.txt` e a correr
 os 46 testes reais em cada push a `main`.
+
+## Sessão de hardware real (2026-07-07, placa ligada e no pulso do utilizador)
+
+**Bug crítico encontrado e corrigido — mismatch de chave AES fazia o
+dashboard mostrar valores impossíveis em loop**: reportado pelo
+utilizador como "FC/passos/aceleração malucos, a variar sem parar".
+Diagnosticado amostrando registos reais do bridge (`ws://localhost:8765`):
+`ax`/`ay`/`az`/`gx`/`gy`/`gz` na ordem de 10^20-10^30, `steps` na casa dos
+milhares de milhão, `hr`/`spo2` negativos — sintoma clássico de decifrar
+com a chave AES errada (XOR com keystream que não corresponde). Causa
+confirmada: a chave em `bridge/device_key.env` já não batia certo com a
+chave gravada na flash interna do dispositivo, e `aesKeyChar` só aceita a
+**primeira** escrita por design (`aesKeyCallback()` em `Ble.cpp`) — um
+reprovisionamento normal via `provision_key.py` era ignorado silenciosamente
+pelo firmware.
+
+Corrigido com um novo caminho de recuperação, mínimo e explícito:
+- `Storage::removeAesKey()` (novo, `Storage.cpp`/`.h`) apaga só o ficheiro
+  da chave em `InternalFS`, sem tocar no ring buffer QSPI (chip externo,
+  módulo separado) nem exigir apagar toda a flash do dispositivo.
+- Comando de debug `CLEARKEY` pela série (`main.cpp`, mesmo bypass já
+  usado por `WAKE`/`SLEEP`/`SOS` enquanto o botão físico está partido) —
+  chama `removeAesKey()` só quando pedido explicitamente, nunca automático.
+- Fluxo usado e confirmado: parar o bridge (liberta a ligação BLE) → `WAKE`
+  → `CLEARKEY` pela série → `provision_key.py` (grava a chave de
+  `device_key.env`) → reiniciar o bridge → registos voltaram a valores
+  fisicamente plausíveis (`ax≈-0.09, ay≈0.25, az≈0.96` ~1g, `steps=42`
+  coerente, sem avisos de implausibilidade).
+- **Rede de segurança adicionada** (`bridge/ble_bridge.py`,
+  `is_plausible_full_plain()`): rejeita e regista um aviso único (não
+  spam) para qualquer registo decifrado com aceleração/giroscópio/passos/
+  FC/SpO2 fora de limites fisicamente possíveis, em vez de o encaminhar ao
+  dashboard/BD. Não resolve a causa raiz de um futuro mismatch, mas evita
+  que volte a aparecer como "dados malucos" na interface — aparece só o
+  aviso no log do bridge.
+- **Nota honesta**: nunca se confirmou COMO a chave da flash divergiu de
+  `device_key.env` (reflash anterior? reprovisionamento a meio de um
+  teste anterior?) — não há forma de prevenir isto sem uma app de
+  provisioning adequada (limitação já documentada em `bridge/README.md`).
+
+**Dashboard: countdown do "Medir agora" implementado** (pedido antigo,
+nunca feito) — `web/dashboard/index.html`, `startForceReadingCountdown()`.
+Mostra os segundos restantes (~15s, igual a
+`DUMP_CTRL_FORCE_READING_SECONDS` em `bridge/ble_bridge.py`, os dois lados
+não partilham este valor em runtime — manter sincronizado manualmente se
+um mudar) enquanto espera o `command_result`; reativa o botão com aviso
+honesto se a notificação BLE se perder no ar sem resposta dentro do tempo
+esperado. Verificado com esprima (limitação conhecida do projeto: não
+reconhece `??`/`?.`, usados noutras partes pré-existentes do ficheiro,
+não relacionadas com esta alteração) + revisão manual do diff.
+
+**Teste real de HR — primeira confirmação de que a correção do
+`sampleAverage` funciona, mas com um problema novo encontrado**: com a
+placa no pulso do utilizador e um "Medir agora" disparado com o bridge a
+correr, capturada leitura série ao vivo pela primeira vez durante um
+pedido de HR (nunca antes conseguido, ver "Próximas tarefas" acima — 0
+registos com HR válido em toda a história). Resultado:
+```
+[PPG] HR stream ON
+[PPG] HR beat -> 182 bpm
+[PPG] HR beat -> 180 bpm
+[PPG] HR beat -> 176 bpm
+[PPG] HR beat -> 177 bpm
+[PPG] HR beat -> 175 bpm
+[PPG] HR beat -> 178 bpm
+[PPG] HR beat -> 179 bpm
+[PPG] HR beat -> 184 bpm
+[PPG] HR beat -> 187 bpm
+[PPG] HR stream OFF
+```
+**Positivo**: `sampleAverage=8→1` (correção de 2026-07-04) resolveu de
+facto o desfasamento de taxa de amostragem — o pipeline de filtros agora
+recebe deteções de batimento pela primeira vez.
+**Problema novo, ainda por corrigir**: os valores (175-187 bpm sustidos)
+são implausíveis para uma pessoa em repouso, e o padrão sugere que o
+detetor está preso perto do limite superior do anti-rebote (`detectHeartbeat()`
+em `Ppg.cpp`, 300ms = 200 BPM máx) — os intervalos entre batimentos
+detetados rondam 320-340ms, não os ~600-1000ms esperados para uma FC de
+repouso normal (60-100 bpm). Hipótese mais provável (não confirmada):
+`detectHeartbeat()` deteta cruzamentos de zero da derivada sem exigir uma
+amplitude mínima de pico — ruído/harmónicos do sinal filtrado (ou o LPF a
+5Hz ainda deixar passar componentes acima da frequência cardíaca real)
+podem estar a gerar cruzamentos de zero extra por cada batimento
+verdadeiro, inflacionando a contagem. **Não corrigido nesta sessão** —
+precisa de mais leitura série ao vivo (idealmente com o sinal PPG em bruto
+exportado, não só o BPM final) para confirmar a hipótese antes de mexer no
+algoritmo. Passa a ser o próximo item de maior prioridade para a rotina de
+firmware.
+
+**SpO2**: confirmado `spo2=100%` uma vez no mesmo teste (`[PPG] SPO2
+minuto -> 100%`), consistente com o único registo válido já visto
+anteriormente — continua com pouquíssimos dados para validar a fundo.
+
+**Ainda por testar nesta ronda de hardware** (pedido do utilizador de
+testar cada sensor/funcionalidade individualmente; ordem por confirmar com
+ele antes de avançar, dado o risco/complexidade crescente de cada um):
+LoRa (`test_lora_isolated`, nunca chegou a ler-se em série), gesto de
+emergência de 3 cliques (`Emergency::triggerTestAlert()`/SOS físico,
+corrigido no código mas nunca confirmado em hardware — dispara um alerta
+real, avisar o utilizador antes), GPS (sem código ainda).
