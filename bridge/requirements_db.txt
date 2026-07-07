@@ -24,8 +24,13 @@ pytz>=2023.3  ; Timezones
 twilio>=8.10.0  ; SMS/email/push
 pydantic>=2.0.0  ; Validação de dados
 
+; API REST somente-leitura sobre as queries analíticas (bridge/api.py, 2026-07-07)
+fastapi>=0.110.0  ; framework HTTP
+uvicorn>=0.27.0  ; servidor ASGI para correr api.py localmente
+
 ; Desenvolvimento/Testes
 pytest>=7.4.0  ; Testing framework
 pytest-asyncio>=0.21.0  ; Suporte async em tests
+httpx>=0.27.0  ; TestClient do FastAPI (bridge/tests/test_api.py)
 black>=23.7.0  ; Code formatter
 flake8>=6.0.0  ; Linter
