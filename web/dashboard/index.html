@@ -4010,10 +4010,55 @@ function sendWsCommandWithArgs(cmd, extra){
 // leituras"), o command_result correspondente nunca chega e os botões
 // ficavam presos em "a carregar" até a página ser recarregada. Chamado a
 // partir de ws.onclose para repor o estado assim que a ligação se perde.
+// Duração real do pedido "Medir agora" no firmware/bridge (ver
+// DUMP_CTRL_FORCE_READING_SECONDS em bridge/ble_bridge.py — mantido em
+// sincronia manualmente, os dois lados não partilham este valor em
+// tempo de execução). Usado só para o countdown visual; o botão só é
+// reativado de facto quando chega o command_result ou este tempo esgota
+// (ver forceReadingTimeoutId), o que vier primeiro.
+const FORCE_READING_SECONDS = 15;
+let forceReadingIntervalId = null;
+let forceReadingTimeoutId = null;
+
+function stopForceReadingCountdown(){
+  if (forceReadingIntervalId != null){ clearInterval(forceReadingIntervalId); forceReadingIntervalId = null; }
+  if (forceReadingTimeoutId != null){ clearTimeout(forceReadingTimeoutId); forceReadingTimeoutId = null; }
+}
+
+function startForceReadingCountdown(){
+  stopForceReadingCountdown();
+  const hint = document.getElementById('forceReadingHint');
+  let remaining = FORCE_READING_SECONDS;
+  if (hint){
+    hint.style.color = '';
+    hint.textContent = `A pedir leitura ao dispositivo… (~${remaining}s)`;
+  }
+  forceReadingIntervalId = setInterval(() => {
+    remaining -= 1;
+    if (remaining <= 0){
+      // O command_result normalmente chega antes disto, mas se a
+      // notificação BLE se perder no ar (sem confirmação/retransmissão,
+      // ver bridge/ble_bridge.py), o botão não pode ficar preso para
+      // sempre — reativa-o com um aviso honesto em vez de um valor.
+      clearInterval(forceReadingIntervalId);
+      forceReadingIntervalId = null;
+      const btn = document.getElementById('forceReadingBtn');
+      if (btn) btn.disabled = false;
+      if (hint){
+        hint.style.color = 'var(--status-warning)';
+        hint.textContent = 'Sem resposta do dispositivo dentro do tempo esperado. Tenta novamente.';
+      }
+      return;
+    }
+    if (hint) hint.textContent = `A pedir leitura ao dispositivo… (~${remaining}s)`;
+  }, 1000);
+}
+
 function resetPendingCommandButtons(){
   const forceBtn = document.getElementById('forceReadingBtn');
   const forceHint = document.getElementById('forceReadingHint');
   if (forceBtn && forceBtn.disabled){
+    stopForceReadingCountdown();
     forceBtn.disabled = false;
     if (forceHint){
       forceHint.style.color = 'var(--status-warning)';
@@ -4046,12 +4091,12 @@ function onForceReadingClick(){
     return;
   }
   btn.disabled = true;
-  hint.style.color = '';
-  hint.textContent = 'A pedir leitura ao dispositivo… (pode demorar alguns segundos)';
+  startForceReadingCountdown();
 }
 
 function handleCommandResult(msg){
   if (msg.cmd === 'force_reading'){
+    stopForceReadingCountdown();
     const btn = document.getElementById('forceReadingBtn');
     const hint = document.getElementById('forceReadingHint');
     if (btn) btn.disabled = false;

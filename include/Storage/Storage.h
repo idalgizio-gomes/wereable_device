@@ -88,6 +88,17 @@ namespace Storage {
   // provisionar/gerar uma nova chave (ex.: no primeiro emparelhamento).
   bool hasAesKey();
 
+  // Apaga a chave AES guardada, se existir (2026-07-07: aesKeyChar só
+  // aceita a primeira escrita enquanto houver uma chave em flash — sem
+  // isto, um mismatch entre a chave gravada e a chave que o bridge usa
+  // (ex.: reprovisionamento a meio de um teste) fica permanentemente
+  // irrecuperável por BLE, obrigando a apagar toda a flash interna do
+  // dispositivo. Só deve ser chamada por um comando de debug explícito
+  // (ver DEBUG_SERIAL_WAKE em main.cpp), nunca automaticamente).
+  // Devolve true mesmo que a chave já não existisse (estado desejado
+  // atingido); false só em caso de erro real a apagar o ficheiro.
+  bool removeAesKey();
+
   // Alias de saveAesKey(), com nome mais curto.
   bool aes_save(const uint8_t *key, size_t len);
 

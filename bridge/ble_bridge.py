@@ -89,6 +89,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import struct
 import time
@@ -262,6 +263,42 @@ def decode_full_plain(raw: bytes) -> dict:
     }
 
 
+# Limites de plausibilidade física para um registo FullPlain decifrado
+# (2026-07-07, correcao de bug reportado pelo utilizador: dashboard a
+# mostrar FC/SpO2/aceleracao "malucos", a variar em loop). Causa raiz
+# confirmada: a chave AES em device_key.env ja nao bate certo com a
+# chave gravada na flash do dispositivo (aesKeyChar so aceita a
+# primeira escrita — um reprovisionamento nao teve efeito porque a
+# flash ja tinha uma chave guardada), por isso decrypt_full_plain()
+# produz, na pratica, ruido aleatorio reinterpretado como floats/ints.
+# Nao ha' forma de corrigir a chave remotamente sem apagar a flash do
+# dispositivo (acao destrutiva, decisao do utilizador) — por isso este
+# filtro so' pode REJEITAR o lixo antes de chegar ao dashboard/BD, nunca
+# "corrigir" os valores. Limites com folga generosa acima de qualquer
+# leitura humana plausivel (não são limiares clínicos).
+_MAX_ACCEL_G = 20.0       # IMU nunca deveria exceder ~16g em uso normal
+_MAX_GYRO_DPS = 3000.0    # LSM6DS3 satura bem abaixo disto
+_MAX_STEPS = 200_000_000  # contador de passos plausivel (anos de uso)
+
+
+def is_plausible_full_plain(record: dict) -> bool:
+    """True se o registo decifrado parece fisicamente possível. Ver nota
+    acima — um "não" aqui quase sempre significa chave/nonce AES errada,
+    não um bug de decode em si."""
+    accel_ok = all(
+        math.isfinite(record[k]) and abs(record[k]) <= _MAX_ACCEL_G
+        for k in ("ax", "ay", "az")
+    )
+    gyro_ok = all(
+        math.isfinite(record[k]) and abs(record[k]) <= _MAX_GYRO_DPS
+        for k in ("gx", "gy", "gz")
+    )
+    steps_ok = 0 <= record["steps"] <= _MAX_STEPS
+    hr_ok = record["hr"] is None or 0 <= record["hr"] <= 250
+    spo2_ok = record["spo2"] is None or 0 <= record["spo2"] <= 100
+    return accel_ok and gyro_ok and steps_ok and hr_ok and spo2_ok
+
+
 def decode_emergency_alert(raw: bytes) -> dict:
     """Descodifica os 8 bytes de EmergencyAlertPacket (ver Ble.cpp):
     type, reserved, seq, timestamp_utc. 'seq' incrementa a cada alerta
@@ -323,6 +360,7 @@ class BleBridge:
         # None se CAREWEAR_AES_KEY_HEX não estiver configurada.
         self.aes_key = _load_aes_key_from_env()
         self._missing_key_warned = False
+        self._implausible_record_warned = False
 
     RECORD_BROADCAST_MIN_INTERVAL_S = 0.25  # no maximo ~4 atualizacoes/seg
     # Intervalo entre limpezas automaticas de sensor_records (ver
@@ -470,6 +508,23 @@ class BleBridge:
         full = decrypt_full_plain(self.aes_key, record_nonce, cipher_full)
 
         record = decode_full_plain(full)
+
+        if not is_plausible_full_plain(record):
+            # Ver is_plausible_full_plain() para o porquê: quase sempre
+            # chave/nonce AES errada, nunca um valor real de sensor.
+            # Rejeitar aqui em vez de deixar passar evita mostrar no
+            # dashboard "FC=-18019, passos=2955050482" etc. (bug
+            # reportado pelo utilizador) — mas NAO resolve a causa raiz.
+            if not self._implausible_record_warned:
+                self._implausible_record_warned = True
+                print(f"[BRIDGE] AVISO: registo rec_seq={rec_seq} decifrado com valores "
+                      f"fisicamente impossiveis (hr={record['hr']}, spo2={record['spo2']}, "
+                      f"steps={record['steps']}) — descartado. Isto quase sempre significa "
+                      f"que {_AES_KEY_HEX_ENV} nao bate certo com a chave gravada na flash "
+                      f"do dispositivo (ou o nonce dessincronizou). Este aviso so aparece "
+                      f"uma vez; ver PROJECT_STATUS.md.")
+            return
+
         self.last_record_ts = record["ts"]
 
         # Persiste TODOS os registos na base de dados local (ver
