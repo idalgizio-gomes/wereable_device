@@ -57,7 +57,7 @@ secção "Base de Dados SQL Completa". Para experimentar isoladamente:
 
 ```
 pip install -r requirements_db.txt
-cd bridge && python -m pytest tests/ -v   # 34 testes, SQLite em memória
+cd bridge && python -m pytest tests/ -v   # 46 testes, SQLite em memória
 ```
 
 ### Migrações (Alembic)
@@ -86,3 +86,34 @@ export CAREWEAR_DB_ENCRYPTION_SALT_HEX=$(python3 -c "import os; print(os.urandom
 Guardar as duas variáveis em local seguro — perder a frase-passe ou o sal
 torna os campos já cifrados **irrecuperáveis** (não há forma de recuperar
 uma chave Argon2id sem os dois inputs originais).
+
+### API REST somente-leitura (`api.py`, protótipo, 2026-07-07)
+
+Primeira versão do "próximo item concreto da Prioridade 4": expõe as
+queries analíticas (`Analytics.*`) por HTTP, em vez de só serem chamáveis
+diretamente em Python. Só leitura (GET), sem escrita/mutações.
+
+```
+pip install -r requirements_db.txt
+export CAREWEAR_API_KEY=<chave escolhida>
+cd bridge && uvicorn api:app --host 127.0.0.1 --port 8766
+```
+
+Endpoints (todos exigem o cabeçalho `X-API-Key`, exceto `/health`):
+
+- `GET /health` — sem autenticação, só confirma que o serviço está de pé.
+- `GET /api/devices/{device_id}/heart-rate-trends?days=7`
+- `GET /api/patients/{patient_id}/medication-adherence?days=30`
+- `GET /api/devices/{device_id}/activity-distribution?date=AAAA-MM-DD`
+
+Sem `CAREWEAR_API_KEY` configurada, a API **falha fechada** (todos os
+pedidos autenticados devolvem 503) — ao contrário da cifra acima, que
+degrada de forma visível mas continua a funcionar, aqui os dados expostos
+são PII de saúde servidos por rede, por isso o comportamento por omissão é
+bloquear, não deixar passar. **Limitação honesta**: chave estática única
+(sem rotação, sem por-utilizador, sem rate-limiting) — protótipo, não
+autenticação de produção. **Ainda não integrada** com
+`web/dashboard/index.html` (que hoje só fala com `ble_bridge.py` via
+WebSocket) nem com `ble_bridge.py` (que continua a usar `storage.py`, não
+`storage_advanced.py`) — ver `bridge/api.py` (cabeçalho) e
+PROJECT_STATUS.md para o detalhe completo.

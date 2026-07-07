@@ -520,8 +520,11 @@ Refatoração da camada de persistência com ORM e schema produção-ready:
 **Próximas fases**:
 - Integração Twilio para SMS/email (alertas críticos, OTP confirmação emergência)
   — bloqueado, precisa de credenciais/conta do utilizador.
-- Endpoints REST/GraphQL para dashboard (ligar queries analíticas a tempo real)
-  — novo subsistema (framework, rotas, autenticação), ainda por começar.
+- ~~Endpoints REST/GraphQL para dashboard (ligar queries analíticas a tempo
+  real)~~ — **primeira versão feita (2026-07-07, rotina cloud)**, só
+  leitura (GET), autenticação por chave estática, ainda sem integração com
+  o dashboard nem com `ble_bridge.py` — ver secção "API REST somente-leitura
+  (`bridge/api.py`)" abaixo.
 - ~~Alembic migrations (script versionado para evolução do schema)~~ —
   **feito (2026-07-07, rotina cloud)**, ver secção "Cifra real dos campos
   sensíveis (NIF, morada) + Alembic" abaixo.
@@ -686,16 +689,74 @@ assumido. Documentado em `bridge/README.md` (nova secção "Base de dados
 avançada").
 
 **Ainda por fazer** (ver "Próximas fases" acima, atualizada): Twilio
-(bloqueado, precisa de credenciais do utilizador) e endpoints REST/GraphQL
-para ligar as queries analíticas ao dashboard em tempo real — este último
-é um novo subsistema (escolha de framework, rotas, autenticação), fora do
-âmbito de uma única execução desta rotina; fica registado como o próximo
-item concreto da Prioridade 4.
+(bloqueado, precisa de credenciais do utilizador). Os endpoints REST para
+ligar as queries analíticas ao dashboard foram implementados numa execução
+posterior — ver secção "API REST somente-leitura (`bridge/api.py`)" abaixo.
 
 **CI confirmada a passar** (commit `2d2677d`, verificado via API do GitHub
 Actions após o push): esta alteração é só Python (bridge/), não toca no
 firmware, mas a CI do PlatformIO corre sempre no push a `main` — `completed`/
 `success`, sem regressão no build do firmware.
+
+### API REST somente-leitura (`bridge/api.py`, 2026-07-07, rotina cloud)
+
+Próximo item concreto da Prioridade 4, registado na secção anterior:
+liga as queries analíticas (`Analytics.heart_rate_trends`,
+`Analytics.medication_adherence_summary`, `Analytics.daily_activity_distribution`,
+já existentes em `storage_advanced.py`) a um serviço HTTP, em vez de só
+serem chamáveis diretamente em Python. Âmbito deliberadamente pequeno para
+uma única execução, como já feito noutras vezes neste projeto (ex.: passo 3
+do `ml/`, cifra dos campos sensíveis): **só leitura (GET), sem
+escrita/mutações**, e sem tentar já ligar isto ao dashboard nem ao
+`ble_bridge.py`.
+
+**Implementado** (`bridge/api.py`, novo, FastAPI + Uvicorn):
+- `GET /health` (sem autenticação, só confirma que o serviço está de pé).
+- `GET /api/devices/{device_id}/heart-rate-trends?days=N`
+- `GET /api/patients/{patient_id}/medication-adherence?days=N`
+- `GET /api/devices/{device_id}/activity-distribution?date=AAAA-MM-DD`
+- 404 explícito quando `device_id`/`patient_id` não existe (as queries de
+  `Analytics` por si só devolveriam silenciosamente valores vazios/zero
+  para um ID inexistente, o que esconderia um erro de integração do lado
+  de quem consome a API).
+
+**Autenticação — decisão de implementação, não uma decisão de
+produto/hardware**: chave estática partilhada por cabeçalho `X-API-Key`,
+comparada com a variável de ambiente `CAREWEAR_API_KEY`. Deliberadamente
+**diferente** da filosofia "degrada de forma visível" já usada na cifra de
+campos sensíveis e na cifra AES-CTR do streaming BLE — aqui, sem a variável
+configurada, a API **falha fechada** (503 em todos os pedidos
+autenticados), porque os dados expostos são PII de saúde servidos por
+rede, não um stream local; deixar passar pedidos sem chave por omissão
+seria o pior comportamento possível. **Limitação honesta**: chave estática
+única, sem rotação, sem autenticação por-utilizador, sem rate-limiting —
+protótipo, não pronta para produção real (registado como decisão pendente
+abaixo, tal como a escolha XGBoost/Random Forest do `ml/`).
+
+**Testado**: `bridge/tests/test_api.py` (12 testes novos, `fastapi.testclient.TestClient`
+contra SQLite em memória) — autenticação (chave ausente/errada/correta,
+variável de ambiente não configurada), 404 para device/patient
+inexistente, agregações corretas (janela temporal de FC, percentagem de
+adesão, distribuição por categoria de atividade), 400 para data em formato
+inválido. **34→46 testes** no total do bridge, todos a passar. Verificado
+também **fora do TestClient**: servidor real via `uvicorn.Server` num
+thread separado, pedido HTTP real por `urllib` contra `127.0.0.1:8766`
+(`/health`, pedido autenticado com sucesso, pedido com chave errada a
+devolver 401) — não só chamadas em processo.
+
+**Ainda por fazer** (âmbito explicitamente fora desta execução, ver
+`bridge/api.py` cabeçalho e `bridge/README.md`): integração com
+`web/dashboard/index.html` (que hoje só fala com `ble_bridge.py` via
+WebSocket, não com esta API), integração com `ble_bridge.py`
+(`storage_advanced.py` continua sem ligação ao streaming BLE real — só
+`storage.py`, a versão mais simples, está em produção), autenticação de
+produção (por-utilizador/JWT, rotação de chave, rate-limiting), endpoints
+de escrita (ex.: marcar dose de medicação como tomada via API em vez de só
+`localStorage` no dashboard).
+
+Ficheiros novos: `bridge/api.py`, `bridge/tests/test_api.py`. Ficheiros
+alterados: `bridge/requirements_db.txt` (`fastapi`, `uvicorn`, `httpx`),
+`bridge/README.md` (nova secção "API REST somente-leitura").
 
 ## Dashboard web (protótipo)
 
