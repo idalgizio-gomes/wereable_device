@@ -541,6 +541,34 @@ não segue os mesmos limites usados para gerar os dados.
   gerador não modela (ex.: uma pessoa real pode genuinamente ter um duche
   mais longo que o intervalo `[d_min, d_max]` sem isso ser uma anomalia).
 
+## Testes automáticos + CI (`ml/tests/`, 2026-07-07)
+
+Lacuna identificada pela rotina que criou `.github/workflows/bridge-tests.yml`
+(ver PROJECT_STATUS.md, secção do `requirements_db.txt`): existia CI para o
+firmware (`c-cpp.yml`) e para o bridge (`bridge-tests.yml`), mas nenhuma para
+`ml/` — ficou registada aí como "ainda por fazer", com a ressalva de que os
+scripts de treino são pesados (TensorFlow, vários minutos) e não deviam
+correr a cada push. Implementado agora, respeitando essa ressalva:
+
+- `ml/tests/test_features.py` e `ml/tests/test_duration_detector.py` — testam
+  só a lógica **determinística e pura** de `features.py` (`_zero_crossing_rate`,
+  `extract_features`) e `duration_detector.py` (`evaluate_block`,
+  `evaluate_subject`), com sinais/segmentos escritos à mão, sem gerar dataset
+  nem treinar nenhum modelo. 15 testes, <1s de execução total.
+- **Deliberadamente não cobre** `train_activity_classifier*.py`,
+  `train_lstm_autoencoder.py` nem `measure_rf_footprint.py` — exigiriam
+  TensorFlow/XGBoost/emlearn instalados e minutos de execução em CI, o
+  mesmo custo que motivou adiar isto antes. Fica registado como próximo
+  passo possível (ex.: um teste de fumo com um dataset minúsculo e 1 época,
+  só para confirmar que o script corre sem erro, não para validar métricas).
+- `.github/workflows/ml-tests.yml` (novo, mesmo padrão do `bridge-tests.yml`):
+  instala só `numpy`/`pandas`/`pytest` (não `ml/requirements.txt` completo —
+  os módulos cobertos por esta suite não precisam de mais nada) e corre
+  `pytest tests/ -v` a partir de `ml/`, em cada push/PR para `main`. YAML
+  validado com `yaml.safe_load` antes de commitar.
+- Testes corridos localmente nesta rotina antes do commit: **15/15 a
+  passar**.
+
 ## Próximos passos (por ordem)
 
 1. ~~Medir footprint real (flash/RAM) do Random Forest via `emlearn`~~ —

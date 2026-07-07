@@ -3091,3 +3091,44 @@ ordem de prioridade e risco. Regra do utilizador (já registada em
 ### 6. GPS — sem código ainda (fora do âmbito de "testar o que existe")
 - Não há nada para testar; fica de fora deste plano até haver
   implementação (fora do âmbito desta rotina de testes de hardware).
+
+## CI de testes para `ml/` (2026-07-07, rotina cloud)
+
+Contexto: todos os itens de hardware pendentes acima (secção "Plano de
+testes de hardware") exigem a placa física e captura de série ao vivo — a
+própria secção do item 1 (HR) é explícita: "não implementar a correção às
+cegas sem essa captura". Sem acesso a hardware nesta rotina cloud, e com as
+Prioridades 0-2/6-8 bloqueadas (hardware/decisão do utilizador) e a
+Prioridade 3 (app móvel) fora do âmbito de uma execução autónoma, revi o
+estado da Prioridade 4 (BD SQL — já com ORM, Alembic, cifra real, API REST
+e 46 testes com CI própria) e da Prioridade 5 (`ml/`, ver `ml/README.md`).
+Encontrei aí um item concreto e já sinalizado como "ainda por fazer" na
+secção que criou `bridge-tests.yml` mais cedo hoje: não existia nenhuma CI
+para `ml/`, só para o firmware e para o bridge.
+
+**Implementado**: `ml/tests/test_features.py` (7 testes) e
+`ml/tests/test_duration_detector.py` (8 testes) — cobrem só a lógica pura e
+determinística de `features.py` (`_zero_crossing_rate`, `extract_features`)
+e `duration_detector.py` (`evaluate_block`, `evaluate_subject`), com
+sinais/segmentos escritos à mão, **sem gerar dataset nem treinar nenhum
+modelo** — deliberadamente scoped para não repetir o custo (TensorFlow,
+minutos por execução) que já tinha adiado isto antes. `train_activity_classifier*.py`,
+`train_lstm_autoencoder.py` e `measure_rf_footprint.py` continuam sem
+cobertura de CI (registado como possível melhoria futura em `ml/README.md`
+— um teste de fumo com dataset minúsculo, não uma validação de métricas).
+
+Novo workflow `.github/workflows/ml-tests.yml` (mesmo padrão do
+`bridge-tests.yml`): instala só `numpy`/`pandas`/`pytest` (não o
+`ml/requirements.txt` completo, que traz TensorFlow/XGBoost/emlearn —
+desnecessários para os módulos cobertos por esta suite) e corre
+`pytest tests/ -v` a partir de `ml/`, em cada push/PR para `main`.
+
+**Verificado de facto antes de commitar** (venv desta rotina cloud):
+`cd ml && python -m pytest tests/ -v` → **15/15 testes passam**. YAML do
+workflow validado com `yaml.safe_load`. Ver `ml/README.md`, secção "Testes
+automáticos + CI", para o detalhe completo.
+
+**Ainda por fazer** (fora do âmbito desta correção pontual, igual à mesma
+ressalva já registada para `bridge-tests.yml`): confirmar em CI real que o
+novo workflow corre com sucesso (só posso confirmar depois do push, via
+`actions_get`, tal como já feito para `bridge-tests.yml`).
