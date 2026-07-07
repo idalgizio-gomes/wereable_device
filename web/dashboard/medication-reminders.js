@@ -62,7 +62,20 @@ class MedicationReminder {
     if (!currentPatient) return; // sem paciente selecionado
 
     const meds = (typeof patientMedications === 'function') ? patientMedications(currentPatient) : [];
-    
+
+    // Data de hoje (AAAA-MM-DD local), incluída em notifKey abaixo — sem
+    // isto, a chave repetia-se todos os dias à mesma hora e
+    // shownNotifications.has(notifKey) impedia PARA SEMPRE qualquer
+    // lembrete futuro dessa dose a partir do 2º dia (bug real, corrigido
+    // 2026-07-07: um dashboard deixado aberto, uso normal de um painel de
+    // monitorização contínua, parava de notificar já no dia seguinte).
+    const todayStr = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
+    // Limpa chaves de dias anteriores (evita o Set crescer sem limite ao
+    // longo de muitos dias com o dashboard sempre aberto).
+    for (const key of this.shownNotifications) {
+      if (!key.endsWith(`_${todayStr}`)) this.shownNotifications.delete(key);
+    }
+
     for (const med of meds) {
       if (!med.times || !Array.isArray(med.times)) continue;
 
@@ -75,22 +88,16 @@ class MedicationReminder {
         // Verificar se está dentro da janela de lembrança
         const timeDiff = Math.abs(now - scheduledTime);
         if (timeDiff <= this.reminderWindow) {
-          const notifKey = `${currentPatient.id}_${med.id}_${time}`;
-          
+          const notifKey = `${currentPatient.id}_${med.id}_${time}_${todayStr}`;
+
           // Só notificar uma vez por dia
           if (!this.shownNotifications.has(notifKey)) {
             // Verificar se já foi marcada como tomada
             const taken = (typeof isDoseTakenToday === 'function') ? isDoseTakenToday(currentPatient.id, med.id, time) : false;
-            
+
             if (!taken) {
               this.showNotification(med, time, currentPatient);
               this.shownNotifications.add(notifKey);
-              
-              // Limpar notificações antigas (depois da meia-noite)
-              const hour = now.getHours();
-              if (hour === 0) {
-                this.shownNotifications.clear();
-              }
             }
           }
         }

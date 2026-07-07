@@ -2131,6 +2131,15 @@ function pillHtml(sev, label){
   return `<span class="pill ${sev}">${iconFor(sev==='critical'?'warn':sev==='warning'?'warn':'zap')}${label}</span>`;
 }
 
+// Escapa texto livre introduzido pelo utilizador (nome de medicamento,
+// valor de campo de perfil, etc.) antes de o inserir em innerHTML — mesmo
+// padrão já usado em renderCaregiverNotes()/nome de cuidador, extraído
+// aqui para reutilizar nos pontos que ainda inseriam texto livre sem
+// escaping (bug de XSS real, corrigido 2026-07-07).
+function escapeHtml(str){
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 function fmtMin(m){
   const h = Math.floor(m/60), mm = String(m%60).padStart(2,'0');
   return `${String(h).padStart(2,'0')}:${mm}`;
@@ -2684,17 +2693,17 @@ TEMPLATES.definicoes = () => `
         <tr>
           <td>Sinais vitais (FC, SpO₂, passos)</td>
           <td>Equipa clínica (Médico/Técnico)</td>
-          <td><label class="consent-toggle"><input type="checkbox" ${c.shareVitals?'checked':''} onchange="setConsent('shareVitals', this.checked)"><span></span></label></td>
+          <td><label class="consent-toggle"><input type="checkbox" aria-label="Partilhar sinais vitais (FC, SpO₂, passos) com a equipa clínica" ${c.shareVitals?'checked':''} onchange="setConsent('shareVitals', this.checked)"><span></span></label></td>
         </tr>
         <tr>
           <td>Rotina diária e pacing</td>
           <td>Equipa clínica (Médico/Técnico)</td>
-          <td><label class="consent-toggle"><input type="checkbox" ${c.shareRoutine?'checked':''} onchange="setConsent('shareRoutine', this.checked)"><span></span></label></td>
+          <td><label class="consent-toggle"><input type="checkbox" aria-label="Partilhar rotina diária e pacing com a equipa clínica" ${c.shareRoutine?'checked':''} onchange="setConsent('shareRoutine', this.checked)"><span></span></label></td>
         </tr>
         <tr>
           <td>Alertas e registo de anomalias</td>
           <td>Equipa clínica (Médico/Técnico)</td>
-          <td><label class="consent-toggle"><input type="checkbox" ${c.shareAlerts?'checked':''} onchange="setConsent('shareAlerts', this.checked)"><span></span></label></td>
+          <td><label class="consent-toggle"><input type="checkbox" aria-label="Partilhar alertas e registo de anomalias com a equipa clínica" ${c.shareAlerts?'checked':''} onchange="setConsent('shareAlerts', this.checked)"><span></span></label></td>
         </tr>
       </tbody>
     </table>
@@ -2712,10 +2721,10 @@ TEMPLATES.definicoes = () => `
       <tbody>
         ${team.length ? team.map(m => `
           <tr>
-            <td>${m.name.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</td>
+            <td>${escapeHtml(m.name)}</td>
             <td>${m.role}</td>
-            <td><label class="consent-toggle"><input type="checkbox" ${m.canViewAlerts?'checked':''} onchange="setCaregiverPermission('${m.id}','canViewAlerts', this.checked)"><span></span></label></td>
-            <td><label class="consent-toggle"><input type="checkbox" ${m.canEdit?'checked':''} onchange="setCaregiverPermission('${m.id}','canEdit', this.checked)"><span></span></label></td>
+            <td><label class="consent-toggle"><input type="checkbox" aria-label="Permitir a ${escapeHtml(m.name)} ver alertas" ${m.canViewAlerts?'checked':''} onchange="setCaregiverPermission('${m.id}','canViewAlerts', this.checked)"><span></span></label></td>
+            <td><label class="consent-toggle"><input type="checkbox" aria-label="Permitir a ${escapeHtml(m.name)} editar notas e medicação" ${m.canEdit?'checked':''} onchange="setCaregiverPermission('${m.id}','canEdit', this.checked)"><span></span></label></td>
             <td><button class="btn-secondary" onclick="removeCaregiver('${m.id}')">Remover</button></td>
           </tr>
         `).join('') : '<tr><td colspan="5"><p class="empty-hint">Ainda não convidaste ninguém para a equipa de cuidadores.</p></td></tr>'}
@@ -2993,7 +3002,7 @@ TEMPLATES.medicacao = () => {
       : pillHtml('neutral','Pendente');
     const action = status === 'tomado' ? '—'
       : `<button type="button" class="alert-explain-btn" onclick="markDoseTaken('${p.id}','${med.id}','${time}')">Marcar como tomado</button>`;
-    return `<tr><td>${med.name}</td><td class="num">${med.dose}</td><td class="num">${time}</td><td>${pill}</td><td>${action}</td></tr>`;
+    return `<tr><td>${escapeHtml(med.name)}</td><td class="num">${escapeHtml(med.dose)}</td><td class="num">${time}</td><td>${pill}</td><td>${action}</td></tr>`;
   })).join('');
 
   const historyRows = p.adherenceHistory.map(d => `
@@ -3027,8 +3036,8 @@ TEMPLATES.medicacao = () => {
       <tbody>
         ${meds.map(med => `
           <tr>
-            <td>${med.name}</td>
-            <td class="num">${med.dose || '—'}</td>
+            <td>${escapeHtml(med.name)}</td>
+            <td class="num">${escapeHtml(med.dose || '—')}</td>
             <td class="num">${med.times.join(', ')}</td>
             <td><button class="btn-secondary" onclick="removeMedicationForPatient('${med.id}')">Remover</button></td>
           </tr>
@@ -3064,8 +3073,8 @@ function sensitiveProfileFieldHtml(role, field, label, currentValue, inputType){
     <div class="field">
       <label>${label}</label>
       <div class="empty-hint" style="padding:8px 10px; background:var(--status-warning-bg); border-radius:var(--radius-sm); color:var(--status-warning);">
-        Valor atual: <b>${currentValue}</b><br>
-        Alteração pedida (pendente de aprovação): <b>${pendingChange.newValue}</b>
+        Valor atual: <b>${escapeHtml(currentValue)}</b><br>
+        Alteração pedida (pendente de aprovação): <b>${escapeHtml(pendingChange.newValue)}</b>
       </div>
     </div>`;
   }
@@ -3144,7 +3153,7 @@ TEMPLATES.perfil = () => {
         ${entries.map(([field, change]) => `
           <tr>
             <td>${fieldLabels[field] || field}</td>
-            <td>${change.newValue}</td>
+            <td>${escapeHtml(change.newValue)}</td>
             <td class="num">${new Date(change.requestedAt).toLocaleString('pt-PT')}</td>
             <td style="display:flex; gap:8px;">
               <button class="btn-secondary" onclick="approveProfileFieldChange('utente','${field}')">Aprovar</button>
@@ -3340,8 +3349,7 @@ function markAlertRead(key){
 function updateNotificationBadge(){
   const dot = document.getElementById('notifBadgeDot');
   if (!dot) return;
-  const p = selectedPatient();
-  const hasUnread = p.alerts.some(a => !isAlertRead(patientAlertKey(p.id, a.key)));
+  const hasUnread = unreadActiveAlerts().length > 0;
   dot.style.display = hasUnread ? '' : 'none';
 }
 
