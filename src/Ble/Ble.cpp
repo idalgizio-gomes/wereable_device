@@ -24,6 +24,15 @@
 #include <rtos.h>
 #include <cstring>
 
+// Cifra AES-CTR do "modo de dados" (2026-07-07, ver "encryptRecord" abaixo):
+// biblioteca ja declarada em platformio.ini ("rweather/Crypto") desde o
+// inicio do projeto mas nunca usada ate agora — o registo FullPlain ia em
+// texto simples apesar de existir troca/persistencia de uma chave AES (ver
+// aviso historico que este ficheiro tinha e que deixou de ser verdade a
+// partir desta alteracao).
+#include <AES.h>
+#include <CTR.h>
+
 // UUIDs dos servicos e characteristics GATT expostos pelo wearable.
 // - wearableService: servico "guarda-chuva" custom do dispositivo, usado
 //   tanto no provisioning (chave AES) como no modo de dados (dump).
@@ -78,12 +87,17 @@ namespace {
 constexpr uint16_t kGattDumpTaskStackWords = 1280;
 // Atraso (ms) entre cada FRAGMENTO BLE enviado (ver sendDumpPendingRecord).
 // *** AJUSTE DE ESTABILIDADE BLE ***: estava a 0 (sem atraso nenhum), o que
-// gera ate ~208 notificacoes/seg (52 registos/seg x ate 4 fragmentos cada) —
-// em testes reais isto sobrecarregou a pilha BLE do lado do central (PC com
-// Windows) e causou desconexoes repetidas pouco depois de o streaming
+// gera ate ~208 notificacoes/seg (52 registos/seg x ate 4 fragmentos cada,
+// valores de antes da cifra AES-CTR — ver "Cifra AES-CTR do modo de dados"
+// mais abaixo: kGattDumpChunkLen encolheu de 12 para 8 bytes para caber o
+// campo "nonce" sem negociar um MTU maior, por isso agora sao ate 5
+// fragmentos/registo, ~260 notificacoes/seg no pico) — em testes reais
+// (antes da cifra) isto sobrecarregou a pilha BLE do lado do central (PC
+// com Windows) e causou desconexoes repetidas pouco depois de o streaming
 // comecar. 2ms/fragmento reduz o pico para um maximo teorico de ~500
 // fragmentos/seg, dando folga a pilha BLE do central sem comprometer o
-// ritmo necessario (208/seg) para acompanhar a taxa real do IMU.
+// ritmo necessario (~260/seg, ver acima) para acompanhar a taxa real do
+// IMU — ainda nao confirmado em hardware com o novo numero de fragmentos.
 //
 // IMPORTANTE: este valor regula APENAS o ritmo entre a placa e quem se
 // liga diretamente por BLE (o bridge local ou uma app/telemovel) — e
@@ -105,7 +119,17 @@ constexpr uint32_t kGattDumpWaitLogMs = 2000;
 constexpr uint32_t kGattDumpIdleLogMs = 5000;
 constexpr uint32_t kBleProvisionWaitLogMs = 5000;
 constexpr bool kGattDumpVerboseLogs = false;
-constexpr uint8_t kGattDumpChunkLen = 12;
+// Reduzido de 12 para 8 bytes (2026-07-07, ver "Cifra AES-CTR do modo de
+// dados" abaixo): o pacote DumpDataPacket ganhou um campo "nonce" (4 bytes,
+// necessario para a app/bridge poder decifrar cada registo). Para manter o
+// pacote total em 20 bytes (1+1+1+1+4+4+8) — o mesmo tamanho de sempre,
+// dentro do payload de notify() de 20 bytes do MTU BLE por omissao (23
+// bytes ATT - 3 de cabecalho) — o chunk teve de encolher em vez de crescer
+// o pacote, para nao depender de negociar um MTU maior (nunca validado
+// nesta placa). Efeito: mais fragmentos por registo (ceil(39/8)=5 em vez
+// de ceil(39/12)=4), aceite como o trade-off mais seguro sem hardware para
+// testar uma negociacao de MTU maior.
+constexpr uint8_t kGattDumpChunkLen = 8;
 
 constexpr uint16_t kRecTypeImuPpgV1 = 0x1001;
 constexpr uint8_t kDumpCtrlStart = 0x01;
@@ -143,9 +167,15 @@ struct __attribute__((packed)) ImuPpgPayloadV1 {
   uint8_t pacing_index;
 };
 
-// Registo "completo" (com timestamp) tal como é enviado para a app,
-// em texto simples (nao cifrado) — o nome "Plain" distingue-o de uma
-// eventual versao cifrada com AES.
+// Registo "completo" (com timestamp) tal como e' calculado internamente
+// (layout em memoria) antes de ser cifrado para transmissao — o nome
+// "Plain" ficou do historico do projeto (antes desta struct ir mesmo em
+// texto simples pelo ar) e mantem-se so' para nao obrigar a renomear tudo
+// o que ja' lhe faz referencia (bridge, comentarios). A PARTIR DE 2026-07-07
+// o conteudo dos bytes[0..38] desta struct NUNCA vai pelo ar tal e' qual:
+// sendDumpPendingRecord() cifra sempre esta estrutura com AES-CTR
+// (ver encryptRecord()) antes de fragmentar — ver "Cifra AES-CTR do modo
+// de dados" mais abaixo neste ficheiro para o desenho completo.
 struct __attribute__((packed)) FullPlain {
   uint32_t ts;
   float ax;
@@ -169,16 +199,23 @@ struct __attribute__((packed)) FullPlain {
   uint8_t pacing_index;
 };
 
-// Um "fragmento" de um FullPlain enviado via notify() na characteristic
+// Um "fragmento" de um FullPlain CIFRADO (ver encryptRecord()/"Cifra
+// AES-CTR do modo de dados" abaixo) enviado via notify() na characteristic
 // dumpDataChar. Como um FullPlain (39 bytes) pode nao caber num unico
 // pacote BLE, é dividido em ate N fragmentos de kGattDumpChunkLen bytes;
 // frag_idx/frag_total permitem a app remontar o registo do lado dela.
+// "nonce" (2026-07-07): baixos 32 bits do contador persistente dedicado
+// (ver allocateNonce()/reserveNonceBatch(), mais abaixo) usado como IV/
+// nonce AES-CTR deste registo — repetido em todos os fragmentos do mesmo
+// registo (redundante mas simples e robusto a fragmentos perdidos/fora de
+// ordem). Ver "Cifra AES-CTR do modo de dados" para o desenho completo.
 struct __attribute__((packed)) DumpDataPacket {
   uint8_t type;
   uint8_t frag_idx;
   uint8_t frag_total;
   uint8_t chunk_len;
   uint32_t rec_seq;
+  uint32_t nonce;
   uint8_t chunk[kGattDumpChunkLen];
 };
 
@@ -242,6 +279,12 @@ static volatile uint32_t s_timestamp = 0;
 // Copia em RAM da chave AES atualmente ativa (para acesso rapido sem
 // tocar na flash a cada operacao de cifra/decifra).
 static uint8_t s_aesKey[AES_KEY_MAX_LEN] = {0};
+// Comprimento real da chave em s_aesKey (16, 24 ou 32 - AES-128/192/256).
+// Necessario porque s_aesKey e' um buffer de tamanho fixo (AES_KEY_MAX_LEN)
+// preenchido com zeros a mais quando a chave e' mais curta - sem isto nao
+// haveria como saber, so' pelo conteudo do buffer, qual variante AES usar
+// em encryptRecord().
+static size_t s_aesKeyLen = 0;
 static constexpr const char *kBleBuildTag = "BLE_GATT_DUMP_V1";
 
 // Estados possiveis da maquina de estados do "dump" (streaming) de
@@ -274,6 +317,12 @@ static volatile bool s_dumpWindowImmediate = false;
 static bool s_dumpPendingValid = false;
 static uint32_t s_dumpPendingSeq = 0;
 static FullPlain s_dumpPendingSample = {};
+// Nonce/IV (32 bits baixos do contador persistente dedicado, ver
+// allocateNonce()) atribuido a este registo pendente em
+// prepareDumpPendingRecord() — fixo durante todas as tentativas de
+// reenvio do mesmo registo (para a cifra dar sempre o mesmo resultado
+// byte a byte, ver sendDumpPendingRecord()).
+static uint32_t s_dumpPendingNonce = 0;
 
 // Monta e envia (via write local + notify, se ligado) um pacote de
 // estado do streaming para a app, para que esta saiba em que fase o
@@ -371,6 +420,94 @@ void cacheAesKey(const uint8_t *key, size_t len) {
   if (len > AES_KEY_MAX_LEN) len = AES_KEY_MAX_LEN;
   memset(s_aesKey, 0, sizeof(s_aesKey));
   memcpy(s_aesKey, key, len);
+  s_aesKeyLen = len;
+}
+
+// ------------------------------------------------------------------
+// Cifra AES-CTR do "modo de dados" (2026-07-07)
+// ------------------------------------------------------------------
+// Ate aqui, apesar de o dispositivo trocar e guardar uma chave AES desde
+// o inicio do projeto, o registo FullPlain ia pelo ar em texto simples —
+// a biblioteca "rweather/Crypto" ja estava declarada em platformio.ini
+// mas nunca tinha sido usada (pesquisa aplicada confirmou que o
+// nRF52840 tambem tem um acelerador de hardware AES-128 ECB/CCM, mas usar
+// a biblioteca ja incluida no projeto, testada em Cortex-M4 real, e mais
+// simples e suficiente para o volume de dados aqui em causa).
+//
+// Modo escolhido: CTR (contador), nao CBC/GCM — precisa de zero padding
+// (FullPlain nao e' multiplo de 16 bytes) e permite decifrar cada
+// fragmento assim que chega, sem esperar por um bloco completo.
+//
+// Nonce/IV: constroi-se um bloco de 16 bytes [nonce de 32 bits (4 bytes,
+// big-endian) | 0x00000000 (4 bytes) | contador de bloco (8 bytes, comeca
+// em 0)], com setCounterSize(8) — so' os ultimos 8 bytes incrementam
+// bloco a bloco (0,1,2 para os 3 blocos de um FullPlain de 39 bytes); os
+// primeiros 8 bytes ficam fixos como "prefixo" desta mensagem.
+//
+// A escolha critica e' de onde vem o "nonce": NAO e' o rec_seq do ring
+// buffer (QspiRingBuffer), porque esse reinicia em 1 sempre que o
+// utilizador usa "Repor leituras" (QspiRingBuffer::format(), comando
+// kDumpCtrlResetReadings) — e a chave AES persiste nessa operacao (nao e'
+// apagada). Reutilizar rec_seq como nonce repetiria o mesmo par
+// (chave, nonce) para registos diferentes depois de um "Repor leituras",
+// o que quebra a seguranca do CTR (permite recuperar o XOR dos dois
+// textos simples a quem gravar o trafego BLE). Por isso usa-se antes um
+// contador de 64 bits persistido em LittleFS (Storage::counter_load()/
+// counter_save(), ver Storage.h, "Contador persistente para nonce/IV das
+// mensagens BLE" — a infraestrutura ja existia, preparada por uma sessao
+// anterior, mas nunca tinha sido ligada a nenhuma cifra real ate agora),
+// nunca tocado por QspiRingBuffer::format(). Os valores sao alocados em
+// LOTES em RAM (ver allocateNonce()/reserveNonceBatch(), mais abaixo) em
+// vez de uma escrita de flash por registo — ver ali a justificacao
+// detalhada. So' os 32 bits baixos deste contador viajam no pacote (campo
+// "nonce" de DumpDataPacket) — suficiente para nunca repetir durante
+// varios anos de streaming continuo (ver limitacao documentada abaixo).
+//
+// Cifra 'len' bytes de 'plain' para 'cipher' com a chave atualmente em
+// cache (s_aesKey/s_aesKeyLen) e o 'nonce' de 32 bits deste registo.
+// Devolve false se s_aesKeyLen nao corresponder a nenhuma variante AES
+// suportada (16/24/32 bytes) — nao deveria acontecer, ja que
+// aesKeyCallback()/Storage::saveAesKey() validam o comprimento no
+// momento do provisioning, mas fica como proteccao defensiva.
+bool encryptRecord(uint32_t nonce, const uint8_t *plain, uint8_t *cipher, size_t len) {
+  uint8_t iv[16] = {0};
+  iv[0] = (uint8_t)(nonce >> 24);
+  iv[1] = (uint8_t)(nonce >> 16);
+  iv[2] = (uint8_t)(nonce >> 8);
+  iv[3] = (uint8_t)(nonce);
+  // iv[4..7] ficam a zero (resto do prefixo fixo desta mensagem).
+  // iv[8..15] (contador de bloco) tambem comecam a zero — setIV() copia
+  // isto tal e qual para o contador interno do CTR, que so' incrementa a
+  // partir do byte 8 em diante (setCounterSize(8) abaixo).
+  constexpr size_t kCounterSizeBytes = 8;
+
+  if (s_aesKeyLen == 16) {
+    CTR<AES128> ctr;
+    if (!ctr.setKey(s_aesKey, 16)) return false;
+    if (!ctr.setIV(iv, sizeof(iv))) return false;
+    ctr.setCounterSize(kCounterSizeBytes);
+    ctr.encrypt(cipher, plain, len);
+    return true;
+  }
+  if (s_aesKeyLen == 24) {
+    CTR<AES192> ctr;
+    if (!ctr.setKey(s_aesKey, 24)) return false;
+    if (!ctr.setIV(iv, sizeof(iv))) return false;
+    ctr.setCounterSize(kCounterSizeBytes);
+    ctr.encrypt(cipher, plain, len);
+    return true;
+  }
+  if (s_aesKeyLen == 32) {
+    CTR<AES256> ctr;
+    if (!ctr.setKey(s_aesKey, 32)) return false;
+    if (!ctr.setIV(iv, sizeof(iv))) return false;
+    ctr.setCounterSize(kCounterSizeBytes);
+    ctr.encrypt(cipher, plain, len);
+    return true;
+  }
+  Serial.print("[BLEG] encryptRecord: comprimento de chave AES invalido: ");
+  Serial.println((unsigned)s_aesKeyLen);
+  return false;
 }
 
 // Converte um registo generico do ring buffer QSPI (formato interno,
@@ -476,6 +613,64 @@ bool peekImuPpgRecord(FullMappedRecord &out) {
   return false;
 }
 
+// ------------------------------------------------------------------
+// Alocacao de nonces por LOTES (evita escrever na flash interna a cada
+// registo — ver o porque abaixo).
+// ------------------------------------------------------------------
+// Registos chegam ate ~52/seg (taxa do IMU). Chamar Storage::counter_inc()
+// (que faz remove()+write() a um ficheiro LittleFS na flash interna) uma
+// vez por registo faria ate ~52 escritas de flash por segundo enquanto o
+// streaming estiver ativo — isto e' um erro grave de desenho, nao so' de
+// desempenho: a flash interna do nRF52840 tem um numero finito de ciclos
+// de apagar/escrever por setor (tipicamente dezenas de milhares), e a
+// esse ritmo esgotar-se-ia em horas/dias de uso continuo, alem de cada
+// escrita de flash ser bem mais lenta (ms) do que o intervalo entre
+// registos a 52Hz (~19ms), arriscando atrasos que já causaram
+// desconexoes BLE no passado (ver kGattDumpInterPacketMs acima).
+//
+// Por isso os nonces sao alocados em RAM, um lote de cada vez: cada vez
+// que o lote atual se esgota, reserva-se de uma so' vez o proximo lote
+// completo (kNonceBatchSize valores) com UMA UNICA escrita de flash que
+// avanca o contador persistido para alem de tudo o que ainda vai ser
+// usado. Se o dispositivo desligar a meio de um lote, no proximo arranque
+// o contador persistido ja' esta' avancado ate' ao fim desse lote — perde-se
+// (nunca se reutiliza) o resto dos valores desse lote que nao chegaram a
+// ser gastos, o que e' seguro (o objetivo e' NUNCA repetir um nonce com a
+// mesma chave, nao aproveitar cada valor ao maximo).
+constexpr uint64_t kNonceBatchSize = 65536; // ~21 min de streaming continuo a 52Hz por escrita de flash
+static uint64_t s_nonceNext = 0;
+static uint64_t s_nonceReservedUntil = 0;
+static bool s_nonceBatchInitialized = false;
+
+// Reserva (escreve na flash, uma unica vez) o proximo lote de
+// kNonceBatchSize nonces, a partir do valor persistido atual (0 se ainda
+// nao existir nenhum, ou seja, primeira vez que o dispositivo cifra
+// dados). Devolve false se a escrita falhar (ex.: erro de flash).
+bool reserveNonceBatch() {
+  uint64_t current = 0;
+  (void)Storage::counter_load(current); // falha (nunca guardado) -> current fica 0, comeca do zero
+  const uint64_t newBoundary = current + kNonceBatchSize;
+  if (!Storage::counter_save(newBoundary)) return false;
+  s_nonceNext = current;
+  s_nonceReservedUntil = newBoundary;
+  s_nonceBatchInitialized = true;
+  return true;
+}
+
+// Devolve em 'outNonce' o proximo valor nunca antes usado do contador
+// persistente dedicado ao nonce/IV AES-CTR (ver "Cifra AES-CTR do modo de
+// dados" em encryptRecord(), acima, para a razao de nao reutilizar o
+// rec_seq do ring buffer). So' toca a flash quando o lote atual se esgota
+// (ver reserveNonceBatch()) — no caso comum e' apenas um incremento em RAM.
+bool allocateNonce(uint64_t &outNonce) {
+  if (!s_nonceBatchInitialized || s_nonceNext >= s_nonceReservedUntil) {
+    if (!reserveNonceBatch()) return false;
+  }
+  outNonce = s_nonceNext;
+  s_nonceNext++;
+  return true;
+}
+
 // Le (peek, sem remover) o proximo registo do ring buffer e guarda-o
 // como "pendente", para so ser removido do buffer depois de confirmado
 // o envio bem-sucedido (ver sendDumpPendingRecord + o pop no chamador).
@@ -483,24 +678,57 @@ bool prepareDumpPendingRecord() {
   FullMappedRecord mapped{};
   if (!peekImuPpgRecord(mapped)) return false;
 
+  // Obtem um nonce novo e unico ANTES de marcar o registo como pendente —
+  // ver "Cifra AES-CTR do modo de dados" (encryptRecord(), acima) para a
+  // razao de usar este contador persistente dedicado em vez do rec_seq do
+  // ring buffer, e allocateNonce()/reserveNonceBatch() acima para a razao
+  // de nao escrever na flash a cada registo. Se a reserva de um novo lote
+  // falhar (raro — erro de flash), o registo fica por preparar e sera
+  // tentado de novo na proxima iteracao (nao houve pop() do ring buffer,
+  // o registo continua la).
+  uint64_t nonce64 = 0;
+  if (!allocateNonce(nonce64)) {
+    Serial.println("[BLEG][DUMP] falha ao reservar lote de nonces (Storage::counter_save) — adia registo");
+    return false;
+  }
+
   s_dumpPendingSeq = mapped.rec_seq;
   s_dumpPendingSample = mapped.payload;
+  s_dumpPendingNonce = (uint32_t)(nonce64 & 0xFFFFFFFFULL);
   s_dumpPendingValid = true;
   return true;
 }
 
-// Envia o registo pendente atual (s_dumpPendingSample) por BLE,
-// fragmentado em varios pacotes DumpDataPacket porque o registo (39
-// bytes) normalmente nao cabe inteiro num unico payload de notify().
-// Se qualquer fragmento falhar a enviar (ex.: fila de notificacoes
-// cheia, desconexao a meio), aborta e devolve false — o registo
-// continua "pendente" e sera reenviado na proxima iteracao.
+// Envia o registo pendente atual (s_dumpPendingSample) por BLE, CIFRADO
+// com AES-CTR (ver encryptRecord()), fragmentado em varios pacotes
+// DumpDataPacket porque o registo (39 bytes) normalmente nao cabe inteiro
+// num unico payload de notify(). Se qualquer fragmento falhar a enviar
+// (ex.: fila de notificacoes cheia, desconexao a meio), aborta e devolve
+// false — o registo continua "pendente" e sera reenviado na proxima
+// iteracao. A cifra e' recalculada em cada tentativa (a partir do mesmo
+// s_dumpPendingSample/s_dumpPendingNonce, fixos ate o registo ser
+// confirmado como enviado) em vez de guardada num buffer à parte — AES-CTR
+// e' deterministico, por isso repetir a cifra com a mesma chave/nonce/
+// texto simples produz sempre os mesmos bytes, sem custo relevante (39
+// bytes por tentativa).
 bool sendDumpPendingRecord() {
   if (!s_dumpPendingValid) return false;
   if (Bluefruit.connected() == 0) return false;
 
   const uint8_t *sample = reinterpret_cast<const uint8_t *>(&s_dumpPendingSample);
   constexpr size_t kSampleLen = sizeof(FullPlain);
+
+  uint8_t cipherBuf[kSampleLen];
+  if (!encryptRecord(s_dumpPendingNonce, sample, cipherBuf, kSampleLen)) {
+    // So' deveria acontecer com uma chave AES de comprimento invalido
+    // (ver encryptRecord()) — nao ha' forma segura de enviar o registo
+    // sem cifra, por isso trata-se como uma falha de envio normal: o
+    // registo continua pendente (nao e' descartado nem enviado em claro).
+    Serial.print("[BLEG][TX] FAIL cifra rec_seq=");
+    Serial.println(s_dumpPendingSeq);
+    return false;
+  }
+
   const uint8_t fragTotal = (uint8_t)((kSampleLen + kGattDumpChunkLen - 1) / kGattDumpChunkLen);
 
   if (kGattDumpVerboseLogs) {
@@ -521,7 +749,8 @@ bool sendDumpPendingRecord() {
     pkt.frag_total = fragTotal;
     pkt.chunk_len = chunkLen;
     pkt.rec_seq = s_dumpPendingSeq;
-    memcpy(pkt.chunk, sample + offset, chunkLen);
+    pkt.nonce = s_dumpPendingNonce;
+    memcpy(pkt.chunk, cipherBuf + offset, chunkLen);
 
     const uint8_t *rawPkt = reinterpret_cast<const uint8_t *>(&pkt);
     if (!dumpDataChar.notify(rawPkt, sizeof(pkt))) {
@@ -775,8 +1004,16 @@ static void aesKeyCallback(uint16_t conn_hdl, BLECharacteristic *chr,
     return;
   }
 
-  if (len < AES_KEY_MIN_LEN || len > AES_KEY_MAX_LEN) {
-    Serial.println("[BLE] AES key invalid length");
+  // Restrito aos 3 comprimentos reais de chave AES (128/192/256 bits) —
+  // antes aceitava-se qualquer valor entre AES_KEY_MIN_LEN e
+  // AES_KEY_MAX_LEN (ex.: 20 bytes), o que passava na validacao mas nao
+  // correspondia a nenhuma variante suportada por encryptRecord() (ver
+  // "Cifra AES-CTR do modo de dados" acima) — bug encontrado ao
+  // implementar a cifra: uma chave "valida" por este criterio antigo
+  // bloquearia todo o streaming de dados (encryptRecord() devolveria
+  // sempre false).
+  if (len != 16 && len != 24 && len != 32) {
+    Serial.println("[BLE] AES key invalid length (precisa 16, 24 ou 32 bytes)");
     return;
   }
 

@@ -37,18 +37,46 @@ Este script:
      precisa de um provedor real (ex.: Twilio) com credenciais do
      utilizador, decisão pendente (ver PROJECT_STATUS.md).
 
-IMPORTANTE — SEM CIFRA NESTA FASE
-----------------------------------
-Apesar de o dispositivo trocar e guardar uma chave AES, o registo
-transmitido no "modo de dados" chama-se "FullPlain" no firmware
-(src/Ble/Ble.cpp) porque ainda vai em texto simples — a cifra AES está
-prevista mas ainda não implementada nesse caminho. Este script não faz
-nem precisa de fazer decifra; se/quando a cifra for adicionada ao
-firmware, este ficheiro terá de ser atualizado.
+CIFRA AES-CTR DO "MODO DE DADOS" (2026-07-07)
+----------------------------------------------
+Até 2026-07-07 o registo transmitido no "modo de dados" ia em texto
+simples pelo ar, apesar de o dispositivo já trocar e guardar uma chave
+AES — ver PROJECT_STATUS.md para o histórico. Isso deixou de ser verdade:
+o firmware (src/Ble/Ble.cpp, `encryptRecord()`) cifra agora cada FullPlain
+com AES-CTR (128/192/256 bits, conforme o comprimento da chave) antes de
+fragmentar, usando um nonce de 32 bits por registo (campo novo "nonce" em
+DumpDataPacket) derivado de um contador persistente dedicado no firmware
+(ver allocateNonce()/reserveNonceBatch() em src/Ble/Ble.cpp) — nunca
+reutilizado enquanto a chave não mudar.
+
+Este script decifra usando a MESMA chave, mas **NÃO existe (ainda) nenhuma
+app de provisioning que entregue essa chave ao bridge de forma automática
+e segura** — só o dispositivo a recebe hoje (via nRF Connect/app manual,
+characteristic aesKeyChar, escrita única). Solução honesta desta fase,
+adequada a um protótipo local (o bridge já assume confiança total do
+ambiente onde corre — "Canal não autenticado — só deve ser exposto em
+localhost", ver PROJECT_STATUS.md): quem faz o provisioning do dispositivo
+configura o bridge com a MESMA chave (em hexadecimal) através da variável
+de ambiente `CAREWEAR_AES_KEY_HEX`. Sem essa variável definida, o bridge
+não consegue decifrar os registos — regista um aviso (uma vez) e
+descarta-os em vez de os interpretar como texto simples (o que produziria
+valores de sensores fabricados/sem sentido, ver `_on_dump_data`).
+
+    export CAREWEAR_AES_KEY_HEX=<32/48/64 caracteres hex = 16/24/32 bytes>
+    python ble_bridge.py
+
+**Limitação honesta, por resolver numa fase futura**: isto não é uma troca
+de chaves segura (Diffie-Hellman ou semelhante) nem uma app de
+provisioning real — é a forma mais simples e honesta de fechar o ciclo
+com o que já existe hoje neste protótipo. Não testado com o firmware real
+em hardware (bloqueado pela indisponibilidade atual da placa — ver
+PROJECT_STATUS.md, "Riscos/bloqueios ativos"); o protocolo de
+cifra/decifra foi validado byte a byte com um script Python à parte
+(round-trip determinístico), não com o par firmware↔bridge real.
 
 DEPENDÊNCIAS
 -------------
-    pip install bleak websockets
+    pip install bleak websockets pycryptodome
 
 UTILIZAÇÃO
 ----------
@@ -61,6 +89,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import struct
 import time
 from datetime import datetime, timezone
@@ -69,6 +98,7 @@ from typing import Optional
 import websockets
 from bleak import BleakClient, BleakScanner
 from bleak.backends.characteristic import BleakGATTCharacteristic
+from Crypto.Cipher import AES
 
 import storage
 
@@ -121,6 +151,86 @@ EMERGENCY_ALERT_TYPE_NAMES = {
 
 WS_HOST = "localhost"
 WS_PORT = 8765
+
+# ============================================================
+# CIFRA AES-CTR (ver cabecalho do ficheiro, "CIFRA AES-CTR DO MODO DE
+# DADOS") — chave lida uma unica vez do ambiente, em hexadecimal, tem de
+# ser EXATAMENTE a mesma chave escrita no dispositivo via aesKeyChar
+# durante o provisioning (16/24/32 bytes = 32/48/64 caracteres hex).
+# ============================================================
+_AES_KEY_HEX_ENV = "CAREWEAR_AES_KEY_HEX"
+
+
+def _load_aes_key_from_env() -> Optional[bytes]:
+    raw_hex = os.environ.get(_AES_KEY_HEX_ENV)
+    if not raw_hex:
+        print(f"[BRIDGE] AVISO: {_AES_KEY_HEX_ENV} nao definida — os registos de "
+              f"sensores nao vao poder ser decifrados (ver cabecalho deste ficheiro).")
+        return None
+    try:
+        key = bytes.fromhex(raw_hex.strip())
+    except ValueError:
+        print(f"[BRIDGE] AVISO: {_AES_KEY_HEX_ENV} nao e' hexadecimal valido — ignorada")
+        return None
+    if len(key) not in (16, 24, 32):
+        print(f"[BRIDGE] AVISO: {_AES_KEY_HEX_ENV} tem {len(key)} bytes — "
+              f"tem de ter 16, 24 ou 32 (AES-128/192/256) — ignorada")
+        return None
+    print(f"[BRIDGE] chave AES carregada do ambiente ({len(key) * 8} bits)")
+    return key
+
+
+def decrypt_full_plain(key: bytes, nonce: int, ciphertext: bytes) -> bytes:
+    """Decifra um registo FullPlain (39 bytes) cifrado pelo firmware com
+    AES-CTR (ver encryptRecord() em src/Ble/Ble.cpp) — reproduz o MESMO
+    desenho de contador ali usado, byte a byte:
+
+      IV de 16 bytes = [nonce de 32 bits, big-endian (4 bytes)]
+                     + [0x00000000 (4 bytes)]
+                     + [contador de bloco de 8 bytes, comeca em 0]
+
+    so' os ultimos 8 bytes do IV incrementam entre blocos de 16 bytes
+    (equivalente a CTR.setCounterSize(8) no firmware); os primeiros 8
+    bytes ficam fixos como prefixo desta mensagem. Cada bloco de
+    keystream e' AES_ECB(chave, bloco_contador); a cifra e' um XOR simples
+    entre o texto cifrado e o keystream — por isso decifrar e' a MESMA
+    operacao que cifrar (propriedade do modo CTR).
+
+    Implementado com AES em modo ECB "cru" (bloco a bloco), em vez de um
+    modo CTR de alto nivel de alguma biblioteca Python, precisamente para
+    controlar byte a byte a construcao do bloco de contador e garantir que
+    bate certo com o firmware sem depender de convencoes de
+    endianness/prefixo que podem diferir entre bibliotecas.
+    """
+    aes = AES.new(key, AES.MODE_ECB)
+    counter = bytearray(16)
+    counter[0] = (nonce >> 24) & 0xFF
+    counter[1] = (nonce >> 16) & 0xFF
+    counter[2] = (nonce >> 8) & 0xFF
+    counter[3] = nonce & 0xFF
+    # counter[4:8] fica a zero (resto do prefixo fixo); counter[8:16]
+    # (contador de bloco) tambem comeca a zero.
+
+    out = bytearray(len(ciphertext))
+    offset = 0
+    while offset < len(ciphertext):
+        keystream_block = aes.encrypt(bytes(counter))
+        take = min(16, len(ciphertext) - offset)
+        for i in range(take):
+            out[offset + i] = ciphertext[offset + i] ^ keystream_block[i]
+        offset += take
+
+        # Incrementa counter[8:16] como um inteiro big-endian (byte 15 e'
+        # o menos significativo), sem propagar carry para o prefixo
+        # (counter[0:8]) — mesma logica do CTR.cpp do firmware.
+        idx = 16
+        carry = 1
+        while idx > 8 and carry:
+            idx -= 1
+            total = counter[idx] + carry
+            counter[idx] = total & 0xFF
+            carry = total >> 8
+    return bytes(out)
 
 
 def decode_full_plain(raw: bytes) -> dict:
@@ -208,6 +318,11 @@ class BleBridge:
         # uma única vez no arranque do bridge, reutilizada para todos os
         # inserts/queries desta execução.
         self.db = storage.init_db()
+        # Chave AES para decifrar o "modo de dados" (ver
+        # "CIFRA AES-CTR DO MODO DE DADOS" no cabeçalho deste ficheiro) —
+        # None se CAREWEAR_AES_KEY_HEX não estiver configurada.
+        self.aes_key = _load_aes_key_from_env()
+        self._missing_key_warned = False
 
     RECORD_BROADCAST_MIN_INTERVAL_S = 0.25  # no maximo ~4 atualizacoes/seg
     # Intervalo entre limpezas automaticas de sensor_records (ver
@@ -255,17 +370,20 @@ class BleBridge:
 
         Cada notificação é um fragmento (DumpDataPacket, 20 bytes, ver
         Ble.cpp): type, frag_idx, frag_total, chunk_len, rec_seq (uint32),
-        chunk[12]. Um FullPlain (39 bytes) chega dividido em até 4
-        fragmentos; aqui remontamos por rec_seq até termos todos os bytes.
+        nonce (uint32, 2026-07-07 — ver "CIFRA AES-CTR DO MODO DE DADOS"),
+        chunk[8]. Um FullPlain (39 bytes), CIFRADO, chega dividido em até 5
+        fragmentos; aqui remontamos por rec_seq até termos todos os bytes,
+        depois decifra-se o registo completo antes de o descodificar.
         """
-        if len(data) < 8:
+        if len(data) < 12:
             return
         _type, frag_idx, frag_total, chunk_len = data[0], data[1], data[2], data[3]
         rec_seq = struct.unpack_from("<I", data, 4)[0]
-        chunk = bytes(data[8:8 + chunk_len])
+        nonce = struct.unpack_from("<I", data, 8)[0]
+        chunk = bytes(data[12:12 + chunk_len])
 
         entry = self._pending_fragments.setdefault(
-            rec_seq, {"total": frag_total, "parts": {}}
+            rec_seq, {"total": frag_total, "nonce": nonce, "parts": {}}
         )
         entry["parts"][frag_idx] = chunk
 
@@ -273,13 +391,24 @@ class BleBridge:
             return  # ainda faltam fragmentos deste registo
 
         # Todos os fragmentos chegaram — remonta pela ordem correta.
-        full = b"".join(entry["parts"][i] for i in range(entry["total"]))
+        cipher_full = b"".join(entry["parts"][i] for i in range(entry["total"]))
+        record_nonce = entry["nonce"]
         del self._pending_fragments[rec_seq]
 
-        if len(full) != FULL_PLAIN_STRUCT.size:
+        if len(cipher_full) != FULL_PLAIN_STRUCT.size:
             print(f"[BRIDGE] registo rec_seq={rec_seq} com tamanho inesperado "
-                  f"({len(full)} bytes, esperado {FULL_PLAIN_STRUCT.size}) — ignorado")
+                  f"({len(cipher_full)} bytes, esperado {FULL_PLAIN_STRUCT.size}) — ignorado")
             return
+
+        if self.aes_key is None:
+            if not self._missing_key_warned:
+                print(f"[BRIDGE] AVISO: a descartar registos de sensores — "
+                      f"{_AES_KEY_HEX_ENV} nao configurada, nao ha' como decifrar "
+                      f"(ver cabecalho deste ficheiro). Este aviso so' aparece uma vez.")
+                self._missing_key_warned = True
+            return
+
+        full = decrypt_full_plain(self.aes_key, record_nonce, cipher_full)
 
         record = decode_full_plain(full)
         self.last_record_ts = record["ts"]
