@@ -1811,3 +1811,89 @@ sem toolchain ARM, e um teste Playwright real para o dashboard):
 As 4 revisões dirigidas (firmware, bridge, dashboard, `ml/`) desta
 Prioridade 5 estão agora todas concluídas e os achados reais corrigidos
 acima.
+
+## Verificação de bugs (rotina automática) — 2026-07-07, 2ª passagem do dia
+
+Com as Prioridades 1-4 já confirmadas esgotadas por uma execução anterior
+horas antes (mesmo dia — ver secção imediatamente acima), esta execução
+repetiu a Prioridade 1 com 2 buscas em ângulos ainda não tentados antes de
+avançar para nova varredura de bugs:
+
+- **"Ground-face coordinate system" para deteção de queda**: o artigo
+  (Sözer, SAUCIS, dez. 2024, DOI 10.35377/saucis.1522290) foi localizado
+  desta vez, incluindo um PDF direto num mirror universitário — mas
+  **continua bloqueado (403)** tanto pelo `WebFetch` como por um pedido
+  `curl` direto através do proxy da sessão, para o artigo original e para
+  o mirror. Só ficaram disponíveis descrições de alto nível nos resultados
+  de pesquisa (eixo vertical alinhado com a gravidade via filtro
+  passa-baixo, eixo X alinhado com a direção de marcha, ~2% de melhoria de
+  acurácia na deteção), sem a fórmula exata nem os parâmetros numéricos.
+  Mantida a mesma decisão já registada antes: não implementar uma versão
+  adivinhada de um algoritmo de deteção de queda (código de segurança) a
+  partir de um resumo de segunda mão.
+- **Bonding/pairing BLE (LE Secure Connections) para dispositivos de
+  saúde**: pesquisa confirma que "Just Works" (sem MITM) é o pairing menos
+  seguro e que dispositivos médicos deveriam usar LE Secure Connections
+  (ECDH) + bonding, Security Mode 1 Level 4. O firmware atual (`Ble.cpp`)
+  não configura nenhum destes (nem se confirmou aqui se está sequer a
+  usar bonding básico). **Não implementado nesta execução**: mudar o modo
+  de pareamento BLE é uma alteração de protocolo/segurança com risco real
+  de repetir a classe de bugs já sofrida neste projeto (BLE a
+  desconectar-se/deixar de ser encontrado, ver histórico de instabilidade
+  BLE e o bug do RF switch partilhado) — só é seguro validar em hardware
+  real, indisponível nesta rotina cloud. Registado como direção concreta
+  futura, ao lado da já registada migração para `CryptoCell`/AES-CCM de
+  hardware.
+
+Com a Prioridade 1 sem nada de novo implementável com segurança, e as
+Prioridades 2-4 sem itens novos (mesma conclusão da execução anterior),
+esta execução avançou para uma nova varredura de bugs (Prioridade 5), à
+procura de problemas ainda não cobertos pela varredura já feita horas
+antes (nonce AES-CTR, `broadcast()`, fragmentos BLE, `medication-reminders.js`,
+`LabelEncoder`):
+
+1. **CI real e verificavelmente quebrada em todo push a `main`, corrigida.**
+   `.github/workflows/c-cpp.yml` ("C/C++ CI") era o modelo genérico
+   sugerido pelo GitHub para projetos C/C++ com Autotools
+   (`./configure && make && make check && make distcheck`) — este projeto
+   usa PlatformIO/Arduino, não tem `configure` nem `Makefile` nenhum.
+   Confirmado via a API do GitHub Actions (`actions_list`,
+   `list_workflow_runs`), não assumido: **100% das execuções deste
+   workflow falharam** (5 falhas consecutivas revistas, 2026-07-04 a
+   2026-07-07), dando um sinal falso de "CI quebrado" a cada commit sem
+   testar nada de real. Substituído por uma CI que efetivamente compila o
+   firmware com PlatformIO (`pip install platformio` + `pio run -e
+   <ambiente>`), correndo os dois ambientes reais definidos em
+   `platformio.ini` (`seeed-xiao-afruitnrf52-nrf52840-sense-plus` e
+   `test_lora_isolated`) em matriz, com cache de `~/.platformio` entre
+   execuções. **Isto fecha uma lacuna repetida em várias secções deste
+   ficheiro hoje** ("não compilado — sem toolchain ARM nesta rotina
+   cloud": nonce AES-CTR, cifra AES-CTR, pacing/giroscópio, deteção de
+   emergência, etc.) — a partir do próximo push, há verificação real de
+   compilação em CI, mesmo sem acesso a hardware ou toolchain local.
+   **Não confirmado ainda que este workflow passa** (só que o anterior
+   falhava sempre e este compila localmente o mesmo `pio run` que já foi
+   usado com sucesso em hardware real antes — ver secção "Verificado em
+   hardware real" acima); o primeiro push a `main` depois desta alteração
+   é que vai confirmar isso na prática.
+2. **Dois workflows GitHub Pages sem propósito real, removidos.**
+   `.github/workflows/jekyll-gh-pages.yml` e `static.yml` eram também
+   modelos genéricos do GitHub (nunca personalizados, nunca mencionados
+   em nenhuma sessão anterior deste ficheiro), a disparar no push para um
+   branch `"Main"` (maiúscula) — **confirmado via `git ls-remote` que
+   existe mesmo um branch remoto extra `Main` (distinto de `main`)**,
+   parado no commit `d996ac9`, quase certamente criado sem intenção pelo
+   fluxo "Set up this workflow" da UI do GitHub. Este repositório não tem
+   nenhum conteúdo de site (sem `_config.yml`, `Gemfile`, `index.md`) —
+   publicar o repositório inteiro (firmware C++, chaves de configuração,
+   `ml/`, etc.) como página do GitHub Pages não serve nenhum propósito
+   deste projeto. Removidos os dois ficheiros. **Não removido** (fora do
+   âmbito de uma limpeza de ficheiros, é uma operação destrutiva de git
+   sobre uma ref partilhada): o branch remoto `Main` em si — fica
+   registado aqui para o utilizador decidir apagá-lo
+   (`git push origin --delete Main`) se confirmar que não tem uso.
+
+Revisão dirigida a esta própria alteração (chavetas/aspas YAML validadas
+com `yaml.safe_load` em Python, nomes dos ambientes conferidos byte a byte
+contra `platformio.ini`) feita antes de commitar, como já é norma neste
+projeto.
