@@ -140,29 +140,68 @@ bool aes_load(uint8_t *buf, size_t bufLen, size_t &outLen) {
 
 // ---------------- Persistent counter ----------------
 
+// BUG CORRIGIDO (2026-07-07, rotina cloud, revisao dirigida a cifra
+// AES-CTR): o formato anterior gravava so os 8 bytes crus do contador.
+// counter_save() faz remove()+open()+write() (nao e uma transacao atomica
+// do filesystem) e counter_load() tratava QUALQUER falha de leitura
+// (ficheiro em falta OU tamanho errado, ex.: escrita cortada por perda de
+// energia a meio de counter_save(), ~1x a cada ~21min de streaming
+// continuo) da MESMA forma que "nunca guardado" - reserveNonceBatch()
+// (Ble.cpp) interpretava isso como "comeca do zero", reutilizando nonces
+// ja usados com a mesma chave AES (nunca rotacionada sem apagar a flash
+// inteira) e quebrando a confidencialidade do CTR silenciosamente. Um
+// magic number + checksum simples permite distinguir "ficheiro nunca
+// criado" (primeiro arranque genuino, seguro comecar do zero) de
+// "ficheiro existe mas esta corrompido" (NAO seguro assumir zero) via o
+// parametro de saida opcional 'corrupted'.
+namespace {
+constexpr uint32_t kCounterMagic = 0x434E5452UL; // "CNTR", so para detetar corrupcao/versao antiga
+struct CounterRecord {
+  uint32_t magic;
+  uint64_t counter;
+  uint32_t checksum;
+};
+
+uint32_t counterChecksum(uint32_t magic, uint64_t counter) {
+  uint32_t lo = static_cast<uint32_t>(counter & 0xFFFFFFFFUL);
+  uint32_t hi = static_cast<uint32_t>(counter >> 32);
+  return magic ^ lo ^ hi ^ 0xA5A5A5A5UL;
+}
+} // namespace
+
 bool counter_save(uint64_t counter) {
+  CounterRecord rec{kCounterMagic, counter, counterChecksum(kCounterMagic, counter)};
   InternalFS.remove(PATH_COUNT);
   File f(InternalFS);
   if (!f.open(PATH_COUNT, FILE_O_WRITE)) {
     Serial.println("[Storage] failed to open counter for write");
     return false;
   }
-  size_t n = f.write(reinterpret_cast<const uint8_t *>(&counter), sizeof(counter));
+  size_t n = f.write(reinterpret_cast<const uint8_t *>(&rec), sizeof(rec));
   f.close();
-  return n == sizeof(counter);
+  return n == sizeof(rec);
 }
 
-bool counter_load(uint64_t &counter) {
+bool counter_load(uint64_t &counter, bool *corrupted) {
   counter = 0;
+  if (corrupted) *corrupted = false;
   File f(InternalFS);
-  if (!f.open(PATH_COUNT, FILE_O_READ)) return false;
-  if (f.size() != sizeof(uint64_t)) {
-    f.close();
+  if (!f.open(PATH_COUNT, FILE_O_READ)) return false; // nunca criado - primeiro arranque genuino
+  CounterRecord rec{};
+  bool sizeOk = (f.size() == sizeof(rec));
+  size_t n = sizeOk ? f.read(reinterpret_cast<uint8_t *>(&rec), sizeof(rec)) : 0;
+  f.close();
+  if (!sizeOk || n != sizeof(rec) || rec.magic != kCounterMagic ||
+      rec.checksum != counterChecksum(rec.magic, rec.counter)) {
+    // Existe um ficheiro, mas nao bate certo (corrompido, escrita cortada,
+    // ou formato antigo pre-2026-07-07) - distinto de "nunca guardado".
+    // Quem chama NAO deve assumir counter=0 neste caso (ver
+    // reserveNonceBatch() em Ble.cpp).
+    if (corrupted) *corrupted = true;
     return false;
   }
-  size_t n = f.read(reinterpret_cast<uint8_t *>(&counter), sizeof(counter));
-  f.close();
-  return n == sizeof(counter);
+  counter = rec.counter;
+  return true;
 }
 
 bool counter_inc(uint64_t &counter) {

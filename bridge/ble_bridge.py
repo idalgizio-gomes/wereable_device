@@ -330,6 +330,15 @@ class BleBridge:
     # e' so' para o ficheiro .db nao crescer sem limite num bridge deixado
     # a correr por muito tempo.
     RETENTION_CHECK_INTERVAL_S = 6 * 3600
+    # BUG CORRIGIDO (2026-07-07, rotina cloud): um registo cujos fragmentos
+    # BLE se percam (notify() nao e' um transporte com confirmacao) ficava
+    # para sempre em _pending_fragments — nunca recebia todos os
+    # fragmentos, por isso nunca era removido em _on_dump_data. A ~14-52
+    # registos/seg, mesmo uma perda de pacotes pequena acumula milhares de
+    # entradas orfas numa sessao de varias horas (fuga de memoria real num
+    # processo pensado para correr continuamente). Qualquer entrada mais
+    # velha do que isto e' considerada perdida e descartada.
+    PENDING_FRAGMENT_TIMEOUT_S = 5.0
 
     async def periodic_retention_task(self) -> None:
         """Aplica a politica de retencao (ver storage.py,
@@ -357,13 +366,40 @@ class BleBridge:
             return
         message = json.dumps(payload)
         # Envia a todos os clientes ligados; remove os que já desligaram.
+        # BUG CORRIGIDO (2026-07-07, rotina cloud): iterar diretamente sobre
+        # self.ws_clients (um set partilhado) enquanto este método está
+        # suspenso num `await ws.send(...)` corria a par de ws_handler a
+        # fazer add()/discard() no mesmo set (ligação/desligação de outro
+        # separador do dashboard a meio de um broadcast) — "RuntimeError:
+        # Set changed size during iteration", reproduzido diretamente.
+        # Iterar sobre uma cópia (`list(...)`) torna o broadcast imune a
+        # mutações concorrentes do set original.
         dead = set()
-        for ws in self.ws_clients:
+        for ws in list(self.ws_clients):
             try:
                 await ws.send(message)
             except websockets.exceptions.ConnectionClosed:
                 dead.add(ws)
         self.ws_clients -= dead
+
+    def _prune_stale_fragments(self) -> None:
+        """BUG CORRIGIDO (2026-07-07, rotina cloud): entradas de
+        _pending_fragments para registos com um ou mais fragmentos BLE
+        perdidos (notify() não tem confirmação/retransmissão) nunca eram
+        removidas — só o eram quando TODOS os fragmentos chegavam. A
+        ~14-52 registos/seg, mesmo uma perda de pacotes pequena acumulava
+        milhares de entradas órfãs numa sessão de várias horas (fuga de
+        memória real). Além disso, uma entrada antiga ainda pendente podia
+        um dia ser reaproveitada por um rec_seq reciclado (o mesmo
+        problema de ordem de grandeza do desgaste do nonce de 32 bits, já
+        documentado), misturando fragmentos de dois registos distintos.
+        Chamado a cada fragmento incompleto recebido; custo desprezável
+        (o dicionário fica sempre pequeno na prática)."""
+        now = time.monotonic()
+        stale = [seq for seq, e in self._pending_fragments.items()
+                 if now - e["created_at"] > self.PENDING_FRAGMENT_TIMEOUT_S]
+        for seq in stale:
+            del self._pending_fragments[seq]
 
     def _on_dump_data(self, _char: BleakGATTCharacteristic, data: bytearray) -> None:
         """Callback de notificação da characteristic dumpDataChar.
@@ -383,11 +419,12 @@ class BleBridge:
         chunk = bytes(data[12:12 + chunk_len])
 
         entry = self._pending_fragments.setdefault(
-            rec_seq, {"total": frag_total, "nonce": nonce, "parts": {}}
+            rec_seq, {"total": frag_total, "nonce": nonce, "parts": {}, "created_at": time.monotonic()}
         )
         entry["parts"][frag_idx] = chunk
 
         if len(entry["parts"]) < entry["total"]:
+            self._prune_stale_fragments()
             return  # ainda faltam fragmentos deste registo
 
         # Todos os fragmentos chegaram — remonta pela ordem correta.
