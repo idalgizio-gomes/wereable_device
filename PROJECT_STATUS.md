@@ -692,6 +692,11 @@ para ligar as queries analíticas ao dashboard em tempo real — este último
 âmbito de uma única execução desta rotina; fica registado como o próximo
 item concreto da Prioridade 4.
 
+**CI confirmada a passar** (commit `2d2677d`, verificado via API do GitHub
+Actions após o push): esta alteração é só Python (bridge/), não toca no
+firmware, mas a CI do PlatformIO corre sempre no push a `main` — `completed`/
+`success`, sem regressão no build do firmware.
+
 ## Dashboard web (protótipo)
 
 Ficheiro: `web/dashboard/index.html` (versionado no repo).
