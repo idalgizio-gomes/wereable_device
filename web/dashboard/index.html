@@ -1702,6 +1702,15 @@ function markDoseTaken(patientId, medId, time){
   medicationLog[patientId][todayKey()] = medicationLog[patientId][todayKey()] || {};
   medicationLog[patientId][todayKey()][`${medId}_${time}`] = true;
   saveMedicationLog(medicationLog);
+  // Regista o dia em AdherenceAnalytics (medication-reminders.js) com a
+  // adesão de hoje recalculada — a classe já existia mas `recordDay()`
+  // nunca era chamada de lado nenhum, por isso o seu histórico ficava
+  // sempre vazio (ver PROJECT_STATUS.md). Só regista percentagens reais
+  // (cliques reais do utilizador), nunca um valor simulado.
+  if (window.adherenceAnalytics) {
+    const patient = PATIENTS.find(p => p.id === patientId);
+    if (patient) window.adherenceAnalytics.recordDay(patientId, todayAdherencePct(patient));
+  }
   if (currentView) renderView(currentView);
 }
 
@@ -3014,6 +3023,25 @@ TEMPLATES.medicacao = () => {
     ? `<p class="empty-hint"><span class="sim-flag">simulado</span> Nos dias com adesão incompleta (${missedDays.map(d => d.day).join(', ')}), vale a pena comparar com a FC/sono desses dias na vista "Tendência semanal" — é uma correspondência simples de datas para dar contexto ao cuidador, não uma análise estatística automática; essa só faria sentido a sério com histórico real acumulado (ver PROJECT_STATUS.md, "Base de dados").</p>`
     : `<p class="empty-hint">Sem dias com adesão incompleta no histórico recente (dados de exemplo).</p>`;
 
+  // Cartão "Análise de adesão" (window.adherenceAnalytics,
+  // medication-reminders.js) — distinto do cartão "Adesão — últimos 6
+  // dias" acima: aquele usa `p.adherenceHistory`, dados de EXEMPLO fixos
+  // no código; este usa cliques reais de "Marcar como tomado" neste
+  // browser (localStorage, só a partir de hoje) — nunca misturados na
+  // mesma série, mesma regra já seguida no resto do dashboard.
+  const analyticsSummary = window.adherenceAnalytics ? window.adherenceAnalytics.getWeekSummary(p.id) : null;
+  const analyticsRecs = window.adherenceAnalytics ? window.adherenceAnalytics.getRecommendations(p.id, p) : [];
+  const analyticsCard = analyticsSummary ? `
+  <div class="card">
+    <div class="card-head"><div><h3>Análise de adesão <span class="sim-flag">dados reais deste browser</span></h3><div class="card-sub">Baseada em cliques reais em "Marcar como tomado", não em dados de exemplo</div></div></div>
+    ${analyticsSummary.entries && analyticsSummary.entries.length ? `
+      <p class="empty-hint">Média dos últimos ${analyticsSummary.entries.length} dia(s) registados: <b>${analyticsSummary.avg_adherence}%</b> — ${escapeHtml(analyticsSummary.alert)}</p>
+      <p class="empty-hint">${escapeHtml(analyticsSummary.patterns)}</p>
+      ${analyticsRecs.length ? `<ul class="empty-hint" style="margin:4px 0 0 18px; padding:0;">${analyticsRecs.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul>` : ''}
+    ` : `<p class="empty-hint">${escapeHtml(analyticsSummary.alert || 'Sem histórico ainda')} — regista-se um dia de cada vez, só a partir de hoje, quando marcares alguma dose como tomada. Não é um histórico retroativo.</p>`}
+    <p class="empty-hint">Protótipo: guardado só neste browser (localStorage), independente do cartão "Adesão — últimos 6 dias" abaixo (esse continua com dados de exemplo). Some se limpares os dados do browser ou mudares de dispositivo — não substitui o serviço de persistência real (ver PROJECT_STATUS.md, "Base de dados").</p>
+  </div>` : '';
+
   return `
   <div class="card">
     <div class="card-head"><div><h3>Medicação — ${p.name} <span class="sim-flag">protótipo</span></h3><div class="card-sub">Lembretes de hoje e registo de adesão</div></div></div>
@@ -3026,6 +3054,8 @@ TEMPLATES.medicacao = () => {
     ${todayPct !== null ? `<p class="empty-hint">Adesão de hoje: <b>${todayPct}%</b> das doses agendadas já confirmadas.</p>` : ''}
     <p class="empty-hint">Protótipo: "Marcar como tomado" fica guardado só neste browser (localStorage), namespaced por paciente e dia — não substitui um registo clínico de adesão real nem envia lembretes (push/SMS) ao dispositivo do cuidador.</p>
   </div>
+
+  ${analyticsCard}
 
   ${!isUtente ? `
   <div class="card">
