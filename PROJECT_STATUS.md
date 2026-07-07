@@ -2050,3 +2050,244 @@ quando a vista ativa muda, dados sintéticos já calculados uma vez ao
 nível do módulo (não a cada render), listeners de eventos já anexados
 uma única vez, sem `setInterval` demasiado agressivo. Nenhuma alteração
 artificial foi feita nestas áreas só para ter algo a registar.
+
+## Verificação de bugs (rotina automática) — 2026-07-07, 3ª passagem do dia
+
+Com as Prioridades 1-4 já confirmadas esgotadas por duas execuções
+anteriores no mesmo dia (ver as duas secções imediatamente acima), esta
+execução repetiu a Prioridade 1 (pesquisa aplicada: wearables de demência,
+quedas, anomalias comportamentais, ML embarcado — `emlearn` suporte a
+`loadable`+`float`, fórmula do "ground-face coordinate system", pacing/
+giroscópio para wandering) sem encontrar nada de novo diretamente
+acionável: os artigos com detalhe técnico concreto continuam bloqueados
+(403) em todas as fontes tentadas (PMC, MDPI, dergipark, arXiv — mesmo
+resultado já registado nas passagens anteriores), e as revisões
+narrativas abertas só confirmam achados genéricos já documentados neste
+ficheiro. Backlog do dashboard, bridge↔emergência/footprint TinyML e BD
+SQLite confirmados sem itens novos — avançado para a Prioridade 5.
+
+**Prioridade 5 (varredura completa de bugs)**: 4 revisões dirigidas em
+paralelo (firmware C++, bridge Python, dashboard JS/HTML, pipeline `ml/`),
+cada uma instruída a ler primeiro este ficheiro/`ml/README.md` para não
+repetir os achados já corrigidos nas duas passagens anteriores desta
+mesma data (nonce AES-CTR, `broadcast()`, fuga de fragmentos,
+`medication-reminders.js`, `LabelEncoder`, CI). Encontraram problemas
+**novos e distintos** dos já corrigidos — todos corrigidos nesta execução,
+com revisão própria antes de commitar (repro isolado de cada bug em
+Python onde possível, `node --check` sobre o `<script>` extraído do
+dashboard, Playwright real para os fluxos de consentimento/exportação,
+verificação de chavetas para o firmware — sem toolchain ARM nesta rotina
+cloud, mesma limitação já registada):
+
+1. **`bridge/storage_advanced.py` não conseguia sequer ser importado —
+   corrigido.** Dois bugs que, juntos, tornavam este ficheiro (a "Base de
+   Dados SQL Completa" descrita na secção acima, com 14 modelos
+   SQLAlchemy) completamente inutilizável: (a) `from sqlalchemy import
+   (..., JSONB, ...)` — `JSONB` só existe em
+   `sqlalchemy.dialects.postgresql`, nunca no pacote `sqlalchemy` de topo;
+   qualquer `import storage_advanced` rebentava com `ImportError` antes de
+   correr uma única linha. Corrigido trocando por `sqlalchemy.JSON` (tipo
+   genérico, portátil entre SQLite dev / PostgreSQL produção, como o
+   próprio docstring do ficheiro já prometia). (b)
+   `User.patients = relationship("Patient", secondary="patient_caregivers")`
+   referenciava uma tabela de associação que nunca chegou a ser definida
+   em lado nenhum (nem em `storage_advanced.py` nem em `schema.sql`) —
+   configurar QUALQUER modelo deste ficheiro (não só `User`, porque o
+   SQLAlchemy configura o registo de mappers em conjunto) rebentava com
+   `InvalidRequestError`. Corrigido: nova `Table` `patient_caregivers`
+   (patient_id, user_id, permissões `can_view_alerts`/`can_edit_notes`/
+   `can_edit_medications`, ver item 10 do backlog do dashboard —
+   "múltiplos cuidadores com permissões por papel", implementado só no
+   dashboard/localStorage até agora, nunca no schema SQL de referência) e
+   a tabela espelho equivalente em `schema.sql`. **Verificado de facto**:
+   `python3 -c "import storage_advanced; from sqlalchemy.orm import
+   configure_mappers; configure_mappers()"` — antes rebentava em duas
+   fases distintas, agora corre sem erro.
+2. **`Analytics.heart_rate_trends()` calculava o corte de "últimos N dias"
+   com o fuso errado em qualquer servidor não-UTC — corrigido**
+   (`bridge/storage_advanced.py`). `datetime.utcnow() - timedelta(...)`
+   devolve um datetime "naive" que representa UTC, mas chamar
+   `.timestamp()` nele interpreta-o como hora LOCAL do servidor — o corte
+   ficava desviado pelo offset do fuso (confirmado reproduzindo com
+   `TZ=America/Sao_Paulo`: diferença de exatamente 10800s/3h). Corrigido
+   para `datetime.now(timezone.utc)` (datetime "aware", converte para
+   epoch corretamente em qualquer fuso).
+3. **Bridge: fragmento BLE com `frag_idx` corrompido podia rebentar o
+   callback de notificação com `KeyError` não tratado — corrigido**
+   (`bridge/ble_bridge.py`, `_on_dump_data`). Um único byte corrompido no
+   ar (bit-flip, a mesma classe de problema já documentada para o nonce
+   AES-CTR) podia produzir um `frag_idx` fora de `[0, frag_total)`; sem
+   validação, `len(parts) == total` podia ser atingido com um índice em
+   falta (ex.: índices 0,1,5 para total=3), e o `join()` de remontagem
+   rebentava com `KeyError` dentro do callback do `bleak`. Corrigido com
+   (a) validação de `frag_idx` antes de o guardar (rejeita e regista o
+   fragmento inválido, sem alterar `_pending_fragments`) e (b) um
+   `try/except KeyError` de defesa em profundidade à volta do `join()`
+   propriamente dito. **Reproduzido diretamente**: um repro isolado com a
+   sequência de índices corrompida 0,1,5 confirma que antes rebentava e
+   agora é rejeitado na validação, antes sequer de chegar ao `join()`.
+4. **`emergency_alerts` sem proteção contra duplicação por reentrega de
+   notificação BLE — corrigido** (`bridge/storage.py`). Esta tabela é
+   histórico permanente (nunca purgado pela política de retenção, por
+   desenho) — se `emergencyAlertChar` alguma vez reentregasse a mesma
+   notificação (ex.: replay pós-reconexão), o mesmo SOS/queda real seria
+   contado duas vezes para sempre. Corrigido: índice único em
+   `(alert_type, seq)` (criado com `try/except` para não impedir o
+   arranque do bridge se uma instalação já existente tiver duplicados
+   antigos) + `INSERT OR IGNORE` em `insert_emergency_alert()`.
+   **Verificado**: inserir o mesmo alerta duas vezes numa BD SQLite
+   temporária resulta em 1 linha, não 2.
+5. **Firmware: comando de teste "SOS" por série era impossível de
+   disparar — corrigido** (`src/main.cpp`). `serialCommandReceived(cmd)`
+   usava um buffer `static` partilhado por TODAS as chamadas à função,
+   independentemente do `cmd` pedido; `loop()` chama esta comparação duas
+   vezes por iteração (primeiro "SLEEP", depois "SOS"). Escrever "SOS" no
+   monitor série era sempre lido, comparado com "SLEEP", descartado por
+   não corresponder, e a chamada seguinte para "SOS" já não tinha nada
+   para ler — o único caminho documentado para testar
+   `Emergency::triggerTestAlert()` sem o botão físico (partido/por
+   confirmar) nunca funcionava, 100% das vezes. Corrigido com
+   `pollSerialLine()`: a linha é lida uma única vez por iteração e
+   comparada com ambos os candidatos sobre a MESMA linha (ver comentário
+   no código). `serialCommandReceived("WAKE")`, usado em contextos
+   isolados (`waitForLongPress()`, arranque), continua a funcionar sem
+   alteração de comportamento.
+6. **Firmware: gesto físico de 3 cliques (SOS manual) provavelmente não
+   funcional tal como estava — mitigado** (`src/main.cpp`).
+   `Emergency::update()` (que lê o botão para o gesto de cliques) só era
+   chamado uma vez por iteração de `loop()`, e essa iteração é dominada
+   por `delay(50)+delay(950)` — uma amostragem de ~1Hz, muito abaixo do
+   necessário para contar 3 cliques dentro de `sosClickWindowMs` (1200ms
+   por omissão, `Emergency.h`): a maioria das bordas de descida do botão
+   ficava sem ser vista entre uma chamada e a seguinte. Corrigido com
+   `delayPollingEmergency()`, que substitui os dois `delay()` bloqueantes
+   por uma espera com a mesma duração total mas que chama
+   `Emergency::update()` a cada ~5ms — amostragem ~200x mais frequente,
+   confortavelmente acima do necessário para o gesto configurado. **Não
+   testado em hardware real** (mesmo bloqueio de sempre — USB
+   intermitente, ver "Riscos/bloqueios ativos") — só revisto por leitura
+   cuidadosa do fluxo de chamadas; a lógica de `waitForLongPress()` em si
+   (usada só para o long-press físico de ligar/desligar) não foi alterada,
+   por ser um gesto distinto (segurar, não tocar) sem o mesmo problema de
+   amostragem.
+7. **Firmware: confirmação de SOS pendente não era segura a overflow de
+   `millis()` — corrigido** (`src/Emergency/Emergency.cpp`). A comparação
+   `nowMs >= s_sosConfirmDeadlineMs` (aritmética direta, não por subtração)
+   falharia se `millis()` desse a volta (~49.7 dias de uptime contínuo)
+   exatamente durante uma janela de confirmação pendente, atrasando o
+   alerta até ao próximo overflow em vez dos poucos segundos configurados.
+   Corrigido para o mesmo padrão seguro a overflow já usado noutras partes
+   do firmware (`Ppg.cpp`/`Ble.cpp`): `static_cast<int32_t>(nowMs -
+   s_sosConfirmDeadlineMs) >= 0`.
+8. **`ml/train_lstm_autoencoder.py`: treino não era de facto determinístico
+   apesar do README prometer "seed fixa = 42, todos os scripts
+   determinísticos" — corrigido.** Só a geração dos dados sintéticos
+   (`rng = np.random.default_rng(SEED)`) estava semeada; a inicialização
+   dos pesos LSTM/Dense e o `shuffle=True` do `model.fit()` dependiam do
+   RNG global do TensorFlow/Keras, nunca semeado — duas execuções com os
+   mesmos dados produziam pesos finais e métricas (`detection_threshold_mse`,
+   `recall_at_threshold`, `auc_roc`) ligeiramente diferentes de cada vez.
+   Corrigido com `keras.utils.set_random_seed(SEED)` antes da construção
+   do modelo (cobre Python/NumPy/TensorFlow numa só chamada). **Não
+   executado nesta rotina** (tensorflow não está instalado neste
+   ambiente) — mudança revista por leitura direta, mas ainda por
+   confirmar reexecutando o script e comparando métricas entre duas
+   corridas.
+9. **`ml/train_activity_classifier.py`/`_rf.py`: `classification_report()`
+   podia rebentar mesmo depois do `LabelEncoder` já corrigido (sessão
+   anterior) — corrigido.** `classification_report(y_test, y_pred,
+   target_names=encoder.classes_, ...)` sem `labels=` explícito deriva os
+   labels de `unique(y_test, y_pred)` — se uma classe ficasse com zero
+   exemplos em AMBOS `y_test` e `y_pred` (um cenário distinto do já
+   corrigido "classe ausente só do treino"), o nº de labels derivados
+   fica menor que `len(target_names)` e a chamada rebenta com
+   `ValueError`. **Reproduzido diretamente** (4 labels presentes vs. 5
+   `target_names` → `ValueError: Number of classes, 4, does not match
+   size of target_names, 5`). Corrigido adicionando
+   `labels=range(len(encoder.classes_))` em ambos os scripts (o mesmo
+   padrão que `confusion_matrix()`, na linha seguinte, já usava
+   corretamente).
+10. **`ml/features.py`: off-by-one na taxa de cruzamentos por zero
+    (`_zero_crossing_rate`) — corrigido.** `np.diff(signs)` tem
+    `len(signal)-1` elementos (nº de transições possíveis), mas a função
+    dividia por `len(signal)` — uma subestimação sistemática de ~0.2% ao
+    tamanho de janela atual (520 amostras), pequena mas uma fórmula
+    estatística incorreta, não uma escolha de estilo. Corrigido para
+    dividir por `len(signal)-1` (definição-padrão de zero-crossing rate).
+    **Verificado**: um sinal alternado perfeito (`[1,-1,1,-1,...]`, todas
+    as transições são cruzamentos) devolve agora `1.0` (100%), como
+    esperado; antes devolvia um valor sistematicamente abaixo de 1.0.
+11. **Dashboard: exportação clínica (FHIR/PDF) e a pill de "Alertas
+    ativos" na vista Pacientes ignoravam por completo o interruptor de
+    consentimento "Alertas e registo de anomalias" — corrigido**
+    (`web/dashboard/index.html`). As vistas "Pacientes"/"Anomalias
+    detetadas" já escondiam corretamente esta informação quando o
+    utente/família desligava a partilha (cartão "Consentimento e partilha
+    de dados", Definições), mas `buildFhirBundle()`, `exportClinicalPdf()`
+    e a contagem de alertas ativos na tabela de pacientes continuavam a
+    incluir/mostrar os dados reais de qualquer forma — o Médico/Técnico
+    conseguia contornar o bloqueio só usando um caminho diferente da
+    interface. Corrigido: as três leituras agora consultam
+    `loadConsent(patientId).shareAlerts` antes de incluir alertas/
+    anomalias, substituindo por uma nota explícita quando desligado.
+    **Verificado com Playwright real**: `buildFhirBundle()` com
+    consentimento desligado devolve só uma Observation "consent-withheld"
+    (sem dados reais); ligado, devolve as Observations normais; a pill da
+    tabela de Pacientes mostra "Sem consentimento" para esse paciente
+    específico sem afetar os outros.
+12. **Dashboard: consentimento e equipa de cuidadores eram globais em vez
+    de por paciente — corrigido** (`web/dashboard/index.html`,
+    `CONSENT_KEY`/`CAREGIVER_TEAM_KEY`). Ao contrário de todos os outros
+    dados adicionados desde a correção multi-paciente de 2026-07-03
+    (alertas, notas, medicação, silenciamentos...), estas duas chaves de
+    `localStorage` guardavam um único objeto/lista global — na vista
+    Médico/Técnico com 3 pacientes fictícios, desligar o consentimento ou
+    editar a equipa de cuidadores de um paciente afetava identicamente os
+    outros dois. Corrigido seguindo a mesma convenção já usada para
+    `medicationLog` (um único item de `localStorage`, indexado por
+    `patientId` por dentro); `loadConsent`/`setConsent`/
+    `loadCaregiverTeam`/`saveCaregiverTeam` ganharam um parâmetro
+    `patientId` opcional (omissão: `selectedPatient().id`) — nenhuma
+    chamada existente no resto do ficheiro precisou de mudar. **Verificado
+    com Playwright real**: consentimento/equipa desligados e editados para
+    um paciente não afetam o segundo paciente (valores lidos de volta
+    corretos e distintos para cada um).
+13. **Dashboard: nome de cuidador não escapado antes de `innerHTML` —
+    XSS corrigido** (`web/dashboard/index.html`, cartão "Equipa de
+    cuidadores"). `<td>${m.name}</td>` inseria o texto livre do campo
+    "Nome do novo cuidador/familiar" sem qualquer escaping, ao contrário
+    do padrão já usado para as Notas do cuidador
+    (`n.text.replace(/</g,'&lt;')`) — um nome contendo `<img src=x
+    onerror=...>` corromperia a tabela ou executaria script a cada
+    renderização da vista Definições. Corrigido com o mesmo padrão de
+    escaping (`&` antes de `<`, ordem correta para não escapar
+    duplamente). **Verificado com Playwright real**: um nome de teste
+    `<b>X</b> & Co` aparece escapado (`&lt;b&gt;X&lt;/b&gt; &amp; Co`) no
+    DOM em vez de ser interpretado como HTML.
+14. **Dashboard: ramo morto no índice de pacing — corrigido**
+    (`web/dashboard/index.html`, `renderPacingSummary`). `const level =
+    today >= 60 ? 'warning' : today >= 40 ? 'good' : 'good'` — as duas
+    saídas do ternário aninhado eram idênticas (`'good'`), tornando a
+    condição `today >= 40` sem efeito nenhum; o próprio `levelLabel`,
+    logo a seguir, já só distinguia 2 estados. Simplificado para `today
+    >= 60 ? 'warning' : 'good'`, sem mudança de comportamento observável
+    (o resultado já era sempre este).
+
+**Nota de sincronização**: a revisão do bridge desta execução tinha
+assinalado, de forma independente, o mesmo risco de `conn.commit()`
+síncrono bloqueando o event loop do `asyncio` a cada registo de sensores
+(~14-52/seg) já identificado e corrigido pela rotina de otimização diária
+em paralelo (ver secção "Otimização diária de RAM/CPU/desempenho —
+2026-07-07" imediatamente acima, `journal_mode=WAL` + `synchronous=NORMAL`
+em `bridge/storage.py::get_connection()`) — confirmado via `git rebase`
+antes deste push, sem conflito real de código (ficheiros diferentes desta
+mesma correção coexistem sem sobreposição: `get_connection()` ganhou os
+PRAGMAs de desempenho, `init_db()`/`insert_emergency_alert()` ganharam a
+proteção contra duplicados desta execução). Não repetido aqui por já
+estar corrigido.
+
+Revisão dirigida a cada uma das 14 correções acima feita antes de
+commitar (repro isolado em Python para os bugs do bridge/ml, Playwright
+real para os 4 do dashboard, `node --check` sobre o `<script>` extraído,
+contagem de chavetas para o firmware sem toolchain ARM disponível nesta
+rotina cloud).

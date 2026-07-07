@@ -84,7 +84,13 @@ void updateSosGesture() {
     }
   }
 
-  if (s_sosPending && nowMs >= s_sosConfirmDeadlineMs) {
+  // Comparação segura a overflow de millis() (idêntica ao padrão já usado
+  // em Ppg.cpp/Ble.cpp): "nowMs >= s_sosConfirmDeadlineMs" direto falharia
+  // silenciosamente se millis() desse a volta (~49.7 dias) enquanto uma
+  // confirmação de SOS estivesse pendente, atrasando-a até ao próximo
+  // overflow em vez dos poucos segundos configurados.
+  if (s_sosPending &&
+      static_cast<int32_t>(nowMs - s_sosConfirmDeadlineMs) >= 0) {
     s_sosPending = false;
     raiseAlert(Ble::kEmergencyAlertSosManual, "SOS manual confirmado");
   }

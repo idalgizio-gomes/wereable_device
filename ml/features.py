@@ -22,7 +22,11 @@ def _zero_crossing_rate(signal):
     signs = np.sign(centered)
     signs[signs == 0] = 1
     crossings = np.count_nonzero(np.diff(signs) != 0)
-    return crossings / len(signal)
+    # np.diff(signs) tem len(signal)-1 elementos (nº de pares consecutivos,
+    # ou seja, de transições possíveis) — dividir por len(signal) em vez de
+    # len(signal)-1 subestimava sistematicamente a taxa (off-by-one na
+    # definição-padrão de zero-crossing rate).
+    return crossings / (len(signal) - 1)
 
 
 def extract_features(window):

@@ -164,6 +164,16 @@ def main():
     # --- treino (só com sequências normais) ---
     from tensorflow import keras
 
+    # Bug corrigido: só `rng` (geração dos dados sintéticos) estava semeado
+    # com SEED. A inicialização dos pesos do LSTM/Dense e o "shuffle=True"
+    # do model.fit() abaixo dependem do RNG global do TensorFlow/Keras, que
+    # não era semeado — duas execuções com os mesmos dados produziam pesos
+    # finais, `detection_threshold_mse` e métricas ligeiramente diferentes
+    # de cada vez, ao contrário do que o README ("seed fixa = 42, todos os
+    # scripts determinísticos") garante. set_random_seed() cobre Python,
+    # NumPy e TensorFlow com uma única chamada.
+    keras.utils.set_random_seed(SEED)
+
     model = build_autoencoder(SEQ_LEN, n_features)
     early_stop = keras.callbacks.EarlyStopping(monitor="val_loss", patience=4, restore_best_weights=True)
     history = model.fit(

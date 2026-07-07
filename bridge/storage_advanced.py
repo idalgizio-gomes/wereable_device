@@ -18,8 +18,8 @@ from typing import Optional
 
 from sqlalchemy import (
     create_engine, Column, Integer, String, Float, Boolean, DateTime,
-    ForeignKey, Index, Text, JSONB, CheckConstraint, UniqueConstraint,
-    desc, and_, or_, func, event
+    ForeignKey, Index, Text, JSON, CheckConstraint, UniqueConstraint,
+    Table, desc, and_, or_, func, event
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship, Session
@@ -60,6 +60,26 @@ Base = declarative_base()
 # ============================================================
 # MODELOS ORM
 # ============================================================
+
+# Tabela de associação muitos-para-muitos entre utilizadores (cuidadores) e
+# pacientes — suporta "múltiplos cuidadores com permissões por papel"
+# (item 10 do backlog do dashboard). Faltava por completo (só era
+# referenciada por nome em User.patients via secondary=, sem nenhuma
+# Table/model a definir) — sem isto, configurar qualquer mapper deste
+# ficheiro (User, Patient, ou qualquer outro modelo, porque o SQLAlchemy
+# configura o registo de mappers em conjunto) falha com
+# InvalidRequestError ("patient_caregivers... failed to locate a name").
+patient_caregivers = Table(
+    "patient_caregivers",
+    Base.metadata,
+    Column("patient_id", Integer, ForeignKey("patients.id"), primary_key=True),
+    Column("user_id", Integer, ForeignKey("users.id"), primary_key=True),
+    Column("can_view_alerts", Boolean, default=True),
+    Column("can_edit_notes", Boolean, default=True),
+    Column("can_edit_medications", Boolean, default=False),
+    Column("created_at", DateTime, default=datetime.utcnow),
+)
+
 
 class User(Base):
     """Utilizador (família, clínico, admin)."""
@@ -246,7 +266,7 @@ class Alert(Base):
     )
     title = Column(String(255), nullable=False)
     description = Column(Text)
-    raw_data = Column(JSONB)
+    raw_data = Column(JSON)
     read_by_user_id = Column(Integer, ForeignKey("users.id"))
     read_at = Column(DateTime)
     silenced = Column(Boolean, default=False)
@@ -370,7 +390,7 @@ class AuditLog(Base):
     action = Column(String(100), nullable=False)
     resource_type = Column(String(50))
     resource_id = Column(Integer)
-    details = Column(JSONB)
+    details = Column(JSON)
     ip_address = Column(String(45))
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -426,7 +446,12 @@ class Analytics:
     @staticmethod
     def heart_rate_trends(db: Session, device_id: int, days: int = 7) -> dict:
         """Tendência de FC nos últimos N dias."""
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        # datetime.utcnow() é "naive" (sem fuso) mas representa UTC; chamar
+        # .timestamp() nele fá-lo-ia ser interpretado como hora LOCAL do
+        # servidor, desviando o corte por exatamente o offset do fuso —
+        # usa-se datetime.now(timezone.utc), que é "aware" e converte para
+        # epoch corretamente em qualquer servidor.
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         records = db.query(SensorRecord).filter(
             and_(
                 SensorRecord.device_id == device_id,

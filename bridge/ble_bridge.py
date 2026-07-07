@@ -418,6 +418,18 @@ class BleBridge:
         nonce = struct.unpack_from("<I", data, 8)[0]
         chunk = bytes(data[12:12 + chunk_len])
 
+        # frag_idx tem de ser um índice válido dentro de [0, frag_total) —
+        # um único byte corrompido no ar (bit-flip de BLE, já visto noutras
+        # partes deste projeto, ex.: o nonce AES-CTR) podia produzir um
+        # frag_idx fora deste intervalo; sem esta validação, len(parts)
+        # podia atingir "total" com um índice em falta (ex.: 0,1,5 para
+        # total=3), e o join() abaixo rebentava com KeyError não tratado
+        # dentro do callback de notificação BLE.
+        if frag_total == 0 or not (0 <= frag_idx < frag_total):
+            print(f"[BRIDGE] fragmento com frag_idx={frag_idx} invalido "
+                  f"(frag_total={frag_total}, rec_seq={rec_seq}) — descartado")
+            return
+
         entry = self._pending_fragments.setdefault(
             rec_seq, {"total": frag_total, "nonce": nonce, "parts": {}, "created_at": time.monotonic()}
         )
@@ -428,7 +440,17 @@ class BleBridge:
             return  # ainda faltam fragmentos deste registo
 
         # Todos os fragmentos chegaram — remonta pela ordem correta.
-        cipher_full = b"".join(entry["parts"][i] for i in range(entry["total"]))
+        try:
+            cipher_full = b"".join(entry["parts"][i] for i in range(entry["total"]))
+        except KeyError:
+            # len(parts) == total mas os índices não cobrem 0..total-1
+            # (ex.: um frag_idx duplicado ocupou o lugar de outro) — descarta
+            # este registo em vez de deixar a exceção subir para o callback
+            # de notificação do bleak (que pararia o processamento).
+            print(f"[BRIDGE] rec_seq={rec_seq}: fragmentos completos em contagem "
+                  f"mas com indices em falta — registo descartado")
+            del self._pending_fragments[rec_seq]
+            return
         record_nonce = entry["nonce"]
         del self._pending_fragments[rec_seq]
 
