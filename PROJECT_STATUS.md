@@ -3128,7 +3128,15 @@ desnecessários para os módulos cobertos por esta suite) e corre
 workflow validado com `yaml.safe_load`. Ver `ml/README.md`, secção "Testes
 automáticos + CI", para o detalhe completo.
 
-**Ainda por fazer** (fora do âmbito desta correção pontual, igual à mesma
-ressalva já registada para `bridge-tests.yml`): confirmar em CI real que o
-novo workflow corre com sucesso (só posso confirmar depois do push, via
-`actions_get`, tal como já feito para `bridge-tests.yml`).
+**Confirmado a passar em CI real (2026-07-07, mesmo push)**: verificado via
+`actions_get`/`get_workflow_run` da API do GitHub — a primeira execução do
+novo workflow "ML pipeline tests" (`run_id=28905082093`, commit `64b1606`)
+terminou `completed`/`success`. Mesma prática já registada para
+`bridge-tests.yml` — não é só um ficheiro YAML válido sem sinal de vida,
+está mesmo a instalar `numpy`/`pandas`/`pytest` e a correr os 15 testes
+reais em cada push a `main`.
+
+**Ainda por fazer** (fora do âmbito desta correção pontual, já registado
+acima em `ml/README.md`): cobertura de CI para `train_activity_classifier*.py`/
+`train_lstm_autoencoder.py`/`measure_rf_footprint.py` (exigiria decidir um
+teste de fumo leve, sem retreinar modelos de verdade — não implementado).
