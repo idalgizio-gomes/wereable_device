@@ -21,8 +21,7 @@ from sqlalchemy import (
     ForeignKey, Index, Text, JSON, CheckConstraint, UniqueConstraint,
     Table, desc, and_, or_, func, event
 )
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship, Session
+from sqlalchemy.orm import sessionmaker, relationship, Session, declarative_base
 from sqlalchemy.pool import StaticPool
 
 # ============================================================
@@ -277,6 +276,7 @@ class Alert(Base):
     resolved_at = Column(DateTime)
     resolution_note = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
+    deleted_at = Column(DateTime)  # soft delete (política de retenção, 7 anos)
 
     __table_args__ = (
         Index("idx_alert_device_created", "device_id", "created_at"),
@@ -499,11 +499,20 @@ class Analytics:
 
     @staticmethod
     def daily_activity_distribution(db: Session, device_id: int, date: datetime) -> dict:
-        """Distribuição de atividades num dia específico."""
+        """Distribuição de atividades num dia específico.
+
+        `activity_date` é uma coluna DateTime (guarda também a hora); comparar
+        diretamente com `date.date()` nunca encontrava nada (comparação
+        datetime-completo vs. data-nua, mismatch de tipo/formato em SQLite) —
+        usa-se antes um intervalo [início do dia, início do dia seguinte).
+        """
+        day_start = datetime(date.year, date.month, date.day)
+        day_end = day_start + timedelta(days=1)
         activities = db.query(ActivityWindow).filter(
             and_(
                 ActivityWindow.device_id == device_id,
-                ActivityWindow.activity_date == date.date()
+                ActivityWindow.activity_date >= day_start,
+                ActivityWindow.activity_date < day_end,
             )
         ).all()
 
@@ -570,6 +579,28 @@ class DataRetention:
             query.update({"deleted_at": datetime.utcnow()})
             db.commit()
         results["alerts"] = count
+
+        # AnomalyDetection (apaga mesmo, não soft delete)
+        cutoff = cutoff_date - timedelta(days=DataRetention.RETENTION_POLICIES["anomaly_detections"])
+        query = db.query(AnomalyDetection).filter(AnomalyDetection.created_at < cutoff)
+        count = query.count()
+        if not dry_run:
+            query.delete()
+            db.commit()
+        results["anomaly_detections"] = count
+
+        # MedicationAdherence (apaga mesmo, não soft delete)
+        cutoff = cutoff_date - timedelta(days=DataRetention.RETENTION_POLICIES["medication_adherence"])
+        query = db.query(MedicationAdherence).filter(MedicationAdherence.scheduled_datetime < cutoff)
+        count = query.count()
+        if not dry_run:
+            query.delete()
+            db.commit()
+        results["medication_adherence"] = count
+
+        # emergency_alerts: presente em RETENTION_POLICIES só como referência
+        # documental (10 anos) -- nunca processado aqui de propósito, é
+        # histórico de segurança mantido para sempre (ver PROJECT_STATUS.md).
 
         return results
 

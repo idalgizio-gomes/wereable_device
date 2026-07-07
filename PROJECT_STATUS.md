@@ -519,7 +519,70 @@ Refatoração da camada de persistência com ORM e schema produção-ready:
 - Alembic migrations (script versionado para evolução do schema)
 - Endpoints REST/GraphQL para dashboard (ligar queries analíticas a tempo real)
 - Cifra real dos campos sensíveis (derivação de chave com argon2)
-- Testes unitários com pytest (fixtures, mocks BLE)
+- ~~Testes unitários com pytest~~ — **primeira suite feita (2026-07-07,
+  rotina cloud)**, ver secção seguinte.
+
+### Primeira suite de testes (`bridge/tests/`) + 3 bugs adicionais corrigidos (2026-07-07, rotina cloud)
+
+Ao escrever a suite de testes já listada acima como próximo passo, esta
+execução encontrou (via `git fetch`/rebase, como sempre pedido antes do
+push) que uma sessão paralela tinha corrigido, na mesma janela de tempo,
+os dois bugs que impediam `storage_advanced.py` de sequer ser importado
+(`JSONB` fora do top-level `sqlalchemy`, tabela `patient_caregivers` em
+falta) mais um bug de fuso horário em `heart_rate_trends` — ver a secção
+"Varredura de bugs (Prioridade 5, 3ª passagem)" mais abaixo para o
+detalhe desses três. Em vez de duplicar esse trabalho, esta execução
+rebaseou sobre o que já estava corrigido e continuou a escrever a suite,
+o que revelou **três problemas adicionais e distintos**, ainda por
+corrigir depois do rebase:
+
+1. **`DataRetention.cleanup()` assumia `Alert.deleted_at`** (a
+   documentação já descrevia soft delete de alertas com esta coluna, mas
+   a classe `Alert` nunca a declarava) — `AttributeError` ao chamar
+   `cleanup()`, mesmo depois dos dois bugs de import já corrigidos.
+   Adicionada a coluna.
+2. **`Analytics.daily_activity_distribution()` nunca encontrava
+   nenhuma janela de atividade** — comparava a coluna `activity_date`
+   (DateTime, com hora) diretamente com `date.date()` (sem hora); em
+   SQLite isto compara valores em formatos diferentes e nunca coincide.
+   Corrigido para um intervalo `[início do dia, início do dia
+   seguinte)`.
+3. **`DataRetention.RETENTION_POLICIES` declara 6 políticas mas
+   `cleanup()` só aplicava 3** (`sensor_records`, `activity_windows`,
+   `alerts`) — `anomaly_detections` (5 anos) e `medication_adherence`
+   (3 anos) nunca eram purgados, apesar de a documentação da secção
+   acima já afirmar que o eram. Implementadas as duas políticas em
+   falta (apagar, não soft-delete — mesma lógica das outras tabelas sem
+   valor legal/clínico de longo prazo). `emergency_alerts` continua
+   **deliberadamente** de fora do `cleanup()` — está no dicionário só
+   como referência documental dos 10 anos, nunca é apagado
+   automaticamente (histórico de segurança), comportamento já correto e
+   agora coberto por teste de regressão.
+
+Aproveitado o mesmo ficheiro já aberto para modernizar um import
+depreciado sem efeito funcional: `declarative_base` passou a vir de
+`sqlalchemy.orm` em vez de `sqlalchemy.ext.declarative` (avisado como
+`MovedIn20Warning` pelo SQLAlchemy 2.0, mesma versão já fixada em
+`requirements_db.txt`).
+
+**Suite nova**: `bridge/tests/test_storage_advanced.py` (16 testes,
+`bridge/tests/conftest.py` força `DATABASE_URL=sqlite:///:memory:` antes
+do import, nunca toca em `carewear.db` real) — cobre criação de schema, a
+associação paciente↔cuidador (`patient_caregivers`), as três queries de
+`Analytics` (tendências de FC, aderência a medicação, distribuição diária
+de atividade) e `DataRetention.cleanup()` (dry-run vs. real, hard delete
+vs. soft delete, as 6 políticas incluindo a exclusão intencional de
+`emergency_alerts`). Correr com `cd bridge && pip install -r
+requirements_db.txt pytest && python -m pytest tests/ -v` — **16/16
+passam**, sem avisos. Puro Python/SQLite, sem toolchain ARM nem hardware
+envolvido — dentro do que esta rotina cloud consegue verificar
+diretamente (ao contrário do firmware C++, que continua sem poder ser
+testado sem acesso à placa física).
+
+**Limitação honesta**: esta suite testa `storage_advanced.py` isoladamente
+— o módulo continua **não integrado** no `ble_bridge.py` (que usa
+`storage.py`, a versão mais simples já em produção). Testes de integração
+bridge↔BD avançada ficam por fazer quando/se essa integração avançar.
 
 ## Dashboard web (protótipo)
 
