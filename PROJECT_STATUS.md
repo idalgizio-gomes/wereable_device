@@ -1988,11 +1988,13 @@ antes (nonce AES-CTR, `broadcast()`, fragmentos BLE, `medication-reminders.js`,
    cloud": nonce AES-CTR, cifra AES-CTR, pacing/giroscópio, deteção de
    emergência, etc.) — a partir do próximo push, há verificação real de
    compilação em CI, mesmo sem acesso a hardware ou toolchain local.
-   **Não confirmado ainda que este workflow passa** (só que o anterior
-   falhava sempre e este compila localmente o mesmo `pio run` que já foi
-   usado com sucesso em hardware real antes — ver secção "Verificado em
-   hardware real" acima); o primeiro push a `main` depois desta alteração
-   é que vai confirmar isso na prática.
+   **Confirmado a passar (2026-07-07, rotina cloud posterior)**: verificado
+   via `actions_list`/`actions_get` da API do GitHub — as 4 execuções desde
+   esta correção (`75dcb8e`, `e3c272d`, `4c060cc`, `dd3c05a`) terminaram
+   `completed`/`success`; o "C/C++ CI" anterior tinha falhado 100% das
+   vezes (5/5 execuções revistas). A CI do PlatformIO está mesmo a
+   compilar o firmware real em cada push a `main`, não só a correr sem dar
+   sinal de vida.
 2. **Dois workflows GitHub Pages sem propósito real, removidos.**
    `.github/workflows/jekyll-gh-pages.yml` e `static.yml` eram também
    modelos genéricos do GitHub (nunca personalizados, nunca mencionados
