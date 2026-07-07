@@ -72,8 +72,11 @@ def train(df, feature_cols):
 
     y_pred = model.predict(X_test)
 
+    # labels= explícito (mesmo bug corrigido em train_activity_classifier.py):
+    # evita ValueError se alguma classe ficar sem exemplos em y_test/y_pred.
     report = classification_report(
-        y_test, y_pred, target_names=encoder.classes_, output_dict=True, zero_division=0
+        y_test, y_pred, labels=range(len(encoder.classes_)),
+        target_names=encoder.classes_, output_dict=True, zero_division=0
     )
     cm = confusion_matrix(y_test, y_pred, labels=range(len(encoder.classes_)))
     acc = accuracy_score(y_test, y_pred)

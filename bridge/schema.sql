@@ -54,6 +54,22 @@ CREATE TABLE IF NOT EXISTS devices (
     FOREIGN KEY (patient_id) REFERENCES patients (id)
 );
 
+-- Tabela de associação: cuidadores (users) <-> pacientes, com permissões
+-- por membro (item 10 do backlog do dashboard, "múltiplos cuidadores com
+-- permissões por papel"). Faltava neste ficheiro de referência mesmo já
+-- sendo usada por nome (secondary="patient_caregivers") em storage_advanced.py.
+CREATE TABLE IF NOT EXISTS patient_caregivers (
+    patient_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    can_view_alerts BOOLEAN DEFAULT 1,
+    can_edit_notes BOOLEAN DEFAULT 1,
+    can_edit_medications BOOLEAN DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (patient_id, user_id),
+    FOREIGN KEY (patient_id) REFERENCES patients (id),
+    FOREIGN KEY (user_id) REFERENCES users (id)
+);
+
 -- Tabela: Consentimento (GDPR/HIPAA)
 
 CREATE TABLE IF NOT EXISTS consent_records (

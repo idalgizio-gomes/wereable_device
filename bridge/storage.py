@@ -153,6 +153,22 @@ def init_db() -> sqlite3.Connection:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_sensor_received_at ON sensor_records(received_at)"
     )
+    # Evita duplicar um alerta de emergência real caso a notificação BLE
+    # seja reentregue (ex.: replay da última notificação não confirmada
+    # após uma reconexão) — sem isto, o mesmo SOS/queda podia ser contado
+    # duas vezes numa tabela que é permanentemente retida e nunca purgada.
+    # Envolvido em try/except: uma base de dados já existente de uma versão
+    # anterior pode já ter duplicados guardados, o que faria este CREATE
+    # falhar — nesse caso preferimos avisar e continuar a arrancar o bridge
+    # a impedir o arranque por completo.
+    try:
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_emergency_alert_type_seq "
+            "ON emergency_alerts(alert_type, seq)"
+        )
+    except sqlite3.IntegrityError as exc:
+        print(f"[STORAGE] aviso: nao foi possivel criar indice unico em "
+              f"emergency_alerts (ja' existem duplicados na BD atual?): {exc}")
     conn.commit()
     return conn
 
@@ -230,9 +246,13 @@ def insert_emergency_alert(conn: sqlite3.Connection, alert: dict) -> None:
     (ao contrário dos registos de sensores, que podem vir a precisar de
     uma política de retenção quando o volume crescer — não implementada
     ainda, ver "Próximos passos" no fim deste ficheiro)."""
+    # OR IGNORE: junto com o índice único em (alert_type, seq) criado em
+    # init_db(), uma notificação BLE duplicada (ex.: replay pós-reconexão)
+    # do mesmo alerta real é descartada aqui em vez de criar uma segunda
+    # entrada permanente no histórico de emergências.
     conn.execute(
         """
-        INSERT INTO emergency_alerts
+        INSERT OR IGNORE INTO emergency_alerts
             (received_at, alert_type, alert_name, seq, device_timestamp_utc)
         VALUES (?, ?, ?, ?, ?)
         """,

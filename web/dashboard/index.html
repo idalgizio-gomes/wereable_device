@@ -1180,19 +1180,30 @@ function setAlertMode(mode){
 ------------------------------------------------------------ */
 const CONSENT_KEY = 'carewear_consent';
 
-function loadConsent(){
-  const defaults = { shareVitals:true, shareRoutine:true, shareAlerts:true, lastChanged:null };
+// Namespaced por paciente (bug corrigido: antes era uma única chave global,
+// por isso o consentimento de um paciente aplicava-se a TODOS na vista
+// Médico/Técnico multi-paciente — trocar de paciente não mudava o
+// resultado do bloqueio de partilha). Mesma convenção já usada para
+// medicationLog/alertOccurrences: um único item em localStorage guardando
+// um objeto indexado por patientId.
+function loadAllConsent(){
   try {
     const raw = localStorage.getItem(CONSENT_KEY);
-    if (raw) return { ...defaults, ...JSON.parse(raw) };
-  } catch (e) { /* localStorage indisponível ou dados corrompidos - usa omissão */ }
-  return defaults;
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* localStorage indisponível ou dados corrompidos - ignora */ }
+  return {};
 }
-function setConsent(field, value){
-  const c = loadConsent();
+function loadConsent(patientId = selectedPatient().id){
+  const defaults = { shareVitals:true, shareRoutine:true, shareAlerts:true, lastChanged:null };
+  return { ...defaults, ...(loadAllConsent()[patientId] || {}) };
+}
+function setConsent(field, value, patientId = selectedPatient().id){
+  const all = loadAllConsent();
+  const c = loadConsent(patientId);
   c[field] = value;
   c.lastChanged = Date.now();
-  try { localStorage.setItem(CONSENT_KEY, JSON.stringify(c)); }
+  all[patientId] = c;
+  try { localStorage.setItem(CONSENT_KEY, JSON.stringify(all)); }
   catch (e) { /* quota excedida ou localStorage indisponível - fica só em memória */ }
   if (currentView) renderView(currentView);
 }
@@ -1208,18 +1219,28 @@ function setConsent(field, value){
 ------------------------------------------------------------ */
 const CAREGIVER_TEAM_KEY = 'carewear_caregiver_team';
 
-function loadCaregiverTeam(){
+// Namespaced por paciente (mesmo bug/correção de loadConsent() acima): uma
+// única lista global de cuidadores fazia todos os pacientes partilharem a
+// mesma equipa na vista Médico/Técnico multi-paciente.
+function loadAllCaregiverTeams(){
   try {
     const raw = localStorage.getItem(CAREGIVER_TEAM_KEY);
     if (raw) return JSON.parse(raw);
   } catch (e) { /* localStorage indisponível ou dados corrompidos - ignora */ }
-  // Exemplo inicial, só na primeira utilização.
+  return {};
+}
+function loadCaregiverTeam(patientId = selectedPatient().id){
+  const all = loadAllCaregiverTeams();
+  if (all[patientId]) return all[patientId];
+  // Exemplo inicial, só na primeira utilização deste paciente.
   return [
     { id:'cg1', name:'João Silva', role:'Familiar', canViewAlerts:true, canEdit:true },
   ];
 }
-function saveCaregiverTeam(team){
-  try { localStorage.setItem(CAREGIVER_TEAM_KEY, JSON.stringify(team)); }
+function saveCaregiverTeam(team, patientId = selectedPatient().id){
+  const all = loadAllCaregiverTeams();
+  all[patientId] = team;
+  try { localStorage.setItem(CAREGIVER_TEAM_KEY, JSON.stringify(all)); }
   catch (e) { /* quota excedida ou localStorage indisponível - fica só em memória */ }
 }
 function addCaregiver(){
@@ -2280,7 +2301,10 @@ function renderPacingSummary(){
   const live = liveState.connected && liveState.pacing != null;
   const today = live ? liveState.pacing : pacingTrend[pacingTrend.length - 1].score;
   const weekAvg = Math.round(pacingTrend.reduce((s,d) => s + d.score, 0) / pacingTrend.length);
-  const level = today >= 60 ? 'warning' : today >= 40 ? 'good' : 'good';
+  // Bug corrigido: o ramo "today >= 40 ? 'good' : 'good'" era morto (as
+  // duas saídas eram idênticas) — só existem dois estados reais aqui,
+  // como o próprio levelLabel (2 valores) já deixava claro.
+  const level = today >= 60 ? 'warning' : 'good';
   const levelLabel = today >= 60 ? 'Acima do habitual' : 'Dentro do habitual';
   const todayLabelSuffix = live ? ' — ao vivo' : ' — demonstração';
   host.innerHTML = `
@@ -2688,7 +2712,7 @@ TEMPLATES.definicoes = () => `
       <tbody>
         ${team.length ? team.map(m => `
           <tr>
-            <td>${m.name}</td>
+            <td>${m.name.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</td>
             <td>${m.role}</td>
             <td><label class="consent-toggle"><input type="checkbox" ${m.canViewAlerts?'checked':''} onchange="setCaregiverPermission('${m.id}','canViewAlerts', this.checked)"><span></span></label></td>
             <td><label class="consent-toggle"><input type="checkbox" ${m.canEdit?'checked':''} onchange="setCaregiverPermission('${m.id}','canEdit', this.checked)"><span></span></label></td>
@@ -2790,7 +2814,17 @@ TEMPLATES.pacientes = () => `
             <td class="num">${p.deviceName} · ${p.mac}</td>
             <td class="num">${p.lastSync}</td>
             <td>${pillHtml(p.status==='good'?'good':p.status==='warn'?'warning':'critical', p.status==='good'?'Ligado':p.status==='warn'?'Instável':'Desligado')}</td>
-            <td>${(() => { const n = activeAlertsCount(p); return n > 0 ? pillHtml('critical', n + ' ativo' + (n>1?'s':'')) : pillHtml('good','Nenhum'); })()}</td>
+            <td>${(() => {
+              // Bug corrigido: esta contagem ignorava o consentimento do
+              // próprio paciente (loadConsent(p.id).shareAlerts) — o
+              // tooltip do cartão de consentimento promete explicitamente
+              // esconder alertas/anomalias da conta Médico/Técnico quando
+              // desligado, mas esta pill continuava a mostrar a contagem e
+              // severidade reais mesmo assim.
+              if (!loadConsent(p.id).shareAlerts) return '<span class="empty-hint" style="padding:0;">Sem consentimento</span>';
+              const n = activeAlertsCount(p);
+              return n > 0 ? pillHtml('critical', n + ' ativo' + (n>1?'s':'')) : pillHtml('good','Nenhum');
+            })()}</td>
             <td>${p.id===selectedPatientId
               ? `<span class="empty-hint" style="padding:0;">Selecionado</span>`
               : `<button class="btn-secondary" onclick="selectPatient('${p.id}')">Selecionar</button>`}</td>
@@ -4085,7 +4119,13 @@ function buildFhirBundle(){
     name: [{ text: p.name }],
     extension: [{ url: 'age', valueInteger: p.age }],
   };
-  const observations = currentAlerts().map((a, i) => ({
+  // Bug corrigido: esta exportação ignorava por completo o interruptor de
+  // "Alertas e registo de anomalias" do cartão de Consentimento — as
+  // vistas "Pacientes"/"Anomalias detetadas" já escondiam essa informação
+  // corretamente quando desligado, mas o Médico/Técnico continuava a
+  // conseguir obtê-la de qualquer forma através deste export FHIR.
+  const consented = loadConsent(p.id).shareAlerts;
+  const observations = consented ? currentAlerts().map((a, i) => ({
     resourceType: 'Observation',
     id: `alert-${a.key || i}`,
     status: 'final',
@@ -4095,7 +4135,14 @@ function buildFhirBundle(){
     valueString: a.desc,
     note: a.plain ? [{ text: a.plain }] : undefined,
     extension: [{ url: 'severity', valueString: a.sev }],
-  }));
+  })) : [{
+    resourceType: 'Observation',
+    id: 'consent-withheld',
+    status: 'unknown',
+    code: { text: 'Alertas/anomalias não incluídos: utente/família não autorizou a partilha (ver Definições → Consentimento).' },
+    subject: { reference: `Patient/${p.id}` },
+    effectiveDateTime: nowIso,
+  }];
   return {
     resourceType: 'Bundle',
     type: 'collection',
@@ -4286,8 +4333,14 @@ function exportClinicalPdf(){
   const p = selectedPatient();
   const sheet = document.getElementById('clinicalPrintSheet');
   if (!sheet) return;
-  const alerts = currentAlerts();
-  const anomalies = currentAnomalyLog();
+  // Bug corrigido: mesmo lapso da exportação FHIR acima — esta folha de
+  // impressão/PDF ignorava o consentimento do paciente e incluía sempre
+  // alertas/anomalias, mesmo com "Alertas e registo de anomalias"
+  // desligado em Definições → Consentimento.
+  const consented = loadConsent(p.id).shareAlerts;
+  const alerts = consented ? currentAlerts() : [];
+  const anomalies = consented ? currentAnomalyLog() : [];
+  const consentNote = consented ? '' : '<p class="print-meta"><b>Nota:</b> o utente/família não autorizou a partilha de alertas e anomalias com a equipa clínica (ver Definições → Consentimento) — omitidos deste resumo.</p>';
   const generatedAt = new Date().toLocaleString('pt-PT');
 
   const tableHtml = (headers, rows) => `
@@ -4310,6 +4363,7 @@ function exportClinicalPdf(){
     <section class="print-patient">
       <h2>${p.name} · ${p.age} anos</h2>
       <p class="print-meta">Dispositivo: ${p.deviceName} · ${p.mac} · Última sincronização: ${p.lastSync}</p>
+      ${consentNote}
     </section>
     <h3 class="print-section-title">Alertas ativos</h3>
     ${tableHtml(

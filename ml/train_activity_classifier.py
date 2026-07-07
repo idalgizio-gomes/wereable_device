@@ -102,8 +102,15 @@ def train(df, feature_cols):
 
     y_pred = model.predict(X_test)
 
+    # labels= explícito (bug corrigido): sem isto, classification_report()
+    # deriva os labels de np.unique(y_test, y_pred) — se alguma classe
+    # ficar com zero exemplos em y_test E em y_pred (possível com uma
+    # amostra/seed diferente de sujeitos de teste), o nº de labels
+    # derivados fica menor que len(target_names) e a chamada rebenta com
+    # ValueError em vez de simplesmente reportar 0 para essa classe.
     report = classification_report(
-        y_test, y_pred, target_names=encoder.classes_, output_dict=True, zero_division=0
+        y_test, y_pred, labels=range(len(encoder.classes_)),
+        target_names=encoder.classes_, output_dict=True, zero_division=0
     )
     cm = confusion_matrix(y_test, y_pred, labels=range(len(encoder.classes_)))
     acc = accuracy_score(y_test, y_pred)

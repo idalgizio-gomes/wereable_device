@@ -503,3 +503,27 @@ concreta, não fabricada.
    footprint.
 
 Ambas continuam registadas como decisão pendente também no PROJECT_STATUS.md.
+
+## Correções de bugs (2026-07-07, varredura de bugs — ver PROJECT_STATUS.md)
+
+Três bugs reais encontrados numa varredura dirigida a este pipeline,
+corrigidos na mesma execução (detalhe completo, incluindo reprodução de
+cada um, em PROJECT_STATUS.md → "Verificação de bugs (rotina automática) —
+2026-07-07, 3ª passagem do dia"):
+
+- **`train_lstm_autoencoder.py` não era de facto determinístico** apesar
+  da promessa "seed fixa = 42" no topo deste ficheiro — só a geração de
+  dados sintéticos estava semeada, não a inicialização de pesos
+  LSTM/Dense nem o `shuffle=True` do treino. Corrigido com
+  `keras.utils.set_random_seed(SEED)`. Ainda por confirmar reexecutando
+  o script duas vezes e comparando métricas (tensorflow não disponível
+  nesta rotina cloud).
+- **`classification_report()` podia rebentar** em `train_activity_classifier.py`/
+  `_rf.py` mesmo depois do `LabelEncoder` já ter sido corrigido numa
+  sessão anterior — faltava `labels=` explícito, reproduzido diretamente
+  com um cenário onde uma classe fica ausente de `y_test` E `y_pred` ao
+  mesmo tempo. Corrigido.
+- **Off-by-one na taxa de cruzamentos por zero** (`features.py`,
+  `_zero_crossing_rate`) — dividia por `len(signal)` em vez de
+  `len(signal)-1` (nº real de transições possíveis), subestimando a
+  taxa sistematicamente. Corrigido.

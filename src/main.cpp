@@ -376,27 +376,48 @@ bool buttonPressedStable() {
 
 #if DEBUG_SERIAL_WAKE
 // *** DEBUG TEMPORÁRIO *** — ver explicação junto de DEBUG_SERIAL_WAKE.
-// Lê linhas de texto disponíveis na porta série (sem bloquear) e devolve
-// true se a última linha completa recebida for exatamente "cmd"
-// (ignorando espaços/CR à volta). Usado como substituto do botão físico.
-bool serialCommandReceived(const char *cmd) {
+// Lê a próxima linha completa disponível na porta série (sem bloquear) e
+// devolve-a num buffer partilhado, ou nullptr se ainda não chegou nenhuma
+// linha completa. Uma única linha é devolvida uma única vez (o buffer
+// interno é limpo assim que a linha é entregue).
+//
+// Bug real corrigido aqui (encontrado em varredura de código, nunca
+// confirmado em hardware por o botão físico estar por resolver): a versão
+// anterior desta função ("serialCommandReceived(cmd)") drenava e
+// descartava TODA a linha disponível mesmo quando não coincidia com
+// 'cmd' — como o loop() chama esta comparação duas vezes por iteração
+// (primeiro "SLEEP", depois "SOS"), escrever "SOS" na porta série era
+// sempre consumido e descartado pela comparação com "SLEEP" antes de a
+// comparação com "SOS" sequer correr, tornando o comando SOS
+// impossível de disparar por série. Com pollSerialLine() a linha só é lida
+// uma vez por iteração e comparada com todos os comandos candidatos nesse
+// mesmo local (ver loop()).
+const char *pollSerialLine() {
   static char buf[16];
   static uint8_t len = 0;
-  bool matched = false;
 
   while (Serial.available() > 0) {
     char c = static_cast<char>(Serial.read());
     if (c == '\n' || c == '\r') {
       if (len > 0) {
         buf[len] = '\0';
-        if (strcmp(buf, cmd) == 0) matched = true;
         len = 0;
+        return buf;
       }
     } else if (len < sizeof(buf) - 1) {
       buf[len++] = c;
     }
   }
-  return matched;
+  return nullptr;
+}
+
+// Verifica se a linha completa mais recente (se houver) é exatamente
+// 'cmd'. Só deve ser usada em contextos onde apenas UM comando candidato é
+// possível por chamada a pollSerialLine() (ex.: à espera só de "WAKE"); ver
+// loop() para o caso de múltiplos comandos candidatos na mesma iteração.
+bool serialCommandReceived(const char *cmd) {
+  const char *line = pollSerialLine();
+  return line != nullptr && strcmp(line, cmd) == 0;
 }
 #endif
 
@@ -881,6 +902,18 @@ void setup() {
   Serial.println("[BOOT] step: setup done");
 }
 
+// Espera "ms" milissegundos como delay(ms), mas continua a chamar
+// Emergency::update() em pequenos incrementos durante a espera, em vez de
+// bloquear sem vigiar o botão físico (ver bug corrigido na chamada em
+// loop(), junto ao heartbeat).
+void delayPollingEmergency(uint32_t ms) {
+  const uint32_t start = millis();
+  while ((millis() - start) < ms) {
+    Emergency::update();
+    delay(5);
+  }
+}
+
 // ============================================================
 // LOOP — chamado repetidamente pelo Arduino depois do setup()
 // ------------------------------------------------------------
@@ -901,20 +934,24 @@ void loop() {
 
   if (isRunning) {
 #if DEBUG_SERIAL_WAKE
-    // *** DEBUG TEMPORÁRIO ***: comando "SLEEP" pela série substitui o
-    // long-press físico para desligar, enquanto o botão não existir.
-    if (serialCommandReceived("SLEEP")) {
-      Serial.println("[DEBUG] comando SLEEP recebido -> a desligar sem botao fisico");
-      goToSleep();
-      return;
-    }
-    // *** DEBUG TEMPORÁRIO ***: comando "SOS" pela série dispara um
-    // alerta de emergência de teste, sem depender do gesto de cliques no
-    // botão físico (útil enquanto esse botão estiver por confirmar/testar
-    // — ver Emergency.h e o bloqueio de deteção USB em PROJECT_STATUS.md).
-    if (serialCommandReceived("SOS")) {
-      Serial.println("[DEBUG] comando SOS recebido -> a disparar alerta de teste");
-      Emergency::triggerTestAlert();
+    // *** DEBUG TEMPORÁRIO ***: comandos "SLEEP"/"SOS" pela série substituem
+    // o long-press físico / o gesto de cliques, enquanto o botão não
+    // existir. Lidos AQUI, uma única vez por iteração, e comparados com
+    // ambos os candidatos sobre a MESMA linha recebida — ver comentário em
+    // pollSerialLine() para o porquê (bug corrigido: comparar "SLEEP" e
+    // "SOS" com duas chamadas separadas a serialCommandReceived() fazia a
+    // primeira consumir e descartar a linha antes da segunda a poder ver).
+    const char *serialLine = pollSerialLine();
+    if (serialLine != nullptr) {
+      if (strcmp(serialLine, "SLEEP") == 0) {
+        Serial.println("[DEBUG] comando SLEEP recebido -> a desligar sem botao fisico");
+        goToSleep();
+        return;
+      }
+      if (strcmp(serialLine, "SOS") == 0) {
+        Serial.println("[DEBUG] comando SOS recebido -> a disparar alerta de teste");
+        Emergency::triggerTestAlert();
+      }
     }
 #endif
     Emergency::update();
@@ -935,11 +972,19 @@ void loop() {
       }
     }
 
-    // Heartbeat: pulso curto a cada segundo
+    // Heartbeat: pulso curto a cada segundo.
+    // Bug real corrigido aqui: delay(50)+delay(950) bloqueantes faziam
+    // Emergency::update() (chamado uma só vez no topo desta iteração, mais
+    // acima) ser amostrado a ~1Hz — muito abaixo do necessário para contar
+    // um gesto de 3 cliques dentro de sosClickWindowMs (1200ms por
+    // omissão, ver Emergency.h): a maioria das bordas de descida do botão
+    // ficava sem ser vista entre uma chamada e a seguinte. Substituído por
+    // delayPollingEmergency(), que mantém a mesma duração total mas chama
+    // Emergency::update() a cada ~5ms durante a espera.
     digitalWrite(LED_BUILTIN, LOW);    // ON
-    delay(50);
+    delayPollingEmergency(50);
     digitalWrite(LED_BUILTIN, HIGH);   // OFF
-    delay(950);
+    delayPollingEmergency(950);
 
     const uint32_t nowMs = millis();
     if ((nowMs - lastUiMs) >= 1000) {
