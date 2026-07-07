@@ -385,13 +385,13 @@ Ver `reports/lstm_autoencoder_metrics.json` e
 
 | | Geral | `duracao_prolongada` | `substituicao_contextual` | `truncamento` |
 |---|---|---|---|---|
-| AUC-ROC (score vs. normal) | **0.847** (0.876) | 0.797 (0.813) | 0.929 (0.910) | 0.862 (0.744) |
-| Recall ao limiar (percentil 95) | 0.211 (0.179) | 0.008 (0.015) | 0.506 (0.331) | 0.136 (0.000) |
-| Precisão ao limiar (percentil 95) | **0.038** (0.276) | — | — | — |
+| AUC-ROC (score vs. normal) | **0.849** (0.876) | 0.799 (0.813) | 0.928 (0.910) | 0.861 (0.744) |
+| Recall ao limiar (percentil 95) | 0.198 (0.179) | 0.008 (0.015) | 0.471 (0.331) | 0.136 (0.000) |
+| Precisão ao limiar (percentil 95) | **0.035** (0.276) | — | — | — |
 
 **Achado honesto novo, específico da mudança para 24h**: a precisão geral
-caiu de 0.276 para 0.038 — não porque o modelo piorou (o AUC-ROC, que não
-depende de um limiar específico, manteve-se na mesma gama, 0.75-0.93 por
+caiu de 0.276 para 0.035 — não porque o modelo piorou (o AUC-ROC, que não
+depende de um limiar específico, manteve-se na mesma gama, 0.80-0.93 por
 tipo), mas porque **um bloco anómalo de duração fixa passou a ser uma
 fatia muito menor do total** quando a sessão cresce de ~5,5h comprimidas
 para 24h reais — a proporção de subsequências efetivamente anómalas caiu
@@ -565,7 +565,7 @@ não segue os mesmos limites usados para gerar os dados.
    pela indisponibilidade da placa (ver PROJECT_STATUS.md, "Riscos"), não
    há forma honesta de simular isto sem uma medição real. Efeito colateral
    descoberto ao mudar para 24h, documentado no Passo 2: a precisão do
-   LSTM Autoencoder a um limiar fixo caiu bastante (0.276→0.038) por
+   LSTM Autoencoder a um limiar fixo caiu bastante (0.276→0.035) por
    diluição de classes (anomalias de duração fixa tornam-se uma fatia menor
    de um dia inteiro) — registado como novo item a considerar (limiares
    adaptados à proporção normal/anómala esperada, ou métrica menos sensível
