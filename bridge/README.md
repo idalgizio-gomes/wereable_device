@@ -87,11 +87,11 @@ Guardar as duas variáveis em local seguro — perder a frase-passe ou o sal
 torna os campos já cifrados **irrecuperáveis** (não há forma de recuperar
 uma chave Argon2id sem os dois inputs originais).
 
-### API REST somente-leitura (`api.py`, protótipo, 2026-07-07)
+### API REST (`api.py`, protótipo, 2026-07-07 — leitura; escrita desde 2026-07-08)
 
 Primeira versão do "próximo item concreto da Prioridade 4": expõe as
 queries analíticas (`Analytics.*`) por HTTP, em vez de só serem chamáveis
-diretamente em Python. Só leitura (GET), sem escrita/mutações.
+diretamente em Python.
 
 ```
 pip install -r requirements_db.txt
@@ -105,6 +105,12 @@ Endpoints (todos exigem o cabeçalho `X-API-Key`, exceto `/health`):
 - `GET /api/devices/{device_id}/heart-rate-trends?days=7`
 - `GET /api/patients/{patient_id}/medication-adherence?days=30`
 - `GET /api/devices/{device_id}/activity-distribution?date=AAAA-MM-DD`
+- `POST /api/medications/{medication_id}/adherence` (2026-07-08, primeiro
+  endpoint de escrita) — corpo JSON `{"scheduled_datetime": "AAAA-MM-DDTHH:MM:SS",
+  "taken": true|false, "method": "manual_entry"|"wearable_detection"|"ai_inference",
+  "notes": "..."}`. Idempotente por `(medication_id, scheduled_datetime)` —
+  repetir o pedido para a mesma dose atualiza o registo em vez de duplicar.
+  Cada escrita fica registada em `AuditLog` (ação sensível).
 
 Sem `CAREWEAR_API_KEY` configurada, a API **falha fechada** (todos os
 pedidos autenticados devolvem 503) — ao contrário da cifra acima, que
@@ -114,6 +120,7 @@ bloquear, não deixar passar. **Limitação honesta**: chave estática única
 (sem rotação, sem por-utilizador, sem rate-limiting) — protótipo, não
 autenticação de produção. **Ainda não integrada** com
 `web/dashboard/index.html` (que hoje só fala com `ble_bridge.py` via
-WebSocket) nem com `ble_bridge.py` (que continua a usar `storage.py`, não
+WebSocket, e cujo botão "Marcar como tomado" só escreve em `localStorage`)
+nem com `ble_bridge.py` (que continua a usar `storage.py`, não
 `storage_advanced.py`) — ver `bridge/api.py` (cabeçalho) e
 PROJECT_STATUS.md para o detalhe completo.

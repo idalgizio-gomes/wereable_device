@@ -750,9 +750,11 @@ devolver 401) — não só chamadas em processo.
 WebSocket, não com esta API), integração com `ble_bridge.py`
 (`storage_advanced.py` continua sem ligação ao streaming BLE real — só
 `storage.py`, a versão mais simples, está em produção), autenticação de
-produção (por-utilizador/JWT, rotação de chave, rate-limiting), endpoints
+produção (por-utilizador/JWT, rotação de chave, rate-limiting). ~~Endpoints
 de escrita (ex.: marcar dose de medicação como tomada via API em vez de só
-`localStorage` no dashboard).
+`localStorage` no dashboard)~~ — **primeiro endpoint de escrita feito
+(2026-07-08, rotina cloud)**, ver secção "Primeiro endpoint de escrita na
+API REST" mais abaixo.
 
 Ficheiros novos: `bridge/api.py`, `bridge/tests/test_api.py`. Ficheiros
 alterados: `bridge/requirements_db.txt` (`fastapi`, `uvicorn`, `httpx`),
@@ -3192,3 +3194,72 @@ por esta rotina só quando disponível — não está nesta sessão cloud).
 `ml-tests.yml` — o workflow instalou mesmo `scikit-learn`/`xgboost` e correu
 os 17 testes reais (incluindo os 2 novos de `test_train_smoke.py`) neste
 push a `main`, não só um YAML válido sem sinal de vida.
+
+## Primeiro endpoint de escrita na API REST (`bridge/api.py`, 2026-07-08, rotina cloud)
+
+`git fetch origin main` no início desta execução encontrou 2 commits novos
+de uma rotina paralela horas antes (teste de fumo do treino, ver secção
+imediatamente acima) — rebase limpo, sem conflitos. Com as Prioridades
+0-2/6-8 bloqueadas (hardware/decisão do utilizador), a Prioridade 3 (app
+móvel) fora do âmbito de uma execução autónoma, e a Prioridade 5 (`ml/`)
+sem itens novos não bloqueados por hardware/decisão do utilizador (os
+restantes "ainda por fazer" do roteiro dependem de dados reais, histórico
+por pessoa via BD, ou TensorFlow/toolchain ARM indisponíveis nesta rotina),
+revi a Prioridade 4 (BD SQL) e encontrei o item "endpoints de escrita",
+explicitamente listado como "ainda por fazer" no cabeçalho de `bridge/api.py`
+desde 2026-07-07 — a API REST tinha sido implementada só leitura (GET) de
+propósito, com este item já registado como próximo passo natural.
+
+**Implementado**: `POST /api/medications/{medication_id}/adherence`
+(`bridge/api.py`) — regista ou atualiza se uma dose agendada de medicação
+foi tomada, usando o modelo `MedicationAdherence` já existente em
+`storage_advanced.py` (nenhum modelo/coluna novo necessário). Corpo JSON
+`{scheduled_datetime, taken, method, notes}`, validado com um `BaseModel`
+Pydantic (`method` restrito aos 3 valores já documentados no comentário do
+modelo ORM — antes só uma convenção informal, agora aplicada). Escolhas de
+desenho:
+
+- **Idempotente por `(medication_id, scheduled_datetime)`**: um pedido
+  repetido para a mesma dose atualiza o registo existente em vez de criar
+  duplicados — mesmo comportamento que `markDoseTaken()` já tem no
+  dashboard (clicar duas vezes não duplica a entrada em `localStorage`),
+  aplicado aqui à versão persistida. Testado diretamente (`test_repeated_call_updates_instead_of_duplicating`).
+- **`taken_at` derivado no servidor**, nunca aceite do cliente — evita que
+  um pedido malformado grave uma hora de toma arbitrária; `taken=false`
+  limpa `taken_at` (dose desmarcada), `taken=true` grava `datetime.utcnow()`
+  no momento do pedido.
+- **`AuditLog` em cada escrita** (ação `medication_adherence.write`,
+  `resource_id`=medication_id, `details` com o corpo relevante,
+  `ip_address` do pedido) — mesmo padrão de auditoria que o resto do schema
+  já promete (`storage_advanced.py`, secção "Segurança/Compliance") mas que
+  nenhum endpoint tinha ainda exercido de facto, porque a API era só
+  leitura até agora.
+- **Reutiliza a mesma autenticação `X-API-Key`/falha-fechada** já usada
+  pelos endpoints GET — não foi criado um nível de autenticação separado
+  para escrita nesta primeira versão (limitação já registada: chave
+  estática única, sem por-utilizador nem rate-limiting).
+
+**Ainda não integrado** (mesma limitação já documentada para toda a API
+REST): nem `web/dashboard/index.html` (cujo botão "Marcar como tomado"
+continua a escrever só em `localStorage`, `markDoseTaken()`) nem
+`ble_bridge.py` chamam este endpoint — ligar qualquer um dos dois é uma
+decisão de integração maior (qual serviço fica como fonte da verdade,
+como lidar com o dashboard sem rede ao bridge local) fora do âmbito desta
+alteração pontual, registada aqui como próximo passo concreto.
+
+**Testado**: 6 testes novos em `bridge/tests/test_api.py`
+(`TestRecordMedicationAdherence`) — chave de API em falta/errada (401),
+medicamento inexistente (404), criação com `taken_at` preenchido, chamada
+repetida não duplica linha nem cria mais de um registo de auditoria por
+chamada nova, `taken=false` limpa `taken_at`, `method` fora do conjunto
+permitido rejeitado pela validação Pydantic (422). **Suite completa do
+bridge corrida localmente antes de commitar** (venv nova desta rotina
+cloud): `cd bridge && python -m pytest tests/ -v` → **53/53 testes
+passam** (47 já existentes + 6 novos), incluindo `test_storage_advanced.py`
+e `test_crypto_utils.py` sem regressões. `python -m py_compile api.py` sem
+erros; schema OpenAPI (`api.app.openapi()`) construído com sucesso e inclui
+a nova rota — confirma que o endpoint está corretamente registado, não só
+que o ficheiro tem sintaxe válida.
+
+`bridge/README.md` atualizado (secção "API REST") com o novo endpoint e
+exemplo de corpo JSON.
