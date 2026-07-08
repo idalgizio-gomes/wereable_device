@@ -1110,10 +1110,39 @@ static void aesKeyCallback(uint16_t conn_hdl, BLECharacteristic *chr,
 // (0x2A2B), tipicamente logo apos a ligacao, para sincronizar a hora do
 // dispositivo com a do telemovel. Valida e converte o payload para
 // epoch UTC e publica o resultado no modulo Clock.
+//
+// BLOQUEIO DE SEGURANCA (2026-07-08, rotina de seguranca, FW-001): esta
+// characteristic usa SECMODE_OPEN (sem pairing/bonding, ver Ble.h) e
+// continua acessivel via GATT mesmo depois de currentTimeService deixar
+// de ser anunciado no "modo de dados" (startBroadcast() so' controla o
+// advertising, nao remove characteristics ja registadas) — qualquer
+// central BLE que descubra o handle por descoberta de servicos pode
+// escrever aqui em qualquer altura. Sem este bloqueio, um atacante ligado
+// durante o streaming (ate 2 centrais simultaneos, ver Bluefruit.begin(2,0)
+// em main.cpp) conseguia reescrever o relogio do dispositivo a qualquer
+// momento, falsificando os timestamps gravados nos registos de sensores e
+// em alertas de emergencia (Clock::setUtc() e' a unica fonte de
+// 'timestamp'/'timestamp_utc' usada em todo o firmware) — quebra da
+// integridade forense/clinica dos dados sem alterar o formato do pacote.
+// Mitigacao contida: bloquear a hora (mesmo padrao ja usado para a chave
+// AES em aesKeyCallback) assim que o dispositivo entra em modo de dados
+// (s_dataModeEnabled, ver startBroadcast()) — ensureTimeSync() so' corre
+// ANTES disso, por isso o fluxo normal de provisioning fica intacto. O
+// bridge (ble_bridge.py, _maybe_send_time()) ja trata a falha desta
+// escrita como nao-fatal ("normal se ja sincronizada"), logo nao precisa
+// de alteracao. Nao fecha a janela de reescrita ANTES do primeiro sync
+// (fase de provisioning continua sem autenticacao — ver SECURITY_STATUS.md,
+// FW-002, ligado a auditoria mais ampla de pairing/bonding prevista na
+// rotina S04).
 static void timestampCallback(uint16_t conn_hdl, BLECharacteristic *chr,
                               uint8_t *data, uint16_t len) {
   (void)conn_hdl;
   (void)chr;
+
+  if (s_dataModeEnabled) {
+    Serial.println("[BLE] current-time write ignorada (ja em modo de dados, hora bloqueada)");
+    return;
+  }
 
   if (len != 10) {
     Serial.print("[BLE] invalid current-time len: ");
