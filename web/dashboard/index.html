@@ -1431,6 +1431,30 @@ function clearAllAlertsForPatient(){
   if (currentView) renderView(currentView);
 }
 
+/* ------------------------------------------------------------
+   DIREITO AO ESQUECIMENTO (RGPD art. 17) — apagar dados locais
+   ------------------------------------------------------------
+   Antes desta função não havia nenhuma forma de apagar de uma vez os
+   dados pessoais que este dashboard guarda no localStorage do browser
+   (perfil com NIF/morada, consentimento, medicação, notas de
+   cuidadores, alertas lidos/apagados/silenciados) — logout() só troca
+   de ecrã, nunca limpou nada. Varre por prefixo em vez de listar
+   chaves à mão, para não ficar desatualizada quando surgir uma chave
+   nova (ex.: 'carewear_adherence_analytics_<patientId>', sufixo
+   dinâmico por paciente, em medication-reminders.js). Âmbito
+   deliberadamente limitado a este browser: não apaga o histórico do
+   bridge (bridge/carewear_history.db, ver "Retenção de dados" na vista
+   Exportar) nem os registos guardados no próprio dispositivo (ver
+   "Repor leituras" abaixo) — quem quiser apagar tudo tem de usar as
+   três opções.
+------------------------------------------------------------ */
+function eraseAllLocalData(){
+  Object.keys(localStorage)
+    .filter(k => k.startsWith('carewear_'))
+    .forEach(k => localStorage.removeItem(k));
+  location.reload();
+}
+
 // Substituem as antigas constantes globais 'alerts'/'anomalyLog' (fixas
 // na Maria Silva) — todas as vistas devem chamar estas funções, nunca
 // usar dados de um paciente diretamente, para mudar de paciente refletir
@@ -2759,6 +2783,13 @@ TEMPLATES.definicoes = () => `
         <p class="empty-hint" style="padding:2px 0 0;">Apaga todos os registos guardados no dispositivo (ring buffer da flash). Não afeta a calibração nem a chave de emparelhamento.</p>
       </div>
       <button class="btn-danger" onclick="openResetModal()">Repor leituras…</button>
+    </div>
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; margin-top:14px; padding-top:14px; border-top:1px solid var(--border-soft);">
+      <div>
+        <div style="font-weight:600; font-size:13px;">Apagar todos os meus dados guardados neste navegador</div>
+        <p class="empty-hint" style="padding:2px 0 0;">Direito ao esquecimento (RGPD): apaga perfil (incl. NIF/morada), consentimento, medicação, notas e histórico de alertas guardados neste browser. Não apaga o histórico do bridge (BD local — ver "Retenção de dados" em Exportar) nem os registos no próprio dispositivo (ver "Repor leituras" acima); para apagar tudo é preciso usar as três opções.</p>
+      </div>
+      <button class="btn-danger" onclick="if(confirm('Apagar TODOS os dados guardados neste navegador (perfil, consentimento, medicação, notas, alertas)? Esta ação não pode ser desfeita e vai terminar a sessão.')) eraseAllLocalData();">Apagar dados deste navegador…</button>
     </div>
   </div>
 `;
