@@ -3263,3 +3263,9 @@ que o ficheiro tem sintaxe válida.
 
 `bridge/README.md` atualizado (secção "API REST") com o novo endpoint e
 exemplo de corpo JSON.
+
+**Confirmado a passar em CI real (2026-07-08, mesmo push)**: verificado via
+`actions_get` da API do GitHub — `run_id=28914716866`, commit `aef3e08`,
+`completed`/`success` em `bridge-tests.yml`. Mesma prática já registada
+para as outras suites deste projeto — os 53 testes reais correram no CI,
+não só localmente.
