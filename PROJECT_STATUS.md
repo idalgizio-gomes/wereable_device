@@ -3382,3 +3382,194 @@ hardware não confirmado (mesma lógica já aplicada ao LoRa e ao GPS):
 - Pinout exato, se existir antena.
 - Teste real com telemóvel (deteção de campo, leitura NDEF) — só depois
   de existir algo a inicializar de facto.
+## `ml/`: bug real em `split_by_subject()` encontrado e corrigido (2026-07-08, rotina cloud)
+
+Nota de processo: `git fetch origin main` revelou 74 commits novos desde o
+checkout local desta rotina (branch antiga, nunca publicada) — incluindo,
+horas antes desta execução, uma rotina paralela que já tinha implementado
+exatamente o item que esta rotina ia propor a seguir na Prioridade 5
+(`ml/README.md`, "Testes automáticos + CI"): um teste de fumo para os
+scripts de treino do classificador (`ml/tests/test_train_smoke.py`,
+commit `8d71b8f`) — e outra que adicionou o 1º endpoint de escrita à API
+REST (`bridge/api.py`, commit `aef3e08`). Resolvido com
+`git checkout main && git merge --ff-only origin/main` (fast-forward puro,
+sem perda de trabalho — o checkout local não tinha nenhum commit próprio
+não publicado). Revistas também as 4 pull requests abertas hoje por
+rotinas especializadas de segurança (S01-S03) e desenvolvimento de NFC
+(`#2`-`#5`, branches próprias, por rever/mergear pelo utilizador) — esta
+rotina cobre "código completo" (firmware/bridge/dashboard/ML) e evitou
+duplicar essas frentes já em curso.
+
+Em vez de duplicar o teste de fumo já publicado, esta execução tentou
+encolher ainda mais o dataset minúsculo usado nesse teste (mais sujeitos,
+sessões de minutos em vez das 24h de produção, para tornar o CI mais
+rápido) — e isso **reproduziu um bug real, não fabricado**, em
+`split_by_subject()` (`ml/train_activity_classifier.py`, partilhada pelos
+dois scripts de classificação): com 6 sujeitos/seed=7 e sessões de
+30+20 min, o split por sujeito deixou por azar a classe "Alimentação"
+inteiramente do lado do teste, ausente do treino — `model.fit()` do
+XGBoost rebentou com "Invalid classes inferred from unique values of y"
+(`num_class` é fixado a partir do encoder, ajustado ao dataset inteiro,
+mas `y_train` não continha todos os valores `0..num_class-1`). Distinto do
+bug do `LabelEncoder` já corrigido em 2026-07-07 (esse cobria o lado
+inverso — classes ausentes do treino só rebentavam no `transform()` do
+teste) — a mesma armadilha já assinalada no roteiro do `ml/README.md`
+("mais sujeitos/sementes diferentes"), desta vez reproduzida de facto.
+
+**Corrigido**: `split_by_subject()` passou a devolver ao treino, de forma
+determinística, os sujeitos de teste que contribuem uma classe em falta,
+até nenhuma classe do dataset ficar ausente do treino. **Confirmado sem
+efeito no dataset de produção** (8 sujeitos, seed=42): a função continua a
+devolver os mesmos sujeitos de teste (`[0, 6]`, idênticos aos já
+commitados em `activity_classifier_metrics.json`) — nenhum modelo/relatório
+já treinado precisou de ser substituído.
+
+`ml/tests/test_train_smoke.py` (já publicado pela rotina paralela) ganhou
+2 testes de regressão novos, que encolhem `DAY_SESSION_MINUTES`/
+`NIGHT_SESSION_MINUTES` só para o teste (via `monkeypatch`) para
+reproduzir de forma fiável o cenário degenerado. **Confirmado que os dois
+testes falham sem a correção** (revertida temporariamente com
+`git apply -R` antes de commitar, reproduzindo o erro exato do XGBoost
+acima) **e passam com ela reaplicada** — não é uma correção assumida.
+
+**Verificado de facto** (venv desta rotina cloud, `numpy`/`pandas`/
+`scikit-learn`/`xgboost`/`pytest`): `cd ml && python -m pytest tests/ -v` →
+**19/19 testes passam** (17 já existentes + 2 novos), ~28s de execução
+total. Ver `ml/README.md`, secção "Bug real em `split_by_subject()`
+encontrado e corrigido", para o detalhe completo.
+
+**Ainda por fazer** (fora do âmbito desta correção pontual, já registado em
+`ml/README.md`): teste de fumo equivalente para `train_lstm_autoencoder.py`
+(TensorFlow) e `measure_rf_footprint.py` (toolchain ARM), nenhum dos dois
+instalado neste CI leve.
+
+## Firmware: corrida de dados (race condition) real no `QspiRingBuffer` — corrigida (2026-07-08, rotina cloud)
+
+`git fetch origin main` no início desta execução não trouxe nenhum commit
+novo (local já sincronizado com `origin/main` em `97ff720`). Revistas as
+Prioridades 0-2/6-8 (bloqueadas por hardware/decisão do utilizador), a
+Prioridade 3 (app móvel, fora do âmbito de uma execução autónoma), e a
+Prioridade 5 (`ml/`, sem itens novos não bloqueados por hardware/dados
+reais — ver `ml/README.md`, "Próximos passos"), e confirmado que as 4 PRs
+abertas hoje por rotinas especializadas (NFC `#2`, segurança firmware/
+backend/frontend `#3`-`#5`, otimização de firmware `#6`, esta última sem
+alterações) já cobrem NFC, auditoria de segurança e RAM/CPU — esta
+execução (rotina "código completo", catch-all) delegou uma varredura de
+bugs dirigida, explicitamente instruída a evitar todas essas áreas já
+cobertas hoje por outras rotinas (NFC, GATT/auth, rate-limiting/injeção,
+XSS/innerHTML do dashboard, RAM/CPU) e a integração bridge↔API REST (já
+documentada como decisão de arquitetura deliberadamente adiada, ver secção
+anterior). Achado real e confirmado por leitura direta do código (não
+fabricado):
+
+**Bug**: `src/QspiRingBuffer/QspiRingBuffer.cpp` — todo o estado partilhado
+do módulo (`s_meta.head`/`tail`/`count`/`dropped`, `s_metaDirty`,
+`s_metaNextSlot`, etc., variáveis globais no ficheiro) era lido e escrito
+sem qualquer secção crítica, apesar de ser acedido concorrentemente por
+**duas tasks FreeRTOS independentes**: `storageTask` (`main.cpp`, chama
+`push()` a ~52Hz, taxa do IMU) e `gattDumpTask` (`Ble.cpp`, chama
+`count()`/`peek()`/`advanceTail()`/`pop()` continuamente enquanto há um
+central BLE ligado em modo de dados). `push()` faz uma sequência
+read-modify-write em vários passos sobre `s_meta.head`/`tail`/`count`
+(via `prepareHeadSectorForWrite()` + o corpo do próprio `push()`);
+`peek()`/`pop()`/`advanceTail()` fazem o mesmo do lado da leitura. Um
+context-switch do FreeRTOS a meio de uma dessas sequências (ex.:
+`storageTask` interrompida a meio do incremento de `count` em `push()`,
+com `gattDumpTask` a decrementar `count` em `advanceTail()` nesse
+intervalo) pode perder uma atualização e dessincronizar de forma
+permanente o estado lógico do buffer (`head`/`tail`/`count`) do que
+realmente está gravado na flash — registos nunca descarregados por BLE,
+ou índices corrompidos ao atravessar um limite de setor. **Não é um bug
+novo introduzido hoje nem uma suposição**: o próprio comentário já
+existente junto de `kDumpCtrlResetReadings` (`Ble.cpp`) já dizia
+explicitamente "uma correção completa exigiria sincronização (mutex/secção
+crítica) dentro do próprio `QspiRingBuffer`, fora do âmbito deste comando
+pontual" — ou seja, a lacuna já estava identificada e documentada, mas
+nunca corrigida, e o aviso cobria só o comando de reset, não a corrida
+muito mais frequente entre `push()` e `peek()`/`pop()`/`advanceTail()` que
+acontece em CADA ciclo de streaming normal, não só num reset. Distinto
+também do padrão já usado (e corretamente) em `Imu.cpp`/`Ppg.cpp`
+(`getLatestSample()`/`getLatest()`, protegidos por
+`taskENTER_CRITICAL()`/`taskEXIT_CRITICAL()`) — confirma que o projeto já
+reconhece este tipo de corrida entre tasks como um problema real quando
+existe, só não tinha sido aplicado aqui.
+
+**Corrigido**: `QspiRingBuffer.cpp` ganhou um mutex FreeRTOS
+(`SemaphoreHandle_t s_mutex`, criado sob procura em `ensureMutex()`) e uma
+pequena classe RAII (`LockGuard`, adquire no construtor/liberta no
+destrutor) para não ter de reestruturar cada função (`push`/`peek`/`pop`/
+`advanceTail`/`begin`/`format`/`isEmpty`/`count`/`capacity`/
+`droppedByErase`/`sync`) para um único ponto de saída — todas ganharam
+`LockGuard lock;` como primeira linha, cobrindo automaticamente todos os
+`return` antecipados já existentes. **Deliberadamente um mutex, não
+`taskENTER_CRITICAL`/`taskEXIT_CRITICAL`** (ao contrário de `Imu.cpp`/
+`Ppg.cpp`): estas funções fazem I/O de flash (transações SPI, podem
+demorar) misturado com as mutações de `s_meta` — desativar interrupções
+durante esse tempo (o que `taskENTER_CRITICAL` faz) bloquearia a pilha
+BLE e os temporizadores do sistema; um mutex bloqueia só a task
+concorrente, não as interrupções. Dois cuidados para evitar deadlock com
+um mutex não-reentrante: (a) `begin()` chama uma nova função interna
+`formatUnlocked()` (o corpo antigo de `format()`, movido para dentro do
+namespace anónimo, sem lock próprio) em vez do `format()` público, porque
+`begin()` já detém o lock quando precisa de formatar; `format()` público
+passou a ser um wrapper fino que toma o lock e chama `formatUnlocked()`;
+(b) `isEmpty()` deixou de chamar o `count()` público (que tentaria
+readquirir o mesmo mutex) e passou a usar uma nova `countUnlocked()`
+interna. Efeito lateral positivo, não planeado inicialmente: o comando
+`kDumpCtrlResetReadings` (`Ble.cpp`) chama `QspiRingBuffer::format()`, que
+agora bloqueia até qualquer `push()`/`peek()`/`pop()`/`advanceTail()` em
+curso nessa outra task terminar — a corrida "contra quem escreve" que o
+comentário original dizia explicitamente não eliminar está agora de facto
+fechada, não só reduzida (comentário em `Ble.cpp` atualizado para refletir
+isto, mantendo o `s_dumpStopRequested`+`vTaskDelay(100)` só como
+otimização para não deixar `gattDumpTask` bloqueada no mutex sem
+necessidade, já não como o que garante a correção).
+
+**Verificação feita** (sem toolchain ARM nem hardware disponíveis nesta
+rotina cloud, mesma limitação já documentada em várias secções acima —
+`pio`/`arm-none-eabi-gcc` nem sequer estão instalados neste ambiente):
+revisão manual linha a linha do módulo inteiro após a alteração
+(confirmando que todos os pontos de retorno de cada função ficam dentro do
+âmbito do novo `LockGuard`, e que não há nenhuma chamada a uma função
+pública deste módulo a partir de dentro de outra já bloqueada, o que
+causaria deadlock com um mutex não-reentrante) + script Python que conta
+chavetas/parênteses/colchetes antes/depois: `QspiRingBuffer.cpp` fica
+perfeitamente equilibrado (90/90, 447/447, 35/35); `Ble.cpp` (só o
+comentário foi alterado) mantém exatamente o mesmo desequilíbrio
+pré-existente já documentado antes desta rotina (127/126 chavetas,
++7 parênteses a mais a fechar — confirmado idêntico ao delta de antes da
+edição, ou seja, esta alteração não introduziu nenhum desequilíbrio novo).
+**Não confirmado em hardware real** (bloqueado pela indisponibilidade
+atual da placa, ver "Riscos/bloqueios ativos", ponto 8) — o comportamento
+lógico de cada função não muda (mesma sequência de leituras/escritas de
+`s_meta`), só passa a ser atómica em relação à outra task, por isso o
+risco de regressão funcional é baixo, mas fica pendente de confirmação:
+quando o hardware voltar a estar acessível, correr `selfTest()` (não
+muda de comportamento esperado) e depois confirmar em streaming BLE real
+com o dispositivo a gravar (`storageTask`) e a transmitir (`gattDumpTask`)
+ao mesmo tempo por um período longo (minutos), sem `count()` div `capacity()`
+a mostrar valores inconsistentes nem `sent_records`/`acked_records` a
+divergir do esperado — o mesmo tipo de confirmação já pendente para outras
+alterações recentes deste módulo (ver "Otimização de CPU/flash", acima).
+
+**Limitação honesta**: um mutex FreeRTOS pode, em teoria, sofrer inversão
+de prioridade se uma task de prioridade mais alta ficar bloqueada à espera
+de uma de prioridade mais baixa que detém o lock — não avaliado aqui
+porque as prioridades relativas de `storageTask`/`gattDumpTask` não foram
+revistas nesta execução (fora do âmbito desta correção pontual); dado que
+ambas as tasks já fazem I/O de flash bloqueante durante o tempo em que
+teriam o lock de qualquer forma, o risco adicional introduzido pelo mutex
+em si é considerado pequeno, mas fica registado como possível trabalho
+futuro se algum dia se observar latência inesperada em hardware real.
+
+**Confirmado a compilar em CI real (2026-07-08, mesmo push)**: verificado
+via `actions_get` da API do GitHub — `run_id=28925184764`, commit
+`699cd78`, workflow "PlatformIO CI" (`c-cpp.yml`), `completed`/`success`.
+Esta é a primeira confirmação real de build (não só revisão manual) desta
+alteração — `xSemaphoreCreateMutex()`/`xSemaphoreTake()`/`xSemaphoreGive()`
+via `<rtos.h>` compilam sem erro no toolchain ARM real usado pela CI,
+confirmando que a suposição de que estas funções estão disponíveis neste
+core (Adafruit nRF52, mesmo já usado por `Imu.cpp`/`Ppg.cpp` só para
+`taskENTER_CRITICAL`/`taskEXIT_CRITICAL`, nunca antes para semáforos) era
+correta. Continua **não confirmado em hardware real** (ver acima) — CI
+só garante que compila, não que o comportamento em runtime está correto.
