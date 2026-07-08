@@ -2348,6 +2348,56 @@ nível do módulo (não a cada render), listeners de eventos já anexados
 uma única vez, sem `setInterval` demasiado agressivo. Nenhuma alteração
 artificial foi feita nestas áreas só para ter algo a registar.
 
+## Otimização diária de RAM/CPU/desempenho — 2026-07-08 (sem alterações)
+
+Rotina firmware-optimization. `git fetch`/checkout de `origin/main`
+confirmado (fast-forward, sem conflitos).
+
+- **Baseline tentada e falhada, mesma causa de 2026-07-07**: `pip install
+  platformio` seguido de `pio run` — o proxy do ambiente continua a
+  bloquear `files.seeedstudio.com` (download da toolchain ARM), agora
+  confirmado com detalhe via `$HTTPS_PROXY/__agentproxy/status` →
+  `recentRelayFailures`: `connect_rejected`, "gateway respondeu 403 ao
+  CONNECT", para `files.seeedstudio.com:443` e também
+  `collector.platformio.org:443`. Sem `pio run` a compilar, não há
+  RAM/Flash % de baseline nem forma de medir antes/depois nesta rotina —
+  mesma limitação de ambiente já documentada, não resolvida entretanto.
+- **Commits no firmware desde a última rotina de otimização
+  (2026-07-07)**: só um, `ec8004a` (correção de mismatch de chave AES +
+  comando de debug `CLEARKEY` pela série) — só corre quando o comando é
+  recebido manualmente, não é hot path, sem relevância de CPU/RAM/energia.
+- **Revisão dirigida sem hardware/build** (só leitura de código): auditoria
+  de todas as chamadas `delay()` em `src/`/`include/` (26 ocorrências) —
+  todas em arranque/calibração/debounce/`delayPollingEmergency` já
+  existentes, nenhuma busy-wait nova dentro de um hot loop de task.
+  Confirmado também que não há commits novos a tocar `Imu`/`Ppg`/`Ble`
+  hot paths desde a auditoria de 2026-07-07. Sem watermarks reais novos
+  desde 2026-07-03 (`DEBUG_STACK_WATERMARKS` continua sem leitura em
+  hardware — ver "Riscos/bloqueios ativos", ponto 5), nenhuma stack pode
+  ser tocada sem arriscar violar a margem mínima de 3x exigida.
+- **Conclusão**: nenhum alvo com justificação mensurável disponível sem
+  acesso a hardware físico ou à toolchain ARM (ambos bloqueados nesta
+  rotina cloud). **Sem alterações de código nesta execução** — resultado
+  esperado quando o firmware já está afinado, conforme os critérios de
+  término desta rotina.
+
+### Lista de candidatos a otimização (revista 2026-07-08)
+
+| Candidato | Dado que falta | Estado |
+|---|---|---|
+| Confirmar 2ª ronda de stacks (`storage_task`/`ppg_task`/`ble_gatt_dump_task` → 768/640/1280 words) | Watermarks reais pós-alteração via `DEBUG_STACK_WATERMARKS` em hardware | Pendente, sem novidade desde 2026-07-03 |
+| `imu_task` (768 words, margem ~1.5x) | Watermark mais recente/em pior caso, para avaliar se sobra alguma margem; não reduzir sem isso (regra de ≥3x) | Pendente, baixa prioridade — margem já apertada |
+| GPS CAM-M8Q na placa sem nenhum código a inicializá-lo | Medição de corrente real (multímetro) em hardware — se o módulo não consumir em repouso sem `begin()`, não há nada a otimizar aqui | Pendente, precisa de hardware |
+| LoRa Wio-SX1262 (`Lora::begin()` falha sempre nesta placa, pinout NSS por confirmar) | Medição de corrente após uma tentativa de `begin()` falhada, para confirmar que nenhum periférico fica "meio-ligado" a consumir | Pendente, precisa de hardware |
+| Flags de debug ativas (`DEBUG_SERIAL_WAKE`, `DEBUG_STACK_WATERMARKS`) | Decisão do utilizador sobre quando desligar (botão físico continua partido; 2ª ronda de stacks continua por confirmar) | Fora do âmbito desta rotina — não decidir sozinho |
+
+**Nota de processo**: a partir desta execução, esta rotina deixa de
+publicar diretamente em `main` (alterado pelo utilizador) — passa a
+committar numa branch dedicada (`rotina/firmware-optimization`) e a abrir/
+atualizar um Pull Request contra `main`, mesmo em execuções sem alterações
+de firmware (como esta), para que a atualização deste ficheiro também
+passe por revisão.
+
 ## Verificação de bugs (rotina automática) — 2026-07-07, 3ª passagem do dia
 
 Com as Prioridades 1-4 já confirmadas esgotadas por duas execuções
