@@ -55,6 +55,35 @@ def split_by_subject(df, test_fraction=TEST_SUBJECT_FRACTION, seed=42):
     rng = np.random.default_rng(seed)
     n_test = max(1, round(len(subjects) * test_fraction))
     test_subjects = set(rng.choice(subjects, size=n_test, replace=False).tolist())
+
+    # BUG CORRIGIDO (2026-07-08, rotina cloud): um split por sujeito pode,
+    # por azar da amostra, deixar uma classe inteiramente do lado do teste
+    # e ausente do treino — distinto do bug já corrigido do LabelEncoder
+    # (que cobria o lado inverso, "unseen labels" no transform do teste).
+    # Reproduzido diretamente com um dataset pequeno (6 sujeitos, sessões
+    # curtas, ver ml/tests/test_train_smoke.py): o XGBoost rebenta em
+    # model.fit() com "Invalid classes inferred from unique values of y"
+    # porque num_class é fixado a partir do encoder (ajustado ao dataset
+    # inteiro), mas y_train não contém todos os valores 0..num_class-1.
+    # Não acontece com os 8 sujeitos/seed=42 usados em produção (todas as
+    # classes já calham do lado do treino), mas é a mesma armadilha real já
+    # assinalada para "mais sujeitos/sementes diferentes" no roteiro do
+    # ml/README.md. Corrigido devolvendo ao treino, de forma determinística,
+    # os sujeitos de teste que contribuem uma classe em falta, até nenhuma
+    # classe do dataset ficar ausente do treino.
+    all_classes = set(df["label"].unique())
+    subject_classes = df.groupby("subject_id")["label"].agg(lambda s: set(s.unique()))
+    while True:
+        train_subjects = [s for s in subjects if s not in test_subjects]
+        train_classes = set().union(*(subject_classes[s] for s in train_subjects)) if train_subjects else set()
+        missing = all_classes - train_classes
+        if not missing:
+            break
+        candidates = sorted(s for s in test_subjects if missing & subject_classes[s])
+        if not candidates:
+            break  # nenhum sujeito de teste contém a classe em falta — nada a fazer
+        test_subjects.discard(candidates[0])
+
     train_df = df[~df["subject_id"].isin(test_subjects)]
     test_df = df[df["subject_id"].isin(test_subjects)]
     return train_df, test_df, sorted(test_subjects)

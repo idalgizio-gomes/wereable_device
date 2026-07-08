@@ -596,6 +596,44 @@ minutos) foram adicionados ao `ml-tests.yml` só para este teste.
 (dominado pela geração do dataset minúsculo, ~9s). `git status` confirmado
 limpo em `ml/models/`/`ml/reports/` depois de correr — nada escrito.
 
+### Bug real em `split_by_subject()` encontrado e corrigido (2026-07-08, rotina cloud seguinte)
+
+Ao rever este teste de fumo (recém-publicado por uma rotina paralela horas
+antes, ver acima) antes de decidir o próximo passo do dia, esta execução
+tentou reduzir ainda mais o dataset minúsculo usado (mais sujeitos, sessões
+de poucos minutos em vez das 24h de produção) para tornar o smoke test mais
+rápido — e isso **reproduziu um bug real** em `split_by_subject()`
+(`train_activity_classifier.py`, usada por ambos os scripts de
+classificação): com 6 sujeitos/seed=7 e sessões de 30+20 min, o split por
+sujeito deixou por azar a classe "Alimentação" inteiramente do lado do
+teste, ausente do treino — `model.fit()` do XGBoost rebentou com "Invalid
+classes inferred from unique values of y" (`num_class` é fixado a partir
+do encoder, ajustado ao dataset inteiro, mas `y_train` não continha todos
+os valores `0..num_class-1`). **Distinto** do bug do `LabelEncoder` já
+corrigido em 2026-07-07 (esse cobria o lado inverso — classes ausentes do
+treino só rebentavam no `transform()` do teste, não no `fit()`) — a mesma
+armadilha já assinalada no roteiro ("mais sujeitos/sementes diferentes"),
+desta vez reproduzida de facto com um dataset menor, não só teorizada.
+
+**Corrigido**: `split_by_subject()` passou a devolver ao treino, de forma
+determinística, os sujeitos de teste que contribuem uma classe em falta,
+até nenhuma classe do dataset ficar ausente do treino. **Confirmado sem
+efeito no dataset de produção** (8 sujeitos, seed=42): a função continua a
+devolver exatamente os mesmos sujeitos de teste (`[0, 6]`, idênticos aos já
+commitados em `activity_classifier_metrics.json`) — nenhum modelo/relatório
+já treinado precisou de ser substituído.
+
+`ml/tests/test_train_smoke.py` ganhou 2 testes de regressão
+(`test_split_by_subject_never_drops_a_class_entirely_from_train`,
+`test_xgboost_trains_on_the_degenerate_small_split_without_crashing`), que
+encolhem `DAY_SESSION_MINUTES`/`NIGHT_SESSION_MINUTES` só para o teste (via
+`monkeypatch`) para reproduzir de forma fiável o mesmo cenário degenerado.
+**Confirmado que os dois testes falham sem a correção** (revertida
+temporariamente antes de commitar, com o erro exato do XGBoost acima) **e
+passam com ela** — não é uma correção assumida, foi reproduzida a falhar e
+depois a passar. **19/19 testes do `ml/`** a passar no total (17 já
+existentes + 2 novos), ~28s de execução.
+
 ## Próximos passos (por ordem)
 
 1. ~~Medir footprint real (flash/RAM) do Random Forest via `emlearn`~~ —
