@@ -3269,3 +3269,64 @@ exemplo de corpo JSON.
 `completed`/`success` em `bridge-tests.yml`. Mesma prática já registada
 para as outras suites deste projeto — os 53 testes reais correram no CI,
 não só localmente.
+
+## `ml/`: bug real em `split_by_subject()` encontrado e corrigido (2026-07-08, rotina cloud)
+
+Nota de processo: `git fetch origin main` revelou 74 commits novos desde o
+checkout local desta rotina (branch antiga, nunca publicada) — incluindo,
+horas antes desta execução, uma rotina paralela que já tinha implementado
+exatamente o item que esta rotina ia propor a seguir na Prioridade 5
+(`ml/README.md`, "Testes automáticos + CI"): um teste de fumo para os
+scripts de treino do classificador (`ml/tests/test_train_smoke.py`,
+commit `8d71b8f`) — e outra que adicionou o 1º endpoint de escrita à API
+REST (`bridge/api.py`, commit `aef3e08`). Resolvido com
+`git checkout main && git merge --ff-only origin/main` (fast-forward puro,
+sem perda de trabalho — o checkout local não tinha nenhum commit próprio
+não publicado). Revistas também as 4 pull requests abertas hoje por
+rotinas especializadas de segurança (S01-S03) e desenvolvimento de NFC
+(`#2`-`#5`, branches próprias, por rever/mergear pelo utilizador) — esta
+rotina cobre "código completo" (firmware/bridge/dashboard/ML) e evitou
+duplicar essas frentes já em curso.
+
+Em vez de duplicar o teste de fumo já publicado, esta execução tentou
+encolher ainda mais o dataset minúsculo usado nesse teste (mais sujeitos,
+sessões de minutos em vez das 24h de produção, para tornar o CI mais
+rápido) — e isso **reproduziu um bug real, não fabricado**, em
+`split_by_subject()` (`ml/train_activity_classifier.py`, partilhada pelos
+dois scripts de classificação): com 6 sujeitos/seed=7 e sessões de
+30+20 min, o split por sujeito deixou por azar a classe "Alimentação"
+inteiramente do lado do teste, ausente do treino — `model.fit()` do
+XGBoost rebentou com "Invalid classes inferred from unique values of y"
+(`num_class` é fixado a partir do encoder, ajustado ao dataset inteiro,
+mas `y_train` não continha todos os valores `0..num_class-1`). Distinto do
+bug do `LabelEncoder` já corrigido em 2026-07-07 (esse cobria o lado
+inverso — classes ausentes do treino só rebentavam no `transform()` do
+teste) — a mesma armadilha já assinalada no roteiro do `ml/README.md`
+("mais sujeitos/sementes diferentes"), desta vez reproduzida de facto.
+
+**Corrigido**: `split_by_subject()` passou a devolver ao treino, de forma
+determinística, os sujeitos de teste que contribuem uma classe em falta,
+até nenhuma classe do dataset ficar ausente do treino. **Confirmado sem
+efeito no dataset de produção** (8 sujeitos, seed=42): a função continua a
+devolver os mesmos sujeitos de teste (`[0, 6]`, idênticos aos já
+commitados em `activity_classifier_metrics.json`) — nenhum modelo/relatório
+já treinado precisou de ser substituído.
+
+`ml/tests/test_train_smoke.py` (já publicado pela rotina paralela) ganhou
+2 testes de regressão novos, que encolhem `DAY_SESSION_MINUTES`/
+`NIGHT_SESSION_MINUTES` só para o teste (via `monkeypatch`) para
+reproduzir de forma fiável o cenário degenerado. **Confirmado que os dois
+testes falham sem a correção** (revertida temporariamente com
+`git apply -R` antes de commitar, reproduzindo o erro exato do XGBoost
+acima) **e passam com ela reaplicada** — não é uma correção assumida.
+
+**Verificado de facto** (venv desta rotina cloud, `numpy`/`pandas`/
+`scikit-learn`/`xgboost`/`pytest`): `cd ml && python -m pytest tests/ -v` →
+**19/19 testes passam** (17 já existentes + 2 novos), ~28s de execução
+total. Ver `ml/README.md`, secção "Bug real em `split_by_subject()`
+encontrado e corrigido", para o detalhe completo.
+
+**Ainda por fazer** (fora do âmbito desta correção pontual, já registado em
+`ml/README.md`): teste de fumo equivalente para `train_lstm_autoencoder.py`
+(TensorFlow) e `measure_rf_footprint.py` (toolchain ARM), nenhum dos dois
+instalado neste CI leve.
