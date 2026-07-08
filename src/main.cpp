@@ -44,6 +44,7 @@
 #include "Clock/Clock.h"               // Relógio interno (hora/data), sincronizado via BLE
 #include "Lora/Lora.h"                 // Rádio LoRa Wio-SX1262 (experimental — ver Lora.h)
 #include "Emergency/Emergency.h"       // Deteção de emergência: SOS manual + queda/inatividade (ver Emergency.h)
+#include "Nfc/Nfc.h"                   // NFC — preparação, antena ainda por confirmar (ver Nfc.h)
 
 // ============================================================
 // FLAGS DE CONFIGURAÇÃO (interruptores para ligar/desligar comportamentos)
@@ -724,6 +725,19 @@ void initLora() {
   Lora::sendTest("CareWear LoRa test");
 }
 
+// NFC — preparacao apenas (ver Nfc.h). A antena NFC ainda nao esta
+// confirmada no esquematico desta placa, por isso begin() nao ativa
+// UICR.NFCPINS nem toca em P0.09/P0.10 — so regista o estado. Tolerante
+// a falhas tal como o LoRa: nada no resto do firmware depende de
+// Nfc::begin() ter sucesso.
+void initNfc() {
+  if (!Nfc::begin()) {
+    Serial.println("[NFC] init nao avancou — a continuar sem NFC (ver Nfc.h, antena por confirmar)");
+    return;
+  }
+  Serial.println("[NFC] ativo");
+}
+
 // QSPI RING BUFFER — inicializa o "livro de registo" na flash externa
 // onde ficam guardadas as amostras de IMU/PPG (ver storageTask acima).
 void initQspiRingBuffer() {
@@ -895,6 +909,8 @@ void setup() {
   initBleDataLink();
   Serial.println("[BOOT] step: initLora");
   initLora();
+  Serial.println("[BOOT] step: initNfc");
+  initNfc();
   Serial.println("[BOOT] step: initEmergency");
   Emergency::begin(BTN_PIN);
   Serial.println("[BOOT] step: showHourDateScreen");
@@ -970,6 +986,7 @@ void loop() {
     }
 #endif
     Emergency::update();
+    Nfc::update(); // no-op enquanto o hardware NFC nao estiver confirmado (ver Nfc.h)
 
     if (buttonPressedStable()) {
       // (String corrigida: tinha um byte de codificacao invalido no "ã",
