@@ -3185,3 +3185,10 @@ teste de fumo equivalente para `train_lstm_autoencoder.py` (exigiria
 TensorFlow em CI — decisão de custo, não implementada) e para
 `measure_rf_footprint.py` (exige o toolchain ARM real, já usado localmente
 por esta rotina só quando disponível — não está nesta sessão cloud).
+
+**Confirmado a passar em CI real (2026-07-08, mesmo push)**: verificado via
+`actions_get` da API do GitHub — `run_id=28912450462`, commit `8d71b8f`,
+`completed`/`success`. Mesma prática já registada para `bridge-tests.yml`/
+`ml-tests.yml` — o workflow instalou mesmo `scikit-learn`/`xgboost` e correu
+os 17 testes reais (incluindo os 2 novos de `test_train_smoke.py`) neste
+push a `main`, não só um YAML válido sem sinal de vida.
