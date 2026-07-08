@@ -181,3 +181,90 @@ class TestActivityDistribution:
         assert body["sleep"]["duration_minutes"] == 120
         assert body["sleep"]["windows_count"] == 1
         assert body["rest"]["duration_minutes"] == 0
+
+
+def _make_medication(db, patient):
+    med = sa.Medication(
+        uuid="med-adh-1", patient_id=patient.id, name="Donepezilo",
+        dosage="5mg", frequency="1x/dia", start_date=datetime.utcnow(),
+    )
+    db.add(med)
+    db.commit()
+    db.refresh(med)
+    return med
+
+
+class TestRecordMedicationAdherence:
+    def test_requires_api_key(self, client, db):
+        patient, _ = _make_patient_device(db)
+        med = _make_medication(db, patient)
+        resp = client.post(
+            f"/api/medications/{med.id}/adherence",
+            json={"scheduled_datetime": "2026-07-08T08:00:00", "taken": True},
+        )
+        assert resp.status_code == 401
+
+    def test_unknown_medication_404(self, client):
+        resp = client.post(
+            "/api/medications/9999/adherence",
+            json={"scheduled_datetime": "2026-07-08T08:00:00", "taken": True},
+            headers={"X-API-Key": API_KEY},
+        )
+        assert resp.status_code == 404
+
+    def test_creates_record_with_taken_at(self, client, db):
+        patient, _ = _make_patient_device(db)
+        med = _make_medication(db, patient)
+        resp = client.post(
+            f"/api/medications/{med.id}/adherence",
+            json={"scheduled_datetime": "2026-07-08T08:00:00", "taken": True, "method": "manual_entry"},
+            headers={"X-API-Key": API_KEY},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["taken"] is True
+        assert body["taken_at"] is not None
+        assert body["method"] == "manual_entry"
+
+        rows = db.query(sa.MedicationAdherence).filter(sa.MedicationAdherence.medication_id == med.id).all()
+        assert len(rows) == 1
+
+        audit = db.query(sa.AuditLog).filter(sa.AuditLog.action == "medication_adherence.write").all()
+        assert len(audit) == 1
+        assert audit[0].resource_id == med.id
+
+    def test_repeated_call_updates_instead_of_duplicating(self, client, db):
+        patient, _ = _make_patient_device(db)
+        med = _make_medication(db, patient)
+        payload = {"scheduled_datetime": "2026-07-08T08:00:00", "taken": True}
+        client.post(f"/api/medications/{med.id}/adherence", json=payload, headers={"X-API-Key": API_KEY})
+        resp2 = client.post(f"/api/medications/{med.id}/adherence", json=payload, headers={"X-API-Key": API_KEY})
+        assert resp2.status_code == 200
+
+        rows = db.query(sa.MedicationAdherence).filter(sa.MedicationAdherence.medication_id == med.id).all()
+        assert len(rows) == 1
+
+    def test_taken_false_clears_taken_at(self, client, db):
+        patient, _ = _make_patient_device(db)
+        med = _make_medication(db, patient)
+        payload = {"scheduled_datetime": "2026-07-08T08:00:00", "taken": True}
+        client.post(f"/api/medications/{med.id}/adherence", json=payload, headers={"X-API-Key": API_KEY})
+
+        resp = client.post(
+            f"/api/medications/{med.id}/adherence",
+            json={"scheduled_datetime": "2026-07-08T08:00:00", "taken": False},
+            headers={"X-API-Key": API_KEY},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["taken"] is False
+        assert resp.json()["taken_at"] is None
+
+    def test_invalid_method_rejected(self, client, db):
+        patient, _ = _make_patient_device(db)
+        med = _make_medication(db, patient)
+        resp = client.post(
+            f"/api/medications/{med.id}/adherence",
+            json={"scheduled_datetime": "2026-07-08T08:00:00", "taken": True, "method": "carrier_pigeon"},
+            headers={"X-API-Key": API_KEY},
+        )
+        assert resp.status_code == 422

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-api.py — API REST somente-leitura sobre as queries analíticas de storage_advanced.py.
+api.py — API REST sobre storage_advanced.py: leitura (queries analíticas) +
+um primeiro endpoint de escrita (aderência a medicação).
 
 Primeiro passo do "próximo item concreto da Prioridade 4" registado em
 PROJECT_STATUS.md (secção "Cifra real dos campos sensíveis (NIF, morada) +
@@ -9,30 +10,33 @@ serviço HTTP, para que o dashboard possa um dia consumir histórico real via
 rede em vez de depender só do bridge WebSocket local (`ble_bridge.py`,
 `ws://localhost:8765`).
 
-Âmbito deliberadamente pequeno para uma execução: só leitura (GET), sem
-escrita/mutações. Correr localmente:
+Âmbito da primeira versão (2026-07-07): só leitura (GET). Correr localmente:
 
     pip install -r bridge/requirements_db.txt
     export CAREWEAR_API_KEY=<chave escolhida>
     cd bridge && uvicorn api:app --host 127.0.0.1 --port 8766
 
-**Ainda por fazer** (fora do âmbito desta primeira versão, ver
-PROJECT_STATUS.md): integração com `web/dashboard/index.html` (que hoje só
-fala com o bridge por WebSocket), integração com `ble_bridge.py`
-(`storage_advanced.py` continua sem ligação ao streaming BLE real — só
-`storage.py`, o módulo SQLite mais simples, está integrado), autenticação
-de produção (por-utilizador, rotação de chave, rate-limiting — a chave
-estática única aqui é só um protótipo, mesmo nível de honestidade já usado
-para a cifra AES-CTR/AES-GCM do projeto).
+**2026-07-08**: adicionado o primeiro endpoint de escrita — POST de
+aderência a medicação (ver `record_medication_adherence` abaixo), o item
+"endpoints de escrita" já listado como "ainda por fazer". Continua sem
+integração com `web/dashboard/index.html` (que hoje só fala com o bridge
+por WebSocket, e cujo botão "Marcar como tomado" só escreve em
+`localStorage`) nem com `ble_bridge.py` (`storage_advanced.py` continua sem
+ligação ao streaming BLE real — só `storage.py`, o módulo SQLite mais
+simples, está integrado) — ligar este endpoint a qualquer um dos dois é
+trabalho futuro registado em PROJECT_STATUS.md, não decidido aqui.
+Autenticação continua a mesma chave estática de protótipo (rotação/
+por-utilizador/rate-limiting: decisão pendente, já registada).
 """
 from __future__ import annotations
 
 import hmac
 import os
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import storage_advanced as sa
@@ -141,3 +145,77 @@ def activity_distribution(
     except ValueError:
         raise HTTPException(status_code=400, detail="Formato de data inválido, use AAAA-MM-DD")
     return sa.Analytics.daily_activity_distribution(db, device_id, parsed_date)
+
+
+class MedicationAdherenceIn(BaseModel):
+    """Corpo do POST de aderência — ver `record_medication_adherence` abaixo."""
+
+    scheduled_datetime: datetime
+    taken: bool
+    method: Literal["manual_entry", "wearable_detection", "ai_inference"] = "manual_entry"
+    notes: Optional[str] = None
+
+
+@app.post(
+    "/api/medications/{medication_id}/adherence",
+    dependencies=[Depends(_require_api_key)],
+)
+def record_medication_adherence(
+    medication_id: int,
+    body: MedicationAdherenceIn,
+    request: Request,
+    db: Session = Depends(_get_db),
+):
+    """Regista (ou atualiza) se uma dose agendada foi tomada.
+
+    Idempotente por desenho: `(medication_id, scheduled_datetime)` identifica
+    uma dose agendada — um pedido repetido para a mesma dose atualiza o
+    registo existente em vez de criar duplicados (mesmo comportamento que
+    `markDoseTaken()` já tem no dashboard via localStorage, só que aqui
+    persistido). Cada escrita fica registada em `AuditLog` (ação sensível,
+    mesmo padrão já documentado para o resto do schema).
+    """
+    medication = db.get(sa.Medication, medication_id)
+    if medication is None:
+        raise HTTPException(status_code=404, detail="Medicamento não encontrado")
+
+    record = (
+        db.query(sa.MedicationAdherence)
+        .filter(
+            sa.MedicationAdherence.medication_id == medication_id,
+            sa.MedicationAdherence.scheduled_datetime == body.scheduled_datetime,
+        )
+        .first()
+    )
+    now = datetime.utcnow()
+    if record is None:
+        record = sa.MedicationAdherence(medication_id=medication_id, scheduled_datetime=body.scheduled_datetime)
+        db.add(record)
+    record.taken = body.taken
+    record.taken_at = now if body.taken else None
+    record.method = body.method
+    record.notes = body.notes
+
+    db.add(sa.AuditLog(
+        action="medication_adherence.write",
+        resource_type="medication_adherence",
+        resource_id=medication_id,
+        details={
+            "taken": body.taken,
+            "method": body.method,
+            "scheduled_datetime": body.scheduled_datetime.isoformat(),
+        },
+        ip_address=request.client.host if request.client else None,
+    ))
+    db.commit()
+    db.refresh(record)
+
+    return {
+        "id": record.id,
+        "medication_id": record.medication_id,
+        "scheduled_datetime": record.scheduled_datetime.isoformat(),
+        "taken": record.taken,
+        "taken_at": record.taken_at.isoformat() if record.taken_at else None,
+        "method": record.method,
+        "notes": record.notes,
+    }
