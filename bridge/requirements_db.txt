@@ -4,6 +4,11 @@
 # Core bridge
 bleak>=0.20.0  # BLE scanning/communication
 websockets>=11.0  # WebSocket server
+pycryptodome>=3.20  # AES-CTR do "modo de dados" (ble_bridge.decrypt_full_plain) —
+    # necessário para importar ble_bridge.py nos testes novos deste ficheiro
+    # (bridge/tests/test_ble_bridge_rate_limit.py, 2026-07-08, rotina de
+    # segurança); já estava em requirements.txt mas não em requirements_db.txt,
+    # que é o ficheiro usado pela CI (bridge-tests.yml).
 
 # Base de dados + ORM
 sqlalchemy>=2.0.0  # ORM, type hints, migrations
