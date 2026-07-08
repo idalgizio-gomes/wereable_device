@@ -3270,6 +3270,118 @@ exemplo de corpo JSON.
 para as outras suites deste projeto — os 53 testes reais correram no CI,
 não só localmente.
 
+## NFC (2026-07-08, rotina cloud — desenvolvimento de NFC do zero)
+
+Antes desta execução **não existia nenhum código, driver, antena
+confirmada nem menção a NFC** no firmware (confirmado por grep ao
+repositório inteiro) — funcionalidade nova, a começar do zero como o
+LoRa e o GPS começaram.
+
+### Caso de uso alvo (a validar/confirmar com o utilizador)
+
+Uso pretendido: usar o NFC essencialmente para **iniciar/emparelhar o
+BLE por toque** ("tap-to-pair" / handover Out-Of-Band) e/ou identificar
+o dispositivo — **não** para transportar dados clínicos ou PII. Esta
+rotina parte deste princípio para qualquer proposta de conteúdo NDEF
+(ver "Pendências" abaixo); a decisão final é do utilizador.
+
+### Estado do hardware — NÃO CONFIRMADO
+
+- O nRF52840 tem periférico NFC-A (NFCT) nativo nos pinos P0.09/P0.10
+  (NFC1/NFC2), partilhados com GPIO. Usá-los como NFC exige
+  `CONFIG_NFCT_PINS_AS_GPIO=0` (no core Adafruit/Arduino: alterar
+  `UICR.NFCPINS`) — **alteração não reversível por software**, retira
+  esses pinos do modo GPIO até o UICR ser reprogramado.
+- Pesquisa (2026-07-08, ver fontes abaixo): a variante **XIAO nRF52840
+  Sense Plus** (a usada neste projeto) é anunciada pelo fabricante como
+  expondo os pinos NFC1/NFC2 "de forma mais acessível" do que a Sense
+  original — mas isto **não confirma** que o esquemático custom desta
+  placa ("Pulseira") liga alguma antena a esses pinos. Sem acesso ao
+  PDF do esquemático nesta sessão (não está no repositório — foi só
+  partilhado interativamente com o utilizador em sessões anteriores) e
+  sem qualquer menção a NFC nas secções "Hardware atual" / "Descobertas
+  do esquemático real" já registadas neste ficheiro.
+  Fontes: [Seeed XIAO BLE Wiki](https://wiki.seeedstudio.com/XIAO_BLE/),
+  [Cirkit Designer — XIAO nRF52840 Sense Plus](https://docs.cirkitdesigner.com/component/fea564b0-174c-b9ea-e28c-bd61da62afea/seeed-studio-xiao-nrf52840-sense-plus).
+- Não foi possível confirmar, a partir do código atual, se P0.09/P0.10
+  coincidem com algum pino já em uso (ex.: `BT1`→AD0/`BT2`→AD1 do
+  esquemático, ainda por ligar a nenhum código — ver secção
+  "Descobertas do esquemático real"). `BTN_PIN` (digital 0) é diferente
+  de AD0/AD1, portanto não conflitua à partida, mas isto não é o mesmo
+  que confirmar P0.09/P0.10 livres.
+- **Pergunta registada ao utilizador (bloqueia a fase de ativação)**:
+  1. Existe de facto uma antena/loop NFC ligado a P0.09/P0.10 no
+     esquemático da Pulseira?
+  2. Se sim, qual o pino/pad exato no design custom (não assumir
+     "Sense Plus expõe os pinos" como confirmação — é só uma
+     possibilidade do módulo base, não do design à volta dele)?
+  3. Caso de uso definitivo: tap-to-pair, identificação, ambos, ou
+     outra coisa?
+
+### Fase atual: **A → preparação da B** (design + esqueleto seguro, sem ativação)
+
+Seguindo a regra deste projeto de não escrever driver às cegas para
+hardware não confirmado (mesma lógica já aplicada ao LoRa e ao GPS):
+
+- **Feito nesta execução**: esqueleto do módulo `include/Nfc/Nfc.h` +
+  `src/Nfc/Nfc.cpp` (padrão `Nfc::begin()`/`Nfc::update()`/
+  `Nfc::isReady()`, igual a `Lora`/`Emergency`) e integração mínima em
+  `src/main.cpp` (`initNfc()` chamado em `setup()` a seguir a
+  `initLora()`, `Nfc::update()` chamado em `loop()` a seguir a
+  `Emergency::update()`). **`begin()` não toca em `UICR.NFCPINS` nem em
+  nenhum registo do periférico NFCT** — só regista no Serial que o NFC
+  está em modo preparação e devolve `false`; `isReady()` devolve sempre
+  `false`. Nenhuma biblioteca NFC nova foi adicionada a
+  `platformio.ini` (não é usada ainda).
+- **Falha segura**: `initNfc()` segue exatamente o padrão de
+  `initLora()` — regista o resultado e continua sem bloquear; nada no
+  resto do arranque (BLE/IMU/PPG/storage/emergência) depende de
+  `Nfc::begin()` ter sucesso.
+- **Segurança**: nesta fase o módulo não expõe absolutamente nada (não
+  inicializa hardware nenhum) — não há dados clínicos/PII em jogo
+  ainda. Ver "Pendências" para a decisão de conteúdo NDEF, que fica
+  para a rotina de segurança NFC auditar quando existir.
+- **Verificação**: toolchain `pio`/`platformio` não está instalado
+  nesta sessão cloud (`which pio` sem resultado) — não foi possível
+  correr `pio run` localmente. Feita revisão manual de sintaxe (chavetas
+  balanceadas, includes, namespaces, ordem de declaração igual entre
+  `.h`/`.cpp`) e verificação de que o padrão de integração em
+  `main.cpp` replica exatamente o já usado (e já compilado/testado em
+  hardware real) para `Lora`.
+  **Confirmado a compilar em CI real (2026-07-08, PR #2)**: o
+  repositório já tem `.github/workflows/c-cpp.yml` (PlatformIO CI,
+  corre em todo push/PR para `main`) — não notado antes de abrir o PR.
+  Verificado via `get_check_runs` da API do GitHub sobre o commit
+  `3d24dee`: os dois jobs de build (`seeed-xiao-afruitnrf52-nrf52840-sense-plus`,
+  a firmware completa com o novo módulo NFC, e `test_lora_isolated`)
+  terminaram `completed`/`success` (`run_id=28913334482`), tal como os
+  dois jobs `pytest` (bridge/ml, não afetados por esta alteração).
+  **Continua sem ser testado em hardware real** — CI só confirma que
+  compila, não que o dispositivo arranca com o módulo presente.
+
+### Próximas fases (dependentes de confirmação/decisão do utilizador)
+
+- **Fase B (completar)**: só depois de confirmada a antena — mapear o
+  pino real, e só então considerar alterar `UICR.NFCPINS` (com a
+  verificação de pinos livres já registada acima feita e documentada
+  antes de qualquer alteração).
+- **Fase C**: emissão de um registo NDEF mínimo para handover/
+  tap-to-pair de BLE — conteúdo a decidir com o utilizador; proposta
+  desta rotina (a confirmar): apenas o identificador/endereço BLE
+  necessário ao handover, nunca dados clínicos ou PII. Fica registado
+  aqui para a rotina de segurança NFC auditar esta decisão quando for
+  tomada.
+- **Fase D**: plano de teste de hardware para o utilizador (a redigir
+  quando houver algo real para testar — nesta fase ainda não há nada
+  que um telemóvel possa detetar).
+
+### Pendências de confirmação física
+
+- Existência real de antena NFC ligada a P0.09/P0.10 (bloqueia tudo o
+  resto).
+- Pinout exato, se existir antena.
+- Teste real com telemóvel (deteção de campo, leitura NDEF) — só depois
+  de existir algo a inicializar de facto.
 ## `ml/`: bug real em `split_by_subject()` encontrado e corrigido (2026-07-08, rotina cloud)
 
 Nota de processo: `git fetch origin main` revelou 74 commits novos desde o
