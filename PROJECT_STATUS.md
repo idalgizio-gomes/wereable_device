@@ -3449,3 +3449,15 @@ ambas as tasks já fazem I/O de flash bloqueante durante o tempo em que
 teriam o lock de qualquer forma, o risco adicional introduzido pelo mutex
 em si é considerado pequeno, mas fica registado como possível trabalho
 futuro se algum dia se observar latência inesperada em hardware real.
+
+**Confirmado a compilar em CI real (2026-07-08, mesmo push)**: verificado
+via `actions_get` da API do GitHub — `run_id=28925184764`, commit
+`699cd78`, workflow "PlatformIO CI" (`c-cpp.yml`), `completed`/`success`.
+Esta é a primeira confirmação real de build (não só revisão manual) desta
+alteração — `xSemaphoreCreateMutex()`/`xSemaphoreTake()`/`xSemaphoreGive()`
+via `<rtos.h>` compilam sem erro no toolchain ARM real usado pela CI,
+confirmando que a suposição de que estas funções estão disponíveis neste
+core (Adafruit nRF52, mesmo já usado por `Imu.cpp`/`Ppg.cpp` só para
+`taskENTER_CRITICAL`/`taskEXIT_CRITICAL`, nunca antes para semáforos) era
+correta. Continua **não confirmado em hardware real** (ver acima) — CI
+só garante que compila, não que o comportamento em runtime está correto.
