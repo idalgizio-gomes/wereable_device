@@ -555,12 +555,12 @@ correr a cada push. Implementado agora, respeitando essa ressalva:
   `extract_features`) e `duration_detector.py` (`evaluate_block`,
   `evaluate_subject`), com sinais/segmentos escritos à mão, sem gerar dataset
   nem treinar nenhum modelo. 15 testes, <1s de execução total.
-- **Deliberadamente não cobre** `train_activity_classifier*.py`,
-  `train_lstm_autoencoder.py` nem `measure_rf_footprint.py` — exigiriam
-  TensorFlow/XGBoost/emlearn instalados e minutos de execução em CI, o
-  mesmo custo que motivou adiar isto antes. Fica registado como próximo
-  passo possível (ex.: um teste de fumo com um dataset minúsculo e 1 época,
-  só para confirmar que o script corre sem erro, não para validar métricas).
+- **Deliberadamente não cobre** `train_lstm_autoencoder.py` nem
+  `measure_rf_footprint.py` — exigiriam TensorFlow/emlearn instalados,
+  minutos de execução em CI, o mesmo custo que motivou adiar isto antes.
+  Fica registado como próximo passo possível (ex.: um teste de fumo com um
+  dataset minúsculo e 1 época, só para confirmar que o script corre sem
+  erro, não para validar métricas).
 - `.github/workflows/ml-tests.yml` (novo, mesmo padrão do `bridge-tests.yml`):
   instala só `numpy`/`pandas`/`pytest` (não `ml/requirements.txt` completo —
   os módulos cobertos por esta suite não precisam de mais nada) e corre
@@ -568,6 +568,33 @@ correr a cada push. Implementado agora, respeitando essa ressalva:
   validado com `yaml.safe_load` antes de commitar.
 - Testes corridos localmente nesta rotina antes do commit: **15/15 a
   passar**.
+
+### Teste de fumo do treino (`test_train_smoke.py`, 2026-07-08)
+
+Item que a secção acima já registava como "próximo passo possível" —
+implementado agora: `ml/tests/test_train_smoke.py` (2 testes) chama
+diretamente `train_activity_classifier.train(df, feature_cols)` e
+`train_activity_classifier_rf.train(df, feature_cols)` — as funções puras
+de treino/avaliação, já separadas de `main()` (que só faz I/O de
+ficheiros) — sobre um dataset minúsculo gerado em memória
+(`generate_dataset(n_subjects=2, seed=7)`, não os 8 sujeitos/seed=42 de
+produção). Confirma que o caminho de código completo (dados → split por
+sujeito → treino → métricas) corre sem erro e devolve uma estrutura sã
+(accuracy em `[0,1]`, sem `NaN`, sujeitos de treino/teste sem sobreposição)
+— **não valida métricas de produção**, isso continua documentado só nas
+secções "Passo 1" acima. Não escreve nenhum ficheiro em `models/`/`reports/`
+(as funções `train()` são puras) — nenhum artefacto já commitado é tocado.
+
+Continua **deliberadamente sem cobrir** o LSTM Autoencoder — precisaria de
+TensorFlow instalado em CI, o custo que a secção acima já explica que foi
+evitado. XGBoost/scikit-learn (bem mais leves, instalação em segundos, não
+minutos) foram adicionados ao `ml-tests.yml` só para este teste.
+
+**Verificado antes de commitar** (venv desta rotina cloud, `numpy`/`pandas`/
+`scikit-learn`/`xgboost`/`pytest`): `cd ml && python -m pytest tests/ -v` →
+**17/17 testes passam** (15 já existentes + 2 novos), ~11s no total
+(dominado pela geração do dataset minúsculo, ~9s). `git status` confirmado
+limpo em `ml/models/`/`ml/reports/` depois de correr — nada escrito.
 
 ## Próximos passos (por ordem)
 

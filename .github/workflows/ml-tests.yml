@@ -17,14 +17,16 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
-      - name: Install dependencies (lightweight subset — sem TensorFlow/XGBoost/emlearn)
-        # ml/requirements.txt inclui TensorFlow/XGBoost/emlearn para os scripts
-        # de treino (pesados, minutos por execução, produzem artefactos
-        # versionados manualmente — ver PROJECT_STATUS.md, "ainda por fazer"
-        # desta secção). Os módulos cobertos por esta suite (features.py,
-        # duration_detector.py e as suas dependências synthetic_data.py/
-        # synthetic_sequences.py) só precisam de numpy/pandas.
-        run: pip install numpy pandas pytest
+      - name: Install dependencies (lightweight subset — sem TensorFlow/emlearn)
+        # ml/requirements.txt inclui TensorFlow/emlearn para o LSTM
+        # Autoencoder/footprint TinyML (pesados, minutos por execução,
+        # produzem artefactos versionados manualmente — ver
+        # PROJECT_STATUS.md, "ainda por fazer" desta secção, e
+        # ml/tests/test_train_smoke.py). scikit-learn/xgboost foram
+        # adicionados (2026-07-08) para o teste de fumo dos scripts de
+        # treino do classificador de atividades (test_train_smoke.py) —
+        # bem mais leves que TensorFlow, instalação em segundos.
+        run: pip install numpy pandas scikit-learn xgboost pytest
 
       - name: Run pytest (ml/tests)
         working-directory: ml

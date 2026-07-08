@@ -3140,3 +3140,48 @@ reais em cada push a `main`.
 acima em `ml/README.md`): cobertura de CI para `train_activity_classifier*.py`/
 `train_lstm_autoencoder.py`/`measure_rf_footprint.py` (exigiria decidir um
 teste de fumo leve, sem retreinar modelos de verdade — não implementado).
+
+## Teste de fumo do treino do classificador (2026-07-08, rotina cloud)
+
+Sessão sem novos commits de outras rotinas desde a última verificação
+(`git fetch origin main` confirmou local e remoto já sincronizados em
+`f05bf05`). Com as Prioridades 0-2/6-8 bloqueadas (hardware/decisão do
+utilizador — sem placa nesta rotina cloud), a Prioridade 3 (app móvel) fora
+do âmbito de uma execução autónoma, e a Prioridade 4 (BD SQL) já com um
+protótipo funcional extenso (ORM, Alembic, cifra real dos campos sensíveis,
+API REST, 47 testes com CI própria), revi a Prioridade 5 (`ml/`) e
+encontrei o item explicitamente já sinalizado como "próximo passo possível"
+pela secção anterior ("CI de testes para `ml/`", 2026-07-07): teste de fumo
+dos scripts de treino, ainda sem cobertura nenhuma de CI.
+
+**Implementado**: `ml/tests/test_train_smoke.py` (2 testes novos) — chama
+diretamente as funções `train(df, feature_cols)` de
+`train_activity_classifier.py` (XGBoost) e `train_activity_classifier_rf.py`
+(Random Forest), já puras (só `main()` faz I/O de ficheiros, não tocado por
+este teste), sobre um dataset minúsculo gerado em memória
+(`generate_dataset(n_subjects=2, seed=7)`, **não** os 8 sujeitos/seed=42 de
+produção — âmbito deliberadamente pequeno, confirma que o caminho de código
+corre sem erro, não valida métricas de produção). Continua **sem cobrir**
+`train_lstm_autoencoder.py`/`measure_rf_footprint.py` (TensorFlow/emlearn,
+mesmo custo já documentado como motivo para os deixar de fora do CI leve).
+
+`.github/workflows/ml-tests.yml` atualizado: `pip install` passou a incluir
+`scikit-learn`/`xgboost` (instalação em segundos, não os minutos do
+TensorFlow que continuam a justificar excluir o LSTM Autoencoder) — YAML
+revalidado com `yaml.safe_load` depois da alteração.
+
+**Verificado de facto antes de commitar** (venv nova desta rotina cloud,
+`numpy`/`pandas`/`scikit-learn`/`xgboost`/`pytest`): `cd ml && python -m
+pytest tests/ -v` → **17/17 testes passam** (15 já existentes + 2 novos),
+~11s no total (dominado pela geração do dataset minúsculo, ~9s, medido
+diretamente). `git status` confirmado limpo em `ml/models/`/`ml/reports/`
+depois de correr a suite — as funções `train()` chamadas pelo teste não
+escrevem nenhum ficheiro, nenhum artefacto já commitado foi tocado ou
+substituído. Ver `ml/README.md`, secção "Teste de fumo do treino", para o
+detalhe completo.
+
+**Ainda por fazer** (âmbito explicitamente fora desta correção pontual):
+teste de fumo equivalente para `train_lstm_autoencoder.py` (exigiria
+TensorFlow em CI — decisão de custo, não implementada) e para
+`measure_rf_footprint.py` (exige o toolchain ARM real, já usado localmente
+por esta rotina só quando disponível — não está nesta sessão cloud).
