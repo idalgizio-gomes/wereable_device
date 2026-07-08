@@ -1,244 +1,256 @@
-# CareWear — Estado de Segurança do Firmware
+# CareWear — Estado de Segurança do NFC
 
-> Ficheiro da rotina de **Segurança** (mentalidade adversarial, assume-breach),
-> distinta da rotina de **Desenvolvimento** (`PROJECT_STATUS.md`). Lê sempre
-> os dois antes de agir — `PROJECT_STATUS.md` documenta decisões e riscos
-> conhecidos que não devem ser reabertos sem justificação nova.
+> Ficheiro da rotina de **Segurança NFC** (S05, mentalidade adversarial,
+> assume-breach), distinta da rotina de **Desenvolvimento de NFC**
+> (`rotina/nfc-development`, PR #2), que constrói o módulo do zero. Esta
+> rotina audita o design à medida que avança e não escreve o driver
+> principal. Ver também `PROJECT_STATUS.md`, secção "NFC", para o
+> historial de decisões da rotina de desenvolvimento — os dois ficheiros
+> devem ser lidos em conjunto.
 >
-> Sem acesso a hardware físico nesta rotina cloud (mesma limitação já
-> documentada em `PROJECT_STATUS.md`): nenhum achado aqui é um "exploit
-> confirmado" — usa-se "hipótese"/"vetor" quando não há prova em hardware
-> real. Toolchain ARM também bloqueada pelo proxy do ambiente nesta
-> execução (`files.seeedstudio.com` → 403), mesma limitação já registada
-> pela rotina de desenvolvimento — build validado por revisão manual +
-> verificação de balanceamento de chavetas/parênteses/colchetes.
+> Existem outros `SECURITY_STATUS.md` (backend/API, firmware,
+> frontend) em branches próprias (`seguranca/backend-api-security`,
+> `seguranca/firmware-security`, `seguranca/frontend-security`, PRs
+> #3-#5, ainda não integrados em `main`) — cada rotina de segurança
+> mantém o seu, focado no seu domínio. Este cobre só NFC.
+>
+> Sem hardware físico nesta rotina cloud: não há tag/antena real para
+> testar, nem confirmação de que existe sequer uma antena NFC ligada a
+> P0.09/P0.10 no esquemático desta placa (ver `PROJECT_STATUS.md`,
+> secção "NFC" — pergunta em aberto ao utilizador). Todos os achados
+> abaixo são **requisitos de design/análise de ameaça**, não
+> vulnerabilidades exploradas em hardware real.
 
 ## Como ler este ficheiro
 
-Cada risco tem um ID `FW-XXX` estável (não reutilizar números, mesmo que
-um risco seja fechado). Estados possíveis: **ABERTO** (registado, sem
-correção aplicada), **MITIGADO** (correção contida aplicada nesta
-rotina, risco residual descrito), **FECHADO** (resolvido por completo,
-raro em firmware sem hardware para confirmar). Nada é declarado
-"resolvido" sem prova — ver critérios de aceitação no prompt da rotina.
+Cada risco/requisito tem um ID `NFC-XXX` estável (não reutilizar
+números). Estados: **REQUISITO** (a cumprir antes do NFC ser dado como
+pronto — ainda não há código de hardware a validar), **ABERTO**
+(vulnerabilidade real encontrada em código existente, sem correção),
+**MITIGADO** (correção contida aplicada), **FECHADO**. Nesta fase
+(esqueleto inerte, ver abaixo) todos os itens são **REQUISITO**.
 
-## Rotação de eixos do checklist
+## Estado do código NFC auditado nesta execução
 
-Eixos (do prompt da rotina), auditados um por execução, com rotação:
+`include/Nfc/Nfc.h` + `src/Nfc/Nfc.cpp` (branch `rotina/nfc-development`,
+PR #2, commits `636ab46`/`a517873`) revistos por inteiro:
 
-1. Corrupção de memória
-2. Concorrência (race conditions/deadlocks FreeRTOS + BLE/ISR)
-3. **Validação de inputs externos (GATT writes, série, IMU/PPG)** ← auditado nesta execução (S01, 2026-07-08)
-4. BLE security (parte de firmware: geração/guarda de chaves — permissões/pairing detalhados ficam para a rotina S04)
-5. Criptografia (chave AES morta/qualidade de aleatoriedade)
-6. Gestão de memória (heap dinâmico, fragmentação, use-after-free)
-7. OTA (roadmap — ainda não existe)
-8. Watchdog
-9. Secure Boot
-10. Debug interfaces (SWD/JTAG, APPROTECT)
-11. Exposição de informação por Serial (flags de debug)
+- `begin()` não toca em `UICR.NFCPINS` nem em nenhum registo do
+  periférico NFCT, não faz `pinMode()` a P0.09/P0.10, não liga nenhuma
+  biblioteca NFC. Devolve sempre `false`.
+- `update()`/`isReady()` são no-ops/constante. Nenhum NDEF é montado,
+  nenhum campo é emitido, nenhuma superfície de ataque nova existe hoje.
+- Integração em `main.cpp` (`initNfc()`) segue o padrão "falha segura"
+  já usado para `Lora` — não bloqueia o arranque, nada depende do
+  sucesso.
 
-**Próxima execução (S01)**: sugerido eixo 2 (Concorrência) — já há uma
-corrida conhecida e não resolvida em `QspiRingBuffer::format()` (ver
-`PROJECT_STATUS.md`, secção "Reset de leituras") que merece uma análise
-dedicada para avaliar se uma correção contida (mutex/secção crítica
-dentro do próprio `QspiRingBuffer`) é viável sem tocar no protocolo BLE.
-Se não, eixo 1 (Corrupção de memória) como alternativa.
+**Conclusão desta auditoria**: o código atual não introduz nenhum risco
+— é inerte por desenho, exatamente como documentado pela rotina de
+desenvolvimento. **Sem correções de código nesta execução** (critério
+"terminar sem alterações" do prompt desta rotina, secção "fase de
+design"). O entregável desta execução é a lista de requisitos abaixo,
+que a rotina de desenvolvimento tem de cumprir nas fases B/C/D antes de
+qualquer ativação real de hardware ou emissão de NDEF.
 
-## Registo por data — auditorias e achados
+## Caso de uso confirmado (âmbito desta auditoria)
 
-### 2026-07-08 (S01 firmware-security) — eixo: Validação de inputs externos
+Conforme `PROJECT_STATUS.md`: NFC serve **apenas** para iniciar/
+emparelhar BLE por toque (tap-to-pair / handover OOB) e/ou identificar o
+dispositivo — nunca para transportar dados clínicos ou PII. Todo o
+checklist abaixo assume e reforça este âmbito; qualquer proposta futura
+que o alargue (ex.: NFC como segunda via de comandos GATT-like) deve ser
+travada por esta rotina antes de avançar (ver NFC-007).
 
-**Âmbito revisto por inteiro**: todas as characteristics GATT com
-`setWriteCallback()` em `src/Ble/Ble.cpp` (`aesKeyChar`, `dumpCtrlChar`,
-`currentTimeChar`/0x2A2B) + o parser de comandos série
-(`pollSerialLine()`/`serialCommandReceived()` em `src/main.cpp`, usado
-pelos comandos de debug `WAKE`/`SLEEP`/`SOS`) + o caminho que decodifica
-dados vindos da flash externa para dentro dos pacotes BLE
-(`QspiRingBuffer::decodeSlot()`, `Ble.cpp::mapRingRecordToFull()`), por
-serem a fronteira onde bytes de origem externa (app/bridge via BLE, ou
-dados persistidos que podem estar corrompidos) entram no firmware.
+## Requisitos de segurança NFC (a cumprir antes do NFC ser dado como pronto)
 
-**Achados**:
+### NFC-001 — UID da tag NFC-A não pode ser usado como prova de identidade
 
-- **Validação de comprimento/conteúdo em si — sem bugs de corrupção de
-  memória encontrados.** `aesKeyCallback` restringe a exatamente 16/24/32
-  bytes (bug de um comprimento "válido mas inútil" já corrigido em
-  2026-07-07, ver `PROJECT_STATUS.md`); `dumpCtrlCallback` verifica
-  `len < 1 || data == nullptr` antes de ler `data[0]` e `len >= 3` antes
-  de ler `data[1..2]` (comando `kDumpCtrlForceHr`); `timestampCallback`
-  exige `len == 10` e `ctsToEpochUtc()` valida ano/mês/dia/hora/min/seg
-  campo a campo antes de aceitar. `QspiRingBuffer::decodeSlot()` rejeita
-  `in.len > kPayloadSize` antes de copiar para `Record::payload` (buffer
-  fixo de 44 bytes) — sem overflow possível mesmo com um slot de flash
-  corrompido. Todas as characteristics têm `setMaxLen()`/`setFixedLen()`
-  coerente com o struct associado. Não há aqui, portanto, um vetor de
-  buffer overflow/OOB write como o checklist pede para procurar — eixo
-  revisto por inteiro, sem achado corrigível nesta categoria específica.
+**Gravidade: média-alta.** O periférico NFCT do nRF52840 responde com um
+NFCID (UID) fixo, tipicamente derivado do identificador único de fábrica
+do chip (FICR) — é lido em claro por qualquer leitor NFC compatível
+(telemóvel comum, leitor ~10€) e é trivialmente clonável com hardware
+barato (tags NFC programáveis, apps Android de "NFC clone", Proxmark).
+**Vetor concreto**: se uma fase futura usar o UID sozinho para o
+telemóvel "reconhecer" que está a falar com o wearable legítimo (ex.:
+"só aceito handover de um UID já visto antes"), um atacante que
+aproxime um leitor uma única vez consegue fabricar uma tag/emulador que
+responde com o mesmo UID e se faz passar pelo wearable (ou engana o
+wearable para aceitar um leitor impostor, consoante o sentido da
+verificação).
+**Requisito**: o UID nunca pode ser o único fator de confiança. A
+autenticação real do par BLE tem de vir do próprio protocolo BLE
+(bonding/LTK — ver risco já registado `FW-002` em
+`seguranca/firmware-security`/`SECURITY_STATUS.md`, PR #3: hoje nenhuma
+characteristic GATT exige pairing/bonding, o que agrava este ponto — o
+NFC não pode ser usado para compensar essa lacuna, tem de esperar por
+ela ou ser desenhado em conjunto).
 
-- **FW-001 — Current Time (0x2A2B) reescrevível durante o streaming
-  ativo, sem autenticação — CORRIGIDO nesta execução.**
-  **Gravidade: média** (integridade dos dados/registo forense, não
-  confidencialidade nem disponibilidade).
-  **Vetor concreto**: `currentTimeChar` usa `SECMODE_OPEN` (ver
-  `Ble.h`, nota de design already conhecida) e continua registada no
-  servidor GATT mesmo depois de `startBroadcast()` deixar de a incluir
-  no *advertising* — `startBroadcast()` só recria o pacote de
-  advertising, não remove characteristics já criadas em `begin()`. Como
-  `Bluefruit.begin(2, 0)` (`main.cpp`) permite até 2 centrais ligados em
-  simultâneo, um segundo dispositivo BLE qualquer (não precisa de ser o
-  bridge/telemóvel legítimo) pode ligar-se durante o streaming normal,
-  fazer descoberta de serviços, encontrar o handle de 0x2A2B (UUID
-  padrão do Bluetooth SIG, previsível) e escrever um payload de 10 bytes
-  válido a qualquer momento — o antigo `timestampCallback` aceitava-o
-  sempre, sem verificar se o dispositivo já estava operacional. Efeito:
-  `Clock::setUtc()` é a única fonte de hora usada em todo o firmware
-  (confirmado por grep — `Emergency.cpp` usa `Clock::nowUtc()` para o
-  timestamp dos alertas de SOS/queda, `Ble.cpp` para o timestamp de cada
-  registo de sensores), por isso um atacante ligado conseguia falsificar
-  retroativamente/prospectivamente a hora de registos clínicos e de
-  alertas de emergência gravados a partir desse momento — quebra da
-  integridade forense/clínica dos dados de um wearable médico, sem
-  precisar de quebrar a cifra AES-CTR nem de conhecer a chave.
-  **Correção aplicada** (`src/Ble/Ble.cpp`, `timestampCallback`):
-  rejeita qualquer escrita em 0x2A2B assim que `s_dataModeEnabled` for
-  `true` (mesmo padrão de "só aceita uma vez"/"só numa fase" já usado em
-  `aesKeyCallback`). `ensureTimeSync()` corre sempre **antes** de
-  `startBroadcast()` (confirmado em `main.cpp`, ordem
-  `Ble::begin()` → `ensureAesKey()` → `ensureTimeSync()` →
-  `startBroadcast()`), por isso o fluxo normal de provisioning fica
-  intacto — só fecha a janela depois disso.
-  **Verificação de que não quebra o bridge legítimo**: `ble_bridge.py`
-  (`_maybe_send_time()`) já trata a falha desta escrita como não-fatal
-  ("normal se já sincronizada", `try/except` a toda a volta) e é chamada
-  em **todo** reconnect, incluindo reconexões durante o modo de dados —
-  com a correção, essas tentativas passam a falhar (esperado, já
-  tratado) em vez de silenciosamente reescrever o relógio; não foi
-  necessário alterar `bridge/` no mesmo commit porque o comportamento
-  já era tolerante a esta falha.
-  **Verificação de build**: sem toolchain ARM disponível nesta rotina
-  cloud (proxy bloqueia `files.seeedstudio.com`, 403 — mesma limitação
-  documentada em `PROJECT_STATUS.md`). Revisão manual do diff (sintaxe
-  C++ simples, `if` + `return` antes da lógica já existente) + script
-  Python a confirmar que o ficheiro inteiro ganhou exatamente o mesmo
-  número de chavetas/parênteses/colchetes a abrir e a fechar (128/127,
-  928/935, 118/118 — o desequilíbrio 128/127 já existia antes desta
-  edição, herdado de comentários com parênteses aninhados, documentado
-  por outra rotina em 2026-07-07; a minha edição não alterou essa
-  diferença, só acrescentou pares equilibrados). **Não testado em
-  hardware real.**
-  **Risco residual**: a janela de escrita **antes** do primeiro sync
-  (fase de provisioning) continua sem qualquer autenticação — ver
-  FW-002 abaixo. Um atacante que se ligasse durante essa janela inicial
-  ainda poderia interferir com o primeiro sync de hora (ou hijack da
-  chave AES). Isso é uma limitação de desenho mais ampla (falta de
-  pairing/bonding em toda a fase de provisioning), não algo que esta
-  correção pontual resolva.
+### NFC-002 — Handover NFC→BLE sem confirmação no dispositivo permite emparelhamento silencioso
 
-- **FW-002 — Nenhuma characteristic GATT exige pairing/bonding
-  (`SECMODE_OPEN` em todas) — RISCO REGISTADO, sem correção nesta
-  execução.**
-  **Gravidade: alta** (integridade + disponibilidade dos dados de um
-  wearable médico de pessoas vulneráveis).
-  **Vetor concreto** (dois sub-casos, ambos já visíveis só de ler
-  `Ble.cpp::begin()`):
-  1. **Hijack da chave AES no provisioning**: `aesKeyChar` só recusa
-     escritas *depois* de já existir uma chave em flash
-     (`Storage::hasAesKey()`). Num dispositivo ainda não provisionado
-     (equipamento novo, ou depois de um `clearAll()`), **qualquer**
-     central BLE que ganhe a corrida para se ligar e escrever primeiro
-     define a chave AES real usada para cifrar o streaming — não há
-     forma de a app/cuidador legítimo confirmar que foi mesmo ele a
-     definir a chave.
-  2. **Comandos destrutivos/de controlo sem autenticação em modo de
-     dados**: `dumpCtrlChar` aceita de qualquer central ligado (até 2
-     simultâneos, `Bluefruit.begin(2, 0)`) os comandos
-     `kDumpCtrlResetReadings` (0x04 — apaga **todo** o histórico de
-     leituras do ring buffer, destrutivo e irreversível, já assinalado
-     como tal no próprio código) e `kDumpCtrlForceHr`/`kDumpCtrlStop`
-     (podem interferir com medições em curso ou parar o streaming para
-     o cuidador legítimo). O advertising ("Wearable", serviço custom
-     bem conhecido) é público e conectável por desenho (é assim que a
-     app encontra o dispositivo) — não há passo de autorização entre
-     "descobrir o dispositivo" e "poder emitir estes comandos".
-  **Porque não foi corrigido nesta execução**: uma correção real (exigir
-  `SECMODE_ENC_NO_MITM`/bonding, ou um segredo de sessão trocado durante
-  o provisioning) é uma mudança de protocolo BLE — exige atualizar
-  `bridge/ble_bridge.py` (fluxo de pairing/bonding com `bleak`) no mesmo
-  commit, o que as regras desta rotina proíbem sem justificação e
-  coordenação mais ampla. É também o âmbito explícito da rotina **S04**
-  (BLE security — Security Mode/Level, pairing, bonding, permissões das
-  characteristics). Registado aqui como o achado mais grave desta
-  auditoria para dar contexto de firmware a essa rotina: os dados
-  ficam cifrados em trânsito (AES-CTR, ver histórico em
-  `PROJECT_STATUS.md`), mas **quem pode ligar-se e emitir comandos**
-  continua completamente aberto.
-  **Recomendação**: quando a rotina S04 avançar, considerar como
-  mínimo: (a) migrar `dumpCtrlChar`/`aesKeyChar` para
-  `SECMODE_ENC_NO_MITM` (encriptação de link sem MITM — não exige UI de
-  confirmação, compatível com bonding "Just Works", suficiente para
-  parar um atacante passivo/oportunista, embora não pare um MITM ativo
-  dedicado); (b) só depois, se necessário, subir para
-  `SECMODE_ENC_WITH_MITM` com um mecanismo de confirmação (ex.: código
-  no ecrã OLED do próprio dispositivo, que já existe fisicamente).
-  Qualquer destas opções exige que `bleak` (bridge) e uma futura app
-  móvel suportem o fluxo de bonding do SO — validar viabilidade antes
-  de mudar o firmware.
+**Gravidade: alta** (wearable médico usado por pessoas com demência —
+pode ser aproximado de um leitor em transporte público, sala de espera,
+ou por um cuidador/terceiro sem que o utilizador perceba o que está a
+acontecer).
+**Vetor concreto**: o comentário já existente em `Nfc.h` refere
+"deteccao de campo externo para o caso de uso tap-to-pair" como trabalho
+futuro de `update()`. Se essa deteção de campo, por si só, disparar o
+início (ou pior, a aceitação automática) do processo de pairing/bonding
+BLE, qualquer aproximação de um leitor NFC — intencional, acidental, ou
+um ataque de relay (ver NFC-006) — inicia o handover sem qualquer sinal
+para o portador do dispositivo.
+**Requisito**: qualquer transição "campo NFC detetado" → "iniciar/
+aceitar pairing BLE" tem de passar por confirmação explícita e visível
+no próprio wearable antes de aceitar a ligação — ex.: ecrã OLED a
+mostrar "Emparelhar com [nome/endereço]? " com timeout curto e
+comportamento por omissão de recusar (fail-closed), no mesmo espírito
+do padrão de countdown já usado em "Medir agora" (`Ppg::requestManualHr`
+via `kDumpCtrlForceHr`). Nota: o botão físico de confirmação está
+**partido** neste dispositivo (ver `PROJECT_STATUS.md`, secção
+"Riscos") — a rotina de desenvolvimento tem de decidir um mecanismo de
+confirmação que não dependa exclusivamente desse botão (ex.: o mesmo
+bypass série `WAKE`/`SLEEP` já usado, ou um gesto/movimento IMU, até o
+botão ser substituído).
 
-- **Comandos série de debug (`WAKE`/`SLEEP`/`SOS`, `pollSerialLine()`)
-  — sem achado novo.** Buffer de 16 bytes com bound check
-  (`len < sizeof(buf) - 1`) antes de cada escrita — sem overflow.
-  Requerem acesso físico por USB (não é um vetor remoto); já
-  documentados como flags de debug ativas por decisão do utilizador
-  (botão físico avariado) — **não desativados aqui**, por instrução
-  explícita da rotina (decisão do utilizador, fora do âmbito desta
-  auditoria).
+### NFC-003 — Conteúdo NDEF: superfície mínima, sem PII/dados clínicos
 
-**CVEs/avisos verificados (com fonte, sem inventar)**: pesquisa aplicada
-nesta execução não encontrou nenhum CVE novo (2025-2026) publicado
-especificamente contra o SoftDevice S140 ou o core Arduino
-Adafruit-nRF52/Bluefruit usados por este projeto (`platformio.ini`:
-`framework = arduino`, board Seeed XIAO nRF52840 Sense Plus — **não**
-Zephyr/nRF Connect SDK). A vulnerabilidade histórica mais relevante
-documentada pela Nordic para a família nRF5 SDK/SoftDevice é a falta de
-validação da chave pública remota no LESC (Low Energy Secure
-Connections) durante o pairing, corrigida desde a SDK 15.0.0 — **não
-aplicável ao estado atual deste firmware**, que não usa pairing/LESC de
-todo (ver FW-002, `SECMODE_OPEN` em tudo) — ironicamente, a ausência de
-pairing significa que esta classe de CVE não pode ocorrer aqui, mas às
-custas do problema maior descrito em FW-002. Vulnerabilidades do
-subsistema Bluetooth do Zephyr (buffer overflows com asserts
-desativados, integer underflow em `gatt_find_info_rsp`, OOB write em
-HCI-over-SPI) foram encontradas na pesquisa mas dizem respeito à stack
-BLE do **Zephyr/nRF Connect SDK**, não à stack Adafruit Arduino/Bluefruit
-usada aqui — relevantes apenas para uma eventual migração futura do
-projeto para Zephyr (mencionada como possibilidade no roadmap), não para
-o firmware atual. Fontes: [Vulnerabilities in nRF5 SDK versions —
-Nordic](https://docs.nordicsemi.com/bundle/nwp_031/page/WP/nwp_031/vulnerabilities.html),
-[Zephyr Project — Vulnerabilities](https://docs.zephyrproject.org/latest/security/vulnerabilities.html).
+**Gravidade: alta se violado** (mas preventivo — nada foi implementado
+ainda). Uma tag NFC passiva é legível por **qualquer** leitor a poucos
+cm de distância, sem qualquer autenticação prévia — é a definição de
+"sem controlo de acesso". Qualquer campo colocado no NDEF é
+efetivamente público a quem tiver um telemóvel comum e uma oportunidade
+de aproximação breve.
+**Requisito**: o NDEF não pode conter nome do paciente, NIF, morada,
+diagnóstico, nem qualquer campo já classificado como sensível noutras
+partes do sistema (`bridge/crypto_utils.py` já cifra NIF/morada em
+repouso — o NFC não pode reintroduzir esses dados em claro por outra
+via). Conteúdo aceitável: o mínimo necessário ao handover BLE
+(endereço/identificador do periférico, e se aplicável, dados OOB
+efémeros — ver NFC-004).
+**Consideração adicional de privacidade (rastreabilidade)**: se o
+identificador exposto for o endereço BLE público fixo do dispositivo
+(nunca rotativo), qualquer scanner NFC/BLE passivo ganha um
+identificador estável para seguir a localização do portador ao longo do
+tempo — um risco de privacidade distinto de PII clínica mas relevante
+para um wearable de saúde. Recomenda-se preferir, quando o stack BLE
+suportar, um endereço privado resolúvel (RPA) em vez do MAC público
+fixo — a confirmar se está ao alcance do SoftDevice S140 já em uso
+(`main.cpp`) sem reabrir o âmbito de outra rotina.
 
-**Ficheiros alterados nesta execução**: `src/Ble/Ble.cpp` (bloqueio em
-`timestampCallback`, ver FW-001). Nenhuma alteração a `bridge/`, `web/`
-nem `ml/`.
+### NFC-004 — Dados OOB (se vierem a existir) têm de ser efémeros e ligados à sessão
 
-## Riscos herdados de `PROJECT_STATUS.md` (referência, não re-auditados nesta execução)
+**Gravidade: média-alta**, condicional a uma fase futura que ainda não
+existe. Se o handover vier a incluir material OOB do tipo LE Secure
+Connections (nonce + valor de confirmação, conforme "Bluetooth Secure
+Simple Pairing over NFC", NFC Forum AD-BTSSP-1.3) para reforçar o
+pairing contra MITM, esse material **tem de ser gerado de novo a cada
+leitura/tentativa de pairing**, nunca gravado como valor estático e
+fixo na tag. Um valor OOB estático reutilizável seria capturável (por
+leitura direta ou por um relay de curto alcance, ver NFC-006) e
+reproduzível mais tarde por um atacante para se autenticar como o par
+legítimo — o mesmo princípio de "nonce nunca reutilizado" já aplicado
+com sucesso ao streaming BLE cifrado neste projeto (ver
+`PROJECT_STATUS.md`, secção "Cifra AES-CTR do modo de dados").
+**Requisito**: se e quando esta fase avançar, o NDEF de OOB não pode ser
+uma tag estática de conteúdo fixo — implica handover negociado (TNEP,
+NFC Forum) com conteúdo dinâmico calculado a cada leitura, não o modo
+"tag estática" mais simples referido em `Nfc.h`/`PROJECT_STATUS.md`
+como opção de fase C. Registar esta implicação de desenho na fase C
+antes de escolher entre handover estático vs. negociado — a escolha
+tem impacto de segurança direto, não é só uma questão de simplicidade
+de implementação.
 
-Listados aqui só para visibilidade cruzada — a análise detalhada destes
-fica para o eixo do checklist correspondente numa execução futura, não
-duplicada agora:
+### NFC-005 — Tag bloqueada como só-leitura após provisioning
 
-- Corrida conhecida em `QspiRingBuffer::format()` chamado a partir do
-  contexto BLE (`kDumpCtrlResetReadings`) enquanto `storageTask`
-  escreve e `gattDumpTask` lê o mesmo ring buffer — mitigado
-  parcialmente (para o streaming + espera de 100ms), não eliminado. Ver
-  `PROJECT_STATUS.md`, secção "Reset de leituras". Candidato ao próximo
-  eixo "Concorrência".
-- AES-CTR sem autenticação (sem MAC/tag de integridade) — decisão já
-  documentada e justificada em `PROJECT_STATUS.md` (limitação honesta,
-  trade-off de tamanho de pacote). Sem achado novo nesta execução.
-- Sem Secure Boot, interface SWD/JTAG presumivelmente aberta
-  (`APPROTECT` por omissão do core Adafruit normalmente **não** está
-  ativo) — ainda por confirmar/endurecer, candidato aos eixos 9/10.
-  Não verificado nesta execução (fora do eixo escolhido).
-- Sem watchdog confirmado no código revisto até agora — candidato ao
-  eixo 8. Não verificado nesta execução.
+**Gravidade: média.** Se o mecanismo de exposição de memória do NFCT
+(a confirmar pela rotina de desenvolvimento — buffer RAM servido
+dinamicamente vs. emulação de Tag Type 2/4 com memória persistente)
+permitir escrita externa depois do provisioning inicial, um atacante
+com acesso físico breve poderia reescrever o NDEF (ex.: redirecionar
+para um URL de phishing, ou para um endereço BLE de um dispositivo
+impostor, iniciando o handover NFC-002 contra o atacante em vez do
+wearable real).
+**Requisito**: bloquear a tag como só-leitura (equivalente ao lock
+bit/CC read-only do NFC Forum Type Tag) assim que o conteúdo de
+provisioning for definido — antes de qualquer uso em campo. **Pendente
+de confirmação técnica**: o NFCT nativo do nRF52840, servido por RAM
+controlada pelo firmware, pode não ter este conceito da mesma forma que
+uma memória Tag Type externa — a rotina de desenvolvimento deve
+confirmar e documentar como este requisito se aplica ao mecanismo real
+escolhido antes de a fase C ser dada como concluída.
+
+### NFC-006 — Relay attacks (retransmissão do campo NFC à distância)
+
+**Gravidade: média**, risco residual aceite nesta fase de design (não
+eliminável só com NFC). Ferramentas conhecidas (framework NFCGate e
+derivados, técnica "Ghost Tap") já demonstradas para retransmitir
+sinais NFC de pagamento entre dois telemóveis ligados à internet,
+estendendo o alcance efetivo de "poucos cm" para qualquer distância com
+cobertura de rede — o mesmo princípio aplica-se a qualquer troca NFC,
+incluindo um handover tap-to-pair. Um atacante com um dispositivo perto
+do wearable da vítima e outro perto do seu próprio telemóvel pode fazer
+o telemóvel "ver" o wearable como presente à distância, disparando o
+handover sem o portador saber.
+**Fontes** (pesquisa aplicada 2026-07-08): [Zimperium — "Tap-and-Steal:
+The Rise of NFC Relay Malware on Mobile Devices"](https://zimperium.com/blog/tap-and-steal-the-rise-of-nfc-relay-malware-on-mobile-devices);
+[Kaspersky — "Direct and reverse NFC relay attacks being used to steal
+money" (2026)](https://www.kaspersky.com/blog/nfc-gate-relay-attacks-2026/55116/);
+[The Hacker News — "RatOn Android Malware ... NFC Relay and ATS Banking
+Fraud" (set. 2025)](https://thehackernews.com/2025/09/raton-android-malware-detected-with-nfc.html).
+**Mitigação**: como nenhum item acima (NFC-001 a NFC-004) permite que o
+conteúdo da tag por si só autentique nada nem transporte segredos de
+longa duração, o pior que um relay consegue nesta fase é iniciar o
+processo de handover — que fica sempre dependente da confirmação
+explícita no dispositivo (NFC-002). Se a fase C vier a implementar OOB
+dinâmico (NFC-004), notar que um relay em tempo real quebraria
+especificamente essa proteção se conseguir operar dentro da janela
+temporal do handshake — LE Secure OOB não é imune a relay puro (só a
+replay depois da janela expirar). Aceite como risco residual nesta
+fase, a reavaliar quando a fase C for desenhada em detalhe.
+
+### NFC-007 — NFC confinado a iniciar BLE, nunca uma segunda porta de dados
+
+**Gravidade: preventivo.** Reforça explicitamente o requisito do
+utilizador: o NFC não pode, em nenhuma fase futura, ganhar comandos
+equivalentes aos já existentes via GATT (`dumpCtrlChar`, `aesKeyChar`,
+leitura/escrita de registos clínicos). Qualquer proposta nesse sentido
+deve ser travada por esta rotina antes de avançar — a superfície de
+ataque de uma tag NFC passiva e sem autenticação é estruturalmente pior
+para transportar comandos do que o BLE já autenticado (ainda que
+imperfeitamente, ver FW-002) por bonding.
+
+### NFC-008 — Se o dispositivo alguma vez passar a LER tags externas, tratar todo o NDEF como não confiável
+
+**Gravidade: não aplicável hoje** (o design atual não inclui leitura de
+tags — o wearable só as emite, ver `Nfc.h`). Registado como requisito
+preventivo caso o âmbito mude no futuro: nunca agir sobre um NDEF lido
+(URIs, `tel:`, deep links) sem confirmação explícita do utilizador;
+parser NDEF blindado contra tamanho declarado inconsistente com o real
+e tipos de registo desconhecidos (ignorar, não crashar/interpretar por
+omissão). Sem código a auditar nesta vertente enquanto o âmbito não
+mudar.
+
+## Resumo para a rotina de desenvolvimento (NFC #2 e seguintes)
+
+Antes de dar o NFC como "pronto" (qualquer fase que ative
+`UICR.NFCPINS` ou emita um NDEF real), confirmar que:
+
+1. NFC-001, NFC-002, NFC-007 estão cumpridos por desenho (autenticação
+   nunca depende do UID/NFC sozinho; handover sempre confirmado no
+   dispositivo; sem comandos de dados via NFC).
+2. NFC-003 está cumprido no conteúdo exato do NDEF proposto (rever com
+   esta rotina antes de commitar o primeiro NDEF real — ver Fase C em
+   `PROJECT_STATUS.md`).
+3. NFC-004/NFC-005 foram avaliados e documentados (mesmo que a decisão
+   seja "handover estático simples, sem OOB dinâmico, aceitando o risco
+   residual X" — desde que seja uma decisão explícita, não omissão).
+4. NFC-006 é um risco residual conhecido e aceite, não uma surpresa.
+
+## Pesquisa contínua (ataques NFC/handover novos)
+
+Pesquisa feita em 2026-07-08 (fontes acima, NFC-006) — focada em relay
+attacks de pagamento (aplicável por analogia ao handover, ver
+mitigação). Nenhuma CVE específica ao periférico NFCT do nRF52840 ou ao
+SoftDevice S140 encontrada nesta pesquisa. Repetir esta pesquisa em
+execuções futuras desta rotina, à medida que a fase C avançar (termos
+sugeridos: "NFC Forum BTSSP vulnerability", "TNEP negotiated handover
+security", CVEs Nordic nrfx/NFCT).
