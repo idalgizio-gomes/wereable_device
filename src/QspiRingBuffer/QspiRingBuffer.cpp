@@ -29,6 +29,7 @@
 #include "QspiRingBuffer/QspiRingBuffer.h"
 
 #include <Adafruit_SPIFlash.h>
+#include <rtos.h>
 #include <cstring>
 #include <cstddef>
 #include <cstdint>
@@ -103,6 +104,55 @@ uint32_t s_metaNextSlot = 0;      // Proxima posicao livre no journal de metadad
 uint32_t s_metaLastFlushMs = 0;   // Timestamp (millis()) do ultimo flush de metadados persistido, para a regra de "byTime".
 uint32_t s_metaOpsSinceFlush = 0; // Numero de operacoes (push/pop) acumuladas desde o ultimo flush, para a regra de "byOps".
 bool s_metaDirty = false;         // true quando s_meta em RAM tem alteracoes ainda nao persistidas na flash.
+
+// *** CORRECAO DE CONCORRENCIA (2026-07-08, rotina diaria) ***: s_meta e
+// todo o resto do estado acima e lido/escrito por DUAS tasks FreeRTOS
+// independentes — storageTask (main.cpp, chama push() a ~52Hz) e
+// gattDumpTask (Ble.cpp, chama count()/peek()/advanceTail()/pop() ao
+// transmitir por BLE) — sem qualquer secao critica antes desta correcao
+// (o unico aviso escrito sobre isto, em Ble.cpp junto de
+// kDumpCtrlResetReadings, ja dizia explicitamente que uma correcao
+// completa "exigiria sincronizacao (mutex/secao critica) dentro do
+// proprio QspiRingBuffer" mas ficava "fora do ambito" daquele comando
+// pontual). Um context switch a meio de uma sequencia read-modify-write
+// sobre s_meta.head/tail/count (ex.: storageTask a meio de push() quando
+// gattDumpTask preempta com advanceTail()) pode perder um incremento/
+// decremento e dessincronizar o estado logico do buffer do que
+// realmente esta gravado na flash. Ao contrario do taskENTER_CRITICAL/
+// taskEXIT_CRITICAL ja usado em Imu.cpp/Ppg.cpp (secoes muito curtas, so
+// uma copia de struct), as funcoes deste ficheiro fazem I/O de flash
+// (SPI, pode demorar) misturado com as mutacoes de s_meta — desativar
+// interrupcoes durante esse tempo bloquearia a pilha BLE/temporizadores.
+// Por isso usa-se aqui um mutex FreeRTOS (bloqueia a task concorrente,
+// mas nao desativa interrupcoes), tomado/largado com um pequeno RAII
+// (LockGuard, abaixo) para cobrir todos os pontos de retorno existentes
+// sem reestruturar cada funcao para um unico ponto de saida.
+SemaphoreHandle_t s_mutex = nullptr;
+
+void ensureMutex() {
+  if (s_mutex == nullptr) {
+    s_mutex = xSemaphoreCreateMutex();
+  }
+}
+
+class LockGuard {
+ public:
+  LockGuard() {
+    ensureMutex();
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+  }
+  ~LockGuard() { xSemaphoreGive(s_mutex); }
+  LockGuard(const LockGuard &) = delete;
+  LockGuard &operator=(const LockGuard &) = delete;
+};
+
+// Versao interna (sem lock) de count(), para uso por isEmpty() sem
+// tentar readquirir o mutex (nao-reentrante) dentro de uma secao ja
+// protegida por LockGuard.
+uint32_t countUnlocked() {
+  if (!s_started) return 0;
+  return s_meta.count;
+}
 
 // Algumas variantes Seeed referem P25Q16H mas este device nao existe
 // em algumas versoes de flash_devices.h. Definimos localmente para garantir
@@ -432,80 +482,13 @@ bool decodeSlot(const SlotWire &in, QspiRingBuffer::Record &out) {
   return true;
 }
 
-} // namespace
-
-namespace QspiRingBuffer {
-
-// Ver documentacao completa em QspiRingBuffer.h.
-bool begin(bool formatIfNeeded) {
-  if (s_started) return true; // Chamar begin() varias vezes e seguro (no-op apos a primeira).
-
-  // Diagnostico JEDEC antes de iniciar o driver alto nivel: le o ID
-  // JEDEC diretamente do chip de flash (comando de baixo nivel) so para
-  // efeitos de log, ajudando a confirmar no terminal serie que tipo de
-  // chip esta realmente instalado na placa antes de tentar usa-lo.
-  uint8_t jedec[4] = {0};
-  s_flashTransport.begin();
-  const bool jedecOk = s_flashTransport.readCommand(SFLASH_CMD_READ_JEDEC_ID, jedec, 4);
-  s_flashTransport.end();
-  if (jedecOk) {
-    Serial.print("[QSPIRB] JEDEC raw: 0x");
-    Serial.print(jedec[0], HEX);
-    Serial.print(" 0x");
-    Serial.print(jedec[1], HEX);
-    Serial.print(" 0x");
-    Serial.println(jedec[2], HEX);
-  } else {
-    Serial.println("[QSPIRB] nao conseguiu ler JEDEC");
-  }
-
-  if (!s_flash.begin(kKnownFlashDevices, kKnownFlashDeviceCount)) {
-    Serial.println("[QSPIRB] flash.begin() falhou (device nao reconhecido)");
-    return false;
-  }
-
-  s_totalSectors = s_flash.size() / kSectorSize;
-  s_slotsPerSector = kSectorSize / kSlotSize;
-  s_metaSlotsPerSector = kSectorSize / sizeof(MetaWire);
-
-  if (s_totalSectors <= kDataStartSector || s_slotsPerSector == 0 || s_metaSlotsPerSector == 0) {
-    Serial.println("[QSPIRB] geometria invalida da flash");
-    return false;
-  }
-
-  // Tenta recuperar o estado existente do buffer lendo o journal de
-  // metadados gravado na flash (isto e o que permite ao buffer
-  // "sobreviver" a um reinicio ou desligar do dispositivo).
-  MetaWire loaded = {};
-  uint32_t nextMetaSlot = 0;
-  if (scanMetaJournal(loaded, nextMetaSlot)) {
-    s_meta = loaded;
-    s_metaNextSlot = nextMetaSlot;
-    s_metaDirty = false;
-    s_metaOpsSinceFlush = 0;
-    s_metaLastFlushMs = millis();
-    s_started = true;
-    Serial.print("[QSPIRB] pronto. slots=");
-    Serial.print(s_meta.capacity_slots);
-    Serial.print(" count=");
-    Serial.println(s_meta.count);
-    Serial.print("[QSPIRB] meta flush policy ops=");
-    Serial.print(kMetaFlushMinOps);
-    Serial.print(" interval_ms=");
-    Serial.println(kMetaFlushIntervalMs);
-    return true;
-  }
-
-  if (!formatIfNeeded) {
-    Serial.println("[QSPIRB] metadados invalidos e format desativado");
-    return false;
-  }
-
-  return format();
-}
-
-// Ver documentacao completa em QspiRingBuffer.h.
-bool format() {
+// (Re)cria os metadados do buffer do zero — implementacao real de
+// format() (ver QspiRingBuffer.h), extraida para uma funcao interna
+// SEM lock proprio para que begin() a possa chamar diretamente quando
+// precisa de formatar (ja dentro do seu proprio LockGuard) sem tentar
+// readquirir um mutex nao-reentrante. O format() publico (mais abaixo)
+// e so um wrapper fino que toma o lock e chama esta funcao.
+bool formatUnlocked() {
   if (!s_flash.begin()) {
     Serial.println("[QSPIRB] format: flash.begin() falhou");
     return false;
@@ -569,8 +552,88 @@ bool format() {
   return true;
 }
 
+} // namespace
+
+namespace QspiRingBuffer {
+
+// Ver documentacao completa em QspiRingBuffer.h.
+bool begin(bool formatIfNeeded) {
+  LockGuard lock; // Protege s_meta/s_started contra push()/peek()/pop() concorrentes de outra task — ver aviso de concorrencia acima.
+  if (s_started) return true; // Chamar begin() varias vezes e seguro (no-op apos a primeira).
+
+  // Diagnostico JEDEC antes de iniciar o driver alto nivel: le o ID
+  // JEDEC diretamente do chip de flash (comando de baixo nivel) so para
+  // efeitos de log, ajudando a confirmar no terminal serie que tipo de
+  // chip esta realmente instalado na placa antes de tentar usa-lo.
+  uint8_t jedec[4] = {0};
+  s_flashTransport.begin();
+  const bool jedecOk = s_flashTransport.readCommand(SFLASH_CMD_READ_JEDEC_ID, jedec, 4);
+  s_flashTransport.end();
+  if (jedecOk) {
+    Serial.print("[QSPIRB] JEDEC raw: 0x");
+    Serial.print(jedec[0], HEX);
+    Serial.print(" 0x");
+    Serial.print(jedec[1], HEX);
+    Serial.print(" 0x");
+    Serial.println(jedec[2], HEX);
+  } else {
+    Serial.println("[QSPIRB] nao conseguiu ler JEDEC");
+  }
+
+  if (!s_flash.begin(kKnownFlashDevices, kKnownFlashDeviceCount)) {
+    Serial.println("[QSPIRB] flash.begin() falhou (device nao reconhecido)");
+    return false;
+  }
+
+  s_totalSectors = s_flash.size() / kSectorSize;
+  s_slotsPerSector = kSectorSize / kSlotSize;
+  s_metaSlotsPerSector = kSectorSize / sizeof(MetaWire);
+
+  if (s_totalSectors <= kDataStartSector || s_slotsPerSector == 0 || s_metaSlotsPerSector == 0) {
+    Serial.println("[QSPIRB] geometria invalida da flash");
+    return false;
+  }
+
+  // Tenta recuperar o estado existente do buffer lendo o journal de
+  // metadados gravado na flash (isto e o que permite ao buffer
+  // "sobreviver" a um reinicio ou desligar do dispositivo).
+  MetaWire loaded = {};
+  uint32_t nextMetaSlot = 0;
+  if (scanMetaJournal(loaded, nextMetaSlot)) {
+    s_meta = loaded;
+    s_metaNextSlot = nextMetaSlot;
+    s_metaDirty = false;
+    s_metaOpsSinceFlush = 0;
+    s_metaLastFlushMs = millis();
+    s_started = true;
+    Serial.print("[QSPIRB] pronto. slots=");
+    Serial.print(s_meta.capacity_slots);
+    Serial.print(" count=");
+    Serial.println(s_meta.count);
+    Serial.print("[QSPIRB] meta flush policy ops=");
+    Serial.print(kMetaFlushMinOps);
+    Serial.print(" interval_ms=");
+    Serial.println(kMetaFlushIntervalMs);
+    return true;
+  }
+
+  if (!formatIfNeeded) {
+    Serial.println("[QSPIRB] metadados invalidos e format desativado");
+    return false;
+  }
+
+  return formatUnlocked();
+}
+
+// Ver documentacao completa em QspiRingBuffer.h.
+bool format() {
+  LockGuard lock; // Ver formatUnlocked() acima e o aviso de concorrencia no topo do ficheiro.
+  return formatUnlocked();
+}
+
 // Ver documentacao completa em QspiRingBuffer.h.
 bool push(uint16_t type, const uint8_t *payload, uint16_t len, uint32_t timestamp) {
+  LockGuard lock; // Ver aviso de concorrencia no topo do ficheiro — serializa com peek()/pop()/advanceTail() chamados por gattDumpTask.
   if (!s_started) return false;
   if (len > kPayloadSize) return false;
   if (len > 0 && payload == nullptr) return false;
@@ -626,6 +689,7 @@ bool push(uint16_t type, const uint8_t *payload, uint16_t len, uint32_t timestam
 
 // Ver documentacao completa em QspiRingBuffer.h.
 bool peek(Record &out) {
+  LockGuard lock; // Ver aviso de concorrencia no topo do ficheiro — serializa com push() chamado por storageTask.
   if (!s_started || s_meta.count == 0) return false;
 
   SlotWire slot = {};
@@ -635,6 +699,7 @@ bool peek(Record &out) {
 
 // Ver documentacao completa em QspiRingBuffer.h.
 bool pop(Record &out) {
+  LockGuard lock; // Ver aviso de concorrencia no topo do ficheiro — serializa com push() chamado por storageTask.
   if (!s_started || s_meta.count == 0) return false;
 
   // Normalmente o slot em tail e valido e o loop sai logo na primeira
@@ -677,6 +742,7 @@ bool pop(Record &out) {
 // duplicar o numero de transacoes de flash nesse caminho. Ver Ble.cpp para
 // os dois pontos onde pop() foi substituido por advanceTail().
 bool advanceTail() {
+  LockGuard lock; // Ver aviso de concorrencia no topo do ficheiro — serializa com push() chamado por storageTask.
   if (!s_started || s_meta.count == 0) return false;
   s_meta.tail = incIndex(s_meta.tail);
   s_meta.count--;
@@ -686,29 +752,33 @@ bool advanceTail() {
 
 // Ver documentacao completa em QspiRingBuffer.h.
 bool isEmpty() {
-  return count() == 0;
+  LockGuard lock;
+  return countUnlocked() == 0; // Usa a versao sem lock: count() readquiriria o mutex (nao-reentrante) dentro desta secao.
 }
 
 // Ver documentacao completa em QspiRingBuffer.h.
 uint32_t count() {
-  if (!s_started) return 0;
-  return s_meta.count;
+  LockGuard lock;
+  return countUnlocked();
 }
 
 // Ver documentacao completa em QspiRingBuffer.h.
 uint32_t capacity() {
+  LockGuard lock;
   if (!s_started) return 0;
   return s_meta.capacity_slots;
 }
 
 // Ver documentacao completa em QspiRingBuffer.h.
 uint32_t droppedByErase() {
+  LockGuard lock;
   if (!s_started) return 0;
   return s_meta.dropped;
 }
 
 // Ver documentacao completa em QspiRingBuffer.h.
 bool sync() {
+  LockGuard lock; // Protege maybeFlushMeta()/persistMetaNow() da mesma forma que push()/pop() acima.
   if (!s_started) return false;
   return maybeFlushMeta(true); // force=true ignora o throttling normal e grava imediatamente se houver alteracoes pendentes.
 }
