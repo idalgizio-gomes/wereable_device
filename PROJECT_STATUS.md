@@ -3342,12 +3342,22 @@ hardware não confirmado (mesma lógica já aplicada ao LoRa e ao GPS):
   ainda. Ver "Pendências" para a decisão de conteúdo NDEF, que fica
   para a rotina de segurança NFC auditar quando existir.
 - **Verificação**: toolchain `pio`/`platformio` não está instalado
-  nesta sessão cloud (`which pio` sem resultado) — **não foi possível
-  correr `pio run`**. Feita revisão manual de sintaxe (chavetas
+  nesta sessão cloud (`which pio` sem resultado) — não foi possível
+  correr `pio run` localmente. Feita revisão manual de sintaxe (chavetas
   balanceadas, includes, namespaces, ordem de declaração igual entre
   `.h`/`.cpp`) e verificação de que o padrão de integração em
   `main.cpp` replica exatamente o já usado (e já compilado/testado em
-  hardware real) para `Lora`. **Não testado em hardware.**
+  hardware real) para `Lora`.
+  **Confirmado a compilar em CI real (2026-07-08, PR #2)**: o
+  repositório já tem `.github/workflows/c-cpp.yml` (PlatformIO CI,
+  corre em todo push/PR para `main`) — não notado antes de abrir o PR.
+  Verificado via `get_check_runs` da API do GitHub sobre o commit
+  `3d24dee`: os dois jobs de build (`seeed-xiao-afruitnrf52-nrf52840-sense-plus`,
+  a firmware completa com o novo módulo NFC, e `test_lora_isolated`)
+  terminaram `completed`/`success` (`run_id=28913334482`), tal como os
+  dois jobs `pytest` (bridge/ml, não afetados por esta alteração).
+  **Continua sem ser testado em hardware real** — CI só confirma que
+  compila, não que o dispositivo arranca com o módulo presente.
 
 ### Próximas fases (dependentes de confirmação/decisão do utilizador)
 
