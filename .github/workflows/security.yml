@@ -1,0 +1,87 @@
+name: Security
+
+# Cobertura de segurança da CI (2026-07-08): este ficheiro estava vazio
+# (0 bytes) até agora — nenhuma verificação de segurança corria
+# automaticamente apesar do repositório já lidar com dados sensíveis
+# reais (chave AES do modo de dados do wearable, NIF/morada de pacientes
+# cifrados em bridge/crypto_utils.py, credenciais de BD). Três frentes:
+#   1) Deteção de segredos cometidos por engano (chaves AES, tokens).
+#   2) Dependências Python com vulnerabilidades conhecidas (pip-audit).
+#   3) Análise estática de código (CodeQL) para Python e JavaScript.
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    # CodeQL e pip-audit têm valor mesmo sem commits novos — bases de
+    # dados de vulnerabilidades (CVE) mudam todos os dias. Segunda-feira
+    # 03:00 UTC — fora do horário de commits normais.
+    - cron: "0 3 * * 1"
+
+jobs:
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # histórico completo — gitleaks varre todos os commits, não só o HEAD
+
+      - name: Detetar segredos cometidos (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  python-dependency-audit:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # Cada um destes ficheiros pode evoluir com dependências
+        # diferentes (ex.: requirements.txt do bridge é mínimo,
+        # requirements_db.txt traz SQLAlchemy/cryptography/FastAPI) —
+        # auditar os dois separadamente evita que um mascare o outro.
+        requirements_file:
+          - bridge/requirements.txt
+          - bridge/requirements_db.txt
+          - ml/requirements.txt
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Auditar ${{ matrix.requirements_file }} (pip-audit)
+        run: |
+          pip install pip-audit
+          if [ -f "${{ matrix.requirements_file }}" ]; then
+            pip-audit -r "${{ matrix.requirements_file }}" --desc
+          else
+            echo "Ficheiro ${{ matrix.requirements_file }} não existe nesta branch — a saltar."
+          fi
+
+  codeql:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    strategy:
+      matrix:
+        # Cobre o bridge (Python) e o dashboard (JavaScript, embutido no
+        # <script> de web/dashboard/index.html + medication-reminders.js)
+        # — não cobre o firmware C++ (CodeQL suporta C/C++ mas exige
+        # compilar; ver c-cpp.yml para a verificação de build real do
+        # firmware, PlatformIO já valida sintaxe/tipos nesse passo).
+        language: ["python", "javascript"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Inicializar CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+
+      - name: Analisar
+        uses: github/codeql-action/analyze@v3
