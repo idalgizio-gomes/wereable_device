@@ -143,9 +143,48 @@ bool recoverExternalI2cBus() {
 }
 #endif
 
+// Estado interno do pipeline de deteccao de batimento (bloco de funcoes
+// logo abaixo). Antes desta correcao, cada variavel vivia isolada como
+// "static" dentro da propria funcao (lowPassFilter/highPassFilter/
+// derivative/detectHeartbeat/computeBPM/smoothBPM) — o que as tornava
+// impossiveis de reiniciar em conjunto. Bug real: startHrStreaming()/
+// stopHrStreaming() alternam com frequencia (nao so' em sentar/levantar:
+// a medicao periodica de SpO2, a cada SPO2_INTERVAL_MS, interrompe sempre
+// o streaming de HR em curso - ver Passo 2 de ppgTask), sem nunca repor
+// nenhuma destas variaveis. Em particular, computeBPM() guardava
+// lastBeatTime/bpm de uma sessao de streaming anterior: apos o reinicio,
+// se o primeiro dt calculado caisse fora da janela 300-2000ms (garantido
+// sempre que passa mais de 1 medicao de SpO2 entre batimentos), a funcao
+// devolvia o "bpm" antigo tal como estava - um valor fisiologico de um
+// contexto diferente (ex.: de um episodio de movimento) apresentado como
+// leitura nova e valida (hr_valid=true, timestamp atual), incluindo a sua
+// contaminacao da media movel seguinte em smoothBPM(). Corrigido: todo o
+// estado passa a viver aqui, com resetHrFilterState() a repo-lo por
+// completo sempre que um streaming de HR novo comeca (ver
+// startHrStreaming()).
 struct HrFilterState {
-  // Mantido apenas para compatibilidade de compilacao.
+  float lpPrevY = 0;          // lowPassFilter
+  float hpPrevX = 0;          // highPassFilter
+  float hpPrevY = 0;          // highPassFilter
+  float derivPrev = 0;        // derivative
+  float beatPrevDiff = 0;     // detectHeartbeat
+  unsigned long beatLastMs = 0;      // detectHeartbeat (anti-rebote)
+  unsigned long bpmLastBeatTime = 0; // computeBPM
+  float bpmValue = 0;                // computeBPM
+  float smoothBuf[5] = {0, 0, 0, 0, 0}; // smoothBPM
+  int smoothIdx = 0;                    // smoothBPM
+  bool smoothFilled = false;            // smoothBPM
+  float smoothSum = 0;                  // smoothBPM
 };
+
+HrFilterState g_hrFilter;
+
+// Repoe todo o pipeline de deteccao de batimento para o estado inicial.
+// Chamada por startHrStreaming() no inicio de cada streaming de HR novo -
+// ver comentario de HrFilterState acima para a razao concreta.
+void resetHrFilterState() {
+  g_hrFilter = HrFilterState{};
+}
 
 // Reduz a corrente de todos os LEDs do sensor (vermelho/IR/verde) para
 // zero, sem o colocar em shutdown. Usado antes de desligar o sensor por
@@ -202,10 +241,8 @@ float lowPassFilter(float x) {
   static float fc = 5;
   static float Rc = 1.0 / (2.0 * PI * fc);
   const float alpha = Ts / (Rc + Ts);
-  static float prevY = 0;
-  static float y = 0;
-  y = prevY + alpha * (x - prevY);
-  prevY = y;
+  const float y = g_hrFilter.lpPrevY + alpha * (x - g_hrFilter.lpPrevY);
+  g_hrFilter.lpPrevY = y;
   return y;
 }
 
@@ -216,11 +253,9 @@ float highPassFilter(float x) {
   static float fc = 0.5;
   static float Rc = 1.0 / (2.0 * PI * fc);
   const float alpha = Rc / (Rc + Ts);
-  static float prevX = 0;
-  static float prevY = 0;
-  float y = alpha * (prevY + x - prevX);
-  prevX = x;
-  prevY = y;
+  const float y = alpha * (g_hrFilter.hpPrevY + x - g_hrFilter.hpPrevX);
+  g_hrFilter.hpPrevX = x;
+  g_hrFilter.hpPrevY = y;
   return y;
 }
 
@@ -228,9 +263,8 @@ float highPassFilter(float x) {
 // Transforma o sinal filtrado numa curva que cruza o zero exatamente no
 // pico de cada batimento, o que facilita a deteccao a seguir.
 float derivative(float x) {
-  static float prev = 0;
-  float y = x - prev;
-  prev = x;
+  const float y = x - g_hrFilter.derivPrev;
+  g_hrFilter.derivPrev = x;
   return y;
 }
 
@@ -240,23 +274,20 @@ float derivative(float x) {
 // o que corresponde a um limite fisiologico de 200 BPM (batimentos mais
 // rapidos do que isso sao tratados como ruido/artefacto, nao um batimento real).
 bool detectHeartbeat(float diff) {
-  static float prev = 0;
-  static unsigned long lastBeat = 0;
-
   bool beatDetected = false;
 
   // Zero crossing POS -> NEG
-  if (prev > 0 && diff <= 0) {
+  if (g_hrFilter.beatPrevDiff > 0 && diff <= 0) {
     unsigned long now = millis();
 
     // Anti-rebote: ignora falsos picos < 300ms (200 BPM máx)
-    if (now - lastBeat > 300) {
+    if (now - g_hrFilter.beatLastMs > 300) {
       beatDetected = true;
-      lastBeat = now;
+      g_hrFilter.beatLastMs = now;
     }
   }
 
-  prev = diff;
+  g_hrFilter.beatPrevDiff = diff;
   return beatDetected;
 }
 
@@ -265,18 +296,15 @@ bool detectHeartbeat(float diff) {
 // aceita valores de dt fisiologicamente plausiveis (entre 300 e 2000 ms,
 // ou seja 30-200 BPM); fora desse intervalo mantem o ultimo valor calculado.
 float computeBPM() {
-  static unsigned long lastBeatTime = 0;
-  static float bpm = 0;
-
   unsigned long now = millis();
-  int dt = now - lastBeatTime;
+  int dt = now - g_hrFilter.bpmLastBeatTime;
 
   if (dt > 300 && dt < 2000) { // 30–200 BPM
-    bpm = 60000.0 / dt;
+    g_hrFilter.bpmValue = 60000.0 / dt;
   }
 
-  lastBeatTime = now;
-  return bpm;
+  g_hrFilter.bpmLastBeatTime = now;
+  return g_hrFilter.bpmValue;
 }
 
 // Suaviza o valor de BPM com uma media movel simples das ultimas N=5
@@ -285,26 +313,22 @@ float computeBPM() {
 // === MOVING AVERAGE FOR BPM ===
 float smoothBPM(float bpm) {
   const int N = 5;
-  static float buf[N];
-  static int idx = 0;
-  static bool filled = false;
-  static float sum = 0;
 
-  sum -= buf[idx];
-  buf[idx] = bpm;
-  sum += bpm;
+  g_hrFilter.smoothSum -= g_hrFilter.smoothBuf[g_hrFilter.smoothIdx];
+  g_hrFilter.smoothBuf[g_hrFilter.smoothIdx] = bpm;
+  g_hrFilter.smoothSum += bpm;
 
-  idx++;
-  if (idx >= N) {
-    idx = 0;
-    filled = true;
+  g_hrFilter.smoothIdx++;
+  if (g_hrFilter.smoothIdx >= N) {
+    g_hrFilter.smoothIdx = 0;
+    g_hrFilter.smoothFilled = true;
   }
 
-  if (!filled) {
-    return sum / idx;
+  if (!g_hrFilter.smoothFilled) {
+    return g_hrFilter.smoothSum / g_hrFilter.smoothIdx;
   }
 
-  return sum / N;
+  return g_hrFilter.smoothSum / N;
 }
 
 // Configura o MAX3010x para o modo usado na medicao de SpO2: acorda o
@@ -366,6 +390,7 @@ void setupForHr() {
 void startHrStreaming() {
   if (g_hrStreaming) return;
   setupForHr();
+  resetHrFilterState();
   g_hrStreaming = true;
   g_lastHrSampleMs = 0;
   Serial.println("[PPG] HR stream ON");
