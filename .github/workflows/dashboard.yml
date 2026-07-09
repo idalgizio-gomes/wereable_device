@@ -1,0 +1,76 @@
+name: Dashboard tests
+
+# Corrigido (2026-07-08): este ficheiro estava com YAML inválido (sem
+# "jobs:" no nível certo, indentação partida a meio de uma edição
+# interrompida) — nunca correu nenhuma verificação real do dashboard.
+# Não existe framework de testes JS instalado (sem package.json/node_modules
+# neste repositório), por isso a verificação replica exatamente o método
+# manual já usado ao longo do projeto: extrair o <script> principal de
+# index.html e validar a sintaxe com o parser real do Node (`node --check`),
+# mais uma checagem de funções/ids HTML duplicados (regex simples, mesma
+# lógica dos scripts ad-hoc usados nas sessões interativas).
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  syntax-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Extrair e validar sintaxe do <script> principal (index.html)
+        # IMPORTANTE: usar a ÚLTIMA ocorrência literal de "<script>", não a
+        # primeira — o ficheiro tem várias menções a "<script>" dentro de
+        # comentários CSS/JS (texto explicativo), que um simples indexOf()
+        # apanha por engano (bug já encontrado e corrigido manualmente
+        # várias vezes ao longo do projeto). lastIndexOf() é o padrão
+        # correto e testado.
+        run: |
+          node -e "
+          const fs = require('fs');
+          const content = fs.readFileSync('web/dashboard/index.html', 'utf-8');
+          const start = content.lastIndexOf('<script>');
+          if (start === -1) { console.error('Nao encontrei <script> em index.html'); process.exit(1); }
+          const end = content.indexOf('</script>', start);
+          const js = content.slice(start + '<script>'.length, end);
+          fs.writeFileSync('/tmp/dashboard_inline.js', js);
+          "
+          node --check /tmp/dashboard_inline.js
+
+      - name: Validar sintaxe de medication-reminders.js
+        run: node --check web/dashboard/medication-reminders.js
+
+      - name: Verificar funções/ids duplicados
+        run: |
+          node -e "
+          const fs = require('fs');
+          const content = fs.readFileSync('web/dashboard/index.html', 'utf-8');
+          const start = content.lastIndexOf('<script>');
+          const end = content.indexOf('</script>', start);
+          const js = content.slice(start + '<script>'.length, end);
+
+          const funcMatches = [...js.matchAll(/^function (\w+)/gm)].map(m => m[1]);
+          const funcCounts = {};
+          funcMatches.forEach(f => funcCounts[f] = (funcCounts[f] || 0) + 1);
+          const dupFuncs = Object.entries(funcCounts).filter(([,n]) => n > 1).map(([f]) => f);
+
+          const idMatches = [...content.matchAll(/id=\"([^\"]+)\"/g)].map(m => m[1]);
+          const idCounts = {};
+          idMatches.forEach(i => idCounts[i] = (idCounts[i] || 0) + 1);
+          const dupIds = Object.entries(idCounts).filter(([,n]) => n > 1).map(([i]) => i);
+
+          if (dupFuncs.length || dupIds.length) {
+            console.error('Funcoes duplicadas:', dupFuncs);
+            console.error('IDs duplicados:', dupIds);
+            process.exit(1);
+          }
+          console.log('Sem funcoes ou ids duplicados.');
+          "
