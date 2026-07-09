@@ -1,0 +1,7 @@
+name: Dashboard tests
+on:
+    push:
+        branches: ["main"]
+        pull_request:
+            Branches: ["main"]
+    

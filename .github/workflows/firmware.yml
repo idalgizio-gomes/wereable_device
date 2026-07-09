@@ -1,0 +1,41 @@
+name: Firmware CI
+
+on:
+  push:
+    branches:
+      - main
+      - "feature/**"
+
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  firmware:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Instalar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: platformio-${{ runner.os }}
+
+      - name: Instalar PlatformIO
+        run: pip install platformio
+
+      - name: Compilar firmware
+        run: pio run
+
+      - name: Executar análise estática
+        run: pio check
