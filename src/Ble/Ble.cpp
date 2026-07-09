@@ -108,6 +108,19 @@ constexpr uint16_t kGattDumpTaskStackWords = 1280;
 // atrasar, colocar em fila ou agrupar como precisar — o firmware nunca
 // espera por essa segunda etapa nem e afetado pela velocidade dela.
 constexpr uint32_t kGattDumpInterPacketMs = 2;
+// Nº de tentativas extra quando notify() devolve false (2026-07-09,
+// confirmado em hardware real pela primeira vez: "[BLEG][TX] FAIL" ocorre
+// mesmo com kGattDumpInterPacketMs=2). notify() do Bluefruit devolve false
+// sobretudo quando a fila de notificações do SoftDevice está temporariamente
+// cheia (backpressure normal, não um erro permanente do link) — desistir à
+// primeira tentativa descartava um fragmento válido só porque a fila ainda
+// não tinha esvaziado uns milissegundos. Cada retry espera
+// kGattDumpTxRetryDelayMs antes de tentar de novo; ao fim de
+// kGattDumpTxMaxRetries falhas seguidas, desiste mesmo (a chamada original
+// já trata isso como reason=6 e tenta este registo de novo na próxima
+// janela).
+constexpr uint8_t kGattDumpTxMaxRetries = 5;
+constexpr uint32_t kGattDumpTxRetryDelayMs = 4;
 constexpr uint32_t kGattDumpWindowMs = 1000; // envio continuo: 1 segundo
 constexpr uint32_t kImuRateHz = 52;
 constexpr uint32_t kWindowTargetRecords = (kImuRateHz * kGattDumpWindowMs) / 1000U; // 52
@@ -821,12 +834,33 @@ bool sendDumpPendingRecord() {
     memcpy(pkt.chunk, cipherBuf + offset, chunkLen);
 
     const uint8_t *rawPkt = reinterpret_cast<const uint8_t *>(&pkt);
-    if (!dumpDataChar.notify(rawPkt, sizeof(pkt))) {
+    // notify() devolve false sobretudo quando a fila de notificacoes do
+    // SoftDevice esta temporariamente cheia (backpressure normal, nao um
+    // erro permanente do link — ver kGattDumpTxMaxRetries acima) — antes
+    // de desistir do registo inteiro, da-se ao link uns milissegundos para
+    // esvaziar a fila e tenta-se de novo o MESMO fragmento.
+    bool sent = dumpDataChar.notify(rawPkt, sizeof(pkt));
+    uint8_t retries = 0;
+    while (!sent && retries < kGattDumpTxMaxRetries) {
+      vTaskDelay(pdMS_TO_TICKS(kGattDumpTxRetryDelayMs));
+      sent = dumpDataChar.notify(rawPkt, sizeof(pkt));
+      retries++;
+    }
+    if (!sent) {
       Serial.print("[BLEG][TX] FAIL rec_seq=");
       Serial.print(s_dumpPendingSeq);
       Serial.print(" frag=");
-      Serial.println((int)fragIdx + 1);
+      Serial.print((int)fragIdx + 1);
+      Serial.print(" apos ");
+      Serial.print((int)retries);
+      Serial.println(" retries");
       return false;
+    }
+    if (kGattDumpVerboseLogs && retries > 0) {
+      Serial.print("[BLEG][TX] recuperado apos ");
+      Serial.print((int)retries);
+      Serial.print(" retries rec_seq=");
+      Serial.println(s_dumpPendingSeq);
     }
     if (kGattDumpVerboseLogs) {
       Serial.print("[BLEG][TX] rec_seq=");
