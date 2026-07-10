@@ -1,0 +1,45 @@
+{
+  "seed": 555,
+  "n_normal_subjects": 10,
+  "n_subjects_per_anomaly_type": 10,
+  "classifier_model": "xgboost (models/activity_classifier_xgb.json, passo 1)",
+  "window_level_classifier_accuracy_on_this_cohort": 0.9958556566624932,
+  "block_fragmentation": {
+    "mean_true_blocks_per_subject": 54.225,
+    "mean_predicted_blocks_per_subject": 105.4,
+    "fragmentation_ratio": 1.9437528815122176
+  },
+  "per_anomaly_type": {
+    "duracao_prolongada": {
+      "n_subjects_requested": 10,
+      "n_subjects_with_injected_block": 10,
+      "recall_duration_oracle_blocks": 1.0,
+      "recall_duration_predicted_blocks": 1.0,
+      "recall_autoencoder": 0.1,
+      "recall_combined_predicted_plus_autoencoder": 1.0
+    },
+    "substituicao_contextual": {
+      "n_subjects_requested": 10,
+      "n_subjects_with_injected_block": 10,
+      "recall_duration_oracle_blocks": 1.0,
+      "recall_duration_predicted_blocks": 1.0,
+      "recall_autoencoder": 1.0,
+      "recall_combined_predicted_plus_autoencoder": 1.0
+    },
+    "truncamento": {
+      "n_subjects_requested": 10,
+      "n_subjects_with_injected_block": 10,
+      "recall_duration_oracle_blocks": 1.0,
+      "recall_duration_predicted_blocks": 1.0,
+      "recall_autoencoder": 0.6,
+      "recall_combined_predicted_plus_autoencoder": 1.0
+    }
+  },
+  "false_positive_rate_normal_blocks": {
+    "duration_oracle_blocks": 0.0,
+    "duration_predicted_blocks": 0.7077754891864058,
+    "autoencoder": 0.32518022657054585,
+    "combined_predicted_plus_autoencoder": 0.8524716786817713
+  },
+  "note": "Avaliação end-to-end sobre um cohort sintético novo (seed=555, nunca visto no treino/calibração dos modelos usados: XGBoost seed=42, LSTM Autoencoder seed=42, limiar percentil 95 calibrado nesse mesmo treino). '_oracle_blocks' usa os segmentos VERDADEIROS do gerador (mesma metodologia de duration_detector.py, avalia a regra isolada do classificador); '_predicted_blocks' usa os blocos que o classificador XGBoost (passo 1) de facto produziu, com os seus erros de classificação incluídos — a diferença entre os dois mede o custo real de encadear os passos 1+3 em vez de avaliar cada um isoladamente. 'autoencoder' e 'combined' operam sobre os blocos previstos (não os segmentos verdadeiros). 100% sintético — não valida desempenho em dados reais (mesma limitação documentada em todo o ml/README.md)."
+}
