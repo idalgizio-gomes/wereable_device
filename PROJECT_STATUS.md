@@ -3710,6 +3710,57 @@ substancial desde então**, confirmada nesta execução:
    depois considerar apagar `Main` (`git push origin --delete Main`,
    ação destrutiva sobre uma ref partilhada, deliberadamente fora do
    âmbito desta rotina).
+
+## Modelo de Machine Learning — relatório combinado dos 3 detetores (2026-07-10, rotina ml-review)
+
+Item do roteiro em `ml/README.md` → "Objetivos"/"Próximos passos", ainda
+por fazer: combinar os 3 passos do pipeline (classificador XGBoost +
+LSTM Autoencoder + detetor de duração) num relatório único, em vez de
+avaliar cada um isoladamente como até aqui. Implementado
+`ml/combined_pipeline_report.py` — corrido de facto (não só código
+escrito): gera um cohort sintético novo (seed=555, nunca visto no
+treino/calibração dos modelos usados), classifica cada janela com o
+XGBoost já treinado, deriva blocos a partir das previsões do
+classificador (não dos segmentos verdadeiros do gerador), e aplica o
+detetor de duração + o LSTM Autoencoder a esses blocos, comparando com a
+avaliação "oráculo" (segmentos verdadeiros, mesma metodologia já usada em
+`duration_detector.py`). 10 sujeitos normais + 10 por tipo de anomalia.
+
+**Resultado com interpretação honesta**: o recall mantém-se perfeito
+(1.000 nos 3 tipos de anomalia, oráculo e blocos previstos), mas a **taxa
+de falsos positivos em blocos normais explode de 0.0% (oráculo,
+consistente com o já reportado em `ml/README.md`, passo 3) para 70.8%**
+quando o detetor de duração é alimentado pelos blocos que o classificador
+de facto produz. Causa medida diretamente: mesmo com accuracy 0.996
+(consistente com o já reportado), o classificador ainda fragmenta os
+blocos verdadeiros quase para o dobro (105.4 blocos previstos vs. 54.2
+blocos verdadeiros, por sujeito, em média) — uma única janela mal
+classificada a meio de um bloco contínuo parte-o em vários blocos mais
+curtos, alguns dos quais caem fora dos limites de duração esperados só
+por causa do erro do classificador, não de nenhuma anomalia real.
+Combinar com o autoencoder via OR lógico piora ainda mais a
+especificidade (FP 85.2%) — propriedade matemática do OR (nunca reduz
+falsos positivos), não um bug. **Isto não invalida as avaliações
+anteriores de cada passo isolado** (cada uma mede exatamente o que diz
+medir) — mede, pela primeira vez nesta pasta, o custo real de encadear os
+passos, que as métricas isoladas escondiam. Detalhe completo, incluindo a
+tabela oráculo-vs-previsto e as limitações honestas, em `ml/README.md`,
+secção "Relatório combinado dos 3 detetores".
+
+5 testes novos (`ml/tests/test_combined_pipeline_report.py`, só a função
+pura `predicted_blocks_from_rows()` — sem RNG nem modelos, mesmo padrão
+já usado para `duration_detector.py`). **24/24 testes do `ml/`** a
+passar. CI (`ml-tests.yml`) não precisou de alterações.
+
+**Próximo passo concreto, descoberto por este achado** (não estava
+planeado antes desta execução): suavizar a saída do classificador antes
+de derivar blocos (ex.: filtro de mediana/maioria sobre uma janela
+deslizante de previsões, ou histerese) para reduzir a fragmentação
+medida antes de aplicar a regra de duração — ver `ml/README.md`,
+"Próximos passos", item 6, para o detalhe. Não implementado nesta
+execução (o âmbito era medir o problema, não já mitigá-lo).
+
+(Implementa relatório combinado dos 3 detetores do pipeline de ML (FP de duração explode 0.0%→70.8% com blocos reais do classificador))
 ## Firmware: HR "fantasma" — estado do filtro de batimento não reiniciado entre streamings de HR (2026-07-09, rotina cloud)
 
 `git checkout -B claude/gifted-hamilton-foheab origin/main` no início desta execução: o checkout local anterior desta branch estava numa lombada divergente (`bd672eb`, com commits `cb790d9`/`ae8aa96`/`c0ca01d` de PRs #9/#10) que afinal tinha sido mesclada no branch `Main` (maiúscula), não em `main` — o mesmo conflito arquitetural entre `Main`/`main` já registado hoje pela PR #11 (aberta, draft, ainda pendente de decisão do utilizador). Não tomei nenhuma decisão sobre esse conflito (não é desta rotina decidir); só reiniciei esta branch a partir de `origin/main` (o branch onde vive toda a CI/documentação real do projeto) para não continuar a trabalhar em cima de uma lombada desatualizada/divergente. Revistas as Prioridades 0-2/6-8 (bloqueadas por hardware/decisão do utilizador) e a Prioridade 5 (`ml/`, sem itens novos não bloqueados), delegada uma varredura de bugs dirigida a áreas menos cobertas hoje (evitando NFC, GATT/auth, rate-limiting, XSS do dashboard, RAM/CPU e a corrida do `QspiRingBuffer`, todas já cobertas por PRs de hoje/ontem). Achado real, confirmado por leitura direta do código:
