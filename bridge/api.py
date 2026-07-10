@@ -37,6 +37,7 @@ from typing import Literal, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import storage_advanced as sa
@@ -174,40 +175,65 @@ def record_medication_adherence(
     `markDoseTaken()` já tem no dashboard via localStorage, só que aqui
     persistido). Cada escrita fica registada em `AuditLog` (ação sensível,
     mesmo padrão já documentado para o resto do schema).
+
+    BUG CORRIGIDO: o SELECT abaixo (verifica se já existe registo) e o
+    INSERT/UPDATE seguinte não são atómicos — dois pedidos concorrentes para
+    a MESMA dose podiam ambos ver "não existe" e ambos inserir, criando duas
+    linhas (só a `UniqueConstraint` nova em `MedicationAdherence.__table_args__`,
+    storage_advanced.py, impede isto de facto; ver o comentário lá para a
+    reprodução concreta). Em vez de deixar esse conflito rebentar como um
+    500 para o pedido que perde a corrida, tenta-se aqui uma segunda vez:
+    se o commit falhar por violação da constraint, descarta-se a tentativa de
+    INSERT (rollback) e repete-se como UPDATE puro sobre a linha que já lá
+    está — o resultado observável pelo cliente continua a ser sempre "a dose
+    ficou registada", nunca um erro por causa de outro pedido legítimo para
+    a mesma dose.
     """
     medication = db.get(sa.Medication, medication_id)
     if medication is None:
         raise HTTPException(status_code=404, detail="Medicamento não encontrado")
 
-    record = (
-        db.query(sa.MedicationAdherence)
-        .filter(
-            sa.MedicationAdherence.medication_id == medication_id,
-            sa.MedicationAdherence.scheduled_datetime == body.scheduled_datetime,
-        )
-        .first()
-    )
     now = datetime.utcnow()
-    if record is None:
-        record = sa.MedicationAdherence(medication_id=medication_id, scheduled_datetime=body.scheduled_datetime)
-        db.add(record)
-    record.taken = body.taken
-    record.taken_at = now if body.taken else None
-    record.method = body.method
-    record.notes = body.notes
+    max_attempts = 2
+    for attempt in range(max_attempts):
+        record = (
+            db.query(sa.MedicationAdherence)
+            .filter(
+                sa.MedicationAdherence.medication_id == medication_id,
+                sa.MedicationAdherence.scheduled_datetime == body.scheduled_datetime,
+            )
+            .first()
+        )
+        if record is None:
+            record = sa.MedicationAdherence(medication_id=medication_id, scheduled_datetime=body.scheduled_datetime)
+            db.add(record)
+        record.taken = body.taken
+        record.taken_at = now if body.taken else None
+        record.method = body.method
+        record.notes = body.notes
 
-    db.add(sa.AuditLog(
-        action="medication_adherence.write",
-        resource_type="medication_adherence",
-        resource_id=medication_id,
-        details={
-            "taken": body.taken,
-            "method": body.method,
-            "scheduled_datetime": body.scheduled_datetime.isoformat(),
-        },
-        ip_address=request.client.host if request.client else None,
-    ))
-    db.commit()
+        db.add(sa.AuditLog(
+            action="medication_adherence.write",
+            resource_type="medication_adherence",
+            resource_id=medication_id,
+            details={
+                "taken": body.taken,
+                "method": body.method,
+                "scheduled_datetime": body.scheduled_datetime.isoformat(),
+            },
+            ip_address=request.client.host if request.client else None,
+        ))
+        try:
+            db.commit()
+            break
+        except IntegrityError:
+            db.rollback()
+            if attempt == max_attempts - 1:
+                raise
+            # Outro pedido concorrente para a mesma dose venceu a corrida
+            # entre este SELECT e este COMMIT — repete o ciclo, que agora
+            # vai encontrar a linha dele no SELECT e fazer um UPDATE puro.
+            continue
     db.refresh(record)
 
     return {

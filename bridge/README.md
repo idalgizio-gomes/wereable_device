@@ -109,8 +109,12 @@ Endpoints (todos exigem o cabeçalho `X-API-Key`, exceto `/health`):
   endpoint de escrita) — corpo JSON `{"scheduled_datetime": "AAAA-MM-DDTHH:MM:SS",
   "taken": true|false, "method": "manual_entry"|"wearable_detection"|"ai_inference",
   "notes": "..."}`. Idempotente por `(medication_id, scheduled_datetime)` —
-  repetir o pedido para a mesma dose atualiza o registo em vez de duplicar.
-  Cada escrita fica registada em `AuditLog` (ação sensível).
+  repetir o pedido para a mesma dose atualiza o registo em vez de duplicar,
+  garantido por uma `UniqueConstraint` real na BD (2026-07-10; antes disso
+  só havia um índice não-único, e dois pedidos concorrentes para a mesma
+  dose podiam duplicar a linha — ver comentário em
+  `MedicationAdherence.__table_args__`, `storage_advanced.py`). Cada escrita
+  fica registada em `AuditLog` (ação sensível).
 
 Sem `CAREWEAR_API_KEY` configurada, a API **falha fechada** (todos os
 pedidos autenticados devolvem 503) — ao contrário da cifra acima, que
