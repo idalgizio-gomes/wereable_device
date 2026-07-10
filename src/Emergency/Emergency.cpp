@@ -23,6 +23,11 @@ uint32_t s_sosConfirmDeadlineMs = 0;
 bool s_lastFreefall = false;    // Último valor de freefall lido do IMU.
 bool s_fallWatchActive = false; // true entre a queda e o alerta/cancelamento.
 uint32_t s_fallDetectedMs = 0;
+// true assim que Imu::Sample::inactivity assentou (~3s continuos parado,
+// ver Imu::detectInactivity) pela primeira vez depois da queda que armou
+// a vigilância atual — ver updateFallDetection() para o porquê de não
+// usar diretamente "!sample.inactivity" para cancelar.
+bool s_confirmedStillSinceFall = false;
 
 // Dispara o alerta pelos dois canais decididos com o utilizador (BLE +
 // LoRa, quando disponível) e regista em série para diagnóstico.
@@ -108,23 +113,34 @@ void updateFallDetection() {
     Serial.println("[EMERGENCY] possivel queda detetada — a vigiar inatividade...");
     s_fallWatchActive = true;
     s_fallDetectedMs = nowMs;
+    s_confirmedStillSinceFall = false;
   }
   s_lastFreefall = sample.freefall;
 
   if (!s_fallWatchActive) return;
 
-  if (!sample.inactivity) {
-    // O utilizador voltou a mexer-se antes do timeout — cancela a
-    // vigilância. Não é necessariamente "falsa queda": pode ter sido uma
-    // queda real da qual a pessoa se levantou sozinha, o que também não
-    // deve gerar um alerta automático (decisão de implementação,
-    // documentada para validação futura do utilizador).
+  // Bug corrigido (2026-07-10): cancelar aqui com base em "!sample.inactivity"
+  // destruía SEMPRE a vigilância, porque essa flag só assenta a "true"
+  // depois de ~3s continuos parado (Imu::detectInactivity, kInactivitySamples
+  // = 156 @ 52Hz) — nos primeiros ~3s a seguir a qualquer queda ela é
+  // necessariamente "false", quer a pessoa esteja mesmo parada quer não.
+  // O alerta automático "queda + inatividade" nunca chegava a poder
+  // disparar. Em vez disso: só tratamos como "voltou a mexer-se" uma
+  // quebra da inatividade DEPOIS de já a termos visto assentar pelo menos
+  // uma vez desde esta queda — isso já é evidência real de movimento
+  // sustentado (a mesma flag, sendo um contador com fuga, não quebra por
+  // ruído de uma única amostra), não apenas "ainda não passaram os 3s
+  // iniciais de deteção".
+  if (sample.inactivity) {
+    s_confirmedStillSinceFall = true;
+  } else if (s_confirmedStillSinceFall) {
     Serial.println("[EMERGENCY] movimento retomado apos queda — vigilancia cancelada");
     s_fallWatchActive = false;
     return;
   }
 
-  if ((nowMs - s_fallDetectedMs) >= s_config.fallInactivityTimeoutMs) {
+  if (s_confirmedStillSinceFall &&
+      (nowMs - s_fallDetectedMs) >= s_config.fallInactivityTimeoutMs) {
     s_fallWatchActive = false;
     raiseAlert(Ble::kEmergencyAlertFallInactivity, "queda + inatividade prolongada");
   }
@@ -142,6 +158,7 @@ void begin(uint8_t buttonPin) {
   s_sosPending = false;
   s_lastFreefall = false;
   s_fallWatchActive = false;
+  s_confirmedStillSinceFall = false;
 
   Serial.println("[EMERGENCY] modulo inicializado (SOS manual + queda/inatividade)");
 }

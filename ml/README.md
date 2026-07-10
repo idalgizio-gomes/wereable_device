@@ -53,6 +53,7 @@ ml/
   train_lstm_autoencoder.py       # treino + avaliação do LSTM Autoencoder (passo 2)
   duration_detector.py            # detetor de duração baseado em regras + avaliação (passo 3)
   measure_rf_footprint.py         # footprint real (flash/RAM) do Random Forest via emlearn
+  combined_pipeline_report.py     # relatório combinado: classificador + duração + autoencoder, blocos previstos (não ground truth)
   requirements.txt
   data/
     synthetic_routine_dataset.csv        # gerado, NÃO versionado (ver .gitignore)
@@ -72,6 +73,8 @@ ml/
     lstm_autoencoder_metrics.json              # AUC-ROC/recall geral e por tipo de anomalia
     lstm_autoencoder_error_distribution.png    # histograma do erro de reconstrução, normal vs. anómalo
     duration_detector_metrics.json             # recall por tipo de anomalia + falsos positivos (passo 3)
+    combined_pipeline_metrics.json             # relatório combinado (oráculo vs. blocos previstos, ver secção dedicada)
+    combined_pipeline_recall_by_detector.png   # recall por tipo de anomalia e detetor (barras agrupadas)
 ```
 
 Para reproduzir:
@@ -84,6 +87,7 @@ python train_activity_classifier.py   # treina e avalia o XGBoost, escreve em mo
 python train_activity_classifier_rf.py  # idem, Random Forest
 python train_lstm_autoencoder.py      # gera sequências sintéticas + treina/avalia o autoencoder
 python duration_detector.py           # avalia o detetor de duração baseado em regras (sem treino)
+python combined_pipeline_report.py    # relatório combinado dos 3 detetores (requer os modelos já treinados acima)
 ```
 
 Todos os scripts são determinísticos (seed fixa = 42).
@@ -541,6 +545,98 @@ não segue os mesmos limites usados para gerar os dados.
   gerador não modela (ex.: uma pessoa real pode genuinamente ter um duche
   mais longo que o intervalo `[d_min, d_max]` sem isso ser uma anomalia).
 
+## Relatório combinado dos 3 detetores (pipeline completo, 2026-07-10)
+
+Item do roteiro "Objetivos" desta rotina, ainda por fazer: até aqui, cada
+passo era avaliado isoladamente — em particular, `duration_detector.py`
+(passo 3) mede a regra de duração contra os segmentos **verdadeiros**
+(ground truth) do gerador sintético, isolando-a de qualquer erro do
+classificador (passo 1). Isso não é como o sistema funcionaria de facto
+embarcado: em produção, o detetor de duração só vê os **blocos que o
+classificador de facto produziu**, com todos os seus erros. Implementado
+`ml/combined_pipeline_report.py`: gera um cohort sintético novo (seed=555,
+nunca visto no treino/calibração de nenhum dos modelos usados — XGBoost e
+LSTM Autoencoder, ambos seed=42), classifica cada janela com o XGBoost já
+treinado, agrupa janelas consecutivas da mesma sessão com a **mesma classe
+prevista** em blocos, aplica a regra de duração (passo 3) e o LSTM
+Autoencoder (passo 2, veredito por janela via subsequências) a esses
+blocos previstos, e compara com a avaliação "oráculo" (mesma metodologia
+de `duration_detector.py`, para medir a diferença). 10 sujeitos normais +
+10 por tipo de anomalia (`reports/combined_pipeline_metrics.json`,
+`reports/combined_pipeline_recall_by_detector.png`).
+
+### Achado honesto principal — a fragmentação de blocos pelo classificador destrói a especificidade da regra de duração
+
+| | Oráculo (segmentos verdadeiros, mesma metodologia do passo 3) | Blocos previstos pelo classificador (este relatório) |
+|---|---|---|
+| Falsos positivos em blocos normais | **0.0%** | **70.8%** |
+| Recall (`duracao_prolongada`/`substituicao_contextual`/`truncamento`) | 1.000 / 1.000 / 1.000 | 1.000 / 1.000 / 1.000 |
+
+O recall mantém-se perfeito nos 3 tipos (as anomalias injetadas continuam
+muito mais longas/curtas do que qualquer fragmento espúrio, por isso a
+regra continua a apanhá-las). **Mas a taxa de falsos positivos explode de
+0.0% para 70.8%** — não porque a regra de duração em si piorou (é o mesmo
+código, os mesmos limites), mas porque **o classificador (accuracy 0.996
+neste cohort, consistente com `activity_classifier_metrics.json`) ainda
+assim fragmenta os blocos quase para o dobro**: em média 105.4 blocos
+previstos por sujeito contra 54.2 blocos verdadeiros
+(`fragmentation_ratio` ≈1.94, ver `block_fragmentation` no relatório). Uma
+única janela mal classificada a meio de um bloco contínuo (ex.: 20 minutos
+de "Descanso") parte-o em 3 blocos mais curtos — dois deles fora do
+intervalo `[d_min, d_max]` esperado só por serem demasiado curtos, um
+falso positivo de duração **causado pelo erro do classificador, não por
+nenhuma anomalia real**. Isto confirma com números concretos, pela
+primeira vez nesta pasta, que **accuracy alta ao nível da janela (0.996)
+não implica especificidade alta ao nível do bloco** quando os dois passos
+são encadeados — as métricas isoladas de cada passo (passo 1: accuracy
+0.996; passo 3: FP 0.0%) escondiam este efeito de composição.
+
+**Combinar com o LSTM Autoencoder (OR lógico) piora ainda mais a
+especificidade, não melhora**: FP combinado = 85.2% (> 70.8% da regra de
+duração sozinha), porque o autoencoder tem a sua própria taxa de falsos
+positivos (32.5%, medida aqui a nível de janela/bloco, não diretamente
+comparável ao "false_positive_rate" reportado no passo 2, que é a nível de
+subsequência com um cohort/seed diferentes) e um OR lógico entre dois
+detetores nunca reduz falsos positivos — só pode aumentar a sensibilidade
+(e com ela, o ruído) de qualquer um dos dois sozinho. Isto é uma
+propriedade matemática do "OR", não um bug: combinar detetores para reduzir
+falsos negativos exige aceitar mais falsos positivos, a não ser que se use
+uma regra de combinação diferente (ex.: exigir concordância de 2 em 2, não
+um OR).
+
+**Recall por tipo do autoencoder isolado** (a nível de sujeito — "pelo
+menos uma janela da anomalia foi sinalizada" — não a nível de subsequência
+como no passo 2, por isso os números não são diretamente comparáveis aos
+já reportados lá): `duracao_prolongada` 0.1, `substituicao_contextual`
+1.0, `truncamento` 0.6 — a ordem relativa (contextual > truncamento >
+duração) é consistente com o já reportado no passo 2, reforçando a mesma
+conclusão qualitativa com um cohort novo.
+
+**Interpretação honesta, não só um número**: este resultado não invalida
+o passo 3 nem o passo 2 isoladamente — cada avaliação anterior mede
+exatamente o que diz medir. O que este relatório acrescenta é a medição,
+antes só assumida implicitamente, do **custo real de encadear os passos**.
+Uma regra de duração "quase perfeita" isoladamente (FP 0.0%) pode ser
+inutilizável em produção (FP 70.8%) se alimentada diretamente pela saída
+janela-a-janela, ruidosa por natureza, de um classificador — mesmo um
+classificador com accuracy muito alta. **Isto não é uma validação clínica
+nem uma medição de hardware real** (mesma limitação de todo o `ml/`): mede
+só o efeito de composição dentro do próprio mundo sintético.
+
+**Limitações honestas**:
+- 100% sintético, mesma limitação documentada em todo o `ml/`.
+- O agrupamento de janelas em blocos usado aqui (juntar janelas
+  consecutivas com a mesma classe prevista) é a implementação mais
+  ingénua possível — não há nenhuma suavização/histerese sobre a saída
+  do classificador antes de derivar blocos. Isto é deliberado (mede o
+  pior caso "sem mitigação"), mas significa que o FP de 70.8% é um
+  limite superior do problema, não necessariamente o que uma
+  implementação mitigada produziria — ver "Próximos passos" abaixo.
+- A regra de combinação usada (OR) foi escolhida por ser a mais simples,
+  não por ser a melhor — o achado sobre o OR piorar a especificidade é
+  uma razão concreta para não a usar sem mais pensar, não uma conclusão
+  de que a combinação dos 3 detetores não vale a pena.
+
 ## Testes automáticos + CI (`ml/tests/`, 2026-07-07)
 
 Lacuna identificada pela rotina que criou `.github/workflows/bridge-tests.yml`
@@ -634,6 +730,23 @@ passam com ela** — não é uma correção assumida, foi reproduzida a falhar e
 depois a passar. **19/19 testes do `ml/`** a passar no total (17 já
 existentes + 2 novos), ~28s de execução.
 
+### Testes do relatório combinado (`test_combined_pipeline_report.py`, 2026-07-10)
+
+5 testes novos, cobrindo só `predicted_blocks_from_rows()` — a única
+função pura/determinística de `combined_pipeline_report.py` (agrupamento
+de janelas consecutivas da mesma sessão+classe prevista em blocos), com
+linhas escritas à mão, sem RNG nem modelos. Inclui um teste que reproduz
+diretamente o mecanismo do achado honesto acima (uma janela mal
+classificada a meio de um bloco de 10 parte-o em 3). `run_evaluation()`
+em si (que carrega XGBoost + TensorFlow + os modelos treinados) não está
+coberta por teste automático — mesmo padrão já usado para
+`duration_detector.run_evaluation()`, já corrida manualmente e coberta
+pelo relatório em `reports/`. **24/24 testes do `ml/`** a passar no total
+(19 já existentes + 5 novos). `ml-tests.yml` não precisou de alterações —
+`xgboost`/`joblib` (via `scikit-learn`) já estavam cobertos; TensorFlow
+continua propositadamente fora do CI (só é importado dentro de funções,
+nunca ao nível do módulo, mesmo padrão de `train_lstm_autoencoder.py`).
+
 ## Próximos passos (por ordem)
 
 1. ~~Medir footprint real (flash/RAM) do Random Forest via `emlearn`~~ —
@@ -692,6 +805,36 @@ existentes + 2 novos), ~28s de execução.
    único limiar global (a mitigação real, não só de medição, para o recall
    fraco das anomalias de duração) — exige histórico real por pessoa
    (Prioridade 4, Base de Dados) para calibrar, não implementado ainda.
+6. ~~Combinação dos 3 detetores num relatório único~~ — **FEITO
+   (2026-07-10)**: ver "Relatório combinado dos 3 detetores" acima
+   (`combined_pipeline_report.py`). Achado honesto principal: encadear o
+   classificador (passo 1) com o detetor de duração (passo 3) usando os
+   blocos que o classificador de facto produz (não os segmentos
+   verdadeiros) faz a taxa de falsos positivos passar de 0.0% para 70.8%
+   — a fragmentação de blocos por erros do classificador, mesmo com
+   accuracy alta (0.996), destrói a especificidade da regra de duração.
+   Combinar com o autoencoder via OR piora ainda mais (FP 85.2%). **Novo
+   próximo passo concreto, descoberto por este achado** (não estava
+   planeado antes desta execução): suavizar a saída do classificador antes
+   de derivar blocos — ex.: filtro de mediana/maioria sobre uma janela
+   deslizante de previsões, ou histerese (só mudar de classe depois de N
+   janelas consecutivas na nova classe) — para reduzir a fragmentação
+   medida (`fragmentation_ratio` ≈1.94) antes de aplicar a regra de
+   duração. Não implementado nesta execução (o objetivo aqui era medir o
+   problema, não já mitigá-lo sem essa medição existir).
+7. **Avaliação mais honesta — curvas por tipo de anomalia**: parcialmente
+   coberto (AUC-ROC e PR-AUC por tipo já existem no passo 2; recall por
+   tipo em oráculo/previsto/autoencoder/combinado no relatório combinado
+   acima). **Ainda por fazer**: curva ROC/PR completa (não só a métrica
+   agregada) plotada por tipo de anomalia, e ablations sistemáticas (ex.:
+   variar `SEQ_LEN`/`THRESHOLD_PERCENTILE` do autoencoder, ou o filtro de
+   suavização do item 6 acima, e medir o efeito em cada métrica) — nenhuma
+   ablation foi feita ainda, só o resultado de uma configuração fixa por
+   componente.
+8. **Preparação (não execução) do caminho de embarque**: ainda não
+   iniciado por esta rotina — depende primeiro da decisão pendente
+   RF/XGBoost (ver "Decisão pendente" abaixo), que não compete a esta
+   rotina tomar.
 
 ## Decisão pendente (não posso decidir por conta própria)
 

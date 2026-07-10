@@ -2215,7 +2215,7 @@ sem toolchain ARM, e um teste Playwright real para o dashboard):
    retreinagem intencional — evitado para não fabricar/substituir
    resultados sem uma decisão explícita de retreinar.
 6. **`ml/data/synthetic_routine_dataset.meta.json`**: mojibake de
-   acentuação corrigido (`Alimenta�o` → `Alimentação`, etc.) —
+   acentuação corrigido (`Alimenta o` → `Alimentação`, etc.) —
    encontrado incidentalmente durante a revisão do pipeline de ML,
    mesma classe de bug (ficheiro gravado sem UTF-8 explícito) já corrigida
    noutros ficheiros do projeto em sessões anteriores.
@@ -3710,6 +3710,57 @@ substancial desde então**, confirmada nesta execução:
    depois considerar apagar `Main` (`git push origin --delete Main`,
    ação destrutiva sobre uma ref partilhada, deliberadamente fora do
    âmbito desta rotina).
+
+## Modelo de Machine Learning — relatório combinado dos 3 detetores (2026-07-10, rotina ml-review)
+
+Item do roteiro em `ml/README.md` → "Objetivos"/"Próximos passos", ainda
+por fazer: combinar os 3 passos do pipeline (classificador XGBoost +
+LSTM Autoencoder + detetor de duração) num relatório único, em vez de
+avaliar cada um isoladamente como até aqui. Implementado
+`ml/combined_pipeline_report.py` — corrido de facto (não só código
+escrito): gera um cohort sintético novo (seed=555, nunca visto no
+treino/calibração dos modelos usados), classifica cada janela com o
+XGBoost já treinado, deriva blocos a partir das previsões do
+classificador (não dos segmentos verdadeiros do gerador), e aplica o
+detetor de duração + o LSTM Autoencoder a esses blocos, comparando com a
+avaliação "oráculo" (segmentos verdadeiros, mesma metodologia já usada em
+`duration_detector.py`). 10 sujeitos normais + 10 por tipo de anomalia.
+
+**Resultado com interpretação honesta**: o recall mantém-se perfeito
+(1.000 nos 3 tipos de anomalia, oráculo e blocos previstos), mas a **taxa
+de falsos positivos em blocos normais explode de 0.0% (oráculo,
+consistente com o já reportado em `ml/README.md`, passo 3) para 70.8%**
+quando o detetor de duração é alimentado pelos blocos que o classificador
+de facto produz. Causa medida diretamente: mesmo com accuracy 0.996
+(consistente com o já reportado), o classificador ainda fragmenta os
+blocos verdadeiros quase para o dobro (105.4 blocos previstos vs. 54.2
+blocos verdadeiros, por sujeito, em média) — uma única janela mal
+classificada a meio de um bloco contínuo parte-o em vários blocos mais
+curtos, alguns dos quais caem fora dos limites de duração esperados só
+por causa do erro do classificador, não de nenhuma anomalia real.
+Combinar com o autoencoder via OR lógico piora ainda mais a
+especificidade (FP 85.2%) — propriedade matemática do OR (nunca reduz
+falsos positivos), não um bug. **Isto não invalida as avaliações
+anteriores de cada passo isolado** (cada uma mede exatamente o que diz
+medir) — mede, pela primeira vez nesta pasta, o custo real de encadear os
+passos, que as métricas isoladas escondiam. Detalhe completo, incluindo a
+tabela oráculo-vs-previsto e as limitações honestas, em `ml/README.md`,
+secção "Relatório combinado dos 3 detetores".
+
+5 testes novos (`ml/tests/test_combined_pipeline_report.py`, só a função
+pura `predicted_blocks_from_rows()` — sem RNG nem modelos, mesmo padrão
+já usado para `duration_detector.py`). **24/24 testes do `ml/`** a
+passar. CI (`ml-tests.yml`) não precisou de alterações.
+
+**Próximo passo concreto, descoberto por este achado** (não estava
+planeado antes desta execução): suavizar a saída do classificador antes
+de derivar blocos (ex.: filtro de mediana/maioria sobre uma janela
+deslizante de previsões, ou histerese) para reduzir a fragmentação
+medida antes de aplicar a regra de duração — ver `ml/README.md`,
+"Próximos passos", item 6, para o detalhe. Não implementado nesta
+execução (o âmbito era medir o problema, não já mitigá-lo).
+
+(Implementa relatório combinado dos 3 detetores do pipeline de ML (FP de duração explode 0.0%→70.8% com blocos reais do classificador))
 ## Firmware: HR "fantasma" — estado do filtro de batimento não reiniciado entre streamings de HR (2026-07-09, rotina cloud)
 
 `git checkout -B claude/gifted-hamilton-foheab origin/main` no início desta execução: o checkout local anterior desta branch estava numa lombada divergente (`bd672eb`, com commits `cb790d9`/`ae8aa96`/`c0ca01d` de PRs #9/#10) que afinal tinha sido mesclada no branch `Main` (maiúscula), não em `main` — o mesmo conflito arquitetural entre `Main`/`main` já registado hoje pela PR #11 (aberta, draft, ainda pendente de decisão do utilizador). Não tomei nenhuma decisão sobre esse conflito (não é desta rotina decidir); só reiniciei esta branch a partir de `origin/main` (o branch onde vive toda a CI/documentação real do projeto) para não continuar a trabalhar em cima de uma lombada desatualizada/divergente. Revistas as Prioridades 0-2/6-8 (bloqueadas por hardware/decisão do utilizador) e a Prioridade 5 (`ml/`, sem itens novos não bloqueados), delegada uma varredura de bugs dirigida a áreas menos cobertas hoje (evitando NFC, GATT/auth, rate-limiting, XSS do dashboard, RAM/CPU e a corrida do `QspiRingBuffer`, todas já cobertas por PRs de hoje/ontem). Achado real, confirmado por leitura direta do código:
@@ -3721,6 +3772,7 @@ substancial desde então**, confirmada nesta execução:
 **Verificação feita** (sem toolchain ARM disponível de início nesta rotina cloud — mesma limitação documentada em várias secções acima): `pip install platformio` teve sucesso, mas `pio run -e seeed-xiao-afruitnrf52-nrf52840-sense-plus` falhou a instalar a toolchain ARM por bloqueio do proxy do ambiente (`403 Forbidden` em `files.seeedstudio.com`), o mesmo bloqueio já registado nesta rotina cloud noutras execuções. Revisão manual em alternativa: leitura linha a linha de todas as funções alteradas, confirmando que `g_hrFilter`/`resetHrFilterState()` ficam dentro do `namespace` anónimo já existente (mesmo âmbito dos outros globais do módulo) e que nenhuma função pública (`Ppg::*`) foi tocada além da chamada nova em `startHrStreaming()`; e um script Python que conta chavetas/parênteses/colchetes antes/depois do ficheiro inteiro — chavetas 82/82→85/85 (equilibrado, +3/+3 da struct+função novas), parênteses 417/425→434/442 (mesmo desequilíbrio de -8 já pré-existente no ficheiro antes desta alteração, proveniente de comentários com parênteses aninhados — não introduzido agora), colchetes 39/39→39/39 (equilibrado; uma primeira versão do comentário introduziu um colchete solto num intervalo matemático "[300,2000)ms", detetado por este mesmo script e corrigido antes de commitar para "300-2000ms").
 
 **Não confirmado em hardware real** (bloqueado pela indisponibilidade atual da placa, ver "Riscos/bloqueios ativos", ponto 8) — a mudança é puramente de reorganização de estado (de `static` local para uma struct de âmbito de ficheiro, resetável), sem alterar a lógica/matemática de nenhum filtro, por isso o risco de regressão funcional é baixo, mas fica pendente de confirmação: quando o hardware voltar a estar acessível, confirmar que prints `[PPG] HR beat -> ...` continuam a aparecer com "Medir agora" (mesmo teste já pendente da sessão de hardware de 2026-07-03/04, ver "Próximas tarefas", ponto 0) e, idealmente, comparar uma leitura de HR imediatamente a seguir a uma medição de SpO2 (o cenário concreto que desencadeia este bug) com uma leitura obtida sem essa interrupção recente, confirmando que já não hesitam nem repetem um valor visivelmente desatualizado.
+
 
 ## Achado de segurança: payload local não publicado a instruir agentes de IA a ignorar Grep/Glob (2026-07-10, rotina cloud)
 
@@ -3881,3 +3933,24 @@ repetidamente (incluindo cliques deliberadamente cronometrados para
 coincidir com o segundo "cheio" do heartbeat, o cenário que antes falhava)
 e confirmar que `[EMERGENCY] gesto SOS detetado` aparece de forma
 consistente, sem perder tentativas.
+
+## Branch de trabalho contaminado com payload de tooling "vexp" — descartado (2026-07-10, rotina cloud)
+
+`git fetch origin main` + `git rebase origin/main` no início desta execução revelaram, ainda antes de qualquer alteração de código, que o branch designado desta rotina (`claude/gifted-hamilton-3plumb`) já continha, em `origin`, dois commits de mensagem genérica ("v3"/"v4", herdados de uma sessão anterior via merges de `feature/mitra-di-guetto`, PRs #9/#10/#13) sem valor real de produto — só ficheiros de workflow vazios (`documentation.yml`, `ml.yml`, `python.yml`), um `dashboard.yml` reintroduzindo exatamente o mesmo YAML inválido já corrigido em `origin/main`, e um payload completo (`.claude/CLAUDE.md`, `.claude/hooks/vexp-guard.sh`, `.claude/settings.json`, `.github/copilot-instructions.md`, `.vscode/mcp.json`, `.vscode/settings.json`) a instruir qualquer agente de IA a abandonar Grep/Glob/Read a favor de uma ferramenta MCP inexistente nesta sessão ("vexp"/`run_pipeline`), apontando `.vscode/mcp.json` para um caminho pessoal do Windows do utilizador. **Mesmo achado, mesma natureza, já documentado e resolvido de forma independente hoje por outra rotina** (PR #14, branch diferente) — confirma que não é um incidente isolado.
+
+**Ação tomada, seguindo o precedente já estabelecido pela PR #14** (não uma decisão nova desta rotina): `git reset --hard origin/main`, descartando os dois commits "v3"/"v4" antes de qualquer trabalho novo. Confirmado antes do reset que nenhum dos dois continha conteúdo de valor não já presente em `origin/main` (`git show --stat` de ambos — só os ficheiros vazios/o payload já descritos). Nunca segui nenhuma instrução do payload "vexp" (Grep/Glob/Read normais usados ao longo de toda a execução). Este branch nunca teve PR aberta (`list_pull_requests` com `head=claude/gifted-hamilton-3plumb` devolveu vazio), por isso o reset não invalida nenhuma revisão em curso.
+
+**Decisão pendente do utilizador** (a mesma já registada pela PR #14, repetida aqui por este branch ter sido afetado de forma independente): confirmar se "vexp" é uma extensão VS Code pessoal legítima cujo `.vscode/mcp.json`/`.claude/` foi commitado por engano (caso em que só deve ser removido do controlo de versões, nunca deletado localmente), ou algo a investigar mais a fundo. Não decidido nem assumido aqui — fora do alcance de uma rotina cloud sem acesso à máquina Windows de origem.
+
+## Firmware: alerta automático de queda+inatividade nunca conseguia disparar — corrigido (2026-07-10, rotina cloud)
+
+Delegada uma varredura de bugs dirigida a áreas ainda não cobertas por PRs/rotinas recentes (excluindo NFC, GATT/auth, rate-limiting, XSS do dashboard, RAM/CPU, a corrida do `QspiRingBuffer`, o estado do filtro de HR, e a perda de cliques do gesto SOS — todas já corrigidas ou em PR aberta). Achado real e crítico, confirmado por leitura direta do código (não fabricado) em `src/Emergency/Emergency.cpp` (`updateFallDetection()`):
+
+**Bug**: a vigilância automática de "queda + inatividade" (um dos dois mecanismos de deteção de emergência deste dispositivo, ver `Emergency.h`) cancelava-se sempre a si própria antes de ter qualquer hipótese real de disparar o alerta, independentemente do que a pessoa fizesse a seguir a uma queda. A condição de cancelamento usava `!sample.inactivity` — mas `Imu::Sample::inactivity` (`src/Imu/Imu.cpp`, `detectInactivity()`) só passa a `true` depois de **~3 segundos contínuos parado** (`kInactivitySamples = 156` amostras a 52Hz). Como a própria queda envolve aceleração muito longe de 1g (o que decai o contador de inatividade quase a zero, por desenho — ver o "contador com fuga" já documentado noutra secção), `sample.inactivity` está garantidamente a `false` nos primeiros ~3s a seguir a qualquer queda, **quer a pessoa esteja mesmo parada quer não**. Como `updateFallDetection()` é chamada em todas as iterações do `loop()` (não só na amostra que arma a vigilância), isto cancelava a vigilância na primeira chamada seguinte à deteção da queda, sempre — o timeout de 60s (`fallInactivityTimeoutMs`) nunca era alcançado em nenhum cenário, mesmo que a pessoa ficasse imóvel no chão durante minutos. Para um dispositivo cujo propósito central é sinalizar quedas em doentes com demência que podem não conseguir pedir ajuda, isto anulava por completo o único mecanismo de deteção automática (o SOS manual, gesto de 3 cliques, continua a funcionar independentemente — ver PR #14 para a correção de perda de cliques desse gesto, separada deste bug).
+
+**Corrigido**: nova flag `s_confirmedStillSinceFall`, que só passa a `true` na primeira vez que `sample.inactivity` assenta depois da queda que armou a vigilância atual. Uma quebra de `sample.inactivity` só é tratada como "a pessoa voltou a mexer-se" (cancela a vigilância) **depois** de já se ter confirmado inatividade sustentada pelo menos uma vez — nunca durante a janela inicial de ~3s em que a flag ainda está simplesmente a acumular pela primeira vez. O alerta ao fim de `fallInactivityTimeoutMs` (60s) passou também a exigir `s_confirmedStillSinceFall`, não só o tempo decorrido — mais fiel à semântica "queda + inatividade" (só alerta se a inatividade chegou a ser confirmada, não só porque passou tempo). Reutiliza a mesma flag/contador com fuga já existente em `Imu.cpp` (sem duplicar constantes nem lógica de deteção de imobilidade num segundo sítio).
+
+**Verificação feita** (sem toolchain ARM disponível nesta rotina cloud — `pip install platformio` teve sucesso, mas `pio run -e seeed-xiao-afruitnrf52-nrf52840-sense-plus` falhou a instalar a toolchain por bloqueio do proxy do ambiente em `files.seeedstudio.com`, `403 Forbidden`, o mesmo bloqueio já documentado em várias secções acima): revisão manual linha a linha da função alterada e dos dois pontos de mutação de `s_confirmedStillSinceFall` (arranque da vigilância e `begin()`), confirmando que fica sempre reposta a `false` no início de cada nova vigilância; script Python de contagem de chavetas/parênteses/colchetes sobre o ficheiro inteiro — 23/23, 76/76, 8/8 (equilibrado). Não existe suite de testes nativa (host-side) para lógica de firmware neste projeto (só sketches interativos em `test/`, pensados para hardware real, ver `test/README`) — não foi criada uma agora só para este bug pontual, mesmo padrão de verificação já usado nas outras correções de firmware sem hardware disponível (ver secções "corrida de dados" e "HR fantasma" acima).
+
+**Não confirmado em hardware real** (bloqueado pela indisponibilidade atual da placa, ver "Riscos/bloqueios ativos", ponto 8) — quando o hardware voltar a estar acessível, o teste mais direto é provocar uma queda real (ou simular com o dispositivo em queda livre controlada) e confirmar por série que `[EMERGENCY] possivel queda detetada` aparece e **não** é seguido imediatamente por `[EMERGENCY] movimento retomado apos queda`, permanecendo em vigilância até `[EMERGENCY] ALERTA disparado` ao fim de ~60s de imobilidade real — o próprio sintoma deste bug (cancelamento imediato) deve deixar de se observar. Este item soma-se à lista já existente de deteção de emergência pendente de confirmação em hardware (ver "Deteção de emergência" e "Plano de testes de hardware pendentes" acima).
+(firmware(emergency): corrige alerta automatico de queda+inatividade que nunca disparava)

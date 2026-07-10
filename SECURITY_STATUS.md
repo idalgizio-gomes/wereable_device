@@ -506,6 +506,495 @@ ainda que longo, com justificação escrita).
 | Encriptação (repouso/trânsito) | Parcial — BLE e 2 campos ORM cifrados; `.db`, WebSocket, restante ORM por cifrar — GDPR-004, GDPR-005 |
 | Transferências a terceiros | Nenhum provedor externo ligado ainda (Twilio bloqueado por credenciais) — sem requisito imediato, revisitar quando existir |
 
+# CareWear — Estado de Segurança do Backend/API
+
+> Ficheiro da rotina de **Segurança** (mentalidade adversarial, assume-breach),
+> distinta da rotina de **Desenvolvimento** (`PROJECT_STATUS.md`). Lê sempre
+> os dois antes de agir — `PROJECT_STATUS.md` documenta decisões e riscos
+> conhecidos que não devem ser reabertos sem justificação nova.
+>
+> Esta é a rotina **S02 (backend/API)** — existe também uma rotina irmã
+> **S04/firmware-security** (`seguranca/firmware-security`, IDs `FW-XXX`,
+> ainda não integrada em `main` à data desta execução) que audita o
+> firmware C++. Este ficheiro cobre só `bridge/` (WebSocket + SQLite +
+> ORM + API REST). Não duplicar achados de dependências vulneráveis com a
+> rotina S07 — aqui só se regista o que afeta diretamente o backend.
+
+## Correção honesta ao enunciado desta rotina
+
+O enunciado desta execução assumia que "NÃO existe ainda uma API HTTP/
+REST/GraphQL". **Isso deixou de ser verdade em 2026-07-07/08** —
+`bridge/api.py` (FastAPI + Uvicorn) já existe e está em produção neste
+protótipo, com:
+
+- `GET /health` (sem autenticação, só liveness).
+- `GET /api/devices/{device_id}/heart-rate-trends`
+- `GET /api/patients/{patient_id}/medication-adherence`
+- `GET /api/devices/{device_id}/activity-distribution`
+- `POST /api/medications/{medication_id}/adherence` (primeiro endpoint de
+  escrita, 2026-07-08).
+
+Autenticação: chave estática partilhada (`X-API-Key` / `CAREWEAR_API_KEY`),
+falha fechada sem a variável configurada, comparação em tempo constante
+(`hmac.compare_digest`, corrigido 2026-07-07 — ver `PROJECT_STATUS.md`).
+**Ainda não integrada** com `web/dashboard/index.html` nem com
+`ble_bridge.py`/`storage.py` (usa `storage_advanced.py`, o ORM avançado,
+que continua paralelo/não ligado ao streaming BLE real).
+
+Consequência prática para esta rotina: vários itens do checklist listados
+no enunciado como "requisitos PRÉVIOS para a API planeada" **já são
+aplicáveis hoje**, não só requisitos futuros — corrigido na secção
+correspondente mais abaixo. O que continua a não existir: qualquer
+integração real entre a API e o resto do sistema, e qualquer modelo de
+autorização por papel (o ORM já modela `User.role` — utente/clínico/
+admin — mas nenhum endpoint o usa ainda).
+
+## Como ler este ficheiro
+
+Cada risco tem um ID `API-XXX` estável (não reutilizar números, mesmo que
+um risco seja fechado). Estados possíveis: **ABERTO** (registado, sem
+correção aplicada — normalmente porque a correção exige uma decisão de
+desenho que não compete a esta rotina tomar sozinha), **MITIGADO**
+(correção contida aplicada nesta rotina, risco residual descrito),
+**FECHADO** (resolvido por completo). Nada é declarado "resolvido" sem
+prova (teste automatizado a passar).
+
+## Checklist aplicável hoje — revisão desta execução (2026-07-08)
+
+| Item do checklist | Aplica-se? | Resultado |
+|---|---|---|
+| Injeção SQL/NoSQL | Sim (`storage.py`, `storage_advanced.py`) | **Revisto, sem achados** — ver abaixo |
+| Command Injection / Path Traversal | Sim (export CSV, caminho `.db`) | **Revisto, sem achados** — ver abaixo |
+| Broken Authentication/Authorization — WebSocket | Sim (`ble_bridge.py`) | Risco conhecido, já documentado; ver "WS-001" abaixo |
+| Broken Authorization / IDOR — API REST | **Sim, desde 2026-07-07/08** (contrariamente ao enunciado) | **API-002, ABERTO** — ver abaixo |
+| Mass Assignment | Sim (`MedicationAdherenceIn`, comandos WS que escrevem em `settings`) | **Revisto, sem achados** — ver abaixo |
+| Rate limiting em comandos de escrita | Sim (`reset_readings` etc., WebSocket) | **API-001, MITIGADO nesta execução** |
+| Rate limiting na API REST (HTTP) | Sim (chave estática, sem throttling) | **API-003, ABERTO** — ver abaixo |
+| SSRF/XXE | Procurado | **Sem parsing de URL/XML no backend — não aplicável** |
+
+### API-001 — `reset_readings`/`force_reading`/`set_retention_days` sem limite de taxa (MITIGADO nesta execução)
+
+**Gravidade**: média (disponibilidade/integridade do histórico do
+dispositivo, não confidencialidade).
+
+**Vetor concreto**: o WebSocket `ws://localhost:8765` (`bridge/
+ble_bridge.py`) não é autenticado — qualquer processo capaz de abrir uma
+ligação TCP a esse porto (qualquer software local, ou qualquer origem se
+o bridge alguma vez for exposto além de `localhost`) pode enviar
+`{"cmd":"reset_readings"}` em loop apertado. Antes desta correção, CADA
+mensagem produzia de imediato uma escrita GATT em `dumpCtrlChar`
+(`DUMP_CTRL_RESET_READINGS`), que o firmware traduz num
+`QspiRingBuffer::format()` — **destrutivo e irreversível**: apaga todos
+os registos ainda não exportados no dispositivo. Um script de 5 linhas
+(`websocket.send('{"cmd":"reset_readings"}')` em loop) conseguia apagar o
+histórico do wearable repetidamente, sem qualquer limite, sem autenticação
+nenhuma. O mesmo canal também aceitava `set_retention_days` sem limite
+(menos grave — só altera um valor de configuração — mas partilha o mesmo
+desenho sem proteção).
+
+**Correção aplicada** (`bridge/ble_bridge.py`):
+- Novo `WRITE_COMMAND_MIN_INTERVAL_S = 2.0` + `_check_write_rate_limit()`
+  — limite de taxa **global** (não por-cliente WebSocket, de propósito:
+  vários separadores do dashboard partilham o mesmo dispositivo BLE
+  físico, por isso um limite por-cliente seria trivial de contornar
+  abrindo outra ligação).
+- Aplicado em `send_command()` (cobre `force_reading` e `reset_readings`,
+  cada um com a sua própria janela — contadores independentes por nome
+  de comando) e em `handle_dashboard_command()` para `set_retention_days`.
+- Uma tentativa rejeitada **não** empurra a janela de limite para a
+  frente (só regista o instante em tentativas aceites) — evita que um
+  cliente em loop apertado consiga manter o comando bloqueado
+  indefinidamente para outros clientes legítimos.
+- Resposta ao cliente inalterada na forma (`{"kind":"command_result",
+  "cmd":..., "ok":false, "error":"..."}` / `{"kind":
+  "retention_days_result", ...}`), só o texto de erro passa a poder ser
+  "limite de taxa excedido, aguarde Xs" — confirmado que
+  `web/dashboard/index.html` (`handleCommandResult`/
+  `handleRetentionDaysSaveResult`) já mostra `msg.error` genericamente,
+  sem código dependente do texto exato — **nenhuma alteração de
+  dashboard necessária**, contrato preservado.
+
+**Verificação**: `bridge/tests/test_ble_bridge_rate_limit.py` (5 testes
+novos, cliente BLE/WebSocket falsos, sem hardware nem rede real) —
+primeira chamada aceite, 19 chamadas seguintes em loop todas bloqueadas
+com só 1 escrita GATT real registada, comandos diferentes com janelas
+independentes, `set_retention_days` bloqueado sem alterar o valor
+persistido, e a janela reabre depois de `WRITE_COMMAND_MIN_INTERVAL_S`
+(tempo simulado via monkeypatch de `time.monotonic`, sem `sleep` real).
+`python -m py_compile bridge/ble_bridge.py` sem erros. Suite completa do
+bridge corrida localmente: **58/58 testes passam** (53 já existentes + 5
+novos), sem regressões em `test_api.py`/`test_crypto_utils.py`/
+`test_storage_advanced.py`. `bridge/requirements_db.txt` ganhou
+`pycryptodome` (já estava em `requirements.txt` mas faltava no ficheiro
+que a CI usa — `ble_bridge.py` importa `Crypto.Cipher.AES` a nível de
+módulo, sem isto os novos testes não seriam sequer importáveis em CI).
+
+**Risco residual**: 2 segundos ainda permite ~30 tentativas de
+`reset_readings`/minuto — suficiente para incomodar mas não para um DoS
+sustentado; um valor mais agressivo poderia interferir com uso legítimo
+(ex.: um cuidador a corrigir um "Repor leituras" acidental rapidamente).
+**Não resolve a causa raiz** (canal continua sem autenticação — ver
+WS-001 abaixo, decisão de desenho fora do âmbito desta correção pontual).
+
+### WS-001 — WebSocket do bridge sem autenticação (risco conhecido, reavaliado — sem alteração, ver justificação)
+
+Já documentado em `PROJECT_STATUS.md` ("Canal não autenticado — só deve
+ser exposto em localhost"). Reavaliação desta rotina, sem implementar
+(regra do prompt: introduzir autenticação é decisão do utilizador — só
+proponho):
+
+- **Risco real hoje**: baixo-médio. O bridge só ouve em `localhost`
+  (`WS_HOST = "localhost"`, `bridge/ble_bridge.py`), por isso um atacante
+  precisa de já ter execução de código no mesmo computador — nesse
+  cenário já haveria vetores mais diretos (aceder ao `.db`, à variável de
+  ambiente da chave AES, etc.). Qualquer processo local (incluindo uma
+  aba de browser maliciosa correndo JavaScript, se `localhost:8765`
+  aceitar ligações de origem cruzada via WebSocket — **WebSocket não
+  aplica Same-Origin Policy**, ao contrário de `fetch`/XHR) pode hoje
+  emitir os comandos suportados: `force_reading`, `reset_readings`
+  (agora com limite de taxa, ver API-001), `get_history`, `export_csv`,
+  `get_daily_trend`, `get_retention_days`/`set_retention_days`.
+- **O que muda se sair de localhost**: torna-se crítico de imediato — os
+  mesmos comandos ficam acessíveis a qualquer dispositivo na mesma rede
+  (ou na Internet, se exposto sem VPN/túnel), incluindo leitura de
+  histórico de sensores de saúde (`get_history`/`export_csv`) sem
+  qualquer controlo de acesso.
+- **Proposta** (não implementada): antes de qualquer exposição além de
+  `localhost`, introduzir pelo menos um token partilhado por ligação
+  (mesmo padrão já usado em `bridge/api.py`, `X-API-Key`/
+  `hmac.compare_digest`) — o WebSocket handshake HTTP suporta headers
+  customizados, ou um token no primeiro frame da ligação. Decisão do
+  utilizador quando/se este cenário se tornar real.
+
+### API-002 — API REST: uma única chave partilhada, sem âmbito por-utente/paciente (ABERTO)
+
+**Gravidade**: alta (dados de saúde — FC, aderência a medicação — e
+agora também uma escrita clínica, expostos por rede a qualquer detentor
+da chave, sem qualquer verificação de "este pedido pode ver/alterar
+ESTE paciente?"). Diferente de WS-001: **este canal já é pensado para
+sair de `localhost`** (é uma API HTTP com `Uvicorn`, propósito
+explícito de servir a rede), por isso o risco aqui é o real, não
+hipotético.
+
+**Vetor concreto**: `bridge/api.py`, `_require_api_key()` só confirma que
+o pedido tem *alguma* chave válida — não existe nenhum conceito de "esta
+chave pertence a este clínico/família, autorizada só para o paciente X".
+Um utilizador legítimo com a chave (ex.: um familiar com acesso ao
+dashboard de um paciente) pode, com a MESMA chave:
+- `GET /api/patients/{patient_id}/medication-adherence` para **qualquer**
+  `patient_id` sequencial (1, 2, 3, ...) — não só o seu.
+- `GET /api/devices/{device_id}/heart-rate-trends` para **qualquer**
+  dispositivo — FC de outro utente.
+- `POST /api/medications/{medication_id}/adherence` para **qualquer**
+  `medication_id` — pode marcar (ou desmarcar) a medicação de outro
+  paciente como tomada, um problema de **integridade clínica**, não só
+  de confidencialidade.
+
+Isto é exatamente o padrão IDOR do checklist ("um cliente pode pedir
+dados de outro?") — a resposta é sim, hoje, para todos os endpoints.
+
+**Por que não corrigido nesta execução**: o ORM (`storage_advanced.py`)
+já modela `User.role` (família/clínico/admin) e a associação
+paciente↔cuidador (`patient_caregivers`), mas **nenhum endpoint da API
+usa isso** — a chave estática não está ligada a nenhum utilizador. Fechar
+isto a sério exige desenhar como a API identifica "quem" está a fazer o
+pedido (uma chave por-utilizador? JWT com claim de paciente(s)
+autorizados? — ver requisitos da API planeada abaixo) — uma decisão de
+arquitetura de autenticação, o mesmo tipo de decisão que o prompt desta
+rotina pede para propor, não implementar por iniciativa própria.
+
+**Proposta concreta** (não implementada): antes de qualquer exposição
+real desta API além de testes locais, migrar de "uma chave global" para
+"uma credencial por-utilizador" (mínimo: uma chave de API por linha em
+`users`, já que o modelo existe) + verificação em cada endpoint de que o
+`patient_id`/`device_id`/`medication_id` pedido pertence a um paciente
+que esse utilizador está autorizado a ver (via `patient_caregivers` para
+família, ou uma associação clínico↔paciente equivalente para clínicos).
+Isto é o mesmo requisito já listado como "JWT + política de autorização
+por papel" na secção seguinte — mover para aqui reflete que já não é um
+requisito só do futuro, a API que precisa disto já está a correr.
+
+### API-003 — Sem rate limiting nos pedidos HTTP da API REST (ABERTO)
+
+**Gravidade**: média. `bridge/api.py` não tem nenhum limite de tentativas
+por IP/cliente — nem para pedidos de autenticação (a chave estática podia
+ser atacada por força bruta online, sem qualquer atraso ou bloqueio
+depois de N falhas — a comparação em tempo constante impede o ataque de
+temporização mas não a força bruta simples), nem para os endpoints de
+leitura/escrita já autenticados. Comparar com API-001: o WebSocket já
+ganhou um limite de taxa nesta execução; a API HTTP continua sem
+equivalente.
+
+**Não implementado nesta execução** (foco desta rotina foi o WebSocket,
+ver API-001; adicionar rate limiting à API HTTP exigiria uma dependência
+nova — ex. `slowapi` — ou um middleware ASGI escrito de propósito, mais
+testes dedicados, âmbito maior do que uma correção contida). Registado
+como próximo passo concreto para uma execução futura desta rotina.
+
+### Injeção SQL/NoSQL — revisto, sem achados
+
+- `bridge/storage.py`: todas as queries usam parâmetros posicionais
+  (`?`) do `sqlite3` — nenhuma concatenação/f-string na construção de
+  SQL (`insert_record`, `get_records_since`, `get_daily_summary`,
+  `purge_old_sensor_records`, `get_retention_days`/`set_retention_days`,
+  todas confirmadas linha a linha).
+- `bridge/storage_advanced.py`: acesso exclusivamente via SQLAlchemy ORM
+  (`db.query(...)`, `db.get(...)`, filtros por atributo de modelo) — sem
+  nenhuma chamada a `.execute()`/`text()` com SQL construído por
+  string/f-string/`.format()` em nenhum ponto do ficheiro (confirmado por
+  pesquisa de padrão `execute\(|text\(|f"|% |\.format\(` — só ocorrência é
+  `PRAGMA foreign_keys=ON`, uma constante fixa sem input externo).
+- `bridge/api.py`: todos os parâmetros de rota (`device_id`, `patient_id`,
+  `medication_id`) são tipados `int` pelo FastAPI/Pydantic — um valor
+  não numérico é rejeitado antes de chegar à camada de BD (422), nunca
+  chega a ser usado numa query.
+
+### Command Injection / Path Traversal — revisto, sem achados
+
+- Nenhum `subprocess`/`os.system`/`eval`/`exec` em `bridge/*.py`
+  (confirmado por pesquisa).
+- Exportação CSV (`storage.export_records_csv`/`export_emergency_alerts_csv`)
+  escreve para um `io.StringIO` em memória — nunca cria/abre um ficheiro
+  no disco do servidor a partir de um nome derivado de input do
+  utilizador, por isso não há vetor de path traversal aqui.
+- `DB_PATH` (`bridge/storage.py`) é uma constante fixa
+  (`Path(__file__).parent / "carewear_history.db"`), nunca construída a
+  partir de input externo.
+
+### Mass Assignment — revisto, sem achados
+
+- `MedicationAdherenceIn` (`bridge/api.py`) declara exatamente 4 campos
+  (`scheduled_datetime`, `taken`, `method`, `notes`); `method` é
+  `Literal[...]` restrito a 3 valores. `record_medication_adherence()`
+  atribui campo a campo ao modelo ORM (`record.taken = body.taken`,
+  etc.) — não usa `**body.dict()`/`setattr` genérico que pudesse
+  escrever num campo não pretendido do modelo `MedicationAdherence`
+  (ex.: `id`, `medication_id` continuam só sob controlo do servidor).
+  `taken_at` é explicitamente **derivado no servidor**
+  (`datetime.utcnow()`), nunca aceite do corpo do pedido — já documentado
+  em `PROJECT_STATUS.md` como decisão deliberada.
+- Comandos WebSocket que escrevem em `settings`
+  (`set_retention_days`): só aceita o campo `days`, validado contra
+  `MIN_RETENTION_DAYS`/`MAX_RETENTION_DAYS` em `storage.set_retention_days()`
+  antes de gravar — sem campos adicionais possíveis (a tabela `settings`
+  é genérica chave/valor, mas o comando só expõe esta chave).
+
+### SSRF/XXE — confirmado não aplicável
+
+Nenhum parsing de XML em `bridge/` (sem `xml.etree`/`lxml`/similar).
+Nenhum pedido HTTP de saída a partir de input do utilizador (sem
+`requests.get(<url do utilizador>)` nem equivalente) — `httpx` só
+aparece em `bridge/tests/test_api.py`, como dependência do
+`TestClient` do FastAPI, não código de produção.
+
+## Requisitos de segurança da API planeada (checklist vivo)
+
+**Atualizado nesta execução**: como `bridge/api.py` já existe e corre
+hoje, vários itens abaixo passaram de "requisito prévio" para "gap
+aplicável agora" — movidos para a secção de achados acima (API-002,
+API-003) em vez de ficarem só aqui como checklist teórico. Os que
+permanecem nesta secção são os que continuam genuinamente sem aplicação
+prática ainda (a API não serve HTML nem usa cookies/sessões).
+
+| Item | Estado | Nota |
+|---|---|---|
+| Autenticação por-utilizador + RBAC (JWT ou equivalente) | **Aplicável agora — ver API-002** | ORM já modela `User.role`/`patient_caregivers`, API não os usa |
+| Rate limiting HTTP | **Aplicável agora — ver API-003** | — |
+| HTTPS obrigatório + TLS | **Aplicável agora, ainda sem correção** | `uvicorn api:app` corre em HTTP simples nos exemplos documentados (`bridge/README.md`); `X-API-Key` viaja em texto simples se não houver TLS/reverse-proxy à frente. Mitigado hoje só por estar documentado para `127.0.0.1`/uso local — torna-se crítico se exposto além disso. Registado como requisito antes de qualquer deploy real. |
+| CORS restritivo | Ainda não configurado, risco baixo por agora | FastAPI sem `CORSMiddleware` = comportamento por omissão (browsers bloqueiam cross-origin sem cabeçalhos `Access-Control-Allow-*`) — seguro por omissão; só passa a precisar de configuração explícita quando o dashboard for ligado a esta API a partir de uma origem diferente (ver "Ainda por fazer" em `PROJECT_STATUS.md`). |
+| CSP | Não aplicável ainda | API serve só JSON, nunca HTML — sem superfície de XSS refletido/CSP enquanto isso não mudar. |
+| XSS refletido | Não aplicável ainda | Idem — sem endpoints que reflitam input em HTML. |
+| CSRF | Mitigado por desenho | Autenticação por cabeçalho customizado (`X-API-Key`), não por cookie/sessão — um browser não anexa este cabeçalho automaticamente a pedidos cross-site, o vetor clássico de CSRF não se aplica enquanto a autenticação continuar assim. Reavaliar se algum dia migrar para cookies de sessão. |
+| Session fixation | Não aplicável | Sem sessões/cookies — autenticação stateless por chave em cada pedido. |
+| Rotação/revogação de chave de API | **Aplicável agora, ainda sem correção** | Chave única, sem expiração nem forma de revogar sem reiniciar o processo com uma variável de ambiente nova — parte do mesmo trabalho de API-002 (uma vez que existam chaves por-utilizador, a rotação/revogação por linha torna-se natural). |
+
+## Procura contínua
+
+Sugestão de foco para a próxima execução desta rotina: **API-002**
+(autorização por-utilizador/RBAC na API REST) é o risco mais grave em
+aberto — mas é também o maior em âmbito (decisão de arquitetura de
+autenticação), por isso pode valer a pena começar por **API-003** (rate
+limiting HTTP, mais contido, ex.: `slowapi` ou um middleware simples de
+contagem por IP) como próximo passo prático, deixando API-002 para uma
+execução dedicada só a isso (ou para quando o utilizador decidir a
+arquitetura de utilizadores/sessões da API). Verificar também no
+`git log` se `storage_advanced.py` começou a ser integrado com
+`ble_bridge.py`/o streaming real — nesse momento os riscos IDOR listados
+aqui deixam de ser só teóricos sobre dados de demonstração/teste e
+passam a valer para dados reais de utentes.
+
+# CareWear — Estado de segurança (frontend)
+
+Registo das rotinas de auditoria de segurança do dashboard
+(`web/dashboard/index.html`, `web/dashboard/medication-reminders.js`).
+Ver também `PROJECT_STATUS.md` para o estado geral do projeto (histórico
+completo de bugs de XSS já corrigidos antes deste ficheiro existir: cartão
+"Equipa de cuidadores", 5 pontos de nome de medicamento/campo de perfil
+sensível, valores `hr`/`spo2`/`steps` do bridge).
+
+## Riscos
+
+### FE-001 — [CORRIGIDO] Stored XSS em `medication-reminders.js` (cartão de lembrete de medicação)
+
+- **Data**: 2026-07-08 (S03 frontend-security)
+- **Ficheiro**: `web/dashboard/medication-reminders.js`, método
+  `MedicationReminder.showFallbackAlert()`.
+- **Vetor**: `medication.name` e `medication.dose` são texto livre,
+  introduzido no formulário "Gerir medicação" (Médico/Técnico,
+  `addMedicationForPatient()` em `index.html`) e persistido em
+  `localStorage` (`carewear_medications_registry`). O cartão de lembrete
+  (mostrado quando as notificações do browser não estão disponíveis, ou
+  sempre em paralelo com elas) montava um template de string com estes
+  valores e escrevia-o via `div.innerHTML = content` **sem qualquer
+  escaping** — ao contrário do padrão já usado para o mesmo campo dentro
+  de `index.html` (tabela de doses de hoje / "Gerir medicação", ver
+  `escapeHtml()`). Um nome de medicamento como
+  `<img src=x onerror=...>` executaria a cada dose agendada, em qualquer
+  sessão futura no mesmo browser (persistido).
+- **Segundo vetor no mesmo ponto**: o campo `time` (também texto livre —
+  "Horários" do mesmo formulário, ex. `"08:00, 20:00"`) era concatenado
+  dentro de um atributo `onclick` entre aspas simples
+  (`markDoseTaken('${patient.id}', '${medication.id}', '${time}')`). Um
+  valor com uma aspa simples fugia da string JavaScript do atributo,
+  permitindo injetar código independentemente de `name`/`dose` estarem ou
+  não escapados para HTML — um vetor de "event injection" distinto do
+  XSS em HTML.
+- **Correção**: reescrito para construção DOM segura —
+  `createElement`/`textContent`/`createTextNode` (nunca interpretam HTML)
+  em vez de `innerHTML`, e `addEventListener` com uma closure (valores
+  passados como argumentos reais de função, nunca concatenados numa
+  string) em vez de `onclick="..."` inline. Elimina os dois vetores em
+  simultâneo, sem depender de escaping manual.
+- **Verificação**: `node --check` ao ficheiro completo (sintaxe válida) +
+  Playwright real (Chromium, `ws://localhost:8765` propositadamente
+  indisponível para isolar o teste): `medication.name`/`.dose` com
+  `<img onerror=...>` e `<script>...</script>`, `time` com
+  `"08:00'); window.__xss2=true; //"` — nenhum payload executou
+  (`window.__xss1`/`__xss2` continuam `false`), o cartão mostra o texto
+  literal (`&lt;img...`/`<script>` como texto, não como tags no DOM), e
+  clicar em "Tomei agora" invoca `markDoseTaken('p1','m1',"08:00'); ...")`
+  corretamente como argumento de string, sem executar o payload.
+- **Risco residual**: nenhum conhecido neste ponto. Nota: o resto de
+  `index.html` continua a usar `onclick="..."` inline nalguns pontos
+  (mais o padrão `escapeHtml()` para esses casos) — ver proposta de CSP
+  abaixo sobre o trade-off de manter `unsafe-inline`.
+
+### FE-002 — [CORRIGIDO] DOM XSS em `renderRealTrendTable()` (tendência semanal real, dados do bridge)
+
+- **Data**: 2026-07-08 (S03 frontend-security)
+- **Ficheiro**: `web/dashboard/index.html`, função
+  `renderRealTrendTable()`.
+- **Vetor**: `liveState.realTrend` é populado diretamente de
+  `msg.days_summary` (mensagem `daily_trend` recebida do bridge via
+  `ws://localhost:8765` — canal **não autenticado e sem Same-Origin
+  Policy em WebSocket**, ver `PROJECT_STATUS.md`), só validando que é um
+  array (`Array.isArray`), sem validar os campos de cada elemento. `d.day`
+  e `d.record_count` eram interpolados diretamente num template de string
+  escrito com `body.innerHTML = ...`, ao contrário do padrão já aplicado a
+  `hr`/`spo2`/`steps` na mesma função `handleBridgeMessage`
+  (`toFiniteNumber()`, ver comentário junto à função). Um bridge malicioso
+  ou comprometido (ou qualquer outro processo/página capaz de abrir uma
+  ligação WebSocket a `localhost:8765`) podia injetar HTML/script na vista
+  "Tendência semanal".
+- **Correção**: `d.day` passa a ser escapado com `escapeHtml()` (mesma
+  função usada nos outros pontos de texto livre do ficheiro);
+  `record_count`, `hr_samples`, `avg_hr`, `max_steps`, `min_steps` passam
+  todos por `toFiniteNumber()` antes de entrar no template, tal como
+  `hr`/`spo2`/`steps` em `applyLiveVitals()`.
+- **Verificação**: Playwright real — `liveState.realTrend` preenchido com
+  `day: '<img src=x onerror="window.__xss3=true">'` e
+  `record_count: '<script>window.__xss3=true</script>'`, seguido de
+  `renderRealTrendTable()`. `window.__xss3` continua `false`; o
+  `innerHTML` resultante mostra `&lt;img src=x onerror="..."&gt;` como
+  texto e `record_count` cai para `0` (não é um número finito) — sem tags
+  cruas no DOM.
+- **Risco residual**: nenhum conhecido neste ponto. O canal
+  `ws://localhost:8765` continua sem autenticação/TLS — aceitável para
+  desenvolvimento local, mas a mitigar antes de qualquer exposição além de
+  `localhost` (ver proposta abaixo).
+
+## Inventário de sinks perigosos (`innerHTML`/`insertAdjacentHTML`/`document.write`/`outerHTML`)
+
+Auditado nesta rotina (S03, eixo escolhido: "todos os `innerHTML`" do
+dashboard). Estado de cada ocorrência atual no código:
+
+| Ficheiro / função | Origem dos dados inseridos | Estado |
+|---|---|---|
+| `index.html` `populateLangSelect()` — `sel.innerHTML` | `LANG_NAMES` (constante fixa no código) | Seguro — sem entrada externa |
+| `index.html` `updateLiveEmergencyBanner()` — `el.innerHTML` | SVG fixo + `meta.label` (tabela `EMERGENCY_ALERT_TYPE_TO_LOG` fixa, chave `msg.alert_name` só seleciona, não injeta valor) + `selectedPatient().name` (roster local) | Seguro |
+| `index.html` `renderView()` — `c.innerHTML = TEMPLATES[view]()` | despacho fixo por nome de vista (whitelist `TEMPLATES`) | Seguro — cada template auditado individualmente nesta tabela |
+| `index.html` `renderNightSummary()`, `renderPacingSummary()`, `renderActivityDetail()` — `host.innerHTML` | dados sintéticos gerados localmente (`buildNightRestlessness`, `buildPacingTrend`, `buildCategoryWeekly`) + `liveState.pacing` (já validado por `toFiniteNumber()`) | Seguro |
+| `index.html` `renderCaregiverNotes()` — `host.innerHTML` | `n.text` (nota do cuidador, texto livre) | Seguro — escapado (`.replace(/</g,'&lt;')`, suficiente em contexto de texto dentro de `<p>`, sem atributos) |
+| `index.html` `showTip()` (`ttipEl.innerHTML`) | chamadores usam `d.day`/`d.score`/`d.hr`/`when` de séries simuladas (`buildHr`, `buildPacingTrend`, etc.) ou `liveHrBuffer` (já validado — `hrNum = toFiniteNumber(msg.hr)`, `label = fmtClock(msg.ts)`) | Seguro |
+| `index.html` `renderStorageWarningBanner()` — `el.innerHTML` | SVG + texto fixos, só o `flag` (já validado por `toFiniteNumber`) escolhe qual dos dois textos fixos mostrar | Seguro |
+| `index.html` `applyLiveVitals()` — `setVal(...).innerHTML` | `liveState.hr`/`spo2`/`steps`/`inactivity`/`freefall` — todos validados (`toFiniteNumber()` ou booleano só usado em ternário de strings fixas) | Seguro — já corrigido em sessão anterior |
+| `index.html` `renderRealTrendTable()` — `body.innerHTML` | `msg.days_summary` (bridge, `daily_trend`) | **FE-002 — corrigido nesta rotina** (ver acima) |
+| `index.html` `exportClinicalPdf()` — `sheet.innerHTML` | dados do roster local (`p.name`, `p.deviceName`, `p.mac`, `p.lastSync`) + `currentAlerts()`/`currentAnomalyLog()` (dados de demonstração/roster, não formulário de texto livre) | Não auditado a fundo nesta rotina — candidato ao próximo eixo se `currentAlerts()`/`currentAnomalyLog()` alguma vez passarem a incluir texto livre editável |
+| `medication-reminders.js` `showFallbackAlert()` — `div.innerHTML` | `medication.name`/`.dose` (texto livre, "Gerir medicação") + `time`/`patient.id`/`medication.id` num atributo `onclick` concatenado | **FE-001 — corrigido nesta rotina** (ver acima); já não usa `innerHTML` nem `onclick` inline |
+
+Não foram encontrados usos de `document.write` ou `outerHTML` em nenhum
+dos dois ficheiros.
+
+## Propostas registadas (fora do âmbito desta rotina — sem alteração de código)
+
+Verificado que o eixo "todos os `innerHTML`" está agora são (ambos os
+riscos reais encontrados foram corrigidos). Os pontos abaixo ficam
+registados como propostas para uma rotina futura dedicada a esse eixo,
+conforme "Critérios para terminar sem alterações":
+
+- **CSP**: não existe `Content-Security-Policy` (nem `<meta
+  http-equiv="Content-Security-Policy">`, nem cabeçalho — o ficheiro é
+  servido estaticamente). Proposta: `default-src 'none'; script-src
+  'self'; style-src 'self' 'unsafe-inline'; connect-src ws://localhost:8765
+  wss://localhost:8765; img-src 'self' data:; base-uri 'none';
+  form-action 'none'`. **Trade-off a decidir**: o ficheiro usa `<script>`
+  inline (o próprio código da aplicação, não só handlers) e vários
+  `onclick="..."` inline espalhados pelas vistas — uma CSP sem
+  `'unsafe-inline'` em `script-src` exigiria mover todo o JS inline para
+  ficheiro(s) externo(s) e substituir todos os `onclick` por
+  `addEventListener` (o padrão já usado na correção de FE-001). É uma
+  refatoração de fundo, não um patch pontual — decisão maior a tomar
+  numa rotina própria.
+- **Clickjacking**: sem `X-Frame-Options`/`frame-ancestors` (não
+  aplicável a um ficheiro aberto localmente sem servidor; relevante se o
+  dashboard alguma vez for servido por um servidor real).
+- **`ws://` vs `wss://`**: aceitável para `localhost` em desenvolvimento;
+  a mitigar (TLS + autenticação do canal) antes de qualquer exposição
+  além de `localhost` — já registado em `PROJECT_STATUS.md`.
+- **Dados clínicos em `localStorage` em claro**: chaves `carewear_*`
+  incluem `carewear_profile`/`carewear_profile_pending` (pode conter
+  NIF/morada pendentes de aprovação), `carewear_caregiver_notes`,
+  `carewear_medications_registry`, `carewear_medication_log`,
+  `carewear_consent`, `carewear_caregiver_team`, `carewear_alert_*`,
+  `carewear_selected_patient_id`. Tudo em claro, sem expiração, acessível
+  a qualquer script no mesmo origin e a qualquer pessoa com acesso físico
+  ao browser (dispositivo partilhado, ex. tablet na sala do
+  utente/família). Proposta para rotina dedicada: minimizar o que fica
+  persistido (ex. não persistir NIF/morada pendente além da sessão de
+  aprovação), ou pelo menos documentar isto como risco aceite de
+  protótipo sem backend de autenticação real.
+- **Cookies**: não são usados (login é só de protótipo, sem sessão de
+  servidor) — sem flags a rever.
+- **Dependências**: confirmado que o dashboard é mesmo vanilla — nenhum
+  `<script src="http...">`/CDN, nenhum `<link>` externo; o único
+  `<script src="...">` é local (`medication-reminders.js`). Sem
+  superfície de dependências de terceiros a auditar.
+
+## Verificação (âmbito desta rotina)
+
+- `node --check` ao `<script>` inline extraído de `index.html` (linhas
+  849–4516) e a `medication-reminders.js` completo: sintaxe válida em
+  ambos.
+- Playwright real (Chromium, `/opt/pw-browsers/chromium`), servido via
+  `python3 -m http.server` a partir de `web/dashboard/`: os dois vetores
+  (FE-001, FE-002) confirmados exploráveis antes da correção (payload
+  executava/HTML cru aparecia no DOM) e confirmados neutralizados depois
+  — ver detalhe em cada risco acima. Consola sem erros de script (só o
+  aviso esperado de falha de ligação a `ws://localhost:8765`, sem bridge
+  a correr no ambiente de teste).
+- Regra de ouro respeitada: nenhuma alteração tocou em rótulos de dados
+  simulados vs. reais.
+
 ---
 
 # CareWear — Vigilância Externa de Segurança (S09)
@@ -523,6 +1012,27 @@ ainda que longo, com justificação escrita).
 > outra rotina de segurança já existente, é encaminhada para lá (sem
 > duplicar) — só fica registada aqui a ligação entre a fonte externa e o
 > risco. Ver `SECURITY_RESEARCH.md` para o compêndio de pesquisa
+
+## Nota de manutenção (2026-07-10, fora do âmbito habitual desta rotina)
+
+Ao atualizar esta branch com `origin/main` (necessário porque o
+`SECURITY_STATUS.md` de `main` avançou entretanto com o merge das
+rotinas backend-api-security e frontend-security), detetou-se que a
+versão em `main` continha **marcadores de conflito de merge do git por
+resolver, comitados literalmente no ficheiro** (`=======`,
+`>>>>>>> 265c0d5 (...)`, e uma linha solta com um fragmento de mensagem
+de commit no fim do ficheiro) — introduzidos pelo commit `0b63462`
+(mensagem de commit também anómala, é o próprio texto do achado, não
+uma mensagem normal), entre as secções "Backend/API" e "frontend".
+Corrigido nesta fusão: as 3 linhas de marcador e a linha solta foram
+removidas, mantendo todo o conteúdo real de ambas as secções (nada foi
+apagado, só o ruído do git). Não é um achado `RES-XXX` (não é uma
+recomendação de segurança externa, é uma correção de higiene do próprio
+repositório) — registado aqui só para rasto, já que esta rotina não
+costuma tocar em conteúdo de outras secções. Recomenda-se à próxima
+rotina que fizer merge para `main` confirmar visualmente o resultado
+antes de comitar, em vez de assumir que a resolução automática do git
+ficou completa.
 > completo, organizado por tema, com todas as fontes.
 
 ## Como ler esta secção
