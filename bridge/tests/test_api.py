@@ -244,6 +244,60 @@ class TestRecordMedicationAdherence:
         rows = db.query(sa.MedicationAdherence).filter(sa.MedicationAdherence.medication_id == med.id).all()
         assert len(rows) == 1
 
+    def test_concurrent_requests_for_same_dose_never_duplicate(self, client, db, monkeypatch):
+        """Regressão: antes da UniqueConstraint em MedicationAdherence
+        (storage_advanced.py), o SELECT e o INSERT deste endpoint não eram
+        atómicos — dois pedidos concorrentes para a MESMA dose podiam ambos
+        ver "não existe" e ambos inserir, criando duas linhas (reproduzido
+        diretamente contra storage_advanced.py antes da correção). Este
+        teste simula essa corrida de forma determinística: injeta, no
+        momento exato do primeiro commit deste pedido, uma escrita
+        "concorrente" da MESMA dose por outra sessão — que só é possível
+        de reproduzir de forma fiável forçando o ponto de interleaving
+        (threads reais tornariam o teste inconsistente/flaky). O commit
+        deste pedido tem então de falhar por violação da constraint e o
+        endpoint deve recuperar sozinho (retry como UPDATE), nunca
+        devolver 500 nem deixar duas linhas."""
+        patient, _ = _make_patient_device(db)
+        med = _make_medication(db, patient)
+        scheduled_dt = datetime(2026, 7, 10, 8, 0, 0)
+        payload = {"scheduled_datetime": scheduled_dt.isoformat(), "taken": True, "method": "manual_entry"}
+
+        real_commit = sa.Session.commit
+        call_count = {"n": 0}
+
+        def flaky_commit(self):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                # Outra sessão "ganha a corrida": commita a mesma dose antes
+                # deste pedido conseguir commitar o seu próprio INSERT.
+                other_db = sa.get_db_session()
+                other_db.add(sa.MedicationAdherence(
+                    medication_id=med.id, scheduled_datetime=scheduled_dt,
+                    taken=False, method="wearable_detection",
+                ))
+                other_db.commit()
+                other_db.close()
+            return real_commit(self)
+
+        monkeypatch.setattr(sa.Session, "commit", flaky_commit)
+
+        resp = client.post(f"/api/medications/{med.id}/adherence", json=payload, headers={"X-API-Key": API_KEY})
+
+        assert resp.status_code == 200
+        assert resp.json()["taken"] is True  # o retry aplicou o UPDATE com os dados deste pedido
+
+        rows = db.query(sa.MedicationAdherence).filter(sa.MedicationAdherence.medication_id == med.id).all()
+        assert len(rows) == 1
+
+        # A escrita "concorrente" também gera auditoria — as duas tentativas
+        # deste pedido (a que falhou + o retry) não devem, cada uma, deixar
+        # o seu próprio registo de auditoria: só a tentativa que teve
+        # sucesso é que persiste (rollback descarta tudo o resto da
+        # transação falhada, incluindo o AuditLog dessa tentativa).
+        audit = db.query(sa.AuditLog).filter(sa.AuditLog.resource_id == med.id).all()
+        assert len(audit) == 1
+
     def test_taken_false_clears_taken_at(self, client, db):
         patient, _ = _make_patient_device(db)
         med = _make_medication(db, patient)
