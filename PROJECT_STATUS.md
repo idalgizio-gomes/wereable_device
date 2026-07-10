@@ -3954,3 +3954,74 @@ Delegada uma varredura de bugs dirigida a áreas ainda não cobertas por PRs/rot
 
 **Não confirmado em hardware real** (bloqueado pela indisponibilidade atual da placa, ver "Riscos/bloqueios ativos", ponto 8) — quando o hardware voltar a estar acessível, o teste mais direto é provocar uma queda real (ou simular com o dispositivo em queda livre controlada) e confirmar por série que `[EMERGENCY] possivel queda detetada` aparece e **não** é seguido imediatamente por `[EMERGENCY] movimento retomado apos queda`, permanecendo em vigilância até `[EMERGENCY] ALERTA disparado` ao fim de ~60s de imobilidade real — o próprio sintoma deste bug (cancelamento imediato) deve deixar de se observar. Este item soma-se à lista já existente de deteção de emergência pendente de confirmação em hardware (ver "Deteção de emergência" e "Plano de testes de hardware pendentes" acima).
 (firmware(emergency): corrige alerta automatico de queda+inatividade que nunca disparava)
+
+## CRÍTICO: dados reais de sensores commitados para `origin/main` + payload "vexp" agora mesclado (não só local) (2026-07-10, rotina cloud) — decisão do utilizador necessária
+
+Seguido o fluxo obrigatório (`git fetch origin main`/rebase antes de
+codificar), esta execução encontrou dois problemas que atualizam achados já
+registados neste ficheiro — um deles passou de "risco teórico" a "já
+aconteceu em `origin/main`", o que muda a prioridade de "documentar e
+terminar" para "corrigir a lacuna imediata + documentar o resto para
+decisão do utilizador".
+
+**1. Fuga real de dados de sensores para o histórico do git (Bug crítico,
+Prioridade 1)**: o commit `e8da6c7` ("` HR`", `Thu Jul 9 21:13:45 2026 +0100`,
+autor `Idalgizio Gomes <idalgizio12@gmail.com>` — commit direto do
+utilizador, nenhuma rotina envolvida) inclui `bridge/carewear_history.db-shm`
+e `bridge/carewear_history.db-wal` (~2.1MB), os ficheiros auxiliares que o
+SQLite em modo WAL escreve ao lado de `bridge/carewear_history.db` (ver
+secção "Otimização de CPU ... commit SQLite síncrono" acima, que introduziu
+o modo WAL em 2026-07-07). O `.gitignore` já cobria `bridge/*.db`, mas
+**não** o padrão `*.db-wal`/`*.db-shm` — uma lacuna direta introduzida por
+essa mesma alteração de WAL, nunca fechada até agora. Como
+`bridge/carewear_history.db` guarda "cada registo/alerta recebido" do
+utente (ver secção "Persistência local — SQLite" acima), o ficheiro
+`-wal` pode conter dados reais de sensores (FC, SpO2, aceleração, passos)
+de quem já usou o wearable — um ficheiro de dados de saúde real, não
+sintético nem de exemplo, agora no histórico público do repositório.
+**Corrigido nesta execução**: `.gitignore` alargado para `bridge/*.db-wal`/
+`bridge/*.db-shm`; os dois ficheiros removidos do índice (`git rm --cached`,
+mantidos em disco) para não continuarem rastreados daqui em diante.
+**Não corrigido, decisão do utilizador**: isto **não** apaga o conteúdo já
+commitado em `e8da6c7` (ainda recuperável do histórico do git por quem
+tiver acesso ao repositório) — remover isso a sério exigiria reescrever o
+histórico (`git filter-repo`/BFG + force-push de `main`), uma operação
+destrutiva sobre uma ref partilhada que esta rotina não deve decidir
+sozinha. Se os dados nesse ficheiro forem de um utente real (não um teste
+do próprio utilizador), isto pode ter implicações RGPD (o mesmo tema já
+documentado na política de retenção acima) — recomienda-se ao utilizador
+avaliar o conteúdo real do ficheiro e decidir se vale a pena reescrever o
+histórico e/ou notificar quem de direito.
+
+**2. Payload "vexp" (ver "Achado de segurança" acima, mesmo dia) deixou de
+ser só um artefacto local não publicado — está agora em `origin/main`**,
+no mesmo commit `e8da6c7`: `.claude/CLAUDE.md`, `.claude/hooks/vexp-guard.sh`,
+`.claude/settings.json`, `.vexp/manifest.json` (um índice com hash de
+praticamente todos os ficheiros do repositório — mesmo padrão de "extensão
+de indexação" descrito antes, agora confirmado a cobrir o repositório
+inteiro, não só uma amostra). Ao contrário do achado anterior (branch local
+nunca publicado, corrigido com `git reset --hard`), desta vez o autor do
+commit é o próprio utilizador (não uma rotina automática) — o que reforça a
+hipótese (a) já levantada ("tooling pessoal legítimo... commitado por
+engano"), mas não a confirma com certeza. **Esta sessão não obedeceu às
+instruções desse `.claude/CLAUDE.md`** (MANDATORY usar uma ferramenta MCP
+`run_pipeline` inexistente nesta sessão, não usar Grep/Glob) — confirmado
+por `ToolSearch` que nenhuma ferramenta desse nome está disponível;
+prosseguiu com Grep/Glob/Read normais. **Não removido nesta execução**
+(mesma razão do achado anterior: decisão do utilizador, não desta rotina,
+sobre se este ficheiro deve continuar versionado no repositório partilhado).
+**Ainda por decidir pelo utilizador**: os dois pontos já registados na
+secção anterior (confirmar se "vexp" é ferramenta pessoal legítima; e,
+sendo assim, adicioná-lo ao `.gitignore` local em vez de o remover do
+histórico) continuam válidos e agora mais urgentes, dado que o payload já
+não está isolado num branch nunca publicado.
+
+**Verificação feita**: `git log`/`git show`/`git ls-files` diretos sobre
+`origin/main` (confirma autor, data, ficheiros exatos do commit `e8da6c7`);
+confirmado que `bridge/device_key.env` (a chave AES local) **não** foi
+commitado (só os dois ficheiros de dados) — a chave de cifra em si não
+está exposta. `bridge/provision_key.py` (novo no mesmo commit) revisto
+linha a linha — script de provisioning BLE que lê a chave de
+`device_key.env` local, sem segredos hardcoded, sem problema aparente.
+Sem toolchain ARM nem hardware necessários para esta verificação (é só
+git/ficheiros de texto).
