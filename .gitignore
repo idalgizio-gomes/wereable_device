@@ -17,3 +17,9 @@ __pycache__/
 # pelo próprio utilizador em runtime, não código nem dados de exemplo do
 # repositório; cada instalação gera o seu próprio ficheiro.
 bridge/*.db
+
+# Chave AES provisionada no dispositivo real (ver "Cifra AES-CTR do modo
+# de dados" em bridge/ble_bridge.py) — segredo local desta instalação,
+# nunca deve ir para o repositório nem para a internet. Cada
+# dispositivo/bridge tem a sua própria chave.
+bridge/device_key.env
