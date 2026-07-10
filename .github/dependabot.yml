@@ -1,0 +1,32 @@
+# Configuração do Dependabot (2026-07-10, rotina de Segurança de
+# Dependências, ver SECURITY_STATUS.md secção "Segurança de
+# Dependências (S07)").
+#
+# Isto é só infraestrutura de deteção — "open-pull-requests-limit: 0"
+# desativa deliberadamente os PRs automáticos de "version updates" do
+# Dependabot em todas as entradas. Esta rotina nunca propõe atualizar
+# dependências automaticamente; as versões-alvo recomendadas ficam
+# registadas em SECURITY_STATUS.md para decisão humana.
+#
+# Nota: os "Dependabot alerts" (avisos de segurança) são um interruptor
+# separado em Settings -> Security -> Dependabot alerts do GitHub, não
+# controlado por este ficheiro — confirmar que está ativo.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/bridge"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
+
+  - package-ecosystem: "pip"
+    directory: "/ml"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0

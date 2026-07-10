@@ -1513,8 +1513,7 @@ Ao atualizar esta branch com `origin/main` (necessário porque o
 `SECURITY_STATUS.md` de `main` avançou entretanto com o merge das
 rotinas backend-api-security e frontend-security), detetou-se que a
 versão em `main` continha **marcadores de conflito de merge do git por
-resolver, comitados literalmente no ficheiro** (`=======`,
-`>>>>>>> 265c0d5 (...)`, e uma linha solta com um fragmento de mensagem
+resolver, comitados literalmente no ficheiro** (`=======`, e uma linha solta com um fragmento de mensagem
 de commit no fim do ficheiro) — introduzidos pelo commit `0b63462`
 (mensagem de commit também anómala, é o próprio texto do achado, não
 uma mensagem normal), entre as secções "Backend/API" e "frontend".
@@ -1744,3 +1743,177 @@ EOL/suporte, fora do âmbito de qualquer rotina de segurança).
 | IEC 62443/81001-5-1/62304, ISO 14971, MDR, FDA (lado vigilância) | Não coberto | Só a vertente de vigilância externa — análise de conformidade aprofundada é de outra rotina |
 | Ataques NFC além de relay | Coberto por `seguranca/nfc-security` (NFC-006, 2026-07-08) | Repetir quando a fase C do NFC avançar |
 | Ataques a TinyML (poisoning, adversarial) | Não coberto | Reativar quando um modelo for embarcado no firmware (ver roadmap `ml/`) |
+
+(segurança(frontend): corrige 2 XSS reais em innerHTML não auditados (bridge + lembretes de medicação))
+
+---
+
+# CareWear — Segurança de Dependências (S07)
+
+> Ficheiro da rotina de **Segurança de Dependências**, distinta das
+> rotinas de Segurança NFC/Privacidade acima (mesmo ficheiro,
+> `SECURITY_STATUS.md`, secções concatenadas — ver nota no topo deste
+> documento sobre múltiplos `SECURITY_STATUS.md` por domínio). Esta
+> rotina cruza `platformio.ini`/`bridge/requirements*.txt`/
+> `ml/requirements.txt` com advisories públicos (GitHub Advisory
+> Database, OSV, NVD, changelogs de fornecedor). **Regra central: nunca
+> atualiza versões — só regista e propõe.** A decisão/teste de qualquer
+> atualização cabe às rotinas de desenvolvimento/utilizador.
+
+## Metodologia desta execução (2026-07-10)
+
+1. Nenhuma dependência do projeto está fixada a uma versão exata — todos
+   os `requirements*.txt` usam `>=` (mínimo aberto) e `ml/requirements.txt`
+   nem isso (sem qualquer restrição de versão); `platformio.ini` também
+   não fixa versão em nenhuma `lib_deps`. Na prática, "a versão em uso"
+   é "o que o `pip`/PlatformIO resolver como mais recente no momento do
+   build" — ver DEP-005 abaixo, este facto é em si um achado.
+2. **Evidência direta mais forte**: o workflow `security.yml` já corre
+   `pip-audit` sobre os 3 ficheiros de requirements Python em cada push/PR
+   e semanalmente (seg. 03:00 UTC). A execução mais recente sobre `main`
+   (run `29065443827`, commit `dcf380f`, **hoje 2026-07-10T02:48 UTC**,
+   ~1h30 antes desta rotina) devolveu **"No known vulnerabilities
+   found"** para as três matrizes (`bridge/requirements.txt`,
+   `bridge/requirements_db.txt`, `ml/requirements.txt`) — confirmado
+   lendo os logs dos jobs diretamente via API do GitHub, não apenas o
+   estado "success" do workflow. Isto cobre as versões realmente
+   resolvidas nesse momento contra a base de dados OSV/PyPI.
+3. Pesquisa adicional (WebSearch/WebFetch, dois agentes em paralelo:
+   Python/pip e Firmware/Nordic) para cobrir advisories que o
+   `pip-audit` de hoje não apanha por definição — versões mínimas
+   permitidas pelo `>=` mas já ultrapassadas por CVEs antigas, bibliotecas
+   Arduino/C++ (sem equivalente a `pip-audit`), e estado do Dependabot.
+4. Para cada achado, verificado se o caminho vulnerável é
+   **realmente exercitado** pelo código do CareWear (não só "o pacote
+   está na lista") — ex.: `bridge/crypto_utils.py` só usa
+   `cryptography.hazmat.primitives.ciphers.aead.AESGCM` (confirmado por
+   leitura direta), não curvas elípticas nem `Hash.update()` com buffers
+   não contíguos, o que desqualifica 2 das 4 CVEs de `cryptography`
+   encontradas como não aplicáveis ao uso real, mesmo que a versão
+   mínima declarada as permitisse.
+5. **Dependabot**: `.github/dependabot.yml` não existe no repositório
+   (confirmado, `find .github -iname "dependabot*"` sem resultados) e
+   este MCP não expõe uma ferramenta de leitura de "Dependabot alerts"
+   nativos do GitHub (procurado, não encontrado) — não foi possível
+   confirmar/negar se os alertas nativos (que não dependem de ficheiro,
+   só de um interruptor em Settings → Security) estão ligados. Ficheiro
+   `dependabot.yml` proposto nesta execução abaixo (só deteção, ver
+   nota).
+
+## Tabela de dependências vulneráveis (DEP-XXX)
+
+| ID | Componente | Versão em uso | CVE/GHSA | Gravidade | Versão-alvo recomendada | Exploitável no nosso contexto? | Estado da proposta |
+|---|---|---|---|---|---|---|---|
+| DEP-001 | `cryptography` (bridge/requirements_db.txt, `cryptography>=41.0.0`) | Piso `>=41.0.0`, sem teto — resolve para a mais recente (~49.0.0) num `pip install` normal; `pip-audit` de hoje não acusou nada porque a versão realmente instalada em CI já é recente | [GHSA-r6ph-v2qm-q3c2](https://github.com/pyca/cryptography/security/advisories/GHSA-r6ph-v2qm-q3c2) (curvas SECT, validação de subgrupo em falta, ≤46.0.4); [GHSA-p423-j2cm-9vmq](https://github.com/pyca/cryptography/security/advisories/GHSA-p423-j2cm-9vmq) (buffer overflow em `Hash.update()` com buffers não contíguos, ≥45.0.0 \<46.0.7); [GHSA-537c-gmf6-5ccf](https://github.com/pyca/cryptography/security/advisories/GHSA-537c-gmf6-5ccf) (OpenSSL vulnerável embutido nos wheels, \<48.0.1); [GHSA-m959-cc7f-wv43](https://github.com/pyca/cryptography/security/advisories/GHSA-m959-cc7f-wv43) (bypass de name-constraint X.509, ≤46.0.5) | Alta (CVSS alto nas 2 primeiras) mas **mitigada no nosso uso** | `cryptography>=48.0.1` (cobre as 4) | **Não** hoje — `bridge/crypto_utils.py` só usa `AESGCM` (confirmado por leitura direta), não curvas elípticas nem `Hash.update()` manual; risco só se o piso `>=41.0.0` alguma vez resolver para uma versão antiga real (lockfile futuro, mirror interno, ambiente offline) | **Proposto** — subir o piso mínimo declarado para reduzir a janela, sem alterar o ficheiro nesta execução (fora do âmbito) |
+| DEP-002 | `rweather/Crypto` (platformio.ini, sem versão fixada; usa-se só a classe `AES` — `AES.h` — para AES-CTR do modo de dados, ver `src/Ble/Ble.cpp`) | Última disponível (~0.4.0), não fixada | [GHSA-gq7v-jr8c-mfr7](https://github.com/meshtastic/firmware/security/advisories/GHSA-gq7v-jr8c-mfr7) — CVE-2025-52464, crítico (CVSS 9.5) no firmware Meshtastic: a classe de RNG desta biblioteca não tinha entropia suficiente nalgumas plataformas, produzindo chaves fracas/duplicadas | Crítica no contexto Meshtastic; **baixa** no nosso | Sem "versão corrigida" formal (o bug era do lado do consumidor, não da biblioteca) — considerar migrar para o acelerador de hardware AES-128 ECB/CCM já disponível no nRF52840, opção já referida em comentário de `Ble.cpp` mas não implementada | **Não** — confirmado por leitura direta de `Ble.cpp`/`Storage.cpp`: a chave AES é gerada fora do dispositivo (na app) e só escrita via `aesKeyChar`; o CareWear não usa a classe RNG de `rweather/Crypto` para gerar chaves no dispositivo. Risco residual: biblioteca com baixa atividade de manutenção (sem GitHub Releases formais), pode não receber correções rápidas se surgir uma falha real na cifra AES em si | Registado como risco de manutenção a monitorizar, não uma vulnerabilidade ativa |
+| DEP-003 | Nordic nRF5 SDK / SoftDevice S140 (via `Seeed-Studio/platform-seeedboards`, sem versão fixada) — pairing LE Secure Connections | Desconhecida (core third-party, versão exata não confirmável sem acesso ao pacote resolvido) | Nordic whitepaper [nWP-031 "Security Threat in Bluetooth LESC Pairing"](https://infocenter.nordicsemi.com/topic/nwp_031/WP/nwp_031/vulnerabilities.html) — CVE-2018-5383/CERT VU#304725: implementações de exemplo/software do nRF5 SDK anteriores à v15.0.0 não validavam a chave pública ECDH remota ("invalid curve attack") | Média-alta **condicional** | SDK ≥15.0.0 com módulos `ble_lesc` + `nrf_crypto` (não uma troca de versão simples — é uma escolha de API no código de pairing) | **Não aplicável hoje** — confirmado (`grep` por `pairing`/`bonding`/`ble_lesc`/`nrf_crypto` no código): nenhuma characteristic GATT usa `SECMODE` com pairing/bonding real, todas usam `SECMODE_OPEN` (já registado como `FW-002` no `SECURITY_STATUS.md` de firmware, PR #3) — logo o LESC pairing nem chegou a ser exercitado. **Mas torna-se diretamente relevante no dia em que `FW-002` for corrigido**: quem implementar bonding/pairing tem de confirmar que a plataforma Seeed-Studio usa os módulos modernos (`ble_lesc`/`nrf_crypto`), não um exemplo pré-v15 desatualizado | Registado como pré-requisito de segurança para a futura correção de `FW-002`, não uma ação isolada desta rotina |
+| DEP-004 | `tensorflow-cpu` (ml/requirements.txt, **sem qualquer restrição de versão**) | Resolve para a mais recente (~2.21.0) num `pip install` normal | [CVE-2025-55559](https://nvd.nist.gov/vuln/detail/cve-2025-55559) — DoS via `Conv2D(padding='valid')` sob compilação XLA, CVSS 7.5, confirmado na TF 2.18.0; versão corrigida não confirmada nas fontes consultadas | Alta CVSS, mas **baixo impacto real** | Adicionar piso explícito (ex.: `tensorflow-cpu>=2.19.0`, a confirmar contra changelog oficial antes de propor ao ficheiro) | **Baixo** — só afeta o pipeline de treino local (dados/modelos próprios, não carregamento de modelos não confiáveis) e exige compilação XLA; pior caso é o treino falhar/travar, não execução de código arbitrário | Proposto reforçar o piso mínimo (hoje inexistente) |
+| DEP-005 | **Todas as dependências do projeto** (`platformio.ini` `lib_deps`, `ml/requirements.txt` por inteiro, e os pisos abertos `>=` em `bridge/requirements*.txt`) | N/A (é a ausência de fixação que é o achado) | N/A — risco estrutural, não uma CVE | Média (risco de cadeia de fornecimento/reprodutibilidade) | Fixar versões exatas (ou pelo menos pisos que excluam ranges já conhecidos como vulneráveis, ver DEP-001/004) em todos os manifestos, incluindo `platformio.ini` que hoje não fixa nenhuma biblioteca | **Sim, estruturalmente** — um build de hoje e um build de amanhã podem instalar bibliotecas diferentes sem qualquer alteração de código; o próprio projeto já documenta este risco na prática (nota em `platformio.ini`/`PROJECT_STATUS.md` sobre o RadioLib ter mudado a API de `begin()` entre versões) — o mesmo mecanismo que já causou uma quebra de build pode um dia introduzir silenciosamente uma versão vulnerável | Proposto fixar versões em todos os manifestos — decisão/execução das rotinas de desenvolvimento (fora do que esta rotina pode alterar) |
+
+## Pacotes verificados sem achado (2026-07-10)
+
+Sem CVE/advisory publicado encontrado no período pesquisado (~18 meses)
+para: `sqlalchemy` (2.0.51), `pydantic` (2.13.4, core — não confundir com
+`pydantic-settings`, que tem GHSA-4xgf-cpjx-pc3j mas não é dependência
+deste projeto), `fastapi` (0.139.0), `twilio` (9.10.9, página de
+advisories do `twilio-python` confirma "There aren't any published
+security advisories"), `bleak` (3.0.2), `websockets` (16.0, só CVEs
+antigas já corrigidas há anos), `pycryptodome` (3.23.0, última CVE
+conhecida é anterior a 2025 e já corrigida), `argon2-cffi` (25.1.0),
+`alembic` (1.18.5), `psycopg2-binary` (2.9.12 — nota: PostgreSQL
+*servidor*, não o driver, teve CVE-2025-1094 SQLi via `COPY TO PROGRAM`,
+CVSS 8.1, corrigido no servidor 17.3/16.7/15.11/14.16/13.19 — relevante
+só se/quando `DATABASE_URL` apontar para um servidor PostgreSQL real por
+atualizar), `numpy`/`pandas`/`scikit-learn`/`xgboost`/`matplotlib`/
+`joblib`/`emlearn` (sem CVE atual nas bibliotecas em si — o padrão de
+risco conhecido é desserialização insegura de pickle/joblib de ficheiros
+não confiáveis, não aplicável porque o pipeline ML do CareWear só carrega
+os seus próprios modelos/dados). Bibliotecas de firmware sem achado:
+`adafruit/Adafruit SPIFlash`, `seeed-studio/Seeed Arduino LSM6DS3`,
+`sparkfun/SparkFun u-blox GNSS Arduino Library`, `sparkfun/SparkFun
+MAX3010x Pulse and Proximity Sensor Library`, `adafruit/Adafruit SSD1351
+library`, `adafruit/Adafruit GFX Library`, `jgromes/RadioLib` (página de
+advisories do próprio repositório confirma "There aren't any published
+security advisories" — risco conhecido do projeto é só quebra de API
+entre versões, já documentado, não segurança).
+
+## JavaScript/npm
+
+Confirmado (`find` por `package.json`/`package-lock.json`/lockfiles no
+repositório inteiro, sem resultados): o dashboard (`web/dashboard/`) e
+`medication-reminders.js` são JavaScript vanilla, sem dependências npm
+nem scripts de CDN externos identificados. **Sem superfície de dependências
+JS a auditar nesta execução.** Reconfirmar em execuções futuras caso
+alguma dependência seja introduzida.
+
+## Proposta de infraestrutura de deteção: `.github/dependabot.yml`
+
+Adicionado nesta execução (não altera nenhuma versão — só configura
+deteção contínua, consistente com o que esta rotina pode fazer):
+`updates:` para os ecossistemas `pip` (`/bridge` e `/ml`, os dois
+diretórios com `requirements*.txt`) e `github-actions` (`/`, os
+workflows em `.github/workflows/`), com `open-pull-requests-limit: 0`
+em todas as entradas — isto é deliberado: desativa os PRs automáticos de
+"version updates" do Dependabot (que, por omissão, propõem subir
+versões), mantendo apenas a deteção/registo de dependências
+desatualizadas visível no separador Insights → Dependency graph.
+
+**Limitação importante a registar**: os **Dependabot alerts** (alertas
+de segurança automáticos, a funcionalidade que esta rotina mais precisa)
+são um interruptor em `Settings → Security → Dependabot alerts` do
+GitHub, **independente deste ficheiro** — não podem ser ativados por
+commit/PR, só por alguém com permissão de administração no repositório
+através da interface web. Este `dependabot.yml` complementa mas não
+substitui esse passo manual — recomenda-se ao utilizador confirmar esse
+interruptor está ligado.
+
+## Prioridade (gravidade × exploitabilidade, para as rotinas de dev)
+
+1. **DEP-005** (estrutural, fixar versões) — não é uma CVE mas é o que
+   mais reduz a incerteza de todos os outros achados desta e de futuras
+   execuções; sem isto, "versão em uso" continua a ser uma suposição.
+2. **DEP-001** (`cryptography`, subir piso para `>=48.0.1`) — protege a
+   única cifra de PII em repouso do projeto; risco real baixo hoje mas
+   correção barata (só um número no requirements).
+3. **DEP-003** (LESC pairing) — sem ação own própria agora (bonding nem
+   está implementado), mas registar como pré-requisito da correção de
+   `FW-002` para não repetir o erro de 2018 num SDK desatualizado.
+4. **DEP-004** (`tensorflow-cpu`, adicionar piso mínimo) — impacto
+   limitado ao treino local, mas corrige também o DEP-005 estrutural
+   para este pacote especificamente.
+5. **DEP-002** (`rweather/Crypto`, risco de manutenção) — sem ação
+   imediata, monitorizar.
+
+## Verificação desta execução
+
+- `git fetch`/checkout de `origin/main` mais recente (commit `dcf380f`)
+  antes de qualquer leitura — sessão anterior estava presa num commit
+  antigo (`HEAD` destacado, muito atrás de `main`).
+- Logs reais dos 3 jobs `python-dependency-audit` do workflow `Security`
+  (run `29065443827`, hoje) lidos via API do GitHub, não assumidos a
+  partir do estado "success" — confirmada a linha literal `No known
+  vulnerabilities found` nos 3.
+- Duas pesquisas independentes em paralelo (Python/pip; Firmware/Nordic)
+  via WebSearch/WebFetch contra GitHub Advisory Database, NVD,
+  changelogs oficiais e páginas de advisories dos próprios projetos —
+  nenhum CVE inventado, todos os IDs acima têm URL de fonte.
+- Uso real de cada dependência de alto risco confirmado por leitura
+  direta do código (`bridge/crypto_utils.py`, `src/Ble/Ble.cpp`,
+  `src/Storage/Storage.cpp`) antes de classificar exploitabilidade —
+  não apenas "está na lista de dependências".
+- Nenhuma versão alterada em `platformio.ini`/`requirements*.txt`;
+  único ficheiro de código tocado fora deste `SECURITY_STATUS.md` foi
+  `.github/dependabot.yml` (novo, deteção apenas, `open-pull-requests-limit: 0`).
+
+## Procura contínua
+
+Repetir esta pesquisa diariamente por ecossistema (ver objetivos no
+prompt desta rotina). Prioridade nas próximas execuções: (1) confirmar a
+versão exata resolvida do Nordic nRF5 SDK/SoftDevice via
+`Seeed-Studio/platform-seeedboards` para fechar a incerteza do DEP-003;
+(2) confirmar se `Settings → Security → Dependabot alerts` foi ativado
+pelo utilizador; (3) reverificar `cryptography`/`tensorflow-cpu` quando
+novas CVEs saírem — são as duas dependências de maior impacto potencial
+(PII em repouso; pipeline de treino); (4) quando o dashboard ganhar a
+primeira dependência npm real, iniciar auditoria JS nesta rotina.
+(segurança(deps): regista 5 advisories / propõe atualizações)
