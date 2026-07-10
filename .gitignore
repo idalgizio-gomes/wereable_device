@@ -23,3 +23,7 @@ bridge/*.db
 # nunca deve ir para o repositório nem para a internet. Cada
 # dispositivo/bridge tem a sua própria chave.
 bridge/device_key.env
+
+*.db-wal
+*.db-shm
+*.db-journal
