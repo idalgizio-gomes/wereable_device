@@ -3624,6 +3624,92 @@ core (Adafruit nRF52, mesmo já usado por `Imu.cpp`/`Ppg.cpp` só para
 correta. Continua **não confirmado em hardware real** (ver acima) — CI
 só garante que compila, não que o comportamento em runtime está correto.
 
+## CONFLITO ARQUITETURAL ATIVO: branch `Main` (maiúscula) passou a ser o branch predefinido do GitHub e diverge de `main` (2026-07-09, rotina cloud) — decisão do utilizador necessária
+
+Achado por leitura direta do estado real do repositório (`git ls-remote`,
+API do GitHub) antes de qualquer alteração de código, seguindo a regra
+deste ficheiro de nunca assumir contexto não documentado. **Isto atualiza
+e agrava** o achado já registado acima ("Verificação de bugs — 2ª
+passagem do dia", ponto 2, 2026-07-07): nessa altura, o branch remoto
+extra `Main` era só um artefacto vazio (parado no commit `d996ac9`,
+criado sem intenção pelo fluxo "Set up this workflow" do GitHub), e ficou
+deliberadamente por apagar por ser uma operação destrutiva sobre uma ref
+partilhada — a decisão certa nessa altura. **A situação mudou de forma
+substancial desde então**, confirmada nesta execução:
+
+1. **`Main` deixou de estar vazio.** Entre 14:25 e 16:52 (hora de Lisboa)
+   de hoje, o próprio utilizador (commits e merges de PR assinados
+   `Idalgízio Gomes <idalgizio12@gmail.com>`, sem qualquer rotina
+   envolvida) trabalhou diretamente sobre `Main`: criou o branch
+   `feature/mitra-di-guetto` a partir dele, e fez merge de dois PRs (#9,
+   #10) de volta para `Main` — não para `main`. `Main` está agora **5
+   commits à frente de `main`**, com conteúdo real:
+   - Commit `cb790d9` ("mitra di guetto"): adiciona um `SECURITY_STATUS.md`
+     novo de 257 linhas na raiz do repositório.
+   - Commit `ae8aa96` ("v3"): adiciona `.github/workflows/dashboard.yml`,
+     `documentation.yml`, `firmware.yml`, `ml.yml`, `python.yml`,
+     `security.yml`.
+2. **`Main` é agora o branch predefinido configurado no GitHub**
+   (confirmado via API: `default_branch: "Main"`), não `main`. Isto
+   inverte a gravidade do problema já registado em 2026-07-07: naquela
+   altura `Main` era um branch órfão sem consequência prática; hoje é o
+   branch que o GitHub mostra por omissão a quem abre o repositório, e
+   para onde apontam funcionalidades como "Set up this workflow" — mas
+   **todo o resto do projeto** (as ~60 secções deste ficheiro, os
+   workflows de CI já existentes — `c-cpp.yml`, `bridge-tests.yml`,
+   `ml-tests.yml` —, e os 2 PRs de segurança ainda abertos, #4 e #5,
+   ambos com `base: main`) continua a tratar `main` (minúscula) como o
+   branch canónico. Isto quer dizer que, tal como está hoje, **nenhum dos
+   três workflows de CI reais e verificados deste projeto corre no branch
+   predefinido do repositório** — só correm em `main`, que já não é o
+   branch que o GitHub trata como principal.
+3. **Os dois ficheiros novos adicionados a `Main` têm problemas próprios,
+   não corrigidos aqui** (fora do âmbito prudente desta rotina tocar
+   numa ref que o utilizador está a usar interativamente agora mesmo —
+   ver "Porque não corrigi já" abaixo):
+   - `documentation.yml`, `ml.yml`, `python.yml`, `security.yml` têm
+     **0 bytes** — não são workflows GitHub Actions válidos.
+   - `dashboard.yml` tem uma chave `Branches` (maiúscula) aninhada dentro
+     de `pull_request`, que por sua vez está aninhado dentro de
+     `branches` — estrutura YAML inválida para o schema de "on:" do
+     GitHub Actions (`branches`/`pull_request` deviam ser irmãos ao
+     mesmo nível, com `branches` em minúscula).
+   - `firmware.yml` duplica, de forma menos completa, o que `c-cpp.yml`
+     (branch `main`) já faz corretamente e com CI verde confirmada (ver
+     "Verificação de bugs — 2ª passagem do dia", ponto 1, acima): compila
+     com PlatformIO, mas só um ambiente (não a matriz
+     `seeed-xiao-afruitnrf52-nrf52840-sense-plus`/`test_lora_isolated` já
+     validada), e dispara em `push`/`pull_request` para `main`, não para
+     `Main`.
+   - Há ainda risco real de conflito de merge: `Main` tem um
+     `SECURITY_STATUS.md` próprio (`cb790d9`), enquanto os PRs #4 e #5
+     (branch `main`) também introduzem/alteram um `SECURITY_STATUS.md`
+     próprio, com conteúdo distinto (achados de segurança do backend/
+     frontend) — reconciliar os dois exige revisão humana do conteúdo,
+     não é uma junção mecânica.
+4. **Porque não corrigi já**: isto é uma decisão arquitetural
+   (qual branch é o canónico: `main`, já usado por toda a documentação,
+   CI e PRs abertos, ou `Main`, já configurado como predefinido no
+   GitHub e já em uso interativo pelo utilizador) que só o utilizador
+   pode tomar — nem inverter a configuração do branch predefinido no
+   GitHub, nem apagar/reescrever um branch onde o utilizador está a
+   trabalhar agora mesmo, são ações que esta rotina deve tomar sozinha.
+   Seguida a regra deste ficheiro: "Caso existam conflitos
+   arquiteturais: documentar e terminar." Esta rotina desenvolveu o
+   resto do seu trabalho (ver branch/PR desta execução) a partir de
+   `origin/main` (minúscula) — a base usada por todo o resto do
+   histórico documentado, pelos 3 workflows de CI reais e pelos PRs de
+   segurança já abertos — não a partir de `Main`, precisamente para não
+   construir sobre uma base ainda por reconciliar.
+5. **Ação sugerida ao utilizador** (não executada aqui): decidir qual dos
+   dois branches deve ser o canónico e, no GitHub, `Settings → Branches`,
+   apontar "Default branch" para esse branch; se a decisão for manter
+   `main` (minúscula) como canónico, fazer cherry-pick manual do
+   conteúdo real de `Main` que valha a pena preservar (`SECURITY_STATUS.md`
+   de `cb790d9`, depois de reconciliar com o conteúdo dos PRs #4/#5) e só
+   depois considerar apagar `Main` (`git push origin --delete Main`,
+   ação destrutiva sobre uma ref partilhada, deliberadamente fora do
+   âmbito desta rotina).
 ## Firmware: HR "fantasma" — estado do filtro de batimento não reiniciado entre streamings de HR (2026-07-09, rotina cloud)
 
 `git checkout -B claude/gifted-hamilton-foheab origin/main` no início desta execução: o checkout local anterior desta branch estava numa lombada divergente (`bd672eb`, com commits `cb790d9`/`ae8aa96`/`c0ca01d` de PRs #9/#10) que afinal tinha sido mesclada no branch `Main` (maiúscula), não em `main` — o mesmo conflito arquitetural entre `Main`/`main` já registado hoje pela PR #11 (aberta, draft, ainda pendente de decisão do utilizador). Não tomei nenhuma decisão sobre esse conflito (não é desta rotina decidir); só reiniciei esta branch a partir de `origin/main` (o branch onde vive toda a CI/documentação real do projeto) para não continuar a trabalhar em cima de uma lombada desatualizada/divergente. Revistas as Prioridades 0-2/6-8 (bloqueadas por hardware/decisão do utilizador) e a Prioridade 5 (`ml/`, sem itens novos não bloqueados), delegada uma varredura de bugs dirigida a áreas menos cobertas hoje (evitando NFC, GATT/auth, rate-limiting, XSS do dashboard, RAM/CPU e a corrida do `QspiRingBuffer`, todas já cobertas por PRs de hoje/ontem). Achado real, confirmado por leitura direta do código:
