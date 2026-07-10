@@ -15,8 +15,14 @@ __pycache__/
 
 # Base de dados local do bridge (bridge/storage.py) — dados reais gravados
 # pelo próprio utilizador em runtime, não código nem dados de exemplo do
-# repositório; cada instalação gera o seu próprio ficheiro.
+# repositório; cada instalação gera o seu próprio ficheiro. Em modo WAL
+# (ver "Otimização de CPU" em PROJECT_STATUS.md) o SQLite também escreve
+# -wal/-shm ao lado do .db principal — cobertos aqui pela mesma razão,
+# depois de -wal/-shm terem sido commitados por engano no commit e8da6c7
+# (~2MB de dados reais de sensores em bridge/carewear_history.db-wal).
 bridge/*.db
+bridge/*.db-wal
+bridge/*.db-shm
 
 # Chave AES provisionada no dispositivo real (ver "Cifra AES-CTR do modo
 # de dados" em bridge/ble_bridge.py) — segredo local desta instalação,
