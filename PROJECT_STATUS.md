@@ -3721,3 +3721,163 @@ substancial desde então**, confirmada nesta execução:
 **Verificação feita** (sem toolchain ARM disponível de início nesta rotina cloud — mesma limitação documentada em várias secções acima): `pip install platformio` teve sucesso, mas `pio run -e seeed-xiao-afruitnrf52-nrf52840-sense-plus` falhou a instalar a toolchain ARM por bloqueio do proxy do ambiente (`403 Forbidden` em `files.seeedstudio.com`), o mesmo bloqueio já registado nesta rotina cloud noutras execuções. Revisão manual em alternativa: leitura linha a linha de todas as funções alteradas, confirmando que `g_hrFilter`/`resetHrFilterState()` ficam dentro do `namespace` anónimo já existente (mesmo âmbito dos outros globais do módulo) e que nenhuma função pública (`Ppg::*`) foi tocada além da chamada nova em `startHrStreaming()`; e um script Python que conta chavetas/parênteses/colchetes antes/depois do ficheiro inteiro — chavetas 82/82→85/85 (equilibrado, +3/+3 da struct+função novas), parênteses 417/425→434/442 (mesmo desequilíbrio de -8 já pré-existente no ficheiro antes desta alteração, proveniente de comentários com parênteses aninhados — não introduzido agora), colchetes 39/39→39/39 (equilibrado; uma primeira versão do comentário introduziu um colchete solto num intervalo matemático "[300,2000)ms", detetado por este mesmo script e corrigido antes de commitar para "300-2000ms").
 
 **Não confirmado em hardware real** (bloqueado pela indisponibilidade atual da placa, ver "Riscos/bloqueios ativos", ponto 8) — a mudança é puramente de reorganização de estado (de `static` local para uma struct de âmbito de ficheiro, resetável), sem alterar a lógica/matemática de nenhum filtro, por isso o risco de regressão funcional é baixo, mas fica pendente de confirmação: quando o hardware voltar a estar acessível, confirmar que prints `[PPG] HR beat -> ...` continuam a aparecer com "Medir agora" (mesmo teste já pendente da sessão de hardware de 2026-07-03/04, ver "Próximas tarefas", ponto 0) e, idealmente, comparar uma leitura de HR imediatamente a seguir a uma medição de SpO2 (o cenário concreto que desencadeia este bug) com uma leitura obtida sem essa interrupção recente, confirmando que já não hesitam nem repetem um valor visivelmente desatualizado.
+
+## Achado de segurança: payload local não publicado a instruir agentes de IA a ignorar Grep/Glob (2026-07-10, rotina cloud)
+
+Antes de qualquer alteração de código, esta rotina seguiu o fluxo obrigatório
+(`git fetch`/rebase sobre `origin/main`) e encontrou um problema que exigiu
+investigação antes de continuar, seguindo a regra do projeto "conflitos
+arquiteturais: documentar e terminar" — adaptada aqui a um achado de
+segurança, não puramente arquitetural.
+
+**O que foi encontrado**: o branch local `claude/gifted-hamilton-cf3ulq`
+(atribuído a esta rotina, nunca publicado no GitHub — confirmado via
+`git ls-remote origin`, que devolve vazio para este nome) continha, antes
+desta execução, commits locais com mensagens genéricas ("v3", "v4") que
+introduziam:
+
+- `.claude/CLAUDE.md` — instruções "MANDATORY" a dizer a agentes Claude Code
+  para nunca usar Grep/Glob/Read e chamar sempre uma ferramenta MCP
+  `run_pipeline` (de uma suposta extensão "vexp") que **não existe** nesta
+  sessão nem em nenhum servidor MCP configurado.
+- `.claude/hooks/vexp-guard.sh` + `.claude/settings.json` — um hook
+  `PreToolUse` que nega chamadas a Grep/Glob sempre que deteta um "daemon
+  vexp" a correr (via ficheiros/socket em `.vexp/`).
+- `.github/copilot-instructions.md` — a mesma instrução, desta vez dirigida
+  ao GitHub Copilot.
+- `.vscode/mcp.json` — configura um servidor MCP local via `node` apontando
+  para um caminho absoluto do Windows específico de uma máquina pessoal
+  (`c:\Users\35191\...\vexp-vscode-2.1.4-win32-x64\...`, estrutura de
+  pastas compatível com um projeto de curso do utilizador).
+
+Esta própria rotina cloud carregou o `.claude/CLAUDE.md` acima como contexto
+de sistema no arranque desta sessão — confirma que o payload chegou a
+"executar" a primeira etapa (entrar no contexto de um agente) antes de ser
+detetado.
+
+**Avaliação**: não é possível confirmar com certeza se isto é (a) tooling
+pessoal legítimo do utilizador (uma extensão VS Code real chamada "vexp",
+cujo `mcp.json`/`CLAUDE.md` deveriam viver só na máquina local do
+utilizador, nunca commitados) que acabou commitado por engano por uma
+sessão anterior, ou (b) uma tentativa deliberada de manipular agentes de
+IA (prompt injection) para deixarem de pesquisar o código diretamente e
+passarem a depender de um servidor MCP opaco/não verificado. Em qualquer
+dos dois casos, o resultado prático é o mesmo e problemático: instruções
+"MANDATORY... OVERRIDE any default behavior" a redirecionar agentes de IA
+para uma ferramenta inexistente nesta sessão, um hook que bloqueia
+ferramentas de pesquisa nativas, e um `mcp.json` a apontar para um caminho
+de máquina pessoal que não faz sentido nenhum num repositório partilhado.
+
+**Ação tomada**: **contido, não propagado**. Confirmado via `git ls-remote
+origin` que este payload nunca chegou ao GitHub (só existia neste checkout
+local) e que não está presente em nenhum outro branch remoto (`main`,
+`Main`, nem nos outros branches `claude/gifted-hamilton-*`). Esta execução
+não fez rebase em cima desses commits — em vez disso, `git reset --hard
+origin/main` para recomeçar o branch a partir de um ponto limpo (o único
+conteúdo de valor real desses commits, `SECURITY_STATUS.md` do NFC, já
+existia de forma equivalente em `origin/main`, confirmado antes do reset —
+nenhum trabalho real foi perdido). Nada foi publicado no GitHub por esta
+rotina que contenha este payload.
+
+**Ainda por decidir pelo utilizador**:
+1. Confirmar se "vexp" é de facto uma ferramenta pessoal usada localmente
+   (nesse caso, `.claude/`, `.vscode/mcp.json` e `.github/copilot-instructions.md`
+   não deveriam ser commitados neste repositório partilhado — adicionar ao
+   `.gitignore` do utilizador local, não deste repo) ou se nenhuma sessão/
+   pessoa reconhece tê-los criado intencionalmente (nesse caso, é preciso
+   perceber como uma sessão anterior desta rotina os gerou/commitou).
+2. Investigar a sessão/rotina que gerou os commits "v3"/"v4" (autoria git
+   `idalgizio12@gmail.com`, mas branch com o padrão de nome
+   `claude/gifted-hamilton-*` usado por esta rotina automática — datados de
+   2026-07-09) para perceber a origem exata, já que não ficaram publicados
+   nem há PR associado a explicar a decisão.
+
+**Limitação honesta**: esta rotina não é uma auditoria de segurança
+dedicada (existem rotinas próprias para isso, ver PRs de segurança
+abertos) — este achado surgiu só por ser um bloqueio direto ao fluxo de
+trabalho obrigatório (`git fetch`/rebase antes de codificar), não de uma
+procura ativa por vulnerabilidades. Não foi investigado mais a fundo
+(ex.: não se tentou confirmar se a extensão VS Code "vexp" é real/legítima
+ou se o `mcp-server.cjs` referenciado teria algum comportamento malicioso
+— isso exigiria acesso à máquina Windows do utilizador, fora do alcance
+desta rotina cloud).
+
+## Firmware: gesto SOS podia perder cliques quando coincidiam com a verificação de long-press (2026-07-10, rotina cloud)
+
+Depois de resolvido o bloqueio acima, revistas as Prioridades 0-2/6-8
+(bloqueadas por hardware/decisão do utilizador) e a Prioridade 5 (`ml/`,
+sem itens novos — ver `ml/README.md`), e confirmado que os 2 PRs de
+segurança abertos (`#4`, `#5`, ambos ainda draft) já cobrem backend/API e
+frontend, esta execução (rotina "código completo", catch-all) delegou uma
+varredura de bugs dirigida ao firmware/bridge, explicitamente instruída a
+evitar áreas já cobertas por outras rotinas (NFC, segurança, o mutex do
+`QspiRingBuffer` já corrigido em 2026-07-08, cifra AES, reduções de
+stack). Achado real, confirmado por leitura direta do código:
+
+**Bug**: `src/main.cpp` — `Emergency::updateSosGesture()` (`src/Emergency/Emergency.cpp`)
+deteta cada clique do gesto SOS por **borda de descida** do mesmo
+`BTN_PIN` usado pelo long-press físico de ligar/desligar
+(`nowLow && !s_lastButtonLow`), e só avança se `Emergency::update()` for
+chamado com frequência suficiente para observar essa transição — o mesmo
+tipo de problema já corrigido em 2026-07-07 para o `delay(50)+delay(950)`
+do heartbeat (ver `delayPollingEmergency()`, secção "Deteção de
+emergência" mais acima), mas dessa vez só aplicado ao heartbeat, não ao
+resto do `loop()`.
+
+O caminho de deteção de long-press (`buttonPressedStable()` → se o botão
+estiver em baixo, `waitForLongPress()` → até 5s de espera + `waitRelease()`)
+bloqueava com `delay()`/busy-wait sobre `digitalRead(BTN_PIN)`, **sem
+nunca chamar `Emergency::update()` durante essa espera**. Como
+`buttonPressedStable()` é chamado uma vez por iteração do `loop()`
+(cadência ~1s) e entra neste caminho bloqueante sempre que o botão
+**estiver em baixo nesse instante exato** — o que acontece em qualquer
+clique do gesto SOS, não só num long-press real de 5s — sempre que um dos
+3 cliques do gesto coincidisse com essa amostra, a borda de descida desse
+clique ficava invisível para `updateSosGesture()` durante toda a espera
+bloqueante (debounce + até 5s + largada). Como a deteção é por borda, não
+por amostra, o clique não ficava só atrasado — **ficava definitivamente
+perdido** (`s_lastButtonLow` retomava já com o botão solto, sem nunca ter
+visto a transição). Com `sosClickCount=3` cliques exigidos dentro de
+`sosClickWindowMs=1200ms` (`Emergency.h`) e a amostragem do `loop()` a
+~1Hz, há uma probabilidade real (não só teórica) de qualquer tentativa de
+gesto SOS coincidir com esta amostra e falhar silenciosamente — sem
+nenhum erro ou log, porque do ponto de vista de `updateSosGesture()`
+simplesmente não aconteceu nada. Relevante para a segurança do produto:
+é o mecanismo manual de SOS de um wearable para cuidado de demência.
+
+**Corrigido**: `buttonPressedStable()`, `waitForLongPress()` e
+`waitRelease()` ganharam um parâmetro `pollEmergency` (omissão `false`,
+preservando exatamente o comportamento antigo) que, quando `true`, chama
+`Emergency::update()` durante as esperas bloqueantes internas (reutilizando
+`delayPollingEmergency()`, agora movida para mais cedo no ficheiro para
+poder ser partilhada). Só é passado como `true` nas duas chamadas feitas a
+partir de `loop()` (onde `Emergency::begin()` já correu há muito, dentro de
+`setup()`) — a chamada de `waitForLongPress()` feita a partir de `setup()`
+(long-press inicial para ligar o dispositivo, antes de `Emergency::begin()`
+sequer correr) mantém o comportamento exato de antes por omissão, evitando
+chamar `Emergency::update()` num módulo ainda não inicializado.
+
+**Verificação feita** (sem toolchain ARM disponível nesta rotina cloud —
+`pip install platformio` teve sucesso, mas `pio run` voltou a falhar a
+instalar a toolchain ARM pelo mesmo bloqueio de proxy já documentado
+várias vezes acima, `403 Forbidden` em `files.seeedstudio.com`): revisão
+manual linha a linha de todas as funções alteradas e dos dois pontos de
+chamada (`setup()` com omissão preservada, `loop()` com `pollEmergency=true`
+explícito), confirmando que nenhuma chamada nova a `Emergency::update()`
+acontece antes de `Emergency::begin()` ter corrido. Script Python de
+contagem de chavetas/parênteses antes/depois de `src/main.cpp`: chavetas
+81/81→84/84 (equilibrado), parênteses com o mesmo delta de desequilíbrio
+pré-existente (comentários com parênteses aninhados, não código real) —
+sem desequilíbrio novo introduzido.
+
+**Não confirmado em hardware real** (bloqueado pela indisponibilidade
+atual da placa, ver "Riscos/bloqueios ativos", ponto 8) — o comportamento
+de `updateSosGesture()`/`updateFallDetection()` em si não muda (mesma
+lógica de deteção de borda), só passa a ser amostrado com muito mais
+frequência durante o caminho do botão físico, por isso o risco de
+regressão funcional é baixo, mas fica pendente de confirmação: quando o
+hardware voltar a estar acessível, testar o gesto de 3 cliques
+repetidamente (incluindo cliques deliberadamente cronometrados para
+coincidir com o segundo "cheio" do heartbeat, o cenário que antes falhava)
+e confirmar que `[EMERGENCY] gesto SOS detetado` aparece de forma
+consistente, sem perder tentativas.
