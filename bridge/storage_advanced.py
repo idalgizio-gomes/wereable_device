@@ -269,8 +269,31 @@ class MedicationAdherence(Base):
 
     medication = relationship("Medication", back_populates="adherence")
 
+    # BUG CORRIGIDO: era um Index não-único — nada na base de dados impedia
+    # duas linhas para a mesma (medication_id, scheduled_datetime). A
+    # idempotência "por desenho" documentada em `record_medication_adherence`
+    # (bridge/api.py) era garantida SÓ pela leitura-antes-de-escrever nesse
+    # endpoint (SELECT a verificar se já existe, depois INSERT ou UPDATE) —
+    # uma janela clássica de TOCTOU: dois pedidos concorrentes para a MESMA
+    # dose (ex.: um retry por timeout de rede a coincidir com o pedido
+    # original, ou dois cuidadores a marcar a mesma dose quase ao mesmo
+    # tempo, uma vez que o dashboard/`ble_bridge.py` venham a chamar este
+    # endpoint) podem ambos fazer o SELECT antes de qualquer um dos dois
+    # fazer o INSERT, resultando em duas linhas para a mesma dose (confirmado
+    # por reprodução direta contra `storage_advanced.py`, ver
+    # bridge/tests/test_storage_advanced.py::TestMedicationAdherenceUniqueness).
+    # Isto duplicava entradas de auditoria e inflacionava as métricas de
+    # aderência (`Analytics.medication_adherence_summary` conta `total` por
+    # número de linhas). Só uma constraint a nível da BD impede isto de
+    # forma real sob concorrência — ver também o tratamento de
+    # IntegrityError em `record_medication_adherence` (bridge/api.py), que
+    # converge para um UPDATE quando perde a corrida em vez de deixar a BD
+    # rejeitar o pedido com um erro 500.
     __table_args__ = (
-        Index("idx_adherence_medication_scheduled", "medication_id", "scheduled_datetime"),
+        UniqueConstraint(
+            "medication_id", "scheduled_datetime",
+            name="uq_adherence_medication_scheduled",
+        ),
     )
 
 

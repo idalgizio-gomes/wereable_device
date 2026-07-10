@@ -187,10 +187,14 @@ class TestAnalyticsMedicationAdherence:
         db.commit()
         db.refresh(med)
 
+        # Duas DOSES diferentes do mesmo medicamento (scheduled_datetime tem
+        # de ser distinto entre linhas — ver UniqueConstraint em
+        # MedicationAdherence.__table_args__, storage_advanced.py: a mesma
+        # dose nunca pode ter duas linhas, mesmo em teste).
         now = datetime.utcnow()
         db.add_all([
             sa.MedicationAdherence(medication_id=med.id, scheduled_datetime=now, taken=True),
-            sa.MedicationAdherence(medication_id=med.id, scheduled_datetime=now, taken=False),
+            sa.MedicationAdherence(medication_id=med.id, scheduled_datetime=now + timedelta(hours=8), taken=False),
         ])
         db.commit()
 
@@ -199,6 +203,51 @@ class TestAnalyticsMedicationAdherence:
         assert result["medications"][0]["total"] == 2
         assert result["medications"][0]["percent"] == 50.0
         assert result["overall_percent"] == 50.0
+
+
+class TestMedicationAdherenceUniqueness:
+    """Regressão: MedicationAdherence não tinha nenhuma UniqueConstraint em
+    (medication_id, scheduled_datetime) a nível de base de dados — só um
+    Index não-único. A idempotência "por desenho" documentada em
+    `record_medication_adherence` (bridge/api.py) dependia inteiramente do
+    padrão SELECT-depois-INSERT/UPDATE desse endpoint, sem nenhuma garantia
+    real sob concorrência: dois pedidos para a MESMA dose, entrelaçados
+    entre o SELECT e o INSERT de cada um, podiam ambos ver "não existe" e
+    ambos inserir — duas linhas para a mesma dose (confirmado por
+    reprodução direta antes desta correção). Estes testes confirmam que a
+    BD agora rejeita essa duplicação diretamente, e que o endpoint (ver
+    tests/test_api.py::TestRecordMedicationAdherence::
+    test_concurrent_requests_for_same_dose_never_duplicate) converge para
+    uma única linha em vez de deixar a exceção rebentar como 500."""
+
+    def test_duplicate_scheduled_datetime_rejected_by_db(self, db):
+        patient = _make_patient(db)
+        med = sa.Medication(
+            uuid="med-uniq", patient_id=patient.id, name="Donepezilo",
+            dosage="5mg", frequency="1x/dia", start_date=datetime.utcnow(),
+        )
+        db.add(med)
+        db.commit()
+        db.refresh(med)
+
+        scheduled = datetime(2026, 7, 10, 8, 0, 0)
+        db.add(sa.MedicationAdherence(medication_id=med.id, scheduled_datetime=scheduled, taken=True))
+        db.commit()
+
+        db.add(sa.MedicationAdherence(medication_id=med.id, scheduled_datetime=scheduled, taken=False))
+        with pytest.raises(Exception) as excinfo:
+            db.commit()
+        assert "UNIQUE constraint failed" in str(excinfo.value) or "IntegrityError" in type(excinfo.value).__name__
+        db.rollback()
+
+        # Confirma que continua a existir só a linha original — a tentativa
+        # falhada não deixou nenhum resto.
+        rows = db.query(sa.MedicationAdherence).filter(
+            sa.MedicationAdherence.medication_id == med.id,
+            sa.MedicationAdherence.scheduled_datetime == scheduled,
+        ).all()
+        assert len(rows) == 1
+        assert rows[0].taken is True
 
 
 class TestAnalyticsDailyActivityDistribution:
