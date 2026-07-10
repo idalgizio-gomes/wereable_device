@@ -58,6 +58,16 @@
 // deixaram dados de calibração/chave AES inválidos gravados na flash.)
 #define WIPE_STALE_STORAGE 0
 
+// FLAG DE WIPE (2026-07-09) — reprovisionamento pedido pelo utilizador
+// depois de se perder localmente o valor da chave AES já gravada na
+// placa (aesKeyChar só aceita a primeira escrita — sem isto não há como
+// voltar a provisionar). Também reformata o ring buffer (QSPI), perdendo
+// os ~32 mil registos em fila — decisão explícita do utilizador,
+// preferível a ficar com dados que o bridge nunca mais vai conseguir
+// decifrar. Já usada numa única flash (wipe + reprovisionamento
+// concluídos) — reposta a 0.
+#define WIPE_RING_BUFFER 0
+
 // Se a 1, corre um teste automático ao ring buffer da flash externa no
 // arranque (escreve, lê e apaga dados de teste). Só serve para debug.
 #define QSPI_RING_BUFFER_SELF_TEST 0
@@ -795,6 +805,13 @@ void initQspiRingBuffer() {
     Serial.println("[QSPIRB] init falhou");
     return;
   }
+
+#if WIPE_RING_BUFFER
+  Serial.println("[QSPIRB] WIPE: a reformatar (reprovisionamento pedido pelo utilizador)");
+  if (!QspiRingBuffer::format()) {
+    Serial.println("[QSPIRB] WIPE: format() falhou");
+  }
+#endif
 
   Serial.print("[QSPIRB] capacidade slots: ");
   Serial.println(QspiRingBuffer::capacity());
