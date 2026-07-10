@@ -652,6 +652,33 @@ e tipos de registo desconhecidos (ignorar, não crashar/interpretar por
 omissão). Sem código a auditar nesta vertente enquanto o âmbito não
 mudar.
 
+### NFC-009 — Nunca incluir registo URI/AAR dinâmico ou "reader-processável" no NDEF emitido
+
+**Gravidade: preventiva**, reforçada por pesquisa nova (ver "Pesquisa
+contínua" abaixo, 2026-07-10). Um NDEF Type-2/4 pode conter, além de um
+identificador simples, registos `URI` (ex.: deep link, `tel:`, URL de
+loja de app) ou um Android Application Record (AAR) que o telemóvel
+leitor processa automaticamente ao aproximar-se — sem qualquer
+confirmação do lado do wearable (NFC-002 protege o *wearable*, não o
+telemóvel de quem o aproxima). Pesquisa 2026-07-10 confirma que esta
+classe de ataque é ativa e atual: `CVE-2026-11108` (Chrome no Android,
+divulgado 2026-06-04) é uma escalada de privilégios acionada por
+conteúdo NFC processado pelo leitor via uma página HTML criada
+propositadamente — ou seja, o *dispositivo que lê* uma tag NFC pode ser
+comprometido pelo próprio conteúdo da tag, não só o dispositivo que a
+emite. Como a tag do CareWear é passiva e sem autenticação (mesmo
+princípio do NFC-003), qualquer conteúdo nela é, por definição,
+"conteúdo não confiável" do ponto de vista de quem a lê — incluindo o
+telemóvel do próprio cuidador/utilizador.
+**Requisito**: o NDEF emitido pelo CareWear deve conter **apenas** o
+mínimo necessário ao handover BLE (identificador/endereço + OOB efémero
+se aplicável, ver NFC-003/NFC-004) — **nunca** um registo `URI` (mesmo
+que aparentemente inofensivo, ex. link para app store) nem AAR, a menos
+que explicitamente decidido e revisto por esta rotina antes de
+implementar, precisamente porque esse tipo de registo é o que leitores
+(navegadores/OS) processam de forma mais automática e é o vetor
+demonstrado por `CVE-2026-11108`.
+
 ## Resumo para a rotina de desenvolvimento (NFC #2 e seguintes)
 
 Antes de dar o NFC como "pronto" (qualquer fase que ative
@@ -660,9 +687,9 @@ Antes de dar o NFC como "pronto" (qualquer fase que ative
 1. NFC-001, NFC-002, NFC-007 estão cumpridos por desenho (autenticação
    nunca depende do UID/NFC sozinho; handover sempre confirmado no
    dispositivo; sem comandos de dados via NFC).
-2. NFC-003 está cumprido no conteúdo exato do NDEF proposto (rever com
-   esta rotina antes de commitar o primeiro NDEF real — ver Fase C em
-   `PROJECT_STATUS.md`).
+2. NFC-003/NFC-009 estão cumpridos no conteúdo exato do NDEF proposto
+   (rever com esta rotina antes de commitar o primeiro NDEF real — ver
+   Fase C em `PROJECT_STATUS.md`; sem registos `URI`/AAR).
 3. NFC-004/NFC-005 foram avaliados e documentados (mesmo que a decisão
    seja "handover estático simples, sem OOB dinâmico, aceitando o risco
    residual X" — desde que seja uma decisão explícita, não omissão).
@@ -670,13 +697,57 @@ Antes de dar o NFC como "pronto" (qualquer fase que ative
 
 ## Pesquisa contínua (ataques NFC/handover novos)
 
-Pesquisa feita em 2026-07-08 (fontes acima, NFC-006) — focada em relay
-attacks de pagamento (aplicável por analogia ao handover, ver
-mitigação). Nenhuma CVE específica ao periférico NFCT do nRF52840 ou ao
-SoftDevice S140 encontrada nesta pesquisa. Repetir esta pesquisa em
-execuções futuras desta rotina, à medida que a fase C avançar (termos
-sugeridos: "NFC Forum BTSSP vulnerability", "TNEP negotiated handover
-security", CVEs Nordic nrfx/NFCT).
+**2026-07-08** (fontes na secção NFC-006) — focada em relay attacks de
+pagamento (aplicável por analogia ao handover, ver mitigação). Nenhuma
+CVE específica ao periférico NFCT do nRF52840 ou ao SoftDevice S140
+encontrada nesta pesquisa.
+
+**2026-07-10** (2ª execução desta rotina — código NFC inalterado desde
+a auditoria anterior, ver "Estado desta execução" abaixo; pesquisa
+repetida conforme indicado):
+- `CVE-2026-34126` (TP-Link Tapo, CVSS 7.5) — atacante em alcance
+  Bluetooth pode fazer sniffing/MITM ao setup Bluetooth e manipular
+  dados de configuração transmitidos durante a inicialização do
+  dispositivo. Relevante por analogia a NFC-004: reforça que qualquer
+  material OOB trocado via NFC para reforçar o pairing BLE tem de ser
+  efémero e ligado à sessão — um setup/pairing "de fábrica" sem esse
+  cuidado continua a ser explorado ativamente em produtos reais no
+  mesmo espaço de produto (wearables/IoT). Fonte:
+  [TheHackerWire — CVE-2026-34126](https://www.thehackerwire.com/vulnerability/CVE-2026-34126/).
+- `CVE-2026-11108` (Chrome para Android, divulgado 2026-06-04) —
+  escalada de privilégios via processamento de conteúdo NFC por uma
+  página HTML criada propositadamente. Motivou o novo requisito
+  **NFC-009** acima (nunca emitir registos `URI`/AAR no NDEF do
+  CareWear). Fonte:
+  [Windows Forum — CVE-2026-11108](https://windowsforum.com/threads/cve-2026-11108-chrome-on-android-nfc-privilege-escalation-fix-before-149-0-7827-53.424561/).
+- `CVE-2026-31629` (kernel Linux, NFC LLCP, publicado 2026-04-24) —
+  use-after-free no caminho de receção LLCP do kernel Linux. Não se
+  aplica ao nRF52840 (é código de *leitor* Linux, não ao periférico
+  NFCT do wearable), mas reforça em geral o requisito NFC-008: parsers
+  NDEF/NFC são uma fonte real e recorrente de bugs de memória — caso o
+  CareWear alguma vez passe a ler tags externas, o parser tem de ser
+  escrito/escolhido com esse histórico em mente. Fonte:
+  [Windows Forum — CVE-2026-31629](https://windowsforum.com/threads/cve-2026-31629-missing-return-in-linux-nfc-llcp-can-trigger-double-release-uaf.415223/).
+- Continua sem CVE específica ao periférico NFCT do nRF52840 ou ao
+  SoftDevice S140.
+
+Repetir esta pesquisa em execuções futuras desta rotina, à medida que a
+fase C avançar (termos sugeridos: "NFC Forum BTSSP vulnerability",
+"TNEP negotiated handover security", CVEs Nordic nrfx/NFCT).
+
+## Estado desta execução (2026-07-10)
+
+Verificado via `git log -- src/Nfc/ include/Nfc/`: **nenhum commit novo
+toca no módulo NFC desde `636ab46`/`a517873` (2026-07-08)**, já
+auditados na execução anterior (PR #7, mesclado em `main`). A secção
+"NFC" de `PROJECT_STATUS.md` também não tem entradas novas — a rotina
+de desenvolvimento continua bloqueada pela mesma pergunta em aberto ao
+utilizador (existência/pinout da antena NFC). Confirmado também que não
+existe nenhuma branch `rotina/nfc-development` com trabalho por
+publicar (`git log origin/main..origin/rotina/nfc-development` vazio).
+**Sem correções de código nesta execução** — nada mudou para auditar
+além da pesquisa contínua acima, que resultou no novo requisito
+NFC-009. Entregável desta execução: NFC-009 + registo de pesquisa.
 
 # CareWear — Estado de Segurança e Privacidade
 
