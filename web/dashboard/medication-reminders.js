@@ -185,15 +185,34 @@ class MedicationReminder {
       animation: slideIn 0.3s ease-out;
     `;
 
-    const content = `
-      <strong>💊 ${medication.name}</strong><br>
-      ${medication.dose} às ${time}<br>
-      <button onclick="if(typeof markDoseTaken==='function') { markDoseTaken('${patient.id}', '${medication.id}', '${time}'); } document.getElementById('${bannerId}').remove();" style="margin-top:8px; padding:6px 12px; background:var(--accent,#3FD6C0); border:none; border-radius:4px; cursor:pointer; color:var(--accent-ink,#04211D);">
-        ✓ Tomei agora
-      </button>
-    `;
+    // Bug de segurança corrigido (S03 frontend-security): medication.name/
+    // .dose são texto livre editável em "Gerir medicação" (persistido em
+    // localStorage, carewear_medications_registry) e antes entravam sem
+    // qualquer escaping num innerHTML — um nome de medicamento como
+    // `<img src=x onerror=...>` executaria a cada lembrete. `time` também é
+    // texto livre (campo "Horários" do mesmo formulário) e era concatenado
+    // dentro de um atributo onclick entre aspas simples, permitindo um
+    // segundo vetor (fuga da string JS com uma aspa simples), independente
+    // do escaping de HTML. Corrigido construindo o cartão com
+    // createElement/textContent (nunca interpreta HTML) e um listener real
+    // via addEventListener em vez de onclick inline com valores
+    // concatenados — elimina os dois vetores em vez de só escapar um deles.
+    const title = document.createElement('strong');
+    title.textContent = `💊 ${medication.name}`;
+    div.appendChild(title);
+    div.appendChild(document.createElement('br'));
+    div.appendChild(document.createTextNode(`${medication.dose} às ${time}`));
+    div.appendChild(document.createElement('br'));
 
-    div.innerHTML = content;
+    const btn = document.createElement('button');
+    btn.textContent = '✓ Tomei agora';
+    btn.style.cssText = 'margin-top:8px; padding:6px 12px; background:var(--accent,#3FD6C0); border:none; border-radius:4px; cursor:pointer; color:var(--accent-ink,#04211D);';
+    btn.addEventListener('click', () => {
+      if (typeof markDoseTaken === 'function') markDoseTaken(patient.id, medication.id, time);
+      div.remove();
+    });
+    div.appendChild(btn);
+
     stack.appendChild(div);
 
     // Auto-fechar após 30 segundos

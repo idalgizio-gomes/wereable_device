@@ -361,6 +361,14 @@ class BleBridge:
         self.aes_key = _load_aes_key_from_env()
         self._missing_key_warned = False
         self._implausible_record_warned = False
+        # Ver WRITE_COMMAND_MIN_INTERVAL_S abaixo — ultimo instante
+        # (time.monotonic()) em que cada comando de escrita foi aceite,
+        # por nome de comando. Global (nao por-cliente WebSocket) de
+        # proposito: varios separadores do dashboard ligados ao mesmo
+        # bridge partilham o mesmo dispositivo BLE fisico, por isso um
+        # limite por-cliente seria trivial de contornar abrindo outra
+        # ligacao WebSocket.
+        self._last_write_command_monotonic: dict[str, float] = {}
 
     RECORD_BROADCAST_MIN_INTERVAL_S = 0.25  # no maximo ~4 atualizacoes/seg
     # Intervalo entre limpezas automaticas de sensor_records (ver
@@ -368,6 +376,21 @@ class BleBridge:
     # e' so' para o ficheiro .db nao crescer sem limite num bridge deixado
     # a correr por muito tempo.
     RETENTION_CHECK_INTERVAL_S = 6 * 3600
+    # *** LIMITE DE TAXA PARA COMANDOS DE ESCRITA DO DASHBOARD ***
+    # (2026-07-08, rotina de auditoria de segurança). O canal WebSocket nao
+    # e' autenticado (ver docstring do modulo/handle_dashboard_command) —
+    # ate agora so' o broadcast de leitura tinha um limite de taxa
+    # (RECORD_BROADCAST_MIN_INTERVAL_S); os comandos de escrita
+    # (force_reading, reset_readings, set_retention_days) podiam ser
+    # enviados em loop sem nenhuma limitacao. O caso mais grave e'
+    # "reset_readings": destroi de forma irreversivel os registos guardados
+    # no ring buffer do dispositivo (ver DUMP_CTRL_RESET_READINGS acima) —
+    # qualquer processo local com acesso ao WebSocket podia apagar o
+    # historico do wearable repetidamente, sem limite, so' por enviar a
+    # mesma mensagem JSON em loop. Isto nao substitui autenticacao (fora do
+    # ambito desta correcao — ver PROJECT_STATUS.md/SECURITY_STATUS.md),
+    # mas reduz o dano de um cliente descontrolado/malicioso na rede local.
+    WRITE_COMMAND_MIN_INTERVAL_S = 2.0
     # BUG CORRIGIDO (2026-07-07, rotina cloud): um registo cujos fragmentos
     # BLE se percam (notify() nao e' um transporte com confirmacao) ficava
     # para sempre em _pending_fragments — nunca recebia todos os
@@ -651,6 +674,21 @@ class BleBridge:
             print("[BRIDGE] desligado — a tentar reconectar em 3s")
             await asyncio.sleep(3)
 
+    def _check_write_rate_limit(self, name: str) -> Optional[float]:
+        """Ver WRITE_COMMAND_MIN_INTERVAL_S. Devolve None e regista o
+        instante atual se o comando `name` puder prosseguir agora, ou o
+        nº de segundos que falta esperar caso contrário (sem registar
+        nada — uma tentativa rejeitada não deve empurrar a janela de
+        limite mais para a frente, senão um cliente em loop apertado
+        conseguiria manter o comando bloqueado para sempre)."""
+        now = time.monotonic()
+        last = self._last_write_command_monotonic.get(name, 0.0)
+        elapsed = now - last
+        if elapsed < self.WRITE_COMMAND_MIN_INTERVAL_S:
+            return self.WRITE_COMMAND_MIN_INTERVAL_S - elapsed
+        self._last_write_command_monotonic[name] = now
+        return None
+
     async def send_command(self, ws, name: str) -> None:
         """Escreve um comando em dumpCtrlChar, pedido pelo dashboard
         (ver handle_dashboard_command). Responde ao mesmo cliente WS com
@@ -667,6 +705,14 @@ class BleBridge:
         payload = payload_by_name.get(name)
         if payload is None:
             await ws.send(json.dumps({"kind": "command_result", "cmd": name, "ok": False, "error": "comando desconhecido"}))
+            return
+
+        wait_s = self._check_write_rate_limit(name)
+        if wait_s is not None:
+            await ws.send(json.dumps({
+                "kind": "command_result", "cmd": name, "ok": False,
+                "error": f"limite de taxa excedido, aguarde {wait_s:.1f}s",
+            }))
             return
 
         try:
@@ -759,6 +805,13 @@ class BleBridge:
             }))
             return
         if cmd == "set_retention_days":
+            wait_s = self._check_write_rate_limit(cmd)
+            if wait_s is not None:
+                await ws.send(json.dumps({
+                    "kind": "retention_days_result", "ok": False,
+                    "error": f"limite de taxa excedido, aguarde {wait_s:.1f}s",
+                }))
+                return
             days = msg.get("days")
             try:
                 saved = storage.set_retention_days(self.db, days)
