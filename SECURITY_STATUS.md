@@ -505,3 +505,238 @@ ainda que longo, com justificação escrita).
 | Logging/auditoria | Lacuna registada — GDPR-003 |
 | Encriptação (repouso/trânsito) | Parcial — BLE e 2 campos ORM cifrados; `.db`, WebSocket, restante ORM por cifrar — GDPR-004, GDPR-005 |
 | Transferências a terceiros | Nenhum provedor externo ligado ainda (Twilio bloqueado por credenciais) — sem requisito imediato, revisitar quando existir |
+
+---
+
+# CareWear — Vigilância Externa de Segurança (S09)
+
+> Ficheiro/secção da rotina de **Investigação de Segurança — vigilância
+> externa** (S09), branch `seguranca/security-research`. Distinta de
+> todas as outras rotinas de segurança (NFC/S05, backend-api, firmware,
+> frontend, dependências, BLE, privacidade/GDPR — cada uma com o seu
+> `SECURITY_STATUS.md` em branch própria): esta rotina **não audita
+> código do CareWear diretamente**. Vigia o panorama de ameaças e boas
+> práticas externas (CVEs, novos ataques BLE/NFC/TinyML, frameworks
+> OWASP/NIST/ENISA/MITRE, lado de vigilância de normas de dispositivo
+> médico) e pergunta, todos os dias: "existe alguma recomendação que o
+> CareWear ainda não implementa?". Quando uma lacuna cai no domínio de
+> outra rotina de segurança já existente, é encaminhada para lá (sem
+> duplicar) — só fica registada aqui a ligação entre a fonte externa e o
+> risco. Ver `SECURITY_RESEARCH.md` para o compêndio de pesquisa
+> completo, organizado por tema, com todas as fontes.
+
+## Como ler esta secção
+
+Cada risco/recomendação tem um ID `RES-XXX` estável (não reutilizar
+números). É **vigilância**, não uma auditoria de código nesta rotina —
+por isso todo achado aqui é uma **recomendação encaminhada**, nunca uma
+correção aplicada por esta rotina (ver regras do prompt: "não mexe no
+código"). Estados: **NOVO** (recomendação desta execução, ainda não
+avaliada pela rotina de destino), **REFORÇO** (não é uma lacuna nova —
+uma fonte externa nova aumenta a confiança/prioridade de um risco já
+registado noutra rotina), **ENCAMINHADO** (já passado à rotina/entidade
+responsável, a aguardar decisão), **SEM AÇÃO** (avaliado e considerado
+não aplicável ou já coberto, com justificação).
+
+## Alvos pesquisados nesta execução (2026-07-10)
+
+Primeira execução desta rotina (sem histórico anterior a repetir).
+Rotação escolhida para hoje: **(1) novos ataques BLE** (famílias
+BLUFFS/BLESA e sucessoras), **(2) CVEs recentes com aplicação direta ao
+stack do bridge Python**, **(3) frameworks/normas — NIST IoT**. Antes de
+registar qualquer achado, cada branch de segurança já existente
+(`seguranca/ble-security`, `seguranca/nfc-security`,
+`seguranca/backend-api-security`, `seguranca/dependency-security`) foi
+consultada via `git show origin/<branch>:SECURITY_STATUS.md` para não
+duplicar o que já lá está registado — dois achados de hoje (CVEs do
+pacote `cryptography`) já estavam cobertos por `DEP-001`
+(`seguranca/dependency-security`, avaliado como não explorável no uso
+atual do CareWear) e não foram re-registados aqui, só referenciados.
+**Fila para próximas execuções** (não cobertos hoje): ataques NFC além
+de relay (já coberto por `seguranca/nfc-security`, NFC-006), OWASP API
+Security Top 10 detalhado, OWASP Mobile Top 10 (app futura), ENISA
+guidelines IoT/saúde, MITRE ATT&CK for ICS/embedded, IEC 62443/81001-5-1
+(lado vigilância), ataques a TinyML além de model extraction (data
+poisoning, adversarial examples — relevante quando/se `ml/` for
+embarcado no firmware).
+
+## Achados desta execução
+
+### RES-001 — Emparelhamento BLE silencioso/forçado: evidência real de exploração em massa (2025-2026), reforça FW-002 e NFC-002
+
+**Estado: REFORÇO** (não é uma lacuna nova — reforça prioridade de
+riscos já registados).
+**Fontes**: [Rescana — "WhisperPair Bluetooth Fast Pair Vulnerability
+(CVE-2025-36911)"](https://www.rescana.com/post/whisperpair-bluetooth-fast-pair-vulnerability-cve-2025-36911-exposes-millions-of-audio-accessories);
+[Malwarebytes — "WhisperPair exposes Bluetooth earbuds and headphones to
+tracking and eavesdropping" (jan. 2026)](https://www.malwarebytes.com/blog/news/2026/01/whisperpair-exposes-bluetooth-earbuds-and-headphones-to-tracking-and-eavesdropping);
+[BleepingComputer — "Critical WhisperPair flaw lets hackers track,
+eavesdrop via Bluetooth audio devices"](https://www.bleepingcomputer.com/news/security/critical-whisperpair-flaw-lets-hackers-track-eavesdrop-via-bluetooth-audio-devices/);
+CVE-2026-0097 (Android, elevação de privilégio no emparelhamento LE,
+CVSS 3.1 = 8.0, corrigido no boletim de segurança Android 2026-06-01) —
+[CVE Record](https://www.cve.org/CVERecord?id=CVE-2026-0097),
+[DailyCVE](https://dailycve.com/android-bluetooth-logic-error-bypass-cve-2026-0097-critical-dc-jun2026-147/).
+**Grau de confiança**: alto para WhisperPair (múltiplas fontes
+jornalísticas de segurança independentes, PoC documentado, CVE atribuído);
+médio-alto para CVE-2026-0097 (registo CVE oficial + reportagem técnica,
+mas não li o boletim oficial Android linha a linha).
+**O que é**: WhisperPair (CVE-2025-36911) explora o protocolo Google
+Fast Pair para forçar emparelhamento com acessórios Bluetooth (Sony,
+Jabra, JBL, Xiaomi, Google, etc.) **sem qualquer interação do
+utilizador**, a até 14 metros, em ~10 segundos — dando acesso a
+microfone/controlos e, nalguns casos, à rede "Find Hub" da Google para
+seguir a localização do dispositivo indefinidamente. CVE-2026-0097 é
+distinto (falha na stack Android, não no CareWear), mas do mesmo tema:
+um pedido `ll_enc_req` fora de sequência engana a máquina de estados
+`smp_command_processor` para saltar para "emparelhado" sem confirmação
+do utilizador.
+**Aplicabilidade ao CareWear**: o CareWear não usa Fast Pair nem é um
+acessório de áudio — esta fonte não é uma CVE do próprio CareWear. Mas
+é evidência concreta, à escala, de 2025-2026, de que "emparelhamento
+BLE sem confirmação visível no dispositivo" deixou de ser um risco
+teórico de checklist — está a ser ativamente explorado em produtos reais
+para vigilância de localização e escuta, exatamente o tipo de dano mais
+sensível para um wearable médico usado por pessoas com demência. Isto
+**reforça diretamente** dois riscos já registados por outras rotinas,
+sem os alterar:
+- `FW-002` (`seguranca/ble-security`/`SECURITY_STATUS.md`): nenhuma
+  characteristic GATT do CareWear exige hoje pairing/bonding.
+- `NFC-002` (secção NFC acima, `seguranca/nfc-security`): handover
+  NFC→BLE sem confirmação explícita no dispositivo, ainda em fase de
+  requisito (não implementado).
+**Encaminhamento**: `seguranca/ble-security` (prioridade de FW-002) e
+`seguranca/nfc-security`/`rotina/nfc-development` (prioridade de
+NFC-002) — recomenda-se citar esta fonte ao priorizar essas correntes de
+trabalho, não uma ação nova desta rotina.
+
+### RES-002 — Validação incompleta de origem em WebSocket (CVE-2026-21883, Bokeh): confirmação externa da classe de vulnerabilidade já registada em WS-001
+
+**Estado: REFORÇO.**
+**Fonte**: CVE-2026-21883 — [SentinelOne, "Bokeh Python Library CSRF
+Vulnerability"](https://www.sentinelone.com/vulnerability-database/cve-2026-21883/)
+(via GitHub Advisory Database, pesquisa aplicada 2026-07-10). **Grau de
+confiança**: médio — resumo obtido por pesquisa/agregador, não a
+advisory original lida linha a linha.
+**O que é**: falha de validação incompleta de `Origin` no handshake
+WebSocket da biblioteca Bokeh, permitindo contornar allowlists de
+origem e sequestrar ligações WebSocket a partir de uma página maliciosa
+(classe "Cross-Site WebSocket Hijacking", CSWSH) — o mesmo princípio de
+"WebSocket não aplica Same-Origin Policy por omissão, ao contrário de
+`fetch`/XHR" já documentado no CareWear.
+**Aplicabilidade ao CareWear**: o CareWear não usa Bokeh — não é uma CVE
+do próprio projeto. Mas confirma-se aqui, com um CVE de 2026 atribuído a
+outro produto real, exatamente a mesma classe de falha já identificada e
+registada por `seguranca/backend-api-security` como `WS-001`:
+`bridge/ble_bridge.py` chama `websockets.serve(bridge.ws_handler,
+WS_HOST, WS_PORT)` sem restringir `origins=`, por isso qualquer página
+aberta no mesmo browser (não limitada por Same-Origin Policy em
+WebSocket) pode abrir `new WebSocket('ws://localhost:8765')` e emitir
+comandos (`force_reading`, `reset_readings` — já com limite de taxa,
+`get_history`, `export_csv`, etc.), mesmo com `WS_HOST` fixo em
+`localhost`. `WS-001` já está documentado como risco conhecido, avaliado
+e propositadamente não corrigido nesta fase (decisão do utilizador
+pendente, ver justificação nesse ficheiro) — não é uma lacuna nova.
+**Encaminhamento**: `seguranca/backend-api-security` — citar esta fonte
+como reforço de prioridade para `WS-001` (evidência de que a mesma
+classe de falha, sem `origins=` explícito num servidor WebSocket, está a
+gerar CVEs reais noutros produtos em 2026, não é uma preocupação
+puramente teórica).
+
+### RES-003 — NIST IR 8259 Revisão 1 (abril 2026): novo requisito de comunicação de ciclo de vida/EOL ao cliente — lacuna real, sem correspondência em nenhuma rotina existente
+
+**Estado: NOVO.**
+**Fonte**: [NIST — "NIST IR 8259 Revision 1, Foundational Cybersecurity
+Activities for IoT Product Manufacturers" (publicado 2026-04-20)](https://csrc.nist.gov/pubs/ir/8425/final)
+(página do projeto NIST Cybersecurity for IoT, pesquisa aplicada
+2026-07-10 — nota: não consegui obter o texto completo da revisão em si
+via fetch direto, HTTP 403; achado baseado no resumo da página do
+programa NIST e cobertura relacionada, a confirmar com leitura completa
+numa próxima execução). **Grau de confiança**: médio (fonte primária
+NIST confirmada a existir e a data de publicação, mas resumo do conteúdo
+via fonte secundária).
+**O que é**: a revisão amplia o âmbito do NIST IR 8259 original de
+"atividades pré-mercado" para cobrir **todo o ciclo de vida** do
+produto IoT, incluindo comunicação ao cliente sobre manutenção, suporte
+e fim de vida (EOL).
+**Aplicabilidade ao CareWear**: verificado — **não existe hoje** nenhuma
+secção em `PROJECT_STATUS.md`/`SECURITY_STATUS.md` (nenhuma branch de
+segurança consultada, incluindo `seguranca/dependency-security`, que é a
+mais próxima em tema) que documente (a) um inventário de materiais de
+software (SBOM) do firmware/bridge, ou (b) uma política de fim de
+vida/suporte comunicada a quem usa o dispositivo (ex.: até quando
+correções de segurança continuam a ser lançadas, o que acontece aos
+dados guardados no dispositivo/bridge se o projeto for descontinuado).
+Isto é relevante em particular pela natureza do CareWear (protótipo de
+investigação, wearable médico para pessoas vulneráveis) — um utilizador
+real precisaria de saber estes limites antes de confiar dados de saúde
+ao dispositivo a longo prazo. **Não é decisão desta rotina** (é uma
+decisão de produto/comunicação do responsável pelo tratamento, não uma
+correção de código).
+**Recomendação/lacuna**: (1) considerar gerar um SBOM básico (ex.:
+`pip-audit`/`cyclonedx-py` sobre os `requirements*.txt`, já que
+`seguranca/dependency-security` já tem `pip-audit` na CI — gerar SBOM a
+partir da mesma infraestrutura seria uma extensão pequena, não uma
+rotina nova); (2) documentar, mesmo que informalmente por ser um
+protótipo, uma política curta de suporte/EOL no `README.md` ou
+`PROJECT_STATUS.md`.
+**Encaminhamento**: `seguranca/dependency-security` (para a parte SBOM,
+por já ter a infraestrutura `pip-audit`/CI mais próxima) e ao
+utilizador/responsável pelo tratamento (para a decisão de política de
+EOL/suporte, fora do âmbito de qualquer rotina de segurança).
+
+## Recomendações pesquisadas mas sem achado aplicável hoje
+
+- **OWASP IoT Top 10**: pesquisa não encontrou uma revisão 2026 da lista
+  (a versão de referência continua a de 2018; há confusão em fontes
+  secundárias com o "OWASP Top 10:2025" genérico, que é da aplicação
+  web, não IoT — não confundir numa próxima execução). Sem atualização
+  de framework para comparar hoje; o checklist OWASP IoT Top 10 2018
+  já não coberto por esta execução fica na fila.
+- **Nordic nRF52840 / SoftDevice S140**: pesquisa dedicada não encontrou
+  nenhum CVE novo específico ao periférico BLE ou ao SoftDevice S140 em
+  2026 (mesma conclusão já registada por `seguranca/nfc-security` em
+  2026-07-08 para o periférico NFCT — o hardware Nordic usado por este
+  projeto não aparece em avisos recentes). Repetir esta pesquisa
+  periodicamente, não descartar de vez.
+- **TinyML/model extraction**: pesquisa geral (arXiv, surveys 2024-2025)
+  confirma que TinyML em dispositivos fisicamente acessíveis (como um
+  wearable) é uma superfície real para extração de modelo e ataques
+  adversariais/side-channel — mas **não aplicável hoje**: `ml/` treina
+  XGBoost/LSTM/Random Forest offline (`ml/requirements.txt`), sem
+  nenhum modelo embarcado no firmware nRF52840 ainda (confirmado por
+  `get_skeleton`/leitura do roadmap em `PROJECT_STATUS.md` — TinyML
+  embarcado é trabalho futuro, `emlearn` já está em `requirements.txt`
+  mas sem uso confirmado no firmware). Registado como alvo a reativar
+  assim que um modelo for de facto embarcado (ver "Procura contínua").
+- **CVEs `cryptography` (pacote Python)**: as mesmas 4 advisories
+  encontradas nesta pesquisa (`GHSA-p423-j2cm-9vmq`,
+  `GHSA-537c-gmf6-5ccf`, e duas adicionais) já estão registadas e
+  avaliadas em detalhe por `seguranca/dependency-security` como
+  `DEP-001` — confirmado via `git show
+  origin/seguranca/dependency-security:SECURITY_STATUS.md` antes de
+  escrever esta secção, para não duplicar. Sem achado novo aqui.
+- **Stealtooth ("Breaking Bluetooth Security Abusing Silent Automatic
+  Pairing", arXiv 2507.00847)**: título sugere relevância direta a
+  FW-002/NFC-002 (mesma classe de RES-001), mas o `WebFetch` ao PDF e à
+  página de resumo devolveu HTTP 403 — **não consegui ler o conteúdo
+  real do artigo nesta execução**, só o título nos resultados de
+  pesquisa. Por regra desta rotina ("sem inventar ataques"), não
+  registo isto como achado com fonte verificada — fica pendente,
+  prioridade para a próxima execução (tentar via `arxiv.org/abs/` sem
+  `.pdf`, ou um agregador que cite o conteúdo).
+
+## Fila rotativa de alvos (para a próxima execução desta rotina)
+
+| Alvo | Última passagem | Ângulo por cobrir |
+|---|---|---|
+| Novos ataques BLE (BLUFFS/BLESA/sucessoras) | 2026-07-10 | Ler Stealtooth por inteiro (bloqueado por 403 hoje); repetir busca por CVEs novos do SoftDevice S140 |
+| CVEs stack Python do bridge | 2026-07-10 | `bleak`, `websockets`, `sqlalchemy`, `fastapi`, `uvicorn`, `argon2-cffi` — sem achado novo hoje além do já coberto por DEP-001; tentar fontes GHSA diretas em vez de agregadores na próxima vez |
+| NIST IoT (8259/8425) | 2026-07-10 | Ler o texto completo do IR 8259 Rev.1 (bloqueado por 403 hoje) — confirmar detalhe dos novos requisitos além do resumo |
+| OWASP IoT Top 10 | Não coberto | Comparar checklist completo 2018 item a item com o CareWear |
+| OWASP API Security Top 10 | Não coberto | Focar em `bridge/api.py` |
+| OWASP Mobile Top 10 | Não coberto | Só relevante quando a app móvel avançar (roadmap) |
+| ENISA (guidelines IoT/saúde) | Não coberto | — |
+| MITRE ATT&CK (ICS/embedded) | Não coberto | — |
+| IEC 62443/81001-5-1/62304, ISO 14971, MDR, FDA (lado vigilância) | Não coberto | Só a vertente de vigilância externa — análise de conformidade aprofundada é de outra rotina |
+| Ataques NFC além de relay | Coberto por `seguranca/nfc-security` (NFC-006, 2026-07-08) | Repetir quando a fase C do NFC avançar |
+| Ataques a TinyML (poisoning, adversarial) | Não coberto | Reativar quando um modelo for embarcado no firmware (ver roadmap `ml/`) |
