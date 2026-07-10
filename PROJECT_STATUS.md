@@ -4025,3 +4025,96 @@ linha a linha — script de provisioning BLE que lê a chave de
 `device_key.env` local, sem segredos hardcoded, sem problema aparente.
 Sem toolchain ARM nem hardware necessários para esta verificação (é só
 git/ficheiros de texto).
+
+## Bridge: corrida de dados real em `POST /api/medications/{id}/adherence` — duplicava linhas de aderência (2026-07-10, rotina cloud)
+
+Depois de sincronizar com `origin/main` (`git fetch`/rebase, sem
+conflitos — branch já estava atualizado) e confirmar, via `list_pull_requests`,
+que os 11 PRs abertos nessa altura (segurança BLE/NFC/backend/frontend/
+dependências, dashboard aria-label, `ml/combined_pipeline_report.py`,
+correção do alerta de queda+inatividade, e duas correções duplicadas da
+fuga de `.gitignore`) não tocavam nesta área, esta execução delegou uma
+varredura de bugs dirigida a `bridge/api.py`/`bridge/storage_advanced.py`/
+`bridge/crypto_utils.py`, `src/Storage/`, `src/Clock/` e ao JS do
+dashboard além dos pontos já cobertos por esses PRs. Achado real,
+confirmado por reprodução direta (não só leitura de código):
+
+**Bug**: o endpoint de escrita `POST /api/medications/{id}/adherence`
+(`bridge/api.py`, adicionado 2026-07-08 — ver secção "Primeiro endpoint de
+escrita na API REST" acima) documenta-se a si próprio como "idempotente
+por desenho" para `(medication_id, scheduled_datetime)` — repetir o
+pedido para a mesma dose devia atualizar, nunca duplicar. Mas
+`MedicationAdherence` (`bridge/storage_advanced.py`) só tinha um `Index`
+não-único nessas colunas, não uma `UniqueConstraint`. A lógica do próprio
+endpoint (`SELECT` a verificar se já existe → `INSERT` ou `UPDATE`) é uma
+janela clássica de corrida (TOCTOU): nada impede dois pedidos concorrentes
+para a MESMA dose de ambos verem "não existe" no `SELECT` antes de
+qualquer um dos dois commitar o seu `INSERT`. Reproduzido diretamente:
+duas escritas "concorrentes" para a mesma dose, entrelaçadas entre o
+`SELECT` e o `commit()` de cada uma, produziram **2 linhas** para a mesma
+`(medication_id, scheduled_datetime)` em vez de 1 — duplicando entradas de
+`AuditLog` e inflacionando `Analytics.medication_adherence_summary()`
+(conta `total` por número de linhas). Cenário concreto: um cliente a
+repetir o pedido depois de um timeout de rede, ou dois cuidadores a marcar
+a mesma dose quase ao mesmo tempo — relevante assim que o dashboard ou
+`ble_bridge.py` passarem a chamar este endpoint (já registado como próximo
+passo na secção "Primeiro endpoint de escrita").
+
+**Corrigido**:
+- `bridge/storage_advanced.py` (`MedicationAdherence.__table_args__`): o
+  `Index` não-único foi substituído por uma `UniqueConstraint` real
+  (`uq_adherence_medication_scheduled`) — só uma restrição a nível da BD
+  impede a duplicação de facto sob concorrência, uma verificação
+  aplicacional antes do `INSERT` nunca é suficiente.
+- `bridge/api.py` (`record_medication_adherence`): o ciclo
+  SELECT→INSERT/UPDATE passou a ter um retry limitado (2 tentativas); se o
+  `commit()` falhar com `IntegrityError` (perdeu a corrida), faz
+  `rollback()` e repete — a segunda passagem encontra a linha do pedido
+  vencedor no `SELECT` e faz um `UPDATE` puro. O cliente que "perde" a
+  corrida continua a receber sempre 200 ("a dose ficou registada"), nunca
+  um 500 por causa de outro pedido legítimo para a mesma dose.
+- `bridge/migrations/versions/09f7da2ef011_...py` (novo, gerado via
+  `--autogenerate` e revisto): adiciona a constraint. **Aviso documentado
+  na própria migração**: falharia contra uma instância que já tivesse
+  duplicados genuínos — não há BD em produção ainda (protótipo), por isso
+  não implementada nenhuma deduplicação automática (não há forma segura de
+  decidir sozinho qual linha duplicada é a "boa" sem contexto humano).
+- `bridge/README.md` atualizado para refletir que a idempotência passou a
+  ser garantida pela BD, não só pela lógica do endpoint.
+- Um teste pré-existente (`test_summary_computes_percent_taken`) dependia
+  incidentalmente de duas linhas partilharem o mesmo `scheduled_datetime`
+  — corrigido para usar duas doses com horários distintos (mesmas
+  asserções, agora válido contra o schema novo).
+
+**Testado**: dois testes de regressão novos —
+`TestMedicationAdherenceUniqueness::test_duplicate_scheduled_datetime_rejected_by_db`
+(confirma que a BD rejeita a duplicação diretamente) e
+`TestRecordMedicationAdherence::test_concurrent_requests_for_same_dose_never_duplicate`
+(força a corrida de forma determinística via `monkeypatch` no `commit()`,
+em vez de depender de threads reais, que tornariam o teste inconsistente)
+— **55/55 testes do `bridge/` passam** (53 já existentes + 2 novos, `cd
+bridge && python -m pytest tests/ -v`, confirmado nesta rotina num venv
+limpo). Migração validada de facto: `alembic upgrade head` → `downgrade
+base` → `upgrade head` contra uma BD SQLite temporária, sem erros;
+`CREATE TABLE` resultante inspecionado diretamente e confirma
+`CONSTRAINT uq_adherence_medication_scheduled UNIQUE (medication_id,
+scheduled_datetime)`. `python -m py_compile` sobre `api.py`/
+`storage_advanced.py` sem erros.
+
+**Limitação honesta**: esta alteração é só Python (bridge/), não toca em
+firmware nem requer hardware — não há "validação pendente em hardware"
+aplicável aqui. `storage_advanced.py` continua **não integrado** em
+`ble_bridge.py` (mesma limitação já registada nas secções anteriores
+sobre este ficheiro) — esta correção protege um endpoint que ainda não
+tem nenhum consumidor real (dashboard/bridge), preparando-o para quando
+essa integração avançar, não corrigindo uma duplicação já a acontecer em
+produção hoje.
+
+**Também investigado, sem alteração** (por não ser um bug novo/distinto
+com valor próprio, para não duplicar trabalho já em curso noutros PRs):
+`src/Storage/Storage.cpp::counter_inc()` tem uma versão latente do mesmo
+"corrupção tratada como zero" já corrigido em `reserveNonceBatch()`
+(`Ble.cpp`), mas é código morto (nada chama `counter_inc()` — `Ble.cpp`
+usa `counter_load()`/`counter_save()` diretamente); `Clock.cpp`,
+`Imu.cpp`, `Ppg.cpp` e o tratamento de mensagens WebSocket no dashboard
+não revelaram problemas novos além dos já corrigidos por PRs recentes.
