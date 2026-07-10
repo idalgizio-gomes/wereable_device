@@ -1,3 +1,426 @@
+# CareWear — Estado de Segurança BLE (S04)
+
+> Ficheiro da rotina de **Segurança BLE** (S04, mentalidade adversarial,
+> assume-breach). Cobre pairing/bonding, proteção MITM, encriptação do
+> link, permissões GATT, replay, privacy/MAC e whitelist do canal BLE
+> wearable↔bridge. Ler `PROJECT_STATUS.md` (secções "Ble", "Cifra
+> AES-CTR do modo de dados", "Bridge BLE ↔ WebSocket") e as secções
+> irmãs abaixo (NFC, Privacidade/GDPR) antes de agir — não duplicar
+> achados já registados lá. Ver também `seguranca/firmware-security`
+> (PR #3, ainda não integrado em `main`), que já registou **FW-001**
+> (corrigido) e **FW-002** (aberto) diretamente relacionados com esta
+> auditoria — cross-referenciados abaixo em vez de repetidos.
+>
+> **Sem hardware físico nesta rotina cloud**: não é possível fazer
+> sniffing/MITM real. Todos os achados abaixo vêm de leitura direta do
+> código (`src/Ble/Ble.cpp`, `include/Ble/Ble.h`, `src/main.cpp`) e de
+> pesquisa aplicada sobre vulnerabilidades BLE conhecidas — marcados
+> como "hipótese"/"vetor" onde não há prova em hardware real.
+>
+> **Correção a um facto assumido no início desta rotina**: o prompt que
+> lança esta rotina S04 descreve o streaming de sensores como indo "em
+> texto simples (`FullPlain`)". Isso **já não é verdade** — resolvido em
+> 2026-07-07 (ver `PROJECT_STATUS.md`, "Cifra AES-CTR do 'modo de
+> dados'"): o payload de cada registo (39 bytes) vai cifrado com
+> AES-CTR desde essa data. O que **continua** em claro é o resto do
+> tráfego GATT — comandos, estado e, sobretudo, o alerta de emergência
+> (ver BLE-002 abaixo) — que é precisamente o achado mais grave desta
+> auditoria.
+
+## Como ler este ficheiro
+
+IDs `BLE-XXX` estáveis (não reutilizar números). Estados: **ABERTO**
+(registado, sem correção), **MITIGADO** (correção contida aplicada,
+risco residual descrito), **FECHADO**. Nenhuma correção estrutural
+(pairing/bonding real) foi aplicada nesta execução — ver "Decisão desta
+execução" no fim.
+
+## Mapa de superfície GATT — tabela de characteristics
+
+Convenção de permissões: `OPEN` = Security Mode 1 Level 1, sem
+encriptação/autenticação nenhuma (Bluefruit `SECMODE_OPEN`);
+`NO_ACCESS` = operação não permitida a nenhum central. **Nenhuma
+characteristic deste dispositivo usa `SECMODE_ENC_NO_MITM` nem
+`SECMODE_ENC_WITH_MITM`** — confirmado por leitura direta de
+`Ble.cpp::begin()`, linha a linha.
+
+| Characteristic | UUID | Properties (GATT) | Permissão leitura/notify | Permissão escrita | Exige encriptação/pairing? | Dados sensíveis expostos |
+|---|---|---|---|---|---|---|
+| `aesKeyChar` | `abcd1234-...-abcdef123456` | WRITE | — (sem READ) | `OPEN` | **Não** | A própria chave AES do streaming — mitigado só pela lógica applicacional (só aceita a 1ª escrita, `Storage::hasAesKey()`), não pelo GATT |
+| `dumpCtrlChar` | `abcd1234-...-abcdef200001` | WRITE, WRITE_WO_RESP | — (sem READ) | `OPEN` | **Não** | Comandos de controlo, incl. `kDumpCtrlResetReadings` (0x04, destrutivo/irreversível) e `kDumpCtrlForceHr`/START/STOP |
+| `dumpDataChar` | `abcd1234-...-abcdef200002` | NOTIFY, INDICATE | `OPEN` | `NO_ACCESS` | **Não** (link não cifrado) | Payload cifrado AES-CTR desde 2026-07-07 (ver nota acima) — mas cabeçalho `rec_seq`/`nonce`/`frag_idx` vai sempre em claro (metadados de ritmo/volume, não o conteúdo clínico em si) |
+| `dumpStatusChar` | `abcd1234-...-abcdef200003` | NOTIFY, READ | `OPEN` | `NO_ACCESS` | **Não** | Estado do streaming + contagens (`sent_records`/`acked_records`) em claro — confirma que o dispositivo está a ser usado agora (metadado de presença/atividade) |
+| `emergencyAlertChar` | `abcd1234-...-abcdef200004` | NOTIFY, READ | `OPEN` | `NO_ACCESS` | **Não** | **Tipo de alerta (SOS/queda) + timestamp UTC em claro**, legível por `READ` direto a qualquer momento por qualquer central, sem sequer precisar de esperar por uma notificação — ver BLE-002 |
+| `currentTimeChar` (0x2A2B, padrão BT SIG) | `0x2A2B` | WRITE | — (sem READ) | `OPEN` | **Não** | Hora do sistema — mitigado parcialmente por **FW-001** (bloqueia escrita depois de `s_dataModeEnabled`), risco residual na janela de provisioning inicial |
+
+## Riscos (BLE-XXX)
+
+### BLE-001 — Nenhuma characteristic exige pairing/bonding/encriptação de link (`SECMODE_OPEN` em tudo) — ABERTO, mesmo risco de FW-002
+
+**Gravidade: alta.** Confirma e detalha, do ponto de vista de "Security
+Mode/Level" (âmbito específico desta rotina S04), o que
+`seguranca/firmware-security` já tinha registado como **FW-002**: não
+existe LE Secure Connections nem Legacy Pairing configurado — o link
+BLE nunca é cifrado ao nível do GATT/link layer, independentemente de
+haver ou não uma app legítima do outro lado.
+
+**Correção de enquadramento importante**: a hipótese inicial desta
+rotina ("a ligação atual parece Just Works") **não é precisa**. "Just
+Works" é um *método de pairing* (Security Mode 1 Level 2,
+`SECMODE_ENC_NO_MITM`) — ainda envolve troca de chaves e cifra do link,
+só sem proteção MITM. Este dispositivo está um nível abaixo disso:
+`SECMODE_OPEN` = Security Mode 1 **Level 1**, sem pairing nenhum. Na
+prática isto significa que uma app/bridge legítima nem sequer recebe um
+pedido de emparelhamento do SO (Android/iOS/`bleak`) ao ligar-se — a
+ligação e todas as leituras/escritas GATT acontecem livremente, sem
+qualquer diálogo de segurança.
+
+**Vetor concreto**: qualquer dispositivo com rádio BLE dentro de
+alcance (incl. um telemóvel comum com uma app genérica tipo nRF
+Connect) consegue descobrir o serviço `wearableService`
+(advertising público, UUID custom mas bem conhecido pelo próprio
+firmware/bridge open-source) e ligar-se sem qualquer confirmação no
+wearable. A partir daí tem acesso total às operações listadas na
+tabela acima — ler o último alerta de emergência, escrever comandos de
+controlo, e (se o dispositivo ainda não tiver sido provisionado)
+definir a chave AES.
+
+**Porque não é corrigido nesta execução**: subir para
+`SECMODE_ENC_NO_MITM` (Just Works) ou `SECMODE_ENC_WITH_MITM`
+(Numeric Comparison/Passkey, ver BLE-002) é uma mudança de protocolo —
+o SoftDevice passa a exigir que o central inicie pairing antes de
+aceder a essas characteristics, o que `bridge/ble_bridge.py` (via
+`bleak`) hoje **não** faz (nenhum código de pairing/bonding em
+`ble_bridge.py` — confirmado por leitura). Aplicar isto sem atualizar o
+bridge no mesmo commit quebraria a ligação bridge↔wearable por
+completo — proibido pelas regras desta rotina ("nunca alterar
+protocolo/estruturas de pacote sem atualizar o bridge no mesmo
+commit", e pairing/bonding é uma mudança de protocolo tão significativa
+como uma mudança de layout de pacote). É também explicitamente o
+âmbito que `seguranca/firmware-security` (FW-002) já delegou a esta
+rotina S04 — delegar de volta sem desenho aceite seria dar voltas.
+
+**Recomendação** (não decidida aqui, precisa de desenho + coordenação
+com o bridge, ver BLE-002 para a escolha do método):
+1. Mínimo viável: `SECMODE_ENC_NO_MITM` em `dumpCtrlChar` (impede
+   comandos, incl. o reset destrutivo, de qualquer central que não
+   tenha completado sequer um Just Works) e em `aesKeyChar` durante o
+   primeiro provisioning.
+2. Reforço (dado que o wearable tem ecrã OLED, ver BLE-002): Numeric
+   Comparison para `SECMODE_ENC_WITH_MITM`, cobrindo também
+   `emergencyAlertChar`/`dumpStatusChar` do lado da leitura.
+3. Exige, em paralelo: `bleak` a chamar `pair()`/gerir bonding no
+   `ble_bridge.py`, e testar o fluxo completo em hardware real (não
+   disponível nesta rotina cloud).
+
+---
+
+### BLE-002 — Alerta de emergência (SOS/queda) transmitido e legível em claro, sem qualquer autenticação — ABERTO, achado novo desta execução
+
+**Gravidade: crítica.** Este é o achado mais grave desta auditoria,
+distinto de FW-002 (que é sobre comandos/hijack, não sobre este canal
+específico) — não estava registado em nenhum `SECURITY_STATUS.md`
+existente.
+
+**Vetor concreto**: `emergencyAlertChar` (ver tabela acima) tem
+`READ` com permissão `OPEN` — qualquer central consegue **ler o valor
+diretamente**, a qualquer momento, mesmo sem estar ligado no momento
+exato do alerta (o valor fica persistido na characteristic via
+`.write()` local em `notifyEmergencyAlert()`, `Ble.cpp`), sem precisar
+de sniffing passivo nem de esperar por uma notificação. Basta ligar-se
+com qualquer app BLE genérica e ler o handle. O conteúdo
+(`EmergencyAlertPacket`: `type` — SOS manual vs. queda+inatividade —
+`seq`, `timestamp_utc`) vai **inteiramente em claro** — ao contrário do
+streaming de sensores (`FullPlain`, cifrado AES-CTR desde 2026-07-07),
+este canal nunca recebeu a mesma proteção.
+
+**Porque isto é particularmente grave neste produto**: CareWear é um
+wearable para pessoas com demência (`PROJECT_STATUS.md`, "Visão
+geral"). Um observador com um leitor BLE barato, dentro de alcance
+(casa, transporte público, espaço público), consegue confirmar **que
+esta pessoa específica acabou de ter uma queda ou premiu o SOS**, sem
+qualquer autenticação — informação de saúde crítica e sensível (Art. 9
+RGPD, categoria especial de dados) exposta como se fosse pública. Isto
+é mais grave do que expor sinais vitais em claro (já resolvido) porque
+sinaliza diretamente um momento de vulnerabilidade extrema (queda,
+possível incapacidade de pedir ajuda) a um estranho não autorizado, com
+timestamp exato — útil tanto para um atacante oportunista (sabe que a
+pessoa está momentaneamente incapacitada e sozinha) como para
+vigilância indevida por terceiros.
+
+**Não corrigido nesta execução** — a correção estrutural correta é a
+mesma do BLE-001 (exigir encriptação/autenticação nesta
+characteristic), não uma correção pontual isolada: cifrar só o payload
+deste pacote (como se fez ao `FullPlain`) resolveria a confidencialidade
+do *conteúdo*, mas não o facto de que **qualquer um pode ler ou ser
+notificado sem autorização nenhuma** — a correção certa é ao nível do
+GATT (BLE-001), não uma cifra aplicacional ad-hoc só para este pacote
+(que duplicaria a lógica de chave/nonce já existente sem resolver o
+problema de fundo). Registado aqui separadamente de BLE-001 por
+gravidade própria — deve ser o **primeiro** caso a proteger quando a
+rotina de pairing/bonding avançar, antes até de `dumpCtrlChar`.
+
+**Recomendação imediata, sem mudança de protocolo** (avaliar antes da
+próxima execução): considerar se `emergencyAlertChar` deveria sequer
+ter a propriedade `READ` — hoje existe para a app poder "reconectar e
+ver o último alerta perdido" (comentário em `Ble.h`), mas isso também é
+o que permite a leitura anónima descrita acima. Não alterado nesta
+execução por ser uma mudança de comportamento funcional (a app deixaria
+de conseguir recuperar um alerta perdido ao reconectar) sem
+coordenação com quem consome este canal (bridge/dashboard) — proposta,
+não decisão.
+
+---
+
+### BLE-003 — Proteção MITM: nenhuma configurada; hardware permite Numeric Comparison/Passkey (ecrã OLED) — ABERTO, requisito de desenho
+
+**Gravidade: média-alta**, condicional ao desenho de BLE-001 avançar.
+
+Como não há pairing nenhum (BLE-001), a pergunta "Just Works vs.
+Passkey Entry vs. Numeric Comparison" ainda não se aplica tecnicamente
+— mas é a decisão certa a registar agora para quando `SECMODE_ENC_*`
+for implementado. O hardware **tem** ecrã OLED SSD1351 já em uso
+(`PROJECT_STATUS.md`, "Hardware atual") — o mesmo já usado para outros
+fluxos de confirmação (ex.: mensagens durante `ensureAesKey()`/
+`ensureTimeSync()`). Isto torna **Numeric Comparison** (LE Secure
+Connections, `SECMODE_ENC_WITH_MITM`) tecnicamente viável sem hardware
+novo — só Just Works (sem ecrã) seria justificável num dispositivo sem
+display.
+
+**Nota sobre o botão físico partido** (mesmo aviso já registado em
+`SECURITY_STATUS.md`/NFC-002): Numeric Comparison tipicamente exige
+confirmar "sim/não" no dispositivo — com o botão partido, o mesmo
+mecanismo alternativo já sugerido para NFC-002 (bypass série
+`WAKE`/`SLEEP`, ou gesto IMU) teria de servir também para esta
+confirmação, até o botão ser substituído.
+
+**Recomendação**: quando o desenho de pairing avançar (ver BLE-001),
+preferir LE Secure Connections (ECDH P-256) com Numeric Comparison
+sobre Legacy Pairing — LE Secure Connections evita a fraqueza histórica
+de troca de chave TK por OOB/Legacy (16 bytes de entropia máxima e
+vulnerável a brute-force offline do STK em Legacy Pairing) e está
+disponível no SoftDevice S140 (suporta Bluetooth 5.x/LESC). Confirmar
+compatibilidade exata da versão do SoftDevice em uso antes de
+implementar (não confirmada nesta execução — sem hardware para
+consultar `sd_ble_gap_sec_params_reply`/versão exata do SoftDevice
+linkado pelo `platform-seeedboards`).
+
+---
+
+### BLE-004 — Replay de comandos: sem proteção específica, mas redundante com BLE-001 (acesso já é livre) — ABERTO, nota para desenho futuro
+
+**Gravidade: média**, risco composto (não autónomo — depende de BLE-001
+ser corrigido primeiro para passar a ser relevante).
+
+**Situação atual**: `dumpCtrlChar` não tem nenhum nonce/contador de
+frescura — um comando capturado (ex.: `kDumpCtrlResetReadings`, 0x04)
+podia em teoria ser regravado mais tarde. **Mas hoje isto não
+acrescenta risco real**: como o GATT é `SECMODE_OPEN` (BLE-001),
+qualquer atacante já pode emitir o comando diretamente, a qualquer
+momento, sem precisar de capturar e reproduzir nada — replay é uma
+categoria de ataque que só faz sentido depois de existir autenticação a
+contornar. `EmergencyAlertPacket.seq`/`DumpDataPacket.rec_seq`
+incrementam e permitem à app **detetar** duplicados/perdas (não
+confundir com anti-replay criptográfico), mas isso é deduplicação do
+lado do bridge (`ble_bridge.py`), não uma proteção que impeça um
+atacante de retransmitir um pacote pelo ar — confirma o que o prompt
+desta rotina já assumia corretamente.
+
+**Recomendação para quando BLE-001/BLE-003 avançarem**: não basta
+cifrar/autenticar o link — `dumpCtrlChar`, sobretudo o comando
+destrutivo 0x04, devia também levar um contador monotónico ou
+challenge-response mínimo ao nível aplicacional (mesmo padrão já usado
+para o nonce AES-CTR do streaming, `allocateNonce()`), para que nem um
+central já emparelhado/bonded mas comprometido (ex.: telemóvel roubado
+com bonding válido) consiga simplesmente regravar um comando antigo
+capturado antes de ser revogado. Não implementado nesta execução — é
+parte do mesmo desenho estrutural de BLE-001, não uma correção
+isolada.
+
+---
+
+### BLE-005 — Privacy: endereço BLE provavelmente estático (não RPA) + nome de advertising identifica o dispositivo como "wearable" — ABERTO, a confirmar em hardware
+
+**Gravidade: média**, relevante em particular por este ser um
+dispositivo para pessoas com demência (risco de "wandering" —
+`PROJECT_STATUS.md`).
+
+**Situação encontrada**: `git grep` a `src/` e `include/` por
+`setAddrType`/`BLEAddr`/qualquer chamada de API de privacidade
+(`sd_ble_gap_privacy_set` ou equivalente Bluefruit) **não encontrou
+nenhuma chamada** — nem em `Ble.cpp` nem em `main.cpp`
+(`Bluefruit.begin(2, 0)` + `Bluefruit.setName("Wearable")` é toda a
+configuração de identidade GAP existente). Pesquisa aplicada ao código
+público da Adafruit_nRF52_Arduino (biblioteca subjacente ao Bluefruit
+usado aqui) não confirmou de forma conclusiva, sem o binário/hardware
+real para consultar `sd_ble_gap_addr_get()`, qual o tipo de endereço
+exato usado por omissão — **registado como "a confirmar", não como
+facto provado**. O que É seguro afirmar: sem qualquer chamada de API de
+privacidade no código deste projeto, o endereço **não está a rodar
+como RPA (Resolvable Private Address)** — API de privacidade do
+SoftDevice (IRK, `ble_gap_privacy_params_t`) nunca é invocada. Na
+melhor hipótese é um endereço aleatório estático (fixo, gerado uma vez,
+nunca rodado) — funcionalmente equivalente a um MAC público fixo para
+efeitos de rastreabilidade (nunca muda), mesmo que tecnicamente não
+seja "público" no sentido do GAP.
+
+**Vetor concreto**: um MAC/endereço que nunca roda permite a qualquer
+scanner BLE passivo nas imediações (loja, transporte, casa de terceiro)
+construir um histórico de presença desta pessoa específica ao longo do
+tempo, cruzando avistamentos do mesmo endereço em locais/horas
+diferentes — risco de localização/rastreamento relevante em contexto
+de demência (a mesma preocupação já registada em `NFC-003` para o caso
+do handover NFC, aqui aplicada ao advertising BLE em si, que já existe
+e está ativo hoje, ao contrário do NFC que ainda é inerte).
+Adicionalmente, o nome de advertising "Wearable" (visível no scan
+response, `Bluefruit.ScanResponse.addName()`) não identifica a pessoa
+mas confirma a **categoria do dispositivo** (wearable médico) a
+qualquer scanner — combinado com um endereço fixo, facilita
+correlacionar "este endereço = uma pessoa a usar um wearable médico",
+uma informação em si sensível (Art. 9 RGPD, indício de condição de
+saúde) mesmo sem saber o nome da pessoa.
+
+**Não corrigido nesta execução**: ativar RPA (Resolvable Private
+Address) exige gerar/guardar um IRK (Identity Resolving Key) e invocar
+a API de privacidade do SoftDevice — tal como o pairing (BLE-001), isto
+tipicamente acopla-se ao processo de bonding (o IRK é normalmente
+trocado durante o pairing para o central conseguir resolver o endereço
+rotativo do periférico), pelo que faz mais sentido desenhar em conjunto
+com BLE-001 do que como correção isolada — e não há hardware nesta
+rotina para validar que o SoftDevice S140/framework Arduino usado aqui
+suporta a API de privacidade sem regressão (mesma cautela já registada
+em NFC-003 para esta mesma pergunta). Renomear o advertising para algo
+menos identificável foi considerado e **descartado** nesta execução:
+o UUID custom do serviço (`12345678-...`) já é um identificador
+distintivo por si só, tornando o ganho de privacidade de só mudar o
+nome marginal, enquanto o risco de quebrar a deteção automática do
+bridge (`ble_bridge.py` procura o dispositivo pelo nome "Wearable") é
+real e exigiria coordenação/teste em hardware indisponível aqui.
+
+**Recomendação**: avaliar RPA como parte do mesmo desenho de
+pairing/bonding de BLE-001, não isoladamente.
+
+---
+
+### BLE-006 — Whitelist/filtro de ligação: aceita ligação de qualquer central — ABERTO, inerente ao desenho atual (sem bonding)
+
+**Gravidade: baixa como item isolado** (é a mesma raiz de BLE-001, não
+um risco independente).
+
+Não existe filtro de aceitação de ligação (`Bluefruit.Advertising` não
+configura nenhuma whitelist/bonded-only) — qualquer central pode
+completar a ligação GAP. Isto é **estruturalmente necessário** hoje: o
+dispositivo tem de aceitar ligações de centrais desconhecidos para o
+provisioning inicial (a app legítima também começa como "desconhecida"
+da perspetiva do wearable). Uma whitelist real só faz sentido **depois**
+de existir bonding (aceitar só centrais já emparelhados, exceto durante
+uma janela de provisioning explícita) — outra peça do mesmo desenho de
+BLE-001, não uma correção isolada possível hoje.
+
+---
+
+### BLE-007 — Sniffing: com a cifra AES-CTR do streaming (resolvida 2026-07-07), o que resta exposto em claro é comandos + estado + emergência
+
+**Gravidade: informativa** — resume o estado atual para orientar
+prioridades, não é um risco novo.
+
+Assumindo (correto, dado BLE-001) que tudo o que é transmitido é
+legível por um sniffer BLE dentro de alcance:
+- **Já protegido**: conteúdo dos registos de sensores (`FullPlain`,
+  payload de 39 bytes) — AES-CTR desde 2026-07-07, sem MAC/integridade
+  (limitação já documentada em `PROJECT_STATUS.md`).
+- **Ainda em claro**: comandos (`dumpCtrlChar`), estado/contagens
+  (`dumpStatusChar`), **alerta de emergência completo** (BLE-002,
+  o mais grave), hora do sistema (`currentTimeChar`, mitigado
+  parcialmente por FW-001), e os cabeçalhos de fragmento
+  (`rec_seq`/`nonce`/`frag_idx`/`frag_total` de `DumpDataPacket`).
+- Nenhum destes pacotes contém PII direta (nome, NIF) — mas
+  `emergencyAlertChar` contém o equivalente a um evento clínico crítico
+  com timestamp, o que já é dado de saúde sensível por si só (ver
+  BLE-002).
+
+---
+
+## Pesquisa aplicada — vulnerabilidades Bluetooth conhecidas (verificadas 2026-07-10)
+
+Pesquisa dirigida a esta execução, para além da já feita por
+`seguranca/firmware-security` (2026-07-08, sem CVE específico ao
+SoftDevice S140/Adafruit Bluefruit Arduino encontrado nessa altura —
+não repetida aqui, ver esse ficheiro).
+
+- **BLERP (BLE Re-Pairing Attacks and Defenses)** — Sacchetti &
+  Antonioli (EURECOM), NDSS Symposium 2026. Identifica falhas de
+  desenho no **re-pairing** BLE (re-emparelhamento de um dispositivo já
+  bonded) — re-pairing não autenticado e downgrade do nível de
+  segurança, permitindo impersonation/MITM com 0-1 clique, testado
+  contra stacks Apple/Android/NimBLE. **Aplicabilidade a este
+  projeto**: **não aplicável hoje** (não há pairing/bonding nenhum
+  implementado — BLE-001 — logo não há re-pairing a atacar). **Relevante
+  para o desenho futuro**: quando BLE-001 for implementado, o fluxo de
+  bonding/re-pairing tem de seguir as mitigações do paper (não aceitar
+  pedidos de re-pairing não autenticados nem permitir downgrade de
+  security level num dispositivo já bonded) — registar como requisito
+  de desenho, não retroativo a código que ainda não existe. Fonte:
+  [NDSS Symposium — BLERP](https://www.ndss-symposium.org/ndss-paper/blerp-ble-re-pairing-attacks-and-defenses/).
+- **BLUFFS** (Eurecom, 2023, continua ativamente citado em 2025-2026)
+  — explora a derivação da chave de sessão (SKD) em Bluetooth
+  Classic/BR-EDR (Secure Simple Pairing) para forçar uma chave fraca e
+  permitir impersonation/MITM. **Aplicabilidade**: dirigido
+  principalmente a Bluetooth Classic, não ao BLE puro usado por este
+  wearable (SoftDevice S140 é só LE) — sem evidência de que se aplique
+  diretamente a este firmware. Mantido na lista de vigilância porque a
+  família de ataques "downgrade da derivação de chave" é uma classe
+  relevante para quando LE Secure Connections for implementado (ver
+  BLE-003 — preferir LESC/ECDH P-256 a Legacy Pairing evita exatamente
+  esta classe de downgrade).
+- **BLESA** (BLE Spoofing Attacks, USENIX WOOT 2020, ainda citado como
+  referência-base em 2025-2026) — explora reconexão sem reautenticação
+  suficiente da identidade do periférico, permitindo a um atacante
+  fazer-se passar pelo dispositivo legítimo numa reconexão. **Relevante
+  por analogia**: este firmware nem sequer autentica o central na
+  ligação inicial (BLE-001), pelo que a classe de problema que BLESA
+  descreve (falta de verificação de identidade em reconexão) já existe
+  aqui de forma mais básica — não é uma vulnerabilidade nova a
+  registar, é outra faceta de BLE-001.
+- **SweynTooth** e sucessores — vulnerabilidades de implementação
+  (crashes/deadlocks/bypass) em várias SDKs BLE, incl. Nordic
+  historicamente. `seguranca/firmware-security` já pesquisou isto em
+  2026-07-08 e não encontrou CVE específico à versão do SoftDevice
+  S140/Adafruit Bluefruit Arduino usada aqui — não repetido, sem novo
+  achado nesta execução.
+- **KNOB** (Key Negotiation of Bluetooth, 2019) — downgrade do
+  comprimento da chave de encriptação em Bluetooth Classic; a variante
+  LE (KNOB sobre BLE) foi também demonstrada em alguns stacks. Não
+  aplicável hoje a este firmware (sem encriptação de link nenhuma para
+  haver algo a "negociar/downgrade" — BLE-001), mas mais um argumento
+  para, ao implementar BLE-001, configurar explicitamente o
+  comprimento mínimo de chave de encriptação aceite (`sd_ble_gap_
+  sec_params_reply`) em vez de confiar em defaults do SoftDevice.
+
+## Decisão desta execução — terminar sem alterações de código
+
+Aplicando o critério "terminar sem alterações" já definido no prompt
+desta rotina: o eixo BLE está agora **mapeado por inteiro** (tabela de
+characteristics acima) com vetores concretos por risco, e as melhorias
+reais identificadas (BLE-001 pairing/bonding, BLE-002 proteção do canal
+de emergência, BLE-003 método MITM, BLE-005 privacy/RPA) são todas
+**estruturais** — exigem desenho aceite e coordenação com
+`bridge/ble_bridge.py` no mesmo commit (proibido fazer por iniciativa
+própria sem esse desenho, e sem hardware nesta rotina cloud para
+validar qualquer uma delas). Nenhum ficheiro de código foi alterado
+nesta execução. `SECURITY_STATUS.md` é o entregável desta execução.
+
+**Prioridade sugerida para quando o desenho de pairing avançar**
+(ordem por gravidade real, não pela ordem em que os riscos foram
+listados acima): 1) BLE-002 (emergência em claro/legível
+anonimamente) e BLE-001 juntos (a correção é a mesma — exigir
+`SECMODE_ENC_*`), 2) BLE-003 (escolher Numeric Comparison, dado o
+ecrã OLED disponível), 3) BLE-005 (RPA, acoplado ao mesmo IRK do
+bonding), 4) BLE-004/BLE-006 (reforços que só passam a fazer sentido
+depois dos anteriores existirem).
+
+---
+
 # CareWear — Estado de Segurança do NFC
 
 > Ficheiro da rotina de **Segurança NFC** (S05, mentalidade adversarial,
