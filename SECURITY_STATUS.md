@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # CareWear — Estado de Segurança do NFC
 
 > Ficheiro da rotina de **Segurança NFC** (S05, mentalidade adversarial,
@@ -824,3 +823,176 @@ arquitetura de utilizadores/sessões da API). Verificar também no
 aqui deixam de ser só teóricos sobre dados de demonstração/teste e
 passam a valer para dados reais de utentes.
 >>>>>>> 265c0d5 (segurança(backend): limita taxa de comandos de escrita do WebSocket (reset_readings))
+=======
+# CareWear — Estado de segurança (frontend)
+
+Registo das rotinas de auditoria de segurança do dashboard
+(`web/dashboard/index.html`, `web/dashboard/medication-reminders.js`).
+Ver também `PROJECT_STATUS.md` para o estado geral do projeto (histórico
+completo de bugs de XSS já corrigidos antes deste ficheiro existir: cartão
+"Equipa de cuidadores", 5 pontos de nome de medicamento/campo de perfil
+sensível, valores `hr`/`spo2`/`steps` do bridge).
+
+## Riscos
+
+### FE-001 — [CORRIGIDO] Stored XSS em `medication-reminders.js` (cartão de lembrete de medicação)
+
+- **Data**: 2026-07-08 (S03 frontend-security)
+- **Ficheiro**: `web/dashboard/medication-reminders.js`, método
+  `MedicationReminder.showFallbackAlert()`.
+- **Vetor**: `medication.name` e `medication.dose` são texto livre,
+  introduzido no formulário "Gerir medicação" (Médico/Técnico,
+  `addMedicationForPatient()` em `index.html`) e persistido em
+  `localStorage` (`carewear_medications_registry`). O cartão de lembrete
+  (mostrado quando as notificações do browser não estão disponíveis, ou
+  sempre em paralelo com elas) montava um template de string com estes
+  valores e escrevia-o via `div.innerHTML = content` **sem qualquer
+  escaping** — ao contrário do padrão já usado para o mesmo campo dentro
+  de `index.html` (tabela de doses de hoje / "Gerir medicação", ver
+  `escapeHtml()`). Um nome de medicamento como
+  `<img src=x onerror=...>` executaria a cada dose agendada, em qualquer
+  sessão futura no mesmo browser (persistido).
+- **Segundo vetor no mesmo ponto**: o campo `time` (também texto livre —
+  "Horários" do mesmo formulário, ex. `"08:00, 20:00"`) era concatenado
+  dentro de um atributo `onclick` entre aspas simples
+  (`markDoseTaken('${patient.id}', '${medication.id}', '${time}')`). Um
+  valor com uma aspa simples fugia da string JavaScript do atributo,
+  permitindo injetar código independentemente de `name`/`dose` estarem ou
+  não escapados para HTML — um vetor de "event injection" distinto do
+  XSS em HTML.
+- **Correção**: reescrito para construção DOM segura —
+  `createElement`/`textContent`/`createTextNode` (nunca interpretam HTML)
+  em vez de `innerHTML`, e `addEventListener` com uma closure (valores
+  passados como argumentos reais de função, nunca concatenados numa
+  string) em vez de `onclick="..."` inline. Elimina os dois vetores em
+  simultâneo, sem depender de escaping manual.
+- **Verificação**: `node --check` ao ficheiro completo (sintaxe válida) +
+  Playwright real (Chromium, `ws://localhost:8765` propositadamente
+  indisponível para isolar o teste): `medication.name`/`.dose` com
+  `<img onerror=...>` e `<script>...</script>`, `time` com
+  `"08:00'); window.__xss2=true; //"` — nenhum payload executou
+  (`window.__xss1`/`__xss2` continuam `false`), o cartão mostra o texto
+  literal (`&lt;img...`/`<script>` como texto, não como tags no DOM), e
+  clicar em "Tomei agora" invoca `markDoseTaken('p1','m1',"08:00'); ...")`
+  corretamente como argumento de string, sem executar o payload.
+- **Risco residual**: nenhum conhecido neste ponto. Nota: o resto de
+  `index.html` continua a usar `onclick="..."` inline nalguns pontos
+  (mais o padrão `escapeHtml()` para esses casos) — ver proposta de CSP
+  abaixo sobre o trade-off de manter `unsafe-inline`.
+
+### FE-002 — [CORRIGIDO] DOM XSS em `renderRealTrendTable()` (tendência semanal real, dados do bridge)
+
+- **Data**: 2026-07-08 (S03 frontend-security)
+- **Ficheiro**: `web/dashboard/index.html`, função
+  `renderRealTrendTable()`.
+- **Vetor**: `liveState.realTrend` é populado diretamente de
+  `msg.days_summary` (mensagem `daily_trend` recebida do bridge via
+  `ws://localhost:8765` — canal **não autenticado e sem Same-Origin
+  Policy em WebSocket**, ver `PROJECT_STATUS.md`), só validando que é um
+  array (`Array.isArray`), sem validar os campos de cada elemento. `d.day`
+  e `d.record_count` eram interpolados diretamente num template de string
+  escrito com `body.innerHTML = ...`, ao contrário do padrão já aplicado a
+  `hr`/`spo2`/`steps` na mesma função `handleBridgeMessage`
+  (`toFiniteNumber()`, ver comentário junto à função). Um bridge malicioso
+  ou comprometido (ou qualquer outro processo/página capaz de abrir uma
+  ligação WebSocket a `localhost:8765`) podia injetar HTML/script na vista
+  "Tendência semanal".
+- **Correção**: `d.day` passa a ser escapado com `escapeHtml()` (mesma
+  função usada nos outros pontos de texto livre do ficheiro);
+  `record_count`, `hr_samples`, `avg_hr`, `max_steps`, `min_steps` passam
+  todos por `toFiniteNumber()` antes de entrar no template, tal como
+  `hr`/`spo2`/`steps` em `applyLiveVitals()`.
+- **Verificação**: Playwright real — `liveState.realTrend` preenchido com
+  `day: '<img src=x onerror="window.__xss3=true">'` e
+  `record_count: '<script>window.__xss3=true</script>'`, seguido de
+  `renderRealTrendTable()`. `window.__xss3` continua `false`; o
+  `innerHTML` resultante mostra `&lt;img src=x onerror="..."&gt;` como
+  texto e `record_count` cai para `0` (não é um número finito) — sem tags
+  cruas no DOM.
+- **Risco residual**: nenhum conhecido neste ponto. O canal
+  `ws://localhost:8765` continua sem autenticação/TLS — aceitável para
+  desenvolvimento local, mas a mitigar antes de qualquer exposição além de
+  `localhost` (ver proposta abaixo).
+
+## Inventário de sinks perigosos (`innerHTML`/`insertAdjacentHTML`/`document.write`/`outerHTML`)
+
+Auditado nesta rotina (S03, eixo escolhido: "todos os `innerHTML`" do
+dashboard). Estado de cada ocorrência atual no código:
+
+| Ficheiro / função | Origem dos dados inseridos | Estado |
+|---|---|---|
+| `index.html` `populateLangSelect()` — `sel.innerHTML` | `LANG_NAMES` (constante fixa no código) | Seguro — sem entrada externa |
+| `index.html` `updateLiveEmergencyBanner()` — `el.innerHTML` | SVG fixo + `meta.label` (tabela `EMERGENCY_ALERT_TYPE_TO_LOG` fixa, chave `msg.alert_name` só seleciona, não injeta valor) + `selectedPatient().name` (roster local) | Seguro |
+| `index.html` `renderView()` — `c.innerHTML = TEMPLATES[view]()` | despacho fixo por nome de vista (whitelist `TEMPLATES`) | Seguro — cada template auditado individualmente nesta tabela |
+| `index.html` `renderNightSummary()`, `renderPacingSummary()`, `renderActivityDetail()` — `host.innerHTML` | dados sintéticos gerados localmente (`buildNightRestlessness`, `buildPacingTrend`, `buildCategoryWeekly`) + `liveState.pacing` (já validado por `toFiniteNumber()`) | Seguro |
+| `index.html` `renderCaregiverNotes()` — `host.innerHTML` | `n.text` (nota do cuidador, texto livre) | Seguro — escapado (`.replace(/</g,'&lt;')`, suficiente em contexto de texto dentro de `<p>`, sem atributos) |
+| `index.html` `showTip()` (`ttipEl.innerHTML`) | chamadores usam `d.day`/`d.score`/`d.hr`/`when` de séries simuladas (`buildHr`, `buildPacingTrend`, etc.) ou `liveHrBuffer` (já validado — `hrNum = toFiniteNumber(msg.hr)`, `label = fmtClock(msg.ts)`) | Seguro |
+| `index.html` `renderStorageWarningBanner()` — `el.innerHTML` | SVG + texto fixos, só o `flag` (já validado por `toFiniteNumber`) escolhe qual dos dois textos fixos mostrar | Seguro |
+| `index.html` `applyLiveVitals()` — `setVal(...).innerHTML` | `liveState.hr`/`spo2`/`steps`/`inactivity`/`freefall` — todos validados (`toFiniteNumber()` ou booleano só usado em ternário de strings fixas) | Seguro — já corrigido em sessão anterior |
+| `index.html` `renderRealTrendTable()` — `body.innerHTML` | `msg.days_summary` (bridge, `daily_trend`) | **FE-002 — corrigido nesta rotina** (ver acima) |
+| `index.html` `exportClinicalPdf()` — `sheet.innerHTML` | dados do roster local (`p.name`, `p.deviceName`, `p.mac`, `p.lastSync`) + `currentAlerts()`/`currentAnomalyLog()` (dados de demonstração/roster, não formulário de texto livre) | Não auditado a fundo nesta rotina — candidato ao próximo eixo se `currentAlerts()`/`currentAnomalyLog()` alguma vez passarem a incluir texto livre editável |
+| `medication-reminders.js` `showFallbackAlert()` — `div.innerHTML` | `medication.name`/`.dose` (texto livre, "Gerir medicação") + `time`/`patient.id`/`medication.id` num atributo `onclick` concatenado | **FE-001 — corrigido nesta rotina** (ver acima); já não usa `innerHTML` nem `onclick` inline |
+
+Não foram encontrados usos de `document.write` ou `outerHTML` em nenhum
+dos dois ficheiros.
+
+## Propostas registadas (fora do âmbito desta rotina — sem alteração de código)
+
+Verificado que o eixo "todos os `innerHTML`" está agora são (ambos os
+riscos reais encontrados foram corrigidos). Os pontos abaixo ficam
+registados como propostas para uma rotina futura dedicada a esse eixo,
+conforme "Critérios para terminar sem alterações":
+
+- **CSP**: não existe `Content-Security-Policy` (nem `<meta
+  http-equiv="Content-Security-Policy">`, nem cabeçalho — o ficheiro é
+  servido estaticamente). Proposta: `default-src 'none'; script-src
+  'self'; style-src 'self' 'unsafe-inline'; connect-src ws://localhost:8765
+  wss://localhost:8765; img-src 'self' data:; base-uri 'none';
+  form-action 'none'`. **Trade-off a decidir**: o ficheiro usa `<script>`
+  inline (o próprio código da aplicação, não só handlers) e vários
+  `onclick="..."` inline espalhados pelas vistas — uma CSP sem
+  `'unsafe-inline'` em `script-src` exigiria mover todo o JS inline para
+  ficheiro(s) externo(s) e substituir todos os `onclick` por
+  `addEventListener` (o padrão já usado na correção de FE-001). É uma
+  refatoração de fundo, não um patch pontual — decisão maior a tomar
+  numa rotina própria.
+- **Clickjacking**: sem `X-Frame-Options`/`frame-ancestors` (não
+  aplicável a um ficheiro aberto localmente sem servidor; relevante se o
+  dashboard alguma vez for servido por um servidor real).
+- **`ws://` vs `wss://`**: aceitável para `localhost` em desenvolvimento;
+  a mitigar (TLS + autenticação do canal) antes de qualquer exposição
+  além de `localhost` — já registado em `PROJECT_STATUS.md`.
+- **Dados clínicos em `localStorage` em claro**: chaves `carewear_*`
+  incluem `carewear_profile`/`carewear_profile_pending` (pode conter
+  NIF/morada pendentes de aprovação), `carewear_caregiver_notes`,
+  `carewear_medications_registry`, `carewear_medication_log`,
+  `carewear_consent`, `carewear_caregiver_team`, `carewear_alert_*`,
+  `carewear_selected_patient_id`. Tudo em claro, sem expiração, acessível
+  a qualquer script no mesmo origin e a qualquer pessoa com acesso físico
+  ao browser (dispositivo partilhado, ex. tablet na sala do
+  utente/família). Proposta para rotina dedicada: minimizar o que fica
+  persistido (ex. não persistir NIF/morada pendente além da sessão de
+  aprovação), ou pelo menos documentar isto como risco aceite de
+  protótipo sem backend de autenticação real.
+- **Cookies**: não são usados (login é só de protótipo, sem sessão de
+  servidor) — sem flags a rever.
+- **Dependências**: confirmado que o dashboard é mesmo vanilla — nenhum
+  `<script src="http...">`/CDN, nenhum `<link>` externo; o único
+  `<script src="...">` é local (`medication-reminders.js`). Sem
+  superfície de dependências de terceiros a auditar.
+
+## Verificação (âmbito desta rotina)
+
+- `node --check` ao `<script>` inline extraído de `index.html` (linhas
+  849–4516) e a `medication-reminders.js` completo: sintaxe válida em
+  ambos.
+- Playwright real (Chromium, `/opt/pw-browsers/chromium`), servido via
+  `python3 -m http.server` a partir de `web/dashboard/`: os dois vetores
+  (FE-001, FE-002) confirmados exploráveis antes da correção (payload
+  executava/HTML cru aparecia no DOM) e confirmados neutralizados depois
+  — ver detalhe em cada risco acima. Consola sem erros de script (só o
+  aviso esperado de falha de ligação a `ws://localhost:8765`, sem bridge
+  a correr no ambiente de teste).
+- Regra de ouro respeitada: nenhuma alteração tocou em rótulos de dados
+  simulados vs. reais.
+(segurança(frontend): corrige 2 XSS reais em innerHTML não auditados (bridge + lembretes de medicação))

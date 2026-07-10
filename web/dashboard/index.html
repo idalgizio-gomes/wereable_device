@@ -4437,10 +4437,22 @@ function renderRealTrendTable(){
     return;
   }
   if (status) status.textContent = '';
+  // Bug de segurança corrigido (S03 frontend-security): `d.day` e
+  // `d.record_count` vêm de `msg.days_summary` (mensagem `daily_trend` do
+  // bridge via WebSocket, canal não autenticado — ver toFiniteNumber()
+  // acima) e entravam diretamente em innerHTML sem qualquer validação,
+  // ao contrário do padrão já usado para hr/spo2/steps em applyLiveVitals().
+  // `d.day` passa a ser escapado (texto livre do ponto de vista do
+  // browser) e os campos numéricos a passar por toFiniteNumber(), tal como
+  // os outros valores vindos do bridge.
   body.innerHTML = rows.map(d => {
-    const hrText = d.hr_samples > 0 ? `${Math.round(d.avg_hr)} bpm (${d.hr_samples} leituras)` : 'sem leituras';
-    const stepsText = (d.max_steps != null && d.min_steps != null) ? `${d.max_steps - d.min_steps}` : '—';
-    return `<tr><td>${d.day}</td><td class="num">${d.record_count}</td><td>${hrText}</td><td class="num">${stepsText}</td></tr>`;
+    const hrSamples = toFiniteNumber(d.hr_samples) || 0;
+    const avgHr = toFiniteNumber(d.avg_hr) || 0;
+    const hrText = hrSamples > 0 ? `${Math.round(avgHr)} bpm (${hrSamples} leituras)` : 'sem leituras';
+    const maxSteps = toFiniteNumber(d.max_steps), minSteps = toFiniteNumber(d.min_steps);
+    const stepsText = (maxSteps != null && minSteps != null) ? `${maxSteps - minSteps}` : '—';
+    const recordCount = toFiniteNumber(d.record_count) || 0;
+    return `<tr><td>${escapeHtml(d.day)}</td><td class="num">${recordCount}</td><td>${hrText}</td><td class="num">${stepsText}</td></tr>`;
   }).join('');
 }
 
