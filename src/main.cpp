@@ -349,15 +349,36 @@ void storageTask(void *arg) {
 // (por causa da resistência de pull-up interna) quando está solto.
 // ============================================================
 
+// Espera "ms" milissegundos como delay(ms), mas continua a chamar
+// Emergency::update() em pequenos incrementos durante a espera, em vez de
+// bloquear sem vigiar o botão físico. Só é seguro chamar depois de
+// Emergency::begin() ter corrido (ver 'pollEmergency' em waitRelease()/
+// buttonPressedStable()/waitForLongPress() abaixo, que controla isso).
+void delayPollingEmergency(uint32_t ms) {
+  const uint32_t start = millis();
+  while ((millis() - start) < ms) {
+    Emergency::update();
+    delay(5);
+  }
+}
+
 // Bloqueia até o botão ser largado (voltar a HIGH), ou até passar
 // timeoutMs (0 = esperar indefinidamente). Útil depois de confirmar um
 // long-press, para não reagir várias vezes ao mesmo toque prolongado.
-bool waitRelease(uint32_t timeoutMs = 0) {
+//
+// 'pollEmergency': quando true, chama Emergency::update() durante a
+// espera (ver buttonPressedStable() abaixo para o porquê). Tem de ficar
+// false nas chamadas feitas a partir de setup() (long-press inicial de
+// ligar), porque Emergency::begin() só corre bem mais tarde, dentro do
+// próprio setup() — chamar Emergency::update() antes disso leria um
+// módulo por inicializar.
+bool waitRelease(uint32_t timeoutMs = 0, bool pollEmergency = false) {
   const uint32_t t0 = millis();
   while (digitalRead(BTN_PIN) == LOW) {
     if (timeoutMs != 0 && (millis() - t0) >= timeoutMs) {
       return false;
     }
+    if (pollEmergency) Emergency::update();
     delay(5);
   }
   delay(30);  // pequena pausa extra para "assentar" o sinal (debounce de largada)
@@ -367,9 +388,30 @@ bool waitRelease(uint32_t timeoutMs = 0) {
 // Verifica se o botão está premido "de forma estável": lê uma vez, espera
 // DEBOUNCE_TIME (para ignorar ruído elétrico de contacto mecânico) e
 // confirma que continua premido. Evita falsos positivos de toques curtos.
-bool buttonPressedStable() {
+//
+// Bug real corrigido (2026-07-10): esta função e waitForLongPress() abaixo
+// partilham o mesmo BTN_PIN com Emergency::updateSosGesture() (gesto SOS
+// de 3 cliques), mas bloqueavam com delay()/digitalRead() sem nunca chamar
+// Emergency::update() durante a espera — o mesmo problema já corrigido em
+// 2026-07-07 para o delay do heartbeat (ver delayPollingEmergency() acima),
+// mas que continuava por corrigir aqui. Sempre que este código era chamado
+// a partir de loop() (linha ~991) com o botão em baixo — o que acontece em
+// TODOS os cliques do gesto SOS, não só num long-press real — a deteção de
+// borda de descida de updateSosGesture() ficava cega durante toda a espera
+// (debounce + até 5s de confirmação de long-press + espera de largada), e
+// como essa deteção é por borda (não por amostra), o clique ficava
+// definitivamente perdido, não apenas atrasado. 'pollEmergency' resolve
+// isto chamando Emergency::update() durante a espera — só passado como
+// true a partir de loop() (depois de Emergency::begin() já ter corrido);
+// o long-press inicial de ligar em setup() continua com o comportamento
+// exato de antes (pollEmergency=false por omissão).
+bool buttonPressedStable(bool pollEmergency = false) {
   if (digitalRead(BTN_PIN) == LOW) {
-    delay(DEBOUNCE_TIME);
+    if (pollEmergency) {
+      delayPollingEmergency(DEBOUNCE_TIME);
+    } else {
+      delay(DEBOUNCE_TIME);
+    }
     return digitalRead(BTN_PIN) == LOW;
   }
   return false;
@@ -431,14 +473,18 @@ bool serialCommandReceived(const char *cmd) {
 // *** DEBUG TEMPORÁRIO ***: com DEBUG_SERIAL_WAKE=1, escrever "WAKE" na
 // porta série durante a espera também conta como long-press confirmado
 // (substituto do botão partido). Ver DEBUG_SERIAL_WAKE acima.
-bool waitForLongPress() {
+// 'pollEmergency': ver buttonPressedStable() acima — propagado para as
+// esperas bloqueantes internas (debounce inicial + confirmação de 5s +
+// espera de largada), para o gesto SOS não perder cliques quando esta
+// função é chamada a partir de loop() (ver bug corrigido em 2026-07-10).
+bool waitForLongPress(bool pollEmergency = false) {
 #if DEBUG_SERIAL_WAKE
   if (serialCommandReceived("WAKE")) {
     Serial.println("[DEBUG] comando WAKE recebido -> a simular long-press");
     return true;
   }
 #endif
-  if (!buttonPressedStable()) return false;
+  if (!buttonPressedStable(pollEmergency)) return false;
   unsigned long start = millis();
   while (millis() - start < LONG_PRESS_TIME) {
     if (digitalRead(BTN_PIN) == HIGH) return false;
@@ -448,9 +494,13 @@ bool waitForLongPress() {
       return true;
     }
 #endif
+    if (pollEmergency) {
+      Emergency::update();
+      delay(5);
+    }
   }
   // Confirma long-press apenas apos libertar o botao.
-  waitRelease();
+  waitRelease(0, pollEmergency);
   return true;
 }
 
@@ -918,18 +968,6 @@ void setup() {
   Serial.println("[BOOT] step: setup done");
 }
 
-// Espera "ms" milissegundos como delay(ms), mas continua a chamar
-// Emergency::update() em pequenos incrementos durante a espera, em vez de
-// bloquear sem vigiar o botão físico (ver bug corrigido na chamada em
-// loop(), junto ao heartbeat).
-void delayPollingEmergency(uint32_t ms) {
-  const uint32_t start = millis();
-  while ((millis() - start) < ms) {
-    Emergency::update();
-    delay(5);
-  }
-}
-
 // ============================================================
 // LOOP — chamado repetidamente pelo Arduino depois do setup()
 // ------------------------------------------------------------
@@ -988,7 +1026,13 @@ void loop() {
     Emergency::update();
     Nfc::update(); // no-op enquanto o hardware NFC nao estiver confirmado (ver Nfc.h)
 
-    if (buttonPressedStable()) {
+    // pollEmergency=true nas duas chamadas abaixo: Emergency::begin() já
+    // correu (setup() terminou, isRunning só fica true depois disso), por
+    // isso é seguro e necessário chamar Emergency::update() durante estas
+    // esperas bloqueantes, para o gesto SOS não perder cliques que caiam
+    // em cima deste caminho (ver bug corrigido em 2026-07-10, comentário
+    // em buttonPressedStable()).
+    if (buttonPressedStable(/*pollEmergency=*/true)) {
       // (String corrigida: tinha um byte de codificacao invalido no "ã",
       // que aparecia como lixo no monitor serie.)
       Serial.println("Pressao detectada -> verificar 5 segundos...");
@@ -997,7 +1041,7 @@ void loop() {
       // sentido continuar a medir enquanto se aguarda a decisão do
       // utilizador de desligar ou não.
       Ppg::suspendForPowerCheck();
-      if (waitForLongPress()) {
+      if (waitForLongPress(/*pollEmergency=*/true)) {
         goToSleep();
       } else {
         Ppg::resumeAfterPowerCheck();
