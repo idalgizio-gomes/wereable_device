@@ -1192,7 +1192,17 @@ function computePersonalBaseline(){
     passos: { mean: mean(passos), sd: stdDev(passos) },
   };
 }
-const personalBaseline = computePersonalBaseline();
+// BUG CORRIGIDO (2026-07-16, regressão introduzida ao tornar trendData
+// por-paciente): isto era `const personalBaseline = computePersonalBaseline();`,
+// avaliado imediatamente à leitura do <script> — funcionava enquanto
+// currentTrendData() dependia só de dados já disponíveis nesse ponto do
+// ficheiro. Passou a chamar selectedPatientId, que só é declarado muito
+// mais abaixo (~linha 1434) — TDZ (ReferenceError "Cannot access
+// 'selectedPatientId' before initialization"), que interrompia TODO o
+// resto da execução do <script> a meio, partindo a navegação da app
+// inteira. computePersonalBaseline() já existia como função; só faltava
+// não a chamar de imediato — cada leitura chama-a de novo (mesmo padrão
+// "lazy getter" já usado por currentTrendData()/currentAnomalyLog()).
 
 function getAlertMode(){
   return localStorage.getItem('carewear_alert_mode') || 'populacional';
@@ -2861,7 +2871,7 @@ TEMPLATES.definicoes = () => `
 
   ${(() => {
     const mode = getAlertMode();
-    const b = personalBaseline;
+    const b = computePersonalBaseline();
     const fcPersonal = b.fc.mean + PERSONAL_THRESHOLD_K * b.fc.sd;
     const sonoPersonalMin = Math.max(0, b.sono.mean - PERSONAL_THRESHOLD_K * b.sono.sd);
     const passosPersonalMin = Math.max(0, Math.round(b.passos.mean - PERSONAL_THRESHOLD_K * b.passos.sd));
