@@ -250,18 +250,39 @@ function serializeConst(varName, value) {
   return `const ${varName} = ${JSON.stringify(value, null, 2)};\n`;
 }
 
+// BUG CORRIGIDO (2026-07-15, reportado pelo utilizador): antes disto, as 7
+// séries abaixo eram geradas UMA SÓ VEZ com o mesmo `rnd` e usadas para os 3
+// pacientes em index.html — trocar de paciente atualizava o nome/perfil mas
+// os gráficos (FC, tendência semanal, heatmap, rotina, agitação noturna,
+// ritmo) continuavam sempre iguais, dando a impressão de dados trocados
+// entre pacientes. Agora cada paciente tem o seu próprio RNG (mesma seed do
+// dia + offset fixo por paciente, para continuar determinístico) e as 7
+// séries passam a ser objetos {p1, p2, p3} — ver currentHrSeries() e
+// funções irmãs em index.html, que leem pela chave do paciente selecionado.
+const PATIENT_IDS = ['p1', 'p2', 'p3'];
+const PATIENT_SEED_OFFSET = { p1: 0, p2: 1000, p3: 2000 };
+
+function buildSeriesByPatient(builder, seed, ...extraArgs) {
+  const out = {};
+  for (const id of PATIENT_IDS) {
+    const rnd = seedRand(seed + PATIENT_SEED_OFFSET[id]);
+    out[id] = builder(rnd, ...extraArgs);
+  }
+  return out;
+}
+
 function main() {
   const dateStr = process.env.DEMO_DATA_DATE || todayUTC();
   const seed = seedFromDateString(dateStr);
   const rnd = seedRand(seed);
 
-  const hrSeries = buildHr(rnd);
-  const trendData = buildTrend(rnd, dateStr);
-  const heatmapData = buildHeatmap(rnd);
-  const routineToday = buildRoutine(rnd, false);
-  const routineAnomaly = buildRoutine(rnd, true);
-  const nightEvents = buildNightRestlessness(rnd);
-  const pacingTrend = buildPacingTrend(rnd);
+  const hrSeries = buildSeriesByPatient(buildHr, seed);
+  const trendData = buildSeriesByPatient(buildTrend, seed, dateStr);
+  const heatmapData = buildSeriesByPatient(buildHeatmap, seed);
+  const routineToday = buildSeriesByPatient((r) => buildRoutine(r, false), seed);
+  const routineAnomaly = buildSeriesByPatient((r) => buildRoutine(r, true), seed);
+  const nightEvents = buildSeriesByPatient(buildNightRestlessness, seed);
+  const pacingTrend = buildSeriesByPatient(buildPacingTrend, seed);
   const patientDynamic = buildPatientDynamic(rnd, dateStr);
 
   const out = [

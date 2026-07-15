@@ -1124,8 +1124,19 @@ function buildRoutine(seed, anomalous){
 // acima) quando disponíveis; caem para as funções build*() originais
 // (sempre presentes neste ficheiro) se demo-data.js faltar ou for antigo —
 // nunca parte a página, só deixa de ter dados "frescos".
-const routineToday = (typeof DEMO_ROUTINE_TODAY !== 'undefined') ? DEMO_ROUTINE_TODAY : buildRoutine(7, false);
-const routineAnomaly = (typeof DEMO_ROUTINE_ANOMALY !== 'undefined') ? DEMO_ROUTINE_ANOMALY : buildRoutine(7, true);
+// BUG CORRIGIDO (2026-07-15, reportado pelo utilizador): antes disto,
+// currentRoutineToday()/currentRoutineAnomaly() (e as 5 séries irmãs mais abaixo — currentTrendData(),
+// currentHeatmapData(), currentNightEvents(), currentPacingTrend(), currentHrSeries()) eram UMA SÓ constante
+// global, igual para os 3 pacientes — trocar de paciente em "Pacientes"
+// atualizava o nome/perfil mostrado mas os gráficos continuavam a mostrar
+// sempre a mesma série, dando a impressão de "dados trocados" entre
+// pacientes. Agora cada série é um mapa por paciente (chave = PATIENTS[i].id)
+// e as vistas leem-na através de current*() (ver mais abaixo), que resolve
+// sempre pelo selectedPatientId atual.
+const ROUTINE_TODAY_BY_PATIENT = (typeof DEMO_ROUTINE_TODAY !== 'undefined') ? DEMO_ROUTINE_TODAY : {p1: buildRoutine(7, false), p2: buildRoutine(17, false), p3: buildRoutine(27, false)};
+const ROUTINE_ANOMALY_BY_PATIENT = (typeof DEMO_ROUTINE_ANOMALY !== 'undefined') ? DEMO_ROUTINE_ANOMALY : {p1: buildRoutine(7, true), p2: buildRoutine(17, true), p3: buildRoutine(27, true)};
+function currentRoutineToday(){ return ROUTINE_TODAY_BY_PATIENT[selectedPatientId] || ROUTINE_TODAY_BY_PATIENT.p1; }
+function currentRoutineAnomaly(){ return ROUTINE_ANOMALY_BY_PATIENT[selectedPatientId] || ROUTINE_ANOMALY_BY_PATIENT.p1; }
 
 function buildTrend(seed){
   const rnd = seedRand(seed);
@@ -1137,7 +1148,8 @@ function buildTrend(seed){
     fc: Math.round(64 + rnd()*14),
   }));
 }
-const trendData = (typeof DEMO_TREND_DATA !== 'undefined') ? DEMO_TREND_DATA : buildTrend(3);
+const TREND_DATA_BY_PATIENT = (typeof DEMO_TREND_DATA !== 'undefined') ? DEMO_TREND_DATA : {p1: buildTrend(3), p2: buildTrend(13), p3: buildTrend(23)};
+function currentTrendData(){ return TREND_DATA_BY_PATIENT[selectedPatientId] || TREND_DATA_BY_PATIENT.p1; }
 
 /* ============================================================
    LIMIARES PERSONALIZADOS POR PESSOA (protótipo)
@@ -1149,7 +1161,7 @@ const trendData = (typeof DEMO_TREND_DATA !== 'undefined') ? DEMO_TREND_DATA : b
    igual para todos gera mais falsos positivos/negativos do que um
    limiar calculado a partir da própria linha de base da pessoa.
    Esta secção calcula essa linha de base (média + desvio-padrão) a
-   partir do histórico de tendência disponível (`trendData`, 7 dias) —
+   partir do histórico de tendência disponível (`currentTrendData()`, 7 dias) —
    hoje sintético, porque ainda não existe o serviço de persistência
    (ver PROJECT_STATUS.md, "Base de dados"); quando esse serviço
    existir, a mesma função passa a receber histórico real sem precisar
@@ -1165,9 +1177,9 @@ function stdDev(arr){
 }
 const PERSONAL_THRESHOLD_K = 2; // média + 2×desvio-padrão ~ 95% dos dias dentro do intervalo (aprox. normal)
 function computePersonalBaseline(){
-  const fc = trendData.map(d => d.fc);
-  const sono = trendData.map(d => d.sono);
-  const passos = trendData.map(d => d.passos);
+  const fc = currentTrendData().map(d => d.fc);
+  const sono = currentTrendData().map(d => d.sono);
+  const passos = currentTrendData().map(d => d.passos);
   return {
     fc:     { mean: mean(fc),     sd: stdDev(fc) },
     sono:   { mean: mean(sono),   sd: stdDev(sono) },
@@ -1296,7 +1308,8 @@ function buildHeatmap(seed){
     return Math.min(1, base);
   })}));
 }
-const heatmapData = (typeof DEMO_HEATMAP_DATA !== 'undefined') ? DEMO_HEATMAP_DATA : buildHeatmap(11);
+const HEATMAP_DATA_BY_PATIENT = (typeof DEMO_HEATMAP_DATA !== 'undefined') ? DEMO_HEATMAP_DATA : {p1: buildHeatmap(11), p2: buildHeatmap(21), p3: buildHeatmap(31)};
+function currentHeatmapData(){ return HEATMAP_DATA_BY_PATIENT[selectedPatientId] || HEATMAP_DATA_BY_PATIENT.p1; }
 
 // Cada alerta tem, além da descrição técnica ("desc"), um campo "plain":
 // uma explicação em linguagem simples, pensada para um familiar sem
@@ -2312,8 +2325,8 @@ TEMPLATES.resumo = () => `
   </div>
 `;
 AFTER_RENDER.resumo = () => {
-  drawRoutineTimeline('cvRoutineToday', routineToday, 'Rotina de hoje');
-  drawRoutineTimeline('cvRoutineAnom', routineAnomaly, 'Simulação com anomalias');
+  drawRoutineTimeline('cvRoutineToday', currentRoutineToday(), 'Rotina de hoje');
+  drawRoutineTimeline('cvRoutineAnom', currentRoutineAnomaly(), 'Simulação com anomalias');
   drawHeatmap('cvHeatmap');
   drawTrend('cvTrend');
   applyLiveVitals();
@@ -2327,7 +2340,7 @@ AFTER_RENDER.resumo = () => {
    das preocupações mais citadas por cuidadores de pessoas com demência,
    e é distinta da atividade diurna — merece o seu próprio resumo em vez
    de se perder dentro da timeline geral de 24h. Calculado a partir do
-   bloco "dormir" noturno do routineToday (dados simulados, ver aviso).
+   bloco "dormir" noturno do currentRoutineToday() (dados simulados, ver aviso).
 ------------------------------------------------------------ */
 function buildNightRestlessness(seed){
   const rnd = seedRand(seed);
@@ -2339,27 +2352,28 @@ function buildNightRestlessness(seed){
   }
   return events;
 }
-const nightEvents = (typeof DEMO_NIGHT_EVENTS !== 'undefined') ? DEMO_NIGHT_EVENTS : buildNightRestlessness(19);
+const NIGHT_EVENTS_BY_PATIENT = (typeof DEMO_NIGHT_EVENTS !== 'undefined') ? DEMO_NIGHT_EVENTS : {p1: buildNightRestlessness(19), p2: buildNightRestlessness(29), p3: buildNightRestlessness(39)};
+function currentNightEvents(){ return NIGHT_EVENTS_BY_PATIENT[selectedPatientId] || NIGHT_EVENTS_BY_PATIENT.p1; }
 
 function renderNightSummary(){
   const host = document.getElementById('nightSummary');
   if (!host) return;
-  const bedBlock = routineToday.find(b => b.cat === 'dormir' && b.start >= 21*60);
-  const wakeBlock = routineToday.find(b => b.cat === 'dormir' && b.start === 0);
+  const bedBlock = currentRoutineToday().find(b => b.cat === 'dormir' && b.start >= 21*60);
+  const wakeBlock = currentRoutineToday().find(b => b.cat === 'dormir' && b.start === 0);
   const bedTime = bedBlock ? fmtMin(bedBlock.start) : '—';
   const wakeTime = wakeBlock ? fmtMin(wakeBlock.end) : '—';
-  const totalOutOfBedMin = nightEvents.reduce((s,e) => s + e.durationMin, 0);
+  const totalOutOfBedMin = currentNightEvents().reduce((s,e) => s + e.durationMin, 0);
 
   host.innerHTML = `
     <div class="activity-stat-row">
       <div class="activity-stat"><div class="n tabular">${bedTime}</div><div class="l">Hora de deitar</div></div>
       <div class="activity-stat"><div class="n tabular">${wakeTime}</div><div class="l">Hora de acordar</div></div>
-      <div class="activity-stat"><div class="n tabular">${nightEvents.length}</div><div class="l">Episódios de agitação</div></div>
+      <div class="activity-stat"><div class="n tabular">${currentNightEvents().length}</div><div class="l">Episódios de agitação</div></div>
       <div class="activity-stat"><div class="n tabular" style="color:${totalOutOfBedMin>15?'var(--status-warning)':'var(--status-good)'}">${totalOutOfBedMin} min</div><div class="l">Tempo fora da cama (total)</div></div>
     </div>
-    ${nightEvents.length ? `
+    ${currentNightEvents().length ? `
       <div class="activity-blocks-list">
-        ${nightEvents.map(e => `
+        ${currentNightEvents().map(e => `
           <div class="activity-block-row">
             <span class="legend-swatch" style="background:var(--cat-dormir)"></span>
             <span class="tabular">${e.time}</span>
@@ -2403,7 +2417,8 @@ function buildPacingTrend(seed){
     return { day, score: Math.round(Math.min(100, base + drift)) };
   });
 }
-const pacingTrend = (typeof DEMO_PACING_TREND !== 'undefined') ? DEMO_PACING_TREND : buildPacingTrend(31);
+const PACING_TREND_BY_PATIENT = (typeof DEMO_PACING_TREND !== 'undefined') ? DEMO_PACING_TREND : {p1: buildPacingTrend(31), p2: buildPacingTrend(41), p3: buildPacingTrend(51)};
+function currentPacingTrend(){ return PACING_TREND_BY_PATIENT[selectedPatientId] || PACING_TREND_BY_PATIENT.p1; }
 
 function renderPacingSummary(){
   const host = document.getElementById('pacingSummary');
@@ -2414,8 +2429,8 @@ function renderPacingSummary(){
   // igual ao padrão já usado noutros cartões com dados ao vivo (ver
   // drawHrSeries/liveState.connected).
   const live = liveState.connected && liveState.pacing != null;
-  const today = live ? liveState.pacing : pacingTrend[pacingTrend.length - 1].score;
-  const weekAvg = Math.round(pacingTrend.reduce((s,d) => s + d.score, 0) / pacingTrend.length);
+  const today = live ? liveState.pacing : currentPacingTrend()[currentPacingTrend().length - 1].score;
+  const weekAvg = Math.round(currentPacingTrend().reduce((s,d) => s + d.score, 0) / currentPacingTrend().length);
   // Bug corrigido: o ramo "today >= 40 ? 'good' : 'good'" era morto (as
   // duas saídas eram idênticas) — só existem dois estados reais aqui,
   // como o próprio levelLabel (2 valores) já deixava claro.
@@ -2483,12 +2498,12 @@ TEMPLATES.rotina = () => `
   </div>
 `;
 AFTER_RENDER.rotina = () => {
-  drawRoutineTimeline('cvRoutineFull', routineToday, '');
-  drawRoutineTimeline('cvRoutineAnomFull', routineAnomaly, '', true);
+  drawRoutineTimeline('cvRoutineFull', currentRoutineToday(), '');
+  drawRoutineTimeline('cvRoutineAnomFull', currentRoutineAnomaly(), '', true);
   renderActivityDetail(selectedActivityCat);
   renderCaregiverNotes();
   renderPacingSummary();
-  drawPacingTrend('cvPacingTrend', pacingTrend);
+  drawPacingTrend('cvPacingTrend', currentPacingTrend());
 };
 
 /* ------------------------------------------------------------
@@ -2569,7 +2584,7 @@ function renderActivityDetail(catKey){
   const host = document.getElementById('activityDetail');
   if (!host) return;
   const cat = ROUTINE_CATS.find(c => c.key === catKey);
-  const blocks = routineToday.filter(b => b.cat === catKey);
+  const blocks = currentRoutineToday().filter(b => b.cat === catKey);
   const totalMin = blocks.reduce((s,b) => s + (b.end - b.start), 0);
   const count = blocks.length;
   const avgMin = count ? Math.round(totalMin / count) : 0;
@@ -3744,7 +3759,7 @@ function drawHeatmap(id){
   ctx.clearRect(0,0,w,h);
 
   const labelW = 34, top = 8, bottom = 20;
-  const rows = heatmapData.length, cols = 24;
+  const rows = currentHeatmapData().length, cols = 24;
   const gridW = w - labelW - 4, gridH = h - top - bottom;
   const cw = gridW/cols, ch = gridH/rows;
 
@@ -3754,7 +3769,7 @@ function drawHeatmap(id){
 
   const seqBase = [205,66,231]; // aqua ramp base (accent-adjacent) in rgb for interpolation
   S.cells = [];
-  heatmapData.forEach((row,ri) => {
+  currentHeatmapData().forEach((row,ri) => {
     ctx.fillText(row.day, 0, top + ri*ch + ch/2);
     row.hours.forEach((v,ci) => {
       const x = labelW + ci*cw, y = top + ri*ch;
@@ -3799,7 +3814,7 @@ function drawTrend(id){
 
   const padL = 6, padR = 6, top = 14, bottom = 22;
   const plotW = w-padL-padR, plotH = h-top-bottom;
-  const n = trendData.length;
+  const n = currentTrendData().length;
   const xAt = (i) => padL + (i/(n-1))*plotW;
 
   const series = [
@@ -3808,7 +3823,7 @@ function drawTrend(id){
     {key:'fc', color: colorOf('var(--status-critical)')},
   ];
   series.forEach(s => {
-    const vals = trendData.map(d => d[s.key]);
+    const vals = currentTrendData().map(d => d[s.key]);
     s.min = Math.min(...vals); s.max = Math.max(...vals);
     s.yAt = (v) => top + plotH - ((v - s.min)/((s.max-s.min)||1))*plotH*0.86 - plotH*0.02;
   });
@@ -3819,9 +3834,9 @@ function drawTrend(id){
 
   series.forEach(s => {
     ctx.beginPath();
-    trendData.forEach((d,i) => { const x=xAt(i), y=s.yAt(d[s.key]); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
+    currentTrendData().forEach((d,i) => { const x=xAt(i), y=s.yAt(d[s.key]); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
     ctx.strokeStyle = s.color; ctx.lineWidth = 2; ctx.lineJoin='round'; ctx.stroke();
-    trendData.forEach((d,i) => {
+    currentTrendData().forEach((d,i) => {
       const x=xAt(i), y=s.yAt(d[s.key]);
       ctx.beginPath(); ctx.arc(x,y,2.6,0,Math.PI*2);
       ctx.fillStyle = resolveVar('--bg-surface'); ctx.fill();
@@ -3830,15 +3845,15 @@ function drawTrend(id){
   });
 
   ctx.fillStyle = resolveVar('--text-muted'); ctx.font = '10px ' + getComputedStyle(document.body).fontFamily; ctx.textBaseline='top';
-  trendData.forEach((d,i) => ctx.fillText(d.day, xAt(i)-14, h-bottom+6));
+  currentTrendData().forEach((d,i) => ctx.fillText(d.day, xAt(i)-14, h-bottom+6));
 
   S.xAt = xAt;
   S.cv.onmousemove = (e) => {
     const r = S.cv.getBoundingClientRect();
     const mx = e.clientX - r.left;
     let idx = 0, best = Infinity;
-    trendData.forEach((d,i) => { const dx = Math.abs(xAt(i)-mx); if (dx<best){best=dx; idx=i;} });
-    const d = trendData[idx];
+    currentTrendData().forEach((d,i) => { const dx = Math.abs(xAt(i)-mx); if (dx<best){best=dx; idx=i;} });
+    const d = currentTrendData()[idx];
     showTip(e.clientX, e.clientY, `
       <div class="tt-title">${d.day}</div>
       <div class="tt-row"><span style="color:${colorOf('var(--cat-atividade)')}">● Passos</span><b>${d.passos.toLocaleString('pt-PT')}</b></div>
@@ -3852,15 +3867,16 @@ function drawTrend(id){
 /* ============================================================
    FC — série de 24h (simulada em torno de valores reais plausíveis)
 ============================================================ */
-function buildHr(){
-  const rnd = seedRand(21);
+function buildHr(seed=21){
+  const rnd = seedRand(seed);
   return Array.from({length:48}, (_,i) => {
     const hour = i/2;
     const night = hour<7 || hour>22;
     return { t: hour, hr: Math.round((night?58:72) + rnd()*10 + Math.sin(i*0.4)*4) };
   });
 }
-const hrSeries = (typeof DEMO_HR_SERIES !== 'undefined') ? DEMO_HR_SERIES : buildHr();
+const HR_SERIES_BY_PATIENT = (typeof DEMO_HR_SERIES !== 'undefined') ? DEMO_HR_SERIES : {p1: buildHr(21), p2: buildHr(22), p3: buildHr(23)};
+function currentHrSeries(){ return HR_SERIES_BY_PATIENT[selectedPatientId] || HR_SERIES_BY_PATIENT.p1; }
 
 function drawHrSeries(id){
   const S = setupCanvas(id, 190);
@@ -3872,9 +3888,9 @@ function drawHrSeries(id){
 
   // Em modo "ao vivo" (bridge ligado) desenha o buffer real recebido por
   // WebSocket (liveHrBuffer); caso contrário, cai para a série simulada
-  // hrSeries — mantém o gráfico sempre com algo para mostrar.
+  // currentHrSeries() — mantém o gráfico sempre com algo para mostrar.
   const live = liveState.connected && liveHrBuffer.length >= 2;
-  const series = live ? liveHrBuffer : hrSeries;
+  const series = live ? liveHrBuffer : currentHrSeries();
   const label = document.getElementById('hrChartLabel');
   if (label) label.textContent = live ? '— ao vivo' : '— últimas 24h (demonstração)';
 
@@ -3963,7 +3979,7 @@ const liveState = {
   // Histórico REAL agregado por dia (base de dados local do bridge, ver
   // storage.get_daily_summary), pedido sob demanda na vista "Tendência
   // semanal" — []  até chegar a primeira resposta ou se a BD ainda não
-  // tiver dados. Distinto de `trendData` (sempre sintético) — nunca são
+  // tiver dados. Distinto de `currentTrendData()` (sempre sintético) — nunca são
   // misturados no mesmo gráfico, ver renderRealTrendTable().
   realTrend: [],
 };
@@ -4487,7 +4503,7 @@ function handleRetentionDaysSaveResult(msg){
    bridge (bridge/storage.py::get_daily_summary), pedido de
    PROJECT_STATUS.md ("Base de dados" — próximo passo natural depois de
    `get_history`/CSV). Deliberadamente um cartão SEPARADO do gráfico
-   `trendData` (sempre sintético) em vez de misturado na mesma linha —
+   `currentTrendData()` (sempre sintético) em vez de misturado na mesma linha —
    evita qualquer ambiguidade sobre o que é real e o que é simulado.
 ------------------------------------------------------------ */
 function requestRealTrend(days){
