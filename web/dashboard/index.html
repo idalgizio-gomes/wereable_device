@@ -1422,6 +1422,61 @@ if (typeof DEMO_PATIENT_DYNAMIC !== 'undefined') {
   });
 }
 
+/* ------------------------------------------------------------
+   ADICIONAR PACIENTE (2026-07-15, pedido do utilizador — área de
+   técnico)
+   ------------------------------------------------------------
+   Antes não havia nenhuma forma de acrescentar um paciente novo à conta
+   — PATIENTS era uma lista fixa de 3. addPatient() constrói um objeto
+   com a mesma forma dos 3 pacientes de demonstração (alerts/anomalyLog
+   vazios, adesão vazia) e faz PATIENTS.push() diretamente — como
+   PATIENTS é `const` mas continua um array mutável, todo o código
+   existente que já faz PATIENTS.find()/PATIENTS.map() passa a ver o
+   novo paciente sem precisar de nenhum outro ajuste. Persistido em
+   localStorage (só a lista mínima de campos, não o objeto completo, para
+   não duplicar dados quando as séries geradas diariamente mudam) e
+   "replay" ao carregar a página, logo a seguir a este bloco.
+------------------------------------------------------------ */
+const ADDED_PATIENTS_KEY = 'carewear_added_patients';
+
+function loadAddedPatients(){
+  try {
+    const raw = localStorage.getItem(ADDED_PATIENTS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* localStorage indisponível ou dados corrompidos - ignora */ }
+  return [];
+}
+function saveAddedPatients(list){
+  try { localStorage.setItem(ADDED_PATIENTS_KEY, JSON.stringify(list)); }
+  catch (e) { /* quota excedida ou localStorage indisponível - fica só em memória */ }
+}
+function buildPatientRecord({id, name, age, deviceName, mac}){
+  return {
+    id, name, age, deviceName, mac, lastSync:'Nunca sincronizado', status:'off',
+    battery:100, ringBufferUsed:0, ringBufferTotal:16384,
+    alerts: [], anomalyLog: [],
+    medications: [],
+    adherenceHistory: [],
+  };
+}
+function addPatient(name, age, deviceName, mac){
+  name = (name || '').trim();
+  deviceName = (deviceName || 'Wearable').trim();
+  mac = (mac || '—').trim();
+  const ageNum = parseInt(age, 10);
+  if (!name || !Number.isFinite(ageNum) || ageNum <= 0) return false;
+  const record = {id: 'p_added_' + Date.now(), name, age: ageNum, deviceName, mac};
+  const added = loadAddedPatients();
+  added.push(record);
+  saveAddedPatients(added);
+  PATIENTS.push(buildPatientRecord(record));
+  if (currentView) renderView(currentView);
+  return true;
+}
+// Replay dos pacientes adicionados em sessões anteriores — corre uma
+// única vez ao carregar o script, depois de PATIENTS estar definido.
+loadAddedPatients().forEach(record => PATIENTS.push(buildPatientRecord(record)));
+
 const SELECTED_PATIENT_KEY = 'carewear_selected_patient_id';
 
 function loadSelectedPatientId(){
@@ -1900,6 +1955,15 @@ function fillRecurringTimes(intervalHours){
     times.push(`${h}:${m}`);
   }
   timesEl.value = times.join(', ');
+}
+
+function submitAddPatient(){
+  const name = document.getElementById('newPatientName').value;
+  const age = document.getElementById('newPatientAge').value;
+  const deviceName = document.getElementById('newPatientDevice').value;
+  const mac = document.getElementById('newPatientMac').value;
+  const ok = addPatient(name, age, deviceName, mac);
+  if (!ok) alert('Indica pelo menos o nome e uma idade válida para adicionar o paciente.');
 }
 
 function addMedicationForPatient(){
@@ -2998,6 +3062,17 @@ TEMPLATES.pacientes = () => `
       </tbody>
     </table>
     <p class="empty-hint">Selecionar um paciente muda a identidade apresentada nesta conta. <b>Nota importante</b>: neste protótipo, a ligação por Bluetooth real ao wearable continua limitada a um único dispositivo físico de cada vez (o que estiver por perto e for encontrado pelo bridge) — escolher aqui um paciente diferente não troca automaticamente qual wearable físico está ligado.</p>
+    ${currentRole !== 'utente' ? `
+    <div class="card-head" style="margin-top:18px;"><div><h3>Adicionar paciente</h3><div class="card-sub">Área de técnico — regista um novo paciente/dispositivo nesta conta</div></div></div>
+    <div class="note-form">
+      <input id="newPatientName" type="text" placeholder="Nome completo" style="flex:1;">
+      <input id="newPatientAge" type="number" min="1" max="120" placeholder="Idade" style="max-width:90px;">
+      <input id="newPatientDevice" type="text" placeholder="Dispositivo (ex: Wearable)" style="max-width:160px;">
+      <input id="newPatientMac" type="text" placeholder="MAC (ex: A1:B2:C3:D4:E5:F6)" style="max-width:180px;">
+      <button class="btn-secondary" onclick="submitAddPatient()">Adicionar paciente</button>
+    </div>
+    <p class="empty-hint">Protótipo: guardado só neste browser (localStorage) — um sistema real exigiria emparelhamento BLE + validação clínica antes de ativar o dispositivo. O paciente novo começa sem alertas/anomalias/medicação — usa "Gerir medicação" e as ações de cada vista para preencher o resto.</p>
+    ` : ''}
   </div>
   <div class="card">
     <div class="card-head"><h3>Alertas por severidade — ${selectedPatient().name}</h3></div>
