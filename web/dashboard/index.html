@@ -121,8 +121,10 @@
     overflow:hidden;
   }
   .login-brand-mark{ display:flex; align-items:center; gap:10px; }
+  .login-brand-footer{ display:flex; }
+  .login-brand-footer img{ width:100%; max-width:260px; height:auto; display:block; }
   .login-brand-mark .logo-dot{
-    width:76px; height:76px; border-radius:9px;
+    width:128px; height:128px; border-radius:9px;
     display:flex; align-items:center; justify-content:center;
     color:var(--accent-ink); font-weight:700; font-size:15px;
     overflow:visible;
@@ -200,11 +202,13 @@
   }
   .sidebar-brand{ display:flex; align-items:center; gap:10px; padding:0 6px; }
   .sidebar-brand .logo-dot{
-    width:56px; height:56px; border-radius:8px;
+    width:76px; height:76px; border-radius:8px;
     display:flex; align-items:center; justify-content:center; color:var(--accent-ink); font-weight:700; font-size:13px;
     overflow:visible;
   }
-  .sidebar-brand span{ font-weight:600; font-size:14.5px; }
+  .sidebar-brand{ justify-content:center; }
+  .sidebar-footer-logo{ display:flex; justify-content:center; padding:6px 0 2px; }
+  .sidebar-footer-logo img{ width:100%; max-width:170px; height:auto; display:block; }
 
   .sidebar-role-pill{
     font-size:11px; font-weight:700; letter-spacing:0.03em; text-transform:uppercase;
@@ -565,7 +569,6 @@
   <div class="login-brand">
     <div class="login-brand-mark">
       <div class="logo-dot"><img src="assets/logo.png" alt="CareWear"></div>
-      <span>CareWear</span>
     </div>
     <div class="login-brand-quote">
       <div class="eyebrow">Monitorização de rotina · nRF52840</div>
@@ -576,6 +579,9 @@
       <div><span class="n tabular">54&nbsp;Hz</span><span class="l">Amostragem IMU</span></div>
       <div><span class="n tabular">30 s</span><span class="l">Resolução de anomalia</span></div>
       <div><span class="n tabular">AES-256</span><span class="l">Dados em trânsito</span></div>
+    </div>
+    <div class="login-brand-footer">
+      <img src="assets/logo-footer.png" alt="CareWear — Cuida de ti. Liga-te ao que importa.">
     </div>
   </div>
 
