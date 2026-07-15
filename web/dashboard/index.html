@@ -545,6 +545,7 @@
       display:flex; align-items:center; justify-content:center;
     }
     .print-logo img{ width:100%; height:100%; object-fit:contain; display:block; }
+    .print-header-text{ flex:1; min-width:0; }
     .print-header h1{ font-size:19px; margin:0 0 3px; }
     .print-meta{ font-size:11px; color:#555; margin:0; }
     .print-patient{ margin-bottom:8px; }
@@ -3361,6 +3362,11 @@ TEMPLATES.medicacao = () => {
       <button class="btn-secondary" onclick="fillRecurringTimes(6)">De 6 em 6h</button>
       <button class="btn-secondary" onclick="fillRecurringTimes(24)">1x/dia</button>
     </div>
+    <div class="note-form" style="margin-top:8px; align-items:center;">
+      <span class="empty-hint" style="padding:0;">Ou de quantas em quantas horas:</span>
+      <input id="newMedCustomInterval" type="number" min="1" max="24" step="1" placeholder="ex: 3" style="max-width:80px;">
+      <button class="btn-secondary" onclick="fillRecurringTimesCustom()">Aplicar intervalo</button>
+    </div>
     <p class="empty-hint">Os botões acima só preenchem o campo "Horários" acima — revê antes de clicar em "Adicionar". Protótipo: guardado só neste browser (localStorage) — um sistema real ligaria isto a uma prescrição clínica com assinatura/validação, não um formulário livre.</p>
   </div>` : ''}
 
@@ -4748,7 +4754,7 @@ function exportClinicalPdf(){
   sheet.innerHTML = `
     <header class="print-header">
       <div class="print-logo"><img src="assets/logo.png" alt="CareWear"></div>
-      <div>
+      <div class="print-header-text">
         <h1>CareWear — Resumo clínico</h1>
         <p class="print-meta">Gerado em ${generatedAt} · Protótipo — dados de demonstração, não substituem avaliação clínica direta.</p>
       </div>
@@ -4770,7 +4776,24 @@ function exportClinicalPdf(){
     )}
     <footer class="print-footer">CareWear · Documento gerado localmente, confidencial · ${p.name}</footer>
   `;
-  window.print();
+  // BUG CORRIGIDO (2026-07-16, reportado pelo utilizador): window.print()
+  // era chamado logo a seguir a sheet.innerHTML=..., que acabou de criar
+  // um <img> novo — inserir HTML não garante que a imagem já está
+  // decodificada/pintada nesse instante, mesmo vindo de cache. Nalguns
+  // casos o PDF/impressão saía com a caixa do logótipo em branco. Agora
+  // espera-se por img.decode() (ou o evento load, se decode() falhar/não
+  // existir) antes de imprimir; timeout de segurança de 800ms garante que
+  // a impressão nunca fica bloqueada para sempre se a imagem não carregar.
+  const logoImg = sheet.querySelector('.print-logo img');
+  const printNow = () => window.print();
+  if (logoImg && logoImg.decode) {
+    let printed = false;
+    const done = () => { if (!printed) { printed = true; printNow(); } };
+    setTimeout(done, 800);
+    logoImg.decode().catch(() => {}).then(done);
+  } else {
+    printNow();
+  }
 }
 
 // Tenta ligar assim que a página carrega (mesmo antes do login, para o
