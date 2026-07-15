@@ -1728,10 +1728,23 @@ function unreadActiveAlerts(){
 }
 
 // Nº de alertas "ativos" de um paciente = não silenciados (ver
-// muteAlert()) neste momento. Calculado, não guardado à parte, para
-// nunca poder ficar dessincronizado do que a tabela de alertas mostra.
+// muteAlert()) E não lidos, neste momento. Calculado, não guardado à
+// parte, para nunca poder ficar dessincronizado do que a tabela de
+// alertas mostra.
+// BUG CORRIGIDO (2026-07-16, reportado pelo utilizador): antes só
+// filtrava por "não silenciado" — um médico que já tinha lido/tratado
+// todos os alertas de um paciente continuava a ver "N ativos" nesta
+// pill (ex.: "4 ativos"), mas ao entrar em "Alertas por severidade"
+// (que já filtrava por não-lido) via sempre a mensagem de vazio "Sem
+// alertas novos" — parecia que a secção estava sempre vazia
+// independentemente do paciente. As duas áreas usam agora o mesmo
+// critério (não silenciado E não lido), para o número na tabela nunca
+// prometer algo que a secção de severidade não mostra.
 function activeAlertsCount(patient){
-  return patient.alerts.filter(a => !alertMutedUntil(patientAlertKey(patient.id, a.key))).length;
+  return patient.alerts.filter(a =>
+    !alertMutedUntil(patientAlertKey(patient.id, a.key)) &&
+    !isAlertRead(patientAlertKey(patient.id, a.key))
+  ).length;
 }
 
 // Chamada pelo botão "Selecionar" em cada linha da tabela de pacientes
