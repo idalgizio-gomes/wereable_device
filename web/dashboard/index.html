@@ -1615,13 +1615,18 @@ function saveDeletedAlerts(map){
 }
 let deletedAlertsMap = loadDeletedAlerts();
 function isAlertDeleted(fullKey){ return !!deletedAlertsMap[fullKey]; }
+// Bug de permissão corrigido (2026-07-16): mesmo motivo dos guards em
+// deleteAnomaly()/deleteEmergencyRecord() abaixo — apagar não é decisão
+// do utente/família, só da equipa clínica.
 function deleteAlert(fullKey){
+  if (currentRole === 'utente') return;
   deletedAlertsMap[fullKey] = true;
   saveDeletedAlerts(deletedAlertsMap);
   updateNotificationBadge();
   if (currentView) renderView(currentView);
 }
 function clearAllAlertsForPatient(){
+  if (currentRole === 'utente') return;
   currentAlerts().forEach(a => { deletedAlertsMap[patientAlertKey(selectedPatientId, a.key)] = true; });
   saveDeletedAlerts(deletedAlertsMap);
   updateNotificationBadge();
@@ -1654,13 +1659,23 @@ function saveDeletedMap(key, map){
 let deletedAnomaliesMap = loadDeletedMap(DELETED_ANOMALIES_KEY);
 let deletedEmergenciesMap = loadDeletedMap(DELETED_EMERGENCIES_KEY);
 
+// Bug de permissão corrigido (2026-07-16, reportado pelo utilizador):
+// apagar o próprio registo de anomalias/emergências não é uma decisão
+// que caiba ao utente/família — só a equipa clínica deve poder fazê-lo.
+// Os botões já estavam escondidos para utente na maior parte dos casos
+// (ver TEMPLATES.anomalias/emergencias), mas o botão individual de
+// apagar emergência tinha escapado a essa guarda. Em vez de confiar só
+// em esconder o botão, estas funções recusam agora diretamente
+// (defesa em profundidade — mesmo padrão já usado em selectPatient()).
 function deleteAnomaly(anomalyId){
+  if (currentRole === 'utente') return;
   const fullKey = `${selectedPatientId}:${anomalyId}`;
   deletedAnomaliesMap[fullKey] = true;
   saveDeletedMap(DELETED_ANOMALIES_KEY, deletedAnomaliesMap);
   if (currentView) renderView(currentView);
 }
 function deleteEmergencyRecord(emergencyId){
+  if (currentRole === 'utente') return;
   const fullKey = `${selectedPatientId}:${emergencyId}`;
   deletedEmergenciesMap[fullKey] = true;
   saveDeletedMap(DELETED_EMERGENCIES_KEY, deletedEmergenciesMap);
@@ -1671,11 +1686,13 @@ function deleteEmergencyRecord(emergencyId){
 // ativas ficam de fora (mesma regra de segurança de deleteEmergencyRecord:
 // têm de ser canceladas primeiro, não apagadas diretamente).
 function clearAllAnomaliesForPatient(){
+  if (currentRole === 'utente') return;
   currentAnomalyLog().forEach(a => { deletedAnomaliesMap[`${selectedPatientId}:${a.id}`] = true; });
   saveDeletedMap(DELETED_ANOMALIES_KEY, deletedAnomaliesMap);
   if (currentView) renderView(currentView);
 }
 function clearAllEmergenciesForPatient(){
+  if (currentRole === 'utente') return;
   currentEmergencyLog().filter(e => e.status !== 'ativo').forEach(e => { deletedEmergenciesMap[`${selectedPatientId}:${e.id}`] = true; });
   saveDeletedMap(DELETED_EMERGENCIES_KEY, deletedEmergenciesMap);
   if (currentView) renderView(currentView);
@@ -3388,7 +3405,7 @@ TEMPLATES.emergencias = () => {
             <td>${e.resolvedNote || '—'}</td>
             <td style="display:flex; gap:6px;">
               ${e.status==='ativo' ? `<button class="btn-danger" onclick="openEmergencyCancelModal('${e.id}')">Cancelar alerta…</button>` : ''}
-              ${e.status!=='ativo' ? `<button class="btn-secondary" onclick="if(confirm('Apagar este registo de emergência (${e.id})? Esta ação não pode ser desfeita.')) deleteEmergencyRecord('${e.id}')">Apagar</button>` : ''}
+              ${!isUtente && e.status!=='ativo' ? `<button class="btn-secondary" onclick="if(confirm('Apagar este registo de emergência (${e.id})? Esta ação não pode ser desfeita.')) deleteEmergencyRecord('${e.id}')">Apagar</button>` : ''}
             </td>
           </tr>
         `).join('')}
