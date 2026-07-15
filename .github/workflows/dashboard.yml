@@ -48,6 +48,9 @@ jobs:
       - name: Validar sintaxe de medication-reminders.js
         run: node --check web/dashboard/medication-reminders.js
 
+      - name: Validar sintaxe de demo-data.js (gerado pelo cron diário)
+        run: node --check web/dashboard/demo-data.js
+
       - name: Verificar funções/ids duplicados
         run: |
           node -e "

@@ -852,6 +852,13 @@
   </div>
 </div>
 
+<!-- Dados de demonstração regenerados diariamente (cron GitHub Actions,
+     ver .github/workflows/demo-data.yml e scripts/generate-demo-data.js) —
+     define as consts DEMO_* consumidas mais abaixo, com fallback defensivo
+     para as funções build*() originais se este ficheiro faltar/estiver
+     desatualizado. Script clássico (não module) para funcionar também
+     quando index.html é aberto diretamente como ficheiro local (file://). -->
+<script src="demo-data.js"></script>
 <script>
 /* ============================================================
    INTERNACIONALIZAÇÃO (i18n)
@@ -1112,8 +1119,12 @@ function buildRoutine(seed, anomalous){
   }
   return blocks;
 }
-const routineToday = buildRoutine(7, false);
-const routineAnomaly = buildRoutine(7, true);
+// Preferem os dados regenerados diariamente (demo-data.js, ver <script src>
+// acima) quando disponíveis; caem para as funções build*() originais
+// (sempre presentes neste ficheiro) se demo-data.js faltar ou for antigo —
+// nunca parte a página, só deixa de ter dados "frescos".
+const routineToday = (typeof DEMO_ROUTINE_TODAY !== 'undefined') ? DEMO_ROUTINE_TODAY : buildRoutine(7, false);
+const routineAnomaly = (typeof DEMO_ROUTINE_ANOMALY !== 'undefined') ? DEMO_ROUTINE_ANOMALY : buildRoutine(7, true);
 
 function buildTrend(seed){
   const rnd = seedRand(seed);
@@ -1125,7 +1136,7 @@ function buildTrend(seed){
     fc: Math.round(64 + rnd()*14),
   }));
 }
-const trendData = buildTrend(3);
+const trendData = (typeof DEMO_TREND_DATA !== 'undefined') ? DEMO_TREND_DATA : buildTrend(3);
 
 /* ============================================================
    LIMIARES PERSONALIZADOS POR PESSOA (protótipo)
@@ -1284,7 +1295,7 @@ function buildHeatmap(seed){
     return Math.min(1, base);
   })}));
 }
-const heatmapData = buildHeatmap(11);
+const heatmapData = (typeof DEMO_HEATMAP_DATA !== 'undefined') ? DEMO_HEATMAP_DATA : buildHeatmap(11);
 
 // Cada alerta tem, além da descrição técnica ("desc"), um campo "plain":
 // uma explicação em linguagem simples, pensada para um familiar sem
@@ -1384,6 +1395,19 @@ const PATIENTS = [
     ],
   },
 ];
+
+// Sobrepõe alerts/anomalyLog/adherenceHistory (os campos "datados") com a
+// versão regenerada diariamente (demo-data.js, ver <script src> no topo do
+// ficheiro), quando disponível. Os literais acima em PATIENTS ficam como
+// fallback natural (não vazio) se demo-data.js faltar/estiver desatualizado
+// — mais seguro do que remover os campos e depender só do ficheiro gerado.
+if (typeof DEMO_PATIENT_DYNAMIC !== 'undefined') {
+  PATIENTS.forEach(p => {
+    const dyn = DEMO_PATIENT_DYNAMIC[p.id];
+    if (dyn) Object.assign(p, dyn);
+  });
+}
+
 const SELECTED_PATIENT_KEY = 'carewear_selected_patient_id';
 
 function loadSelectedPatientId(){
@@ -2273,7 +2297,7 @@ function buildNightRestlessness(seed){
   }
   return events;
 }
-const nightEvents = buildNightRestlessness(19);
+const nightEvents = (typeof DEMO_NIGHT_EVENTS !== 'undefined') ? DEMO_NIGHT_EVENTS : buildNightRestlessness(19);
 
 function renderNightSummary(){
   const host = document.getElementById('nightSummary');
@@ -2337,7 +2361,7 @@ function buildPacingTrend(seed){
     return { day, score: Math.round(Math.min(100, base + drift)) };
   });
 }
-const pacingTrend = buildPacingTrend(31);
+const pacingTrend = (typeof DEMO_PACING_TREND !== 'undefined') ? DEMO_PACING_TREND : buildPacingTrend(31);
 
 function renderPacingSummary(){
   const host = document.getElementById('pacingSummary');
@@ -3787,7 +3811,7 @@ function buildHr(){
     return { t: hour, hr: Math.round((night?58:72) + rnd()*10 + Math.sin(i*0.4)*4) };
   });
 }
-const hrSeries = buildHr();
+const hrSeries = (typeof DEMO_HR_SERIES !== 'undefined') ? DEMO_HR_SERIES : buildHr();
 
 function drawHrSeries(id){
   const S = setupCanvas(id, 190);

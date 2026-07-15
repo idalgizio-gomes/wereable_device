@@ -1,0 +1,61 @@
+name: Demo data (dados simulados diários)
+
+# Regenera web/dashboard/demo-data.js todos os dias com dados simulados
+# NOVOS e determinísticos (seed = data UTC do dia, ver
+# scripts/generate-demo-data.js) — nunca toca em bridge/carewear_history.db
+# nem em qualquer dado real (ver PROJECT_STATUS.md, "Regra de ouro": nunca
+# misturar dados reais e simulados).
+#
+# Horário: 04:15 UTC, todos os dias. Escolhido para não colidir com:
+#   - as rotinas cloud diárias (05:00 UTC, ver PROJECT_STATUS.md
+#     "Rotinas cloud agendadas"), que fazem push direto para main — 45 min
+#     de folga evita as duas automações a escrever em web/dashboard/ na
+#     mesma janela.
+#   - o security scan semanal (security.yml, segunda-feira 03:00 UTC).
+
+on:
+  schedule:
+    - cron: "15 4 * * *"
+  workflow_dispatch: {}  # permite correr manualmente para testar
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Gerar demo-data.js para hoje
+        run: node scripts/generate-demo-data.js
+
+      - name: Validar sintaxe do ficheiro gerado
+        run: node --check web/dashboard/demo-data.js
+
+      - name: Só comitar se algo mudou (ignorando a linha de timestamp)
+        id: diff
+        run: |
+          if git diff --stat -- web/dashboard/demo-data.js | grep -q .; then
+            CHANGED_LINES=$(git diff -- web/dashboard/demo-data.js | grep -c '^[+-]' || true)
+            TIMESTAMP_LINES=$(git diff -- web/dashboard/demo-data.js | grep -c '^[+-]// Gerado em:' || true)
+            if [ "$CHANGED_LINES" -gt "$TIMESTAMP_LINES" ]; then
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit e push
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/dashboard/demo-data.js
+          git commit -m "chore(dashboard): dados simulados do dia $(date -u +%F)"
+          git push

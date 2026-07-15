@@ -4134,3 +4134,85 @@ não revelaram problemas novos além dos já corrigidos por PRs recentes.
 **Estados vazios**: revisão rápida confirma que todas as listas dinâmicas revistas (alertas, anomalias, notas do cuidador, equipa de cuidadores, blocos de rotina por categoria, dias de adesão incompleta) já mostram uma mensagem explícita quando vazias — nenhum caso novo de "lista vazia silenciosa" encontrado.
 
 **Nenhum bug novo, reproduzível e de confiança suficiente, encontrado além da melhoria de acessibilidade acima** — critério de "terminar sem alterações maiores" da rotina aplicado ao essencial (backlog 1-10 fechado, sem regressões, sem item novo desbloqueado sem bridge/BD/decisão do utilizador); a única alteração de código desta execução foi a melhoria de acessibilidade contida acima, não um redesenho cosmético.
+
+## Logótipo oficial adicionado ao dashboard (2026-07-15)
+
+Substituído o monograma de texto "CW" em `.logo-dot` por uma imagem real
+(`web/dashboard/assets/logo.png`, fornecida pelo utilizador), nos dois
+sítios onde a marca aparece (ecrã de login, sidebar da app). `.logo-dot`
+mantém as dimensões/cantos/gradiente de fallback já existentes como
+moldura; a imagem preenche por `object-fit:cover`. Sem alterações a
+`selectedPatient()`/`renderView()`/qualquer lógica — só marca visual.
+
+## Gerador diário de dados de demonstração (2026-07-15)
+
+**Problema resolvido**: os literais de dados simulados no dashboard
+(`hrSeries`, `trendData`, `heatmapData`, `routineToday`/`routineAnomaly`,
+`nightEvents`, `pacingTrend`, e `alerts`/`anomalyLog`/`adherenceHistory`
+de cada paciente de demonstração em `PATIENTS`) foram escritos uma vez com
+datas fixas (ex.: "02/07", "27/06") e nunca mais atualizados — ficavam
+desatualizados a cada dia que passava, mostrando "tendência semanal" com
+datas no passado indefinidamente.
+
+**Solução**: novo gerador `scripts/generate-demo-data.js` (Node.js puro,
+sem dependências), que reescreve `web/dashboard/demo-data.js` todos os
+dias com dados simulados NOVOS, determinísticos por dia (seed derivada da
+data UTC de execução, mesmo padrão de "seed fixa" já usado em
+`ml/synthetic_data.py` e no próprio `seedRand()` de `index.html`). Replica
+byte a byte a lógica das funções `buildHr()`/`buildTrend()`/
+`buildHeatmap()`/`buildRoutine()`/`buildNightRestlessness()`/
+`buildPacingTrend()` já existentes em `index.html`, só trocando a fonte de
+"hoje" por `DEMO_DATA_DATE`/data de execução. Os textos clínicos dos
+alertas/anomalias (título, descrição, explicação em linguagem simples) são
+preservados tal como já revistos — só as datas/horas relativas são
+recalculadas.
+
+**Integração em `index.html`**: novo `<script src="demo-data.js">` antes
+do script inline principal (funciona em `file://` local, sem CORS/fetch —
+mesmo padrão já usado por `medication-reminders.js`). As 6 consts
+top-level (`routineToday`, `trendData`, `heatmapData`, `nightEvents`,
+`pacingTrend`, `hrSeries`) passam a usar
+`(typeof DEMO_X !== 'undefined') ? DEMO_X : buildX(...)` — nunca partem se
+`demo-data.js` faltar. `PATIENTS` **mantém** os literais `alerts`/
+`anomalyLog`/`adherenceHistory` originais (decisão tomada durante a
+implementação, diferente do desenho inicial que previa removê-los): um
+bloco `Object.assign` logo a seguir ao array sobrepõe esses campos com
+`DEMO_PATIENT_DYNAMIC[p.id]` quando disponível — o fallback fica com
+conteúdo real (os dados de demonstração já existentes), não uma lista
+vazia, caso `demo-data.js` falte.
+
+**Cron**: `.github/workflows/demo-data.yml`, `15 4 * * *` (04:15 UTC
+diário) — 45 min antes das rotinas cloud (05:00 UTC) e fora da janela
+semanal do `security.yml` (segunda 03:00 UTC), para evitar duas automações
+a escrever em `web/dashboard/` na mesma janela. Só comita se algo mudou
+além da linha de timestamp; `workflow_dispatch` disponível para teste
+manual. `dashboard.yml` ganhou um passo extra: `node --check
+web/dashboard/demo-data.js`.
+
+**Porquê GitHub Actions e não uma rotina cloud LLM**: gerar dados
+sintéticos determinísticos é uma tarefa mecânica — script+cron é grátis,
+100% reprodutível, e não arrisca um LLM "inventar" um valor clínico
+implausível. As 2 rotinas cloud diárias já existentes ficam reservadas
+para tarefas que exigem julgamento (rever bugs, decidir otimizações).
+
+**Garantia (regra de ouro)**: o gerador nunca lê nem escreve
+`bridge/carewear_history.db` nem qualquer dado real — só produz literais
+JS para o lado explicitamente rotulado `sim-flag` do dashboard. Confirmado
+por `grep -n "DEMO_" web/dashboard/index.html`: as 8 ocorrências ficam
+todas nos pontos esperados (as 6 consts + o bloco `Object.assign`),
+nenhuma dentro de `liveState`/`handleBridgeMessage`/
+`renderRealTrendTable` (os caminhos de dados reais via WebSocket).
+
+**Verificação feita**: `node --check` sobre `demo-data.js` gerado e sobre
+o `<script>` principal combinado — sem erros; determinismo confirmado
+(`DEMO_DATA_DATE` fixo, duas execuções → output idêntico exceto a linha
+de timestamp); YAML dos dois workflows validado com `yaml.safe_load`.
+**Não testado**: abertura real em browser (`file://` ou servido) nem
+disparo real do cron via `workflow_dispatch` — ficam para confirmação do
+utilizador/próxima sessão com acesso a browser.
+
+**Pendente, fora do âmbito desta implementação**: fluxograma da
+arquitetura completa e relatório técnico comparativo com outros
+dashboards de saúde (Apple Health, Fitbit/Google Fit, Garmin Connect,
+Withings Health Mate, EHR clínico) — publicados como Artifacts separados
+nesta mesma sessão, não ficam versionados no repositório.
