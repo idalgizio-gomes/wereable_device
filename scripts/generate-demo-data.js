@@ -79,6 +79,26 @@ function lastNDays(n, endIsoDate, endOffsetDays = 0) {
   return out;
 }
 
+// Como fmtDDMM(), mas com ano — "dd/mm/yyyy". Usado no registo de
+// anomalias (a data completa é necessária para distinguir eventos de
+// anos diferentes); os gráficos/tendências continuam a usar "dd/mm" só,
+// que é suficiente como rótulo de eixo.
+function fmtDDMMYYYY(isoDate) {
+  const [y, m, d] = isoDate.split('-');
+  return `${d}/${m}/${y}`;
+}
+function lastNDaysFull(n, endIsoDate, endOffsetDays = 0) {
+  const end = new Date(`${endIsoDate}T00:00:00Z`);
+  end.setUTCDate(end.getUTCDate() - endOffsetDays);
+  const out = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(end);
+    d.setUTCDate(d.getUTCDate() - i);
+    out.push(fmtDDMMYYYY(d.toISOString().slice(0, 10)));
+  }
+  return out;
+}
+
 // Formata minutos-do-dia (0-1439) em "HH:MM" — réplica de fmtMin() já
 // usada em index.html para os episódios de agitação noturna.
 function fmtMin(totalMin) {
@@ -182,7 +202,7 @@ function buildPacingTrend(rnd) {
 // index.html — não são números novos inventados nesta tarefa.
 // ------------------------------------------------------------
 function buildPatientDynamic(rnd, dateStr) {
-  const anomalyDays = lastNDays(2, dateStr, 0); // [ontem, hoje]
+  const anomalyDays = lastNDaysFull(2, dateStr, 0); // [ontem, hoje] — data completa (com ano)
   const adherenceDays = lastNDays(6, dateStr, 1); // 6 dias terminando ontem
 
   return {

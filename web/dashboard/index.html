@@ -122,18 +122,18 @@
   }
   .login-brand-mark{ display:flex; align-items:center; gap:10px; }
   .login-brand-mark .logo-dot{
-    width:34px; height:34px; border-radius:9px;
-    background:linear-gradient(160deg, var(--accent), #2AA593);
+    width:52px; height:52px; border-radius:9px;
     display:flex; align-items:center; justify-content:center;
     color:var(--accent-ink); font-weight:700; font-size:15px;
-    overflow:hidden;
+    overflow:visible;
   }
-  /* Logótipo (2026-07-15): a marca CW deixou de ser um monograma de texto
-     — .logo-dot passa a ser a moldura (mantém tamanho/cantos/fallback de
-     gradiente atrás da imagem, caso o ficheiro demore a carregar) e a
-     <img> preenche-a por inteiro. Regra partilhada pelos dois sítios
-     (login + sidebar), que têm tamanhos .logo-dot diferentes. */
-  .logo-dot img{ width:100%; height:100%; object-fit:cover; display:block; }
+  /* Logótipo (2026-07-15, revisto): logo.png já vem com fundo transparente
+     (o PNG original tinha fundo branco opaco, cortado nesta sessão) e
+     preenche a caixa sem esticar/cortar — object-fit:contain em vez de
+     cover, para não recortar a imagem nem impor um fundo colorido atrás
+     dela. .logo-dot deixa de ter background/gradiente próprio: a imagem já
+     tem cor suficiente e assim funciona igual em tema claro e escuro. */
+  .logo-dot img{ width:100%; height:100%; object-fit:contain; display:block; }
   .login-brand-mark span{ font-weight:600; font-size:16px; letter-spacing:0.01em; }
   .login-brand-quote{ max-width:420px; }
   .login-brand-quote .eyebrow{
@@ -200,9 +200,9 @@
   }
   .sidebar-brand{ display:flex; align-items:center; gap:10px; padding:0 6px; }
   .sidebar-brand .logo-dot{
-    width:28px; height:28px; border-radius:8px;
-    background:linear-gradient(160deg, var(--accent), #2AA593);
+    width:40px; height:40px; border-radius:8px;
     display:flex; align-items:center; justify-content:center; color:var(--accent-ink); font-weight:700; font-size:13px;
+    overflow:visible;
   }
   .sidebar-brand span{ font-weight:600; font-size:14.5px; }
 
@@ -537,9 +537,10 @@
 
     .print-header{ display:flex; align-items:flex-start; gap:14px; border-bottom:2px solid #0E7A56; padding-bottom:10px; margin-bottom:14px; }
     .print-logo{
-      flex:none; width:38px; height:38px; border-radius:9px; background:#0E7A56; color:#fff;
-      display:flex; align-items:center; justify-content:center; font-weight:800; font-size:15px; letter-spacing:0.5px;
+      flex:none; width:46px; height:46px;
+      display:flex; align-items:center; justify-content:center;
     }
+    .print-logo img{ width:100%; height:100%; object-fit:contain; display:block; }
     .print-header h1{ font-size:19px; margin:0 0 3px; }
     .print-meta{ font-size:11px; color:#555; margin:0; }
     .print-patient{ margin-bottom:8px; }
@@ -1346,10 +1347,10 @@ const PATIENTS = [
        occurrences:1},
     ],
     anomalyLog: [
-      {id:'A-1042', type:'Duração', detail:'Higiene 46 min acima do limite (d_max × 3.0)', detector:'Regra de duração', conf:'—', sev:'serious', time:'02/07 07:22'},
-      {id:'A-1041', type:'Comportamental', detail:'Substituição contextual: "Atividade" às 09:30 (era "Descanso")', detector:'LSTM Autoencoder', conf:'0.91', sev:'warning', time:'02/07 09:31'},
-      {id:'A-1039', type:'Duração', detail:'Bloco de atividade truncado (25 min abaixo do mínimo)', detector:'Regra de duração', conf:'—', sev:'warning', time:'01/07 17:12'},
-      {id:'A-1035', type:'Fisiológica', detail:'FC 92 bpm sustentada em repouso', detector:'Limiar clínico', conf:'—', sev:'critical', time:'01/07 21:04'},
+      {id:'A-1042', type:'Duração', detail:'Higiene 46 min acima do limite (d_max × 3.0)', detector:'Regra de duração', conf:'—', sev:'serious', time:'02/07/2026 07:22'},
+      {id:'A-1041', type:'Comportamental', detail:'Substituição contextual: "Atividade" às 09:30 (era "Descanso")', detector:'LSTM Autoencoder', conf:'0.91', sev:'warning', time:'02/07/2026 09:31'},
+      {id:'A-1039', type:'Duração', detail:'Bloco de atividade truncado (25 min abaixo do mínimo)', detector:'Regra de duração', conf:'—', sev:'warning', time:'01/07/2026 17:12'},
+      {id:'A-1035', type:'Fisiológica', detail:'FC 92 bpm sustentada em repouso', detector:'Limiar clínico', conf:'—', sev:'critical', time:'01/07/2026 21:04'},
     ],
     medications: [
       {id:'m1', name:'Donepezilo', dose:'5 mg', times:['08:00']},
@@ -1368,8 +1369,8 @@ const PATIENTS = [
        plain:'A pessoa dormiu bastante menos do que é habitual para ela. Uma noite isolada mais curta não é necessariamente grave, mas se se repetir vale a pena perceber a causa (dor, desconforto, mudança de rotina).'},
     ],
     anomalyLog: [
-      {id:'A-0982', type:'Duração', detail:'Sono 4h20min, abaixo de d_min × 0.30', detector:'Regra de duração', conf:'—', sev:'warning', time:'02/07 06:10'},
-      {id:'A-0975', type:'Fisiológica', detail:'Bateria do dispositivo abaixo de 40%', detector:'Diagnóstico do dispositivo', conf:'—', sev:'warning', time:'01/07 22:40'},
+      {id:'A-0982', type:'Duração', detail:'Sono 4h20min, abaixo de d_min × 0.30', detector:'Regra de duração', conf:'—', sev:'warning', time:'02/07/2026 06:10'},
+      {id:'A-0975', type:'Fisiológica', detail:'Bateria do dispositivo abaixo de 40%', detector:'Diagnóstico do dispositivo', conf:'—', sev:'warning', time:'01/07/2026 22:40'},
     ],
     medications: [
       {id:'m1', name:'Rivastigmina (adesivo)', dose:'4.6 mg', times:['09:00']},
@@ -1384,7 +1385,7 @@ const PATIENTS = [
     battery:8, ringBufferUsed:16384, ringBufferTotal:16384,
     alerts: [],
     anomalyLog: [
-      {id:'A-0810', type:'Fisiológica', detail:'Dispositivo desligado/sem sincronização há mais de 12h', detector:'Diagnóstico do dispositivo', conf:'—', sev:'serious', time:'01/07 09:15'},
+      {id:'A-0810', type:'Fisiológica', detail:'Dispositivo desligado/sem sincronização há mais de 12h', detector:'Diagnóstico do dispositivo', conf:'—', sev:'serious', time:'01/07/2026 09:15'},
     ],
     medications: [
       {id:'m1', name:'Quetiapina', dose:'25 mg', times:['21:00']},
@@ -1463,6 +1464,45 @@ function clearAllAlertsForPatient(){
 }
 
 /* ------------------------------------------------------------
+   APAGAR ANOMALIAS E EMERGÊNCIAS INDIVIDUALMENTE (2026-07-15)
+   ------------------------------------------------------------
+   Mesmo padrão de "apagar por chave, filtrar na leitura" já usado para
+   alertas (ver DELETED_ALERTS_KEY acima) — nunca se remove do array de
+   dados de origem (PATIENTS/EMERGENCY_LOG ou demo-data.js), só se marca
+   como apagado num mapa em localStorage, para sobreviver a
+   re-renderizações e a trocas de dados diárias do simulador.
+------------------------------------------------------------ */
+const DELETED_ANOMALIES_KEY = 'carewear_deleted_anomalies';
+const DELETED_EMERGENCIES_KEY = 'carewear_deleted_emergencies';
+
+function loadDeletedMap(key){
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* localStorage indisponível ou dados corrompidos - ignora */ }
+  return {};
+}
+function saveDeletedMap(key, map){
+  try { localStorage.setItem(key, JSON.stringify(map)); }
+  catch (e) { /* quota excedida ou localStorage indisponível - fica só em memória */ }
+}
+let deletedAnomaliesMap = loadDeletedMap(DELETED_ANOMALIES_KEY);
+let deletedEmergenciesMap = loadDeletedMap(DELETED_EMERGENCIES_KEY);
+
+function deleteAnomaly(anomalyId){
+  const fullKey = `${selectedPatientId}:${anomalyId}`;
+  deletedAnomaliesMap[fullKey] = true;
+  saveDeletedMap(DELETED_ANOMALIES_KEY, deletedAnomaliesMap);
+  if (currentView) renderView(currentView);
+}
+function deleteEmergencyRecord(emergencyId){
+  const fullKey = `${selectedPatientId}:${emergencyId}`;
+  deletedEmergenciesMap[fullKey] = true;
+  saveDeletedMap(DELETED_EMERGENCIES_KEY, deletedEmergenciesMap);
+  if (currentView) renderView(currentView);
+}
+
+/* ------------------------------------------------------------
    DIREITO AO ESQUECIMENTO (RGPD art. 17) — apagar dados locais
    ------------------------------------------------------------
    Antes desta função não havia nenhuma forma de apagar de uma vez os
@@ -1496,7 +1536,9 @@ function eraseAllLocalData(){
 function currentAlerts(){
   return selectedPatient().alerts.filter(a => !isAlertDeleted(patientAlertKey(selectedPatientId, a.key)));
 }
-function currentAnomalyLog(){ return selectedPatient().anomalyLog; }
+function currentAnomalyLog(){
+  return selectedPatient().anomalyLog.filter(a => !deletedAnomaliesMap[`${selectedPatientId}:${a.id}`]);
+}
 
 // Alertas ainda não lidos e não apagados — o que aparece em "Alertas
 // recentes" (Resumo) e "Alertas por severidade" (Pacientes). Ler um
@@ -1550,17 +1592,17 @@ function updateClinicoPatientLabel(){
 ------------------------------------------------------------ */
 const EMERGENCY_LOG = {
   p1: [
-    {id:'E-204', type:'fall', label:'Queda + inatividade prolongada', time:'02/07 21:14', status:'resolvido', resolvedNote:'Confirmado falso alarme pela família por telefone.'},
-    {id:'E-198', type:'sos', label:'SOS manual (3 cliques)', time:'28/06 11:02', status:'resolvido', resolvedNote:'Utente pediu ajuda para se levantar, sem gravidade.'},
+    {id:'E-204', type:'fall', label:'Queda + inatividade prolongada', time:'02/07/2026 21:14', status:'resolvido', resolvedNote:'Confirmado falso alarme pela família por telefone.'},
+    {id:'E-198', type:'sos', label:'SOS manual (3 cliques)', time:'28/06/2026 11:02', status:'resolvido', resolvedNote:'Utente pediu ajuda para se levantar, sem gravidade.'},
   ],
   p2: [],
   p3: [
-    {id:'E-150', type:'fall', label:'Queda + inatividade prolongada', time:'25/06 03:40', status:'ativo'},
+    {id:'E-150', type:'fall', label:'Queda + inatividade prolongada', time:'25/06/2026 03:40', status:'ativo'},
   ],
 };
 
 function currentEmergencyLog(){
-  return EMERGENCY_LOG[selectedPatientId] || [];
+  return (EMERGENCY_LOG[selectedPatientId] || []).filter(e => !deletedEmergenciesMap[`${selectedPatientId}:${e.id}`]);
 }
 
 // Mapeia EmergencyAlertType (Ble.h: 1=SOS manual, 2=queda+inatividade —
@@ -2974,14 +3016,16 @@ TEMPLATES.dispositivo = () => `
   })()}
 `;
 
-TEMPLATES.anomalias = () => `
+TEMPLATES.anomalias = () => {
+  const isUtente = currentRole === 'utente';
+  return `
   <div class="card">
     <div class="card-head"><div><h3>Registo de anomalias — ${selectedPatient().name}</h3><div class="card-sub">Deteção combinada: LSTM Autoencoder (comportamental) + regras de duração, com supressão em cascata</div></div></div>
     ${!loadConsent().shareAlerts ? `
     <p class="empty-hint">Este utente/família não autorizou a partilha de alertas/anomalias com a equipa clínica (ver Definições → Consentimento).</p>
     ` : `
     <table class="data-table">
-      <thead><tr><th>ID</th><th>Tipo</th><th>Detalhe</th><th>Detetor</th><th>Confiança</th><th>Severidade</th><th>Quando</th></tr></thead>
+      <thead><tr><th>ID</th><th>Tipo</th><th>Detalhe</th><th>Detetor</th><th>Confiança</th><th>Severidade</th><th>Quando</th>${!isUtente ? '<th></th>' : ''}</tr></thead>
       <tbody>
         ${currentAnomalyLog().length ? currentAnomalyLog().map(a => `
           <tr>
@@ -2992,13 +3036,15 @@ TEMPLATES.anomalias = () => `
             <td class="num">${a.conf}</td>
             <td>${pillHtml(a.sev, a.sev==='critical'?'Crítico':a.sev==='serious'?'Sério':'Aviso')}</td>
             <td class="num">${a.time}</td>
+            ${!isUtente ? `<td><button class="btn-secondary" onclick="if(confirm('Apagar esta anomalia (${a.id})? Esta ação não pode ser desfeita.')) deleteAnomaly('${a.id}')">Apagar</button></td>` : ''}
           </tr>
-        `).join('') : `<tr><td colspan="7"><p class="empty-hint">Sem anomalias registadas para este paciente.</p></td></tr>`}
+        `).join('') : `<tr><td colspan="${isUtente ? 7 : 8}"><p class="empty-hint">Sem anomalias registadas para este paciente.</p></td></tr>`}
       </tbody>
     </table>
     `}
   </div>
 `;
+};
 
 TEMPLATES.alertas = () => {
   const isUtente = currentRole === 'utente';
@@ -3049,7 +3095,10 @@ TEMPLATES.emergencias = () => `
             <td>${e.live ? pillHtml('critical','Em direto') : pillHtml('neutral','Demonstração')}</td>
             <td>${pillHtml(e.status==='ativo'?'critical':e.status==='cancelado'?'neutral':'good', e.status==='ativo'?'Ativo':e.status==='cancelado'?'Cancelado':'Resolvido')}</td>
             <td>${e.resolvedNote || '—'}</td>
-            <td>${e.status==='ativo' ? `<button class="btn-danger" onclick="openEmergencyCancelModal('${e.id}')">Cancelar alerta…</button>` : ''}</td>
+            <td style="display:flex; gap:6px;">
+              ${e.status==='ativo' ? `<button class="btn-danger" onclick="openEmergencyCancelModal('${e.id}')">Cancelar alerta…</button>` : ''}
+              ${e.status!=='ativo' ? `<button class="btn-secondary" onclick="if(confirm('Apagar este registo de emergência (${e.id})? Esta ação não pode ser desfeita.')) deleteEmergencyRecord('${e.id}')">Apagar</button>` : ''}
+            </td>
           </tr>
         `).join('')}
       </tbody>
@@ -4528,7 +4577,7 @@ function exportClinicalPdf(){
 
   sheet.innerHTML = `
     <header class="print-header">
-      <div class="print-logo">CW</div>
+      <div class="print-logo"><img src="assets/logo.png" alt="CareWear"></div>
       <div>
         <h1>CareWear — Resumo clínico</h1>
         <p class="print-meta">Gerado em ${generatedAt} · Protótipo — dados de demonstração, não substituem avaliação clínica direta.</p>
