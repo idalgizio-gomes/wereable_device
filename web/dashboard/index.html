@@ -126,7 +126,14 @@
     background:linear-gradient(160deg, var(--accent), #2AA593);
     display:flex; align-items:center; justify-content:center;
     color:var(--accent-ink); font-weight:700; font-size:15px;
+    overflow:hidden;
   }
+  /* Logótipo (2026-07-15): a marca CW deixou de ser um monograma de texto
+     — .logo-dot passa a ser a moldura (mantém tamanho/cantos/fallback de
+     gradiente atrás da imagem, caso o ficheiro demore a carregar) e a
+     <img> preenche-a por inteiro. Regra partilhada pelos dois sítios
+     (login + sidebar), que têm tamanhos .logo-dot diferentes. */
+  .logo-dot img{ width:100%; height:100%; object-fit:cover; display:block; }
   .login-brand-mark span{ font-weight:600; font-size:16px; letter-spacing:0.01em; }
   .login-brand-quote{ max-width:420px; }
   .login-brand-quote .eyebrow{
@@ -556,7 +563,7 @@
 <div id="view-login">
   <div class="login-brand">
     <div class="login-brand-mark">
-      <div class="logo-dot">CW</div>
+      <div class="logo-dot"><img src="assets/logo.png" alt="CareWear"></div>
       <span>CareWear</span>
     </div>
     <div class="login-brand-quote">
@@ -667,7 +674,7 @@
 <div id="view-app">
   <aside class="sidebar">
     <div class="sidebar-brand">
-      <div class="logo-dot">CW</div>
+      <div class="logo-dot"><img src="assets/logo.png" alt="CareWear"></div>
       <span>CareWear</span>
     </div>
     <span class="sidebar-role-pill utente" id="sidebarRolePill">Utente / Família</span>
