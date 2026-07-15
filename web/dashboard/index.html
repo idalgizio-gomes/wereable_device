@@ -1873,6 +1873,35 @@ function patientMedications(patient){
   const base = patient.medications.filter(m => !reg.removedIds.includes(m.id));
   return [...base, ...reg.added];
 }
+/* ------------------------------------------------------------
+   HORÁRIOS RECORRENTES (2026-07-15, pedido do utilizador)
+   ------------------------------------------------------------
+   Antes, medicações de horário fixo (ex.: de 8 em 8h) obrigavam a
+   escrever à mão "08:00, 16:00, 00:00" no campo de texto livre —
+   trabalhoso e propenso a erro (esquecer uma dose, hora mal calculada).
+   Estes botões pré-calculam as horas a partir de uma hora de início e
+   de um intervalo em horas, e escrevem o resultado no mesmo campo
+   #newMedTimes — o utilizador pode sempre editar à mão antes de
+   "Adicionar", o campo de texto continua a ser a fonte de verdade.
+------------------------------------------------------------ */
+function fillRecurringTimes(intervalHours){
+  const startEl = document.getElementById('newMedStartTime');
+  const timesEl = document.getElementById('newMedTimes');
+  if (!startEl || !timesEl) return;
+  const start = startEl.value || '08:00';
+  const [h0, m0] = start.split(':').map(Number);
+  const startMin = h0 * 60 + m0;
+  const count = Math.max(1, Math.round(24 / intervalHours));
+  const times = [];
+  for (let i = 0; i < count; i++){
+    const totalMin = (startMin + i * intervalHours * 60) % (24 * 60);
+    const h = String(Math.floor(totalMin / 60)).padStart(2, '0');
+    const m = String(totalMin % 60).padStart(2, '0');
+    times.push(`${h}:${m}`);
+  }
+  timesEl.value = times.join(', ');
+}
+
 function addMedicationForPatient(){
   const nameEl = document.getElementById('newMedName');
   const doseEl = document.getElementById('newMedDose');
@@ -3207,7 +3236,15 @@ TEMPLATES.medicacao = () => {
       <input id="newMedTimes" type="text" placeholder="Horários, separados por vírgula (ex: 08:00, 20:00)" style="flex:1;">
       <button class="btn-secondary" onclick="addMedicationForPatient()">Adicionar</button>
     </div>
-    <p class="empty-hint">Protótipo: guardado só neste browser (localStorage) — um sistema real ligaria isto a uma prescrição clínica com assinatura/validação, não um formulário livre.</p>
+    <div class="note-form" style="margin-top:8px; align-items:center;">
+      <span class="empty-hint" style="padding:0;">Horário recorrente a partir de:</span>
+      <input id="newMedStartTime" type="time" value="08:00" style="max-width:110px;">
+      <button class="btn-secondary" onclick="fillRecurringTimes(8)">De 8 em 8h</button>
+      <button class="btn-secondary" onclick="fillRecurringTimes(12)">De 12 em 12h</button>
+      <button class="btn-secondary" onclick="fillRecurringTimes(6)">De 6 em 6h</button>
+      <button class="btn-secondary" onclick="fillRecurringTimes(24)">1x/dia</button>
+    </div>
+    <p class="empty-hint">Os botões acima só preenchem o campo "Horários" acima — revê antes de clicar em "Adicionar". Protótipo: guardado só neste browser (localStorage) — um sistema real ligaria isto a uma prescrição clínica com assinatura/validação, não um formulário livre.</p>
   </div>` : ''}
 
   <div class="card">
