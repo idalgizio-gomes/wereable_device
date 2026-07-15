@@ -1585,6 +1585,20 @@ function deleteEmergencyRecord(emergencyId){
   saveDeletedMap(DELETED_EMERGENCIES_KEY, deletedEmergenciesMap);
   if (currentView) renderView(currentView);
 }
+// "Limpar tudo" — mesmo padrão de clearAllAlertsForPatient(), pedido do
+// utilizador depois de reparar que só existia para alertas. Emergências
+// ativas ficam de fora (mesma regra de segurança de deleteEmergencyRecord:
+// têm de ser canceladas primeiro, não apagadas diretamente).
+function clearAllAnomaliesForPatient(){
+  currentAnomalyLog().forEach(a => { deletedAnomaliesMap[`${selectedPatientId}:${a.id}`] = true; });
+  saveDeletedMap(DELETED_ANOMALIES_KEY, deletedAnomaliesMap);
+  if (currentView) renderView(currentView);
+}
+function clearAllEmergenciesForPatient(){
+  currentEmergencyLog().filter(e => e.status !== 'ativo').forEach(e => { deletedEmergenciesMap[`${selectedPatientId}:${e.id}`] = true; });
+  saveDeletedMap(DELETED_EMERGENCIES_KEY, deletedEmergenciesMap);
+  if (currentView) renderView(currentView);
+}
 
 /* ------------------------------------------------------------
    DIREITO AO ESQUECIMENTO (RGPD art. 17) — apagar dados locais
@@ -3153,9 +3167,13 @@ TEMPLATES.dispositivo = () => `
 
 TEMPLATES.anomalias = () => {
   const isUtente = currentRole === 'utente';
+  const anomalyLog = currentAnomalyLog();
   return `
   <div class="card">
-    <div class="card-head"><div><h3>Registo de anomalias — ${selectedPatient().name}</h3><div class="card-sub">Deteção combinada: LSTM Autoencoder (comportamental) + regras de duração, com supressão em cascata</div></div></div>
+    <div class="card-head">
+      <div><h3>Registo de anomalias — ${selectedPatient().name}</h3><div class="card-sub">Deteção combinada: LSTM Autoencoder (comportamental) + regras de duração, com supressão em cascata</div></div>
+      ${!isUtente && anomalyLog.length ? `<button class="btn-danger" onclick="if(confirm('Apagar TODAS as anomalias deste paciente? Esta ação não pode ser desfeita.')) clearAllAnomaliesForPatient();">Limpar tudo</button>` : ''}
+    </div>
     ${!loadConsent().shareAlerts ? `
     <p class="empty-hint">Este utente/família não autorizou a partilha de alertas/anomalias com a equipa clínica (ver Definições → Consentimento).</p>
     ` : `
@@ -3214,9 +3232,16 @@ TEMPLATES.alertas = () => {
 `;
 };
 
-TEMPLATES.emergencias = () => `
+TEMPLATES.emergencias = () => {
+  const isUtente = currentRole === 'utente';
+  const emergencyLog = currentEmergencyLog();
+  const hasClearable = emergencyLog.some(e => e.status !== 'ativo');
+  return `
   <div class="card">
-    <div class="card-head"><div><h3>Registo de emergências — ${selectedPatient().name}</h3><div class="card-sub">SOS manual (gesto de cliques) e deteção automática de queda + inatividade prolongada — ver módulo firmware Emergency</div></div></div>
+    <div class="card-head">
+      <div><h3>Registo de emergências — ${selectedPatient().name}</h3><div class="card-sub">SOS manual (gesto de cliques) e deteção automática de queda + inatividade prolongada — ver módulo firmware Emergency</div></div>
+      ${!isUtente && hasClearable ? `<button class="btn-danger" onclick="if(confirm('Apagar todos os registos de emergência RESOLVIDOS/CANCELADOS deste paciente? Emergências ativas não são afetadas. Esta ação não pode ser desfeita.')) clearAllEmergenciesForPatient();">Limpar tudo</button>` : ''}
+    </div>
     <p class="empty-hint">O bridge (<code>ble_bridge.py</code>) escuta a characteristic <code>emergencyAlertChar</code> do dispositivo — eventos marcados <b>"Em direto"</b> abaixo vieram mesmo do wearable ligado; os restantes continuam a ser dados de demonstração. <b>Limitação honesta</b>: o bridge só liga a um dispositivo físico de cada vez, por isso um alerta em direto fica sempre atribuído ao paciente selecionado no momento em que chega, não a uma identidade confirmada pelo hardware (ver seletor de paciente).</p>
     ${currentEmergencyLog().length ? `
     <table class="data-table">
@@ -3242,6 +3267,7 @@ TEMPLATES.emergencias = () => `
     <p class="empty-hint">Cancelar um alerta ativo exige confirmação reforçada (palavra-passe + código de verificação) — pensado para o caso de o wearable ficar sem resposta a meio de um falso positivo, sem abrir uma forma fácil de silenciar uma emergência real por engano.</p>
   </div>
 `;
+};
 
 TEMPLATES.medicacao = () => {
   const p = selectedPatient();
