@@ -4216,3 +4216,28 @@ arquitetura completa e relatório técnico comparativo com outros
 dashboards de saúde (Apple Health, Fitbit/Google Fit, Garmin Connect,
 Withings Health Mate, EHR clínico) — publicados como Artifacts separados
 nesta mesma sessão, não ficam versionados no repositório.
+
+
+---
+
+## 2026-07-15 — Correções de UI/UX reportadas por teste manual (sessão de continuação)
+
+Lote de bugs reportados diretamente pelo utilizador após usar a dashboard com o logótipo/simulador já em produção.
+
+### Corrigido
+- **Logótipo**: `logo.png` tinha fundo branco opaco (RGB, sem canal alfa) — aparecia como uma caixa branca destacada do fundo do site, e minúsculo porque `.logo-dot` estava dimensionado para o antigo monograma de texto "CW". Corrigido: fundo removido por chroma-key (limiar de distância a branco, canal alfa gradual para preservar anti-aliasing das bordas), imagem recortada à área de conteúdo, `.logo-dot` aumentado (34→52px login, 28→40px sidebar) e a passar a usar `object-fit:contain` em vez de `cover` (não recorta a imagem). `exportClinicalPdf()` também usava sempre o texto "CW" em vez da imagem — corrigido.
+- **Apagar anomalias/emergências**: não havia botão de eliminar em nenhum dos dois registos (só existia para alertas). Adicionado `deleteAnomaly()`/`deleteEmergencyRecord()`, mesmo padrão de "apagar por chave em localStorage" já usado em `deleteAlert()`. Emergências ativas continuam sem poder ser apagadas diretamente (têm de ser canceladas primeiro — fluxo de segurança reforçada já existente, mantido de propósito).
+- **Datas incompletas no registo de anomalias**: apareciam como "dd/mm" sem ano, ambíguas entre anos diferentes. `generate-demo-data.js` passa a usar `fmtDDMMYYYY`/`lastNDaysFull` para as datas de anomalias/emergências (gráficos/tendências mantêm "dd/mm", que é só rótulo de eixo, sem ambiguidade real).
+- **BUG REAL DE DADOS — troca de paciente na área médica**: `hrSeries`, `trendData`, `heatmapData`, `routineToday`, `routineAnomaly`, `nightEvents` e `pacingTrend` eram constantes **globais únicas**, geradas uma vez e partilhadas pelos 3 pacientes — nunca ligadas a `selectedPatientId`. Ao trocar de paciente em "Pacientes", o nome/perfil mudava corretamente mas todos os gráficos continuavam a mostrar a mesma série (dando a impressão de "dados trocados"). Corrigido: cada série passa a ser um mapa `{p1, p2, p3}` (index.html e generate-demo-data.js, RNG por paciente = seed do dia + offset fixo por paciente id), lida através de `current*()` (`currentHrSeries()`, `currentTrendData()`, etc.), mesmo padrão já usado por `currentAnomalyLog()`/`currentAlerts()`.
+- **Horário recorrente de medicação**: escrever à mão os horários de uma medicação de intervalo fixo (ex.: de 8 em 8h) era trabalhoso. Adicionados botões de preset (6h/8h/12h/24h) que pré-calculam e preenchem o campo de horários a partir de uma hora de início — o campo continua editável/revisável antes de "Adicionar".
+
+### Investigado, sem alteração de código (não encontrei o bug descrito)
+- **"Dashboard não ligada à hora corrente" / alertas de medicação não disparam**: `medication-reminders.js` (`MedicationReminder.checkAndNotify()`) já usa `new Date()`/`Date.now()` reais, corre a cada 5 min, e uma medicação nova é apanhada automaticamente na próxima verificação (lê `patientMedications()` de fresco a cada tick). Não encontrei nenhum relógio estático/falso no código. Precisa de reprodução ao vivo (permissão de notificação do browser bloqueada? cache do browser com versão antiga do ficheiro?) para diagnosticar mais.
+
+### Pendente — depende de acesso à placa física (adiado pelo utilizador para outra sessão)
+- **Leitura de FC**: mostrar valores ao vivo durante os 15s da leitura (em vez de só no fim) e opção de leitura contínua até desligar — exige mudanças no firmware (src/) e no bridge, não só na dashboard.
+- **Bateria sem valor**: não é bug, é limitação já documentada no próprio HTML (title="O firmware ainda não reporta nível de bateria") — o firmware nunca leu/reportou tensão de bateria por BLE. Precisa de sensor ADC + characteristic nova.
+
+### Pendente — âmbito grande demais para esta sessão, adiado a pedido do utilizador
+- **Tradução completa (i18n)**: só elementos com data-i18n (menus/login) usam o sistema de tradução; todo o conteúdo das páginas (milhares de strings nos templates de Resumo/Sinais vitais/Medicação/etc.) está hardcoded em português. Confirmado com o utilizador que fica para depois.
+- **Área de técnico** e **pesquisa comparativa alargada a 40 dashboards**: deixados propositadamente para o fim desta sessão.
