@@ -1487,6 +1487,11 @@ function addPatient(name, age, deviceName, mac){
   added.push(record);
   saveAddedPatients(added);
   PATIENTS.push(buildPatientRecord(record));
+  // Quem cria o paciente fica automaticamente atribuído a ele — senão um
+  // técnico não-admin acabava de registar um paciente que a própria
+  // conta dele não conseguia depois ver/selecionar (ver "ATRIBUIÇÃO
+  // PACIENTE ↔ CONTA CLÍNICA" mais abaixo).
+  assignPatientToCurrentUser(record.id);
   if (currentView) renderView(currentView);
   return true;
 }
@@ -1494,19 +1499,94 @@ function addPatient(name, age, deviceName, mac){
 // única vez ao carregar o script, depois de PATIENTS estar definido.
 loadAddedPatients().forEach(record => PATIENTS.push(buildPatientRecord(record)));
 
+/* ------------------------------------------------------------
+   ATRIBUIÇÃO PACIENTE ↔ CONTA CLÍNICA (2026-07-16, pedido do utilizador)
+   ------------------------------------------------------------
+   Bug de acesso reportado: qualquer conta Médico/Técnico conseguia ver
+   e trocar livremente entre TODOS os pacientes, sem nenhuma associação
+   entre a conta e os pacientes de que é responsável — bastava trocar o
+   "paciente selecionado" na lista para consultar/diagnosticar qualquer
+   um. Não existe backend real (login aceita qualquer email/password,
+   ver login()), por isso a "conta" aqui é só o email escrito no login.
+   ADMIN_EMAIL (o mesmo já pré-preenchido no formulário de login) tem
+   acesso total a todos os pacientes, como pedido explicitamente — serve
+   de "super-conta" para continuar a testar/demonstrar tudo sem fricção.
+   Qualquer outro email só vê os pacientes atribuídos a ele — atribuição
+   guardada em localStorage (protótipo, sem backend), com auto-atribuição
+   ao criar um paciente novo (addPatient()) para o técnico que o criou
+   não ficar sem acesso ao que acabou de registar.
+------------------------------------------------------------ */
+const ADMIN_EMAIL = 'ana.silva@carewear.pt';
+const CLINICIAN_ASSIGNMENTS_KEY = 'carewear_clinician_assignments';
+let currentUserEmail = '';
+
+function isAdminUser(){
+  return !!currentUserEmail && currentUserEmail.trim().toLowerCase() === ADMIN_EMAIL;
+}
+function loadClinicianAssignments(){
+  try {
+    const raw = localStorage.getItem(CLINICIAN_ASSIGNMENTS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* localStorage indisponível ou dados corrompidos - ignora */ }
+  return {};
+}
+function saveClinicianAssignments(map){
+  try { localStorage.setItem(CLINICIAN_ASSIGNMENTS_KEY, JSON.stringify(map)); }
+  catch (e) { /* quota excedida ou localStorage indisponível - fica só em memória */ }
+}
+function assignedPatientIds(){
+  if (isAdminUser()) return PATIENTS.map(p => p.id);
+  if (!currentUserEmail) return [];
+  const map = loadClinicianAssignments();
+  return map[currentUserEmail.trim().toLowerCase()] || [];
+}
+// Pacientes que a conta atual pode ver/selecionar — usar sempre isto em
+// vez de PATIENTS diretamente nas vistas da área clínica.
+function accessiblePatients(){
+  if (isAdminUser()) return PATIENTS;
+  const ids = assignedPatientIds();
+  return PATIENTS.filter(p => ids.includes(p.id));
+}
+function assignPatientToCurrentUser(patientId){
+  if (isAdminUser() || !currentUserEmail) return; // admin já vê tudo; sem email não há a quem atribuir
+  const key = currentUserEmail.trim().toLowerCase();
+  const map = loadClinicianAssignments();
+  map[key] = map[key] || [];
+  if (!map[key].includes(patientId)) map[key].push(patientId);
+  saveClinicianAssignments(map);
+}
+
 const SELECTED_PATIENT_KEY = 'carewear_selected_patient_id';
 
 function loadSelectedPatientId(){
+  const accessible = accessiblePatients();
   try {
     const saved = localStorage.getItem(SELECTED_PATIENT_KEY);
-    if (saved && PATIENTS.some(p => p.id === saved)) return saved;
+    if (saved && accessible.some(p => p.id === saved)) return saved;
   } catch (e) { /* localStorage indisponível - usa omissão */ }
-  return PATIENTS[0].id;
+  return accessible.length ? accessible[0].id : null;
 }
-let selectedPatientId = loadSelectedPatientId();
+let selectedPatientId = null; // resolvido em login(), depois de se saber currentUserEmail
 
+// Placeholder devolvido por selectedPatient() quando a conta atual não
+// tem NENHUM paciente atribuído — sem isto, o antigo fallback final
+// "|| PATIENTS[0]" mostrava sempre os dados reais da Maria Silva a
+// qualquer conta sem atribuições assim que navegasse para uma vista
+// além de "Pacientes" (essa vista já tinha guarda própria, as outras
+// não). Todos os campos usados nas várias vistas ficam vazios/neutros
+// em vez de ausentes, para nenhum template rebentar a tentar ler
+// p.name/p.alerts/etc.
+const NO_ACCESS_PATIENT = {
+  id: 'none', name: 'Nenhum paciente atribuído', age: 0,
+  deviceName: '—', mac: '—', lastSync: '—', status: 'off',
+  battery: 0, ringBufferUsed: 0, ringBufferTotal: 16384,
+  alerts: [], anomalyLog: [], medications: [], adherenceHistory: [],
+};
 function selectedPatient(){
-  return PATIENTS.find(p => p.id === selectedPatientId) || PATIENTS[0];
+  const found = PATIENTS.find(p => p.id === selectedPatientId);
+  if (found) return found;
+  const accessible = accessiblePatients();
+  return accessible.length ? accessible[0] : NO_ACCESS_PATIENT;
 }
 
 /* ------------------------------------------------------------
@@ -1660,6 +1740,11 @@ function activeAlertsCount(patient){
 // lateral). Ver limitação honesta no comentário acima — isto não troca a
 // ligação BLE real.
 function selectPatient(id){
+  // Defesa em profundidade: mesmo que o botão "Selecionar" de um paciente
+  // não atribuído nunca devesse aparecer na UI (ver TEMPLATES.pacientes),
+  // esta função continua a recusar a troca — não depende só de esconder
+  // o botão. Ver comentário em accessiblePatients() acima.
+  if (!accessiblePatients().some(p => p.id === id)) return;
   selectedPatientId = id;
   try { localStorage.setItem(SELECTED_PATIENT_KEY, id); }
   catch (e) { /* quota excedida ou localStorage indisponível - seleção fica só nesta sessão */ }
@@ -2246,6 +2331,14 @@ function login(){
   document.getElementById('view-login').style.display = 'none';
   document.getElementById('view-app').classList.add('active');
 
+  // Regista a conta que entrou (ver "ATRIBUIÇÃO PACIENTE ↔ CONTA
+  // CLÍNICA" acima) e só agora resolve qual paciente fica selecionado —
+  // antes deste ponto ainda não se sabe o email, por isso
+  // selectedPatientId tinha de ficar por resolver até aqui.
+  const emailEl = document.getElementById('loginEmail');
+  currentUserEmail = emailEl ? emailEl.value : '';
+  selectedPatientId = loadSelectedPatientId();
+
   const isUtente = currentRole === 'utente';
   document.getElementById('navUtente').style.display = isUtente ? 'flex' : 'none';
   document.getElementById('navClinico').style.display = isUtente ? 'none' : 'flex';
@@ -2276,6 +2369,8 @@ function login(){
 function logout(){
   document.getElementById('view-app').classList.remove('active');
   document.getElementById('view-login').style.display = 'grid';
+  currentUserEmail = '';
+  selectedPatientId = null;
 }
 
 // Ativa visualmente um nav-item e mostra a vista correspondente — partilhado
@@ -3063,13 +3158,17 @@ TEMPLATES.ajuda = () => `
 /* ============================================================
    TEMPLATES — VISTA "MÉDICO / TÉCNICO"
 ============================================================ */
-TEMPLATES.pacientes = () => `
+TEMPLATES.pacientes = () => {
+  const mine = accessiblePatients();
+  const unassigned = isAdminUser() ? [] : PATIENTS.filter(p => !mine.some(m => m.id === p.id));
+  return `
   <div class="card">
-    <div class="card-head"><div><h3>Pacientes monitorizados</h3><div class="card-sub">${PATIENTS.length} dispositivos emparelhados nesta conta · escolhe qual estás a consultar</div></div></div>
+    <div class="card-head"><div><h3>Pacientes monitorizados</h3><div class="card-sub">${mine.length} paciente${mine.length===1?'':'s'} atribuído${mine.length===1?'':'s'} a esta conta${isAdminUser() ? ' (conta administradora — acesso total)' : ''} · escolhe qual estás a consultar</div></div></div>
+    ${mine.length ? `
     <table class="data-table">
       <thead><tr><th>Paciente</th><th>Dispositivo</th><th>Última sincronização</th><th>Estado</th><th>Alertas ativos</th><th></th></tr></thead>
       <tbody>
-        ${PATIENTS.map(p => `
+        ${mine.map(p => `
           <tr${p.id===selectedPatientId ? ' style="background:color-mix(in srgb, var(--accent) 10%, transparent);"' : ''}>
             <td><b>${p.name}</b> · ${p.age} anos</td>
             <td class="num">${p.deviceName} · ${p.mac}</td>
@@ -3092,7 +3191,22 @@ TEMPLATES.pacientes = () => `
           </tr>`).join('')}
       </tbody>
     </table>
+    ` : `<p class="empty-hint">Esta conta ainda não tem nenhum paciente atribuído. ${unassigned.length ? 'Vê a lista abaixo para te atribuíres a um paciente existente.' : ''}</p>`}
     <p class="empty-hint">Selecionar um paciente muda a identidade apresentada nesta conta. <b>Nota importante</b>: neste protótipo, a ligação por Bluetooth real ao wearable continua limitada a um único dispositivo físico de cada vez (o que estiver por perto e for encontrado pelo bridge) — escolher aqui um paciente diferente não troca automaticamente qual wearable físico está ligado.</p>
+    ${unassigned.length ? `
+    <div class="card-head" style="margin-top:18px;"><div><h3>Outros pacientes nesta instalação</h3><div class="card-sub">Não atribuídos a esta conta — só a conta administradora (${ADMIN_EMAIL}) os vê por omissão. Atribui-te um se fores o clínico responsável.</div></div></div>
+    <table class="data-table">
+      <thead><tr><th>Paciente</th><th>Dispositivo</th><th></th></tr></thead>
+      <tbody>
+        ${unassigned.map(p => `
+          <tr>
+            <td>${p.name} · ${p.age} anos</td>
+            <td class="num">${p.deviceName}</td>
+            <td><button class="btn-secondary" onclick="assignPatientToCurrentUser('${p.id}'); renderView('pacientes');">Atribuir-me este paciente</button></td>
+          </tr>`).join('')}
+      </tbody>
+    </table>
+    ` : ''}
     ${currentRole !== 'utente' ? `
     <div class="card-head" style="margin-top:18px;"><div><h3>Adicionar paciente</h3><div class="card-sub">Área de técnico — regista um novo paciente/dispositivo nesta conta</div></div></div>
     <div class="note-form">
@@ -3105,13 +3219,16 @@ TEMPLATES.pacientes = () => `
     <p class="empty-hint">Protótipo: guardado só neste browser (localStorage) — um sistema real exigiria emparelhamento BLE + validação clínica antes de ativar o dispositivo. O paciente novo começa sem alertas/anomalias/medicação — usa "Gerir medicação" e as ações de cada vista para preencher o resto.</p>
     ` : ''}
   </div>
+  ${mine.length ? `
   <div class="card">
     <div class="card-head"><h3>Alertas por severidade — ${selectedPatient().name}</h3></div>
     ${!loadConsent().shareAlerts
       ? '<p class="empty-hint">Este utente/família não autorizou a partilha de alertas com a equipa clínica (ver Definições → Consentimento). Contacta diretamente para mais informação.</p>'
       : (unreadActiveAlerts().length ? unreadActiveAlerts().map((a,i) => alertRow(a,i)).join('') : '<p class="empty-hint">Sem alertas novos — ver Histórico de alertas.</p>')}
   </div>
+  ` : ''}
 `;
+};
 
 TEMPLATES.dispositivo = () => `
   ${(() => {
