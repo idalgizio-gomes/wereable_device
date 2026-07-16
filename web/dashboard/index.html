@@ -657,6 +657,10 @@
           <label for="signupPatient" data-i18n="signup.patient">Nome do utente monitorizado</label>
           <input id="signupPatient" type="text" placeholder="Ex: Maria Silva">
         </div>
+        <div class="field">
+          <label for="signupPatientAge">Idade do utente monitorizado</label>
+          <input id="signupPatientAge" type="number" min="1" max="120" placeholder="Ex: 72">
+        </div>
       </div>
       <div id="signupFieldsClinico" style="display:none;">
         <div class="field">
@@ -1476,24 +1480,29 @@ function buildPatientRecord({id, name, age, deviceName, mac}){
     adherenceHistory: [],
   };
 }
+// BUG DE MODELO CORRIGIDO (2026-07-16, reportado pelo utilizador): a
+// área clínica deixou de poder inventar pacientes do zero — um médico/
+// técnico só pode "registar" (associar-se a) um utente que já se
+// registou como Utente/Família (ver submitSignup() → registerOwnPatient()
+// abaixo). addPatient() passa a ser só o primitivo de criação (usado
+// unicamente pelo signup); devolve o registo criado (ou null se
+// inválido) em vez de true/false, para o autor da chamada decidir a
+// que conta ligar o paciente novo — deixou de decidir isso sozinho
+// (antes atribuía sempre à conta clínica atual, o que já não faz
+// sentido sem o formulário "Adicionar paciente").
 function addPatient(name, age, deviceName, mac){
   name = (name || '').trim();
   deviceName = (deviceName || 'Wearable').trim();
   mac = (mac || '—').trim();
   const ageNum = parseInt(age, 10);
-  if (!name || !Number.isFinite(ageNum) || ageNum <= 0) return false;
+  if (!name || !Number.isFinite(ageNum) || ageNum <= 0) return null;
   const record = {id: 'p_added_' + Date.now(), name, age: ageNum, deviceName, mac};
   const added = loadAddedPatients();
   added.push(record);
   saveAddedPatients(added);
   PATIENTS.push(buildPatientRecord(record));
-  // Quem cria o paciente fica automaticamente atribuído a ele — senão um
-  // técnico não-admin acabava de registar um paciente que a própria
-  // conta dele não conseguia depois ver/selecionar (ver "ATRIBUIÇÃO
-  // PACIENTE ↔ CONTA CLÍNICA" mais abaixo).
-  assignPatientToCurrentUser(record.id);
   if (currentView) renderView(currentView);
-  return true;
+  return record;
 }
 // Replay dos pacientes adicionados em sessões anteriores — corre uma
 // única vez ao carregar o script, depois de PATIENTS estar definido.
@@ -1556,9 +1565,56 @@ function assignPatientToCurrentUser(patientId){
   saveClinicianAssignments(map);
 }
 
+/* ------------------------------------------------------------
+   LIGAÇÃO UTENTE ↔ PRÓPRIO PACIENTE (2026-07-16, pedido do utilizador)
+   ------------------------------------------------------------
+   Distinto da atribuição clínico↔paciente acima: um utente/família não
+   "escolhe" entre vários pacientes, é sempre o mesmo — o que criou ao
+   registar-se (ver registerOwnPatient(), chamada por submitSignup()).
+   Guardado à parte (não reaproveita CLINICIAN_ASSIGNMENTS_KEY) porque
+   são conceitos diferentes: um é "que pacientes este clínico pode
+   consultar", o outro é "qual é o paciente desta conta utente".
+------------------------------------------------------------ */
+const UTENTE_PATIENT_LINK_KEY = 'carewear_utente_patient_link';
+
+function loadUtentePatientLink(){
+  try {
+    const raw = localStorage.getItem(UTENTE_PATIENT_LINK_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* localStorage indisponível ou dados corrompidos - ignora */ }
+  return {};
+}
+function saveUtentePatientLink(map){
+  try { localStorage.setItem(UTENTE_PATIENT_LINK_KEY, JSON.stringify(map)); }
+  catch (e) { /* quota excedida ou localStorage indisponível - fica só em memória */ }
+}
+// Chamada só por submitSignup() (perfil Utente/Família) — cria o
+// paciente real (deixa de ser só uma simulação de "conta criada") e
+// liga-o ao email indicado no registo, para login() conseguir
+// resolver qual é "o meu paciente" da próxima vez que esta conta entrar.
+function registerOwnPatient(name, age, email){
+  const record = addPatient(name, age, 'Wearable', '—');
+  if (!record || !email) return record;
+  const map = loadUtentePatientLink();
+  map[email.trim().toLowerCase()] = record.id;
+  saveUtentePatientLink(map);
+  return record;
+}
+
 const SELECTED_PATIENT_KEY = 'carewear_selected_patient_id';
 
 function loadSelectedPatientId(){
+  // Utente: vê sempre o paciente ligado à própria conta (se já se
+  // registou assim — ver registerOwnPatient()); sem ligação, cai no
+  // primeiro paciente de demonstração, para o login sem signup prévio
+  // (ex.: a conta admin de demonstração) continuar a funcionar como
+  // sempre funcionou.
+  if (currentRole === 'utente') {
+    const link = loadUtentePatientLink();
+    const linked = currentUserEmail ? link[currentUserEmail.trim().toLowerCase()] : null;
+    if (linked && PATIENTS.some(p => p.id === linked)) return linked;
+    return PATIENTS.length ? PATIENTS[0].id : null;
+  }
   const accessible = accessiblePatients();
   try {
     const saved = localStorage.getItem(SELECTED_PATIENT_KEY);
@@ -1566,7 +1622,7 @@ function loadSelectedPatientId(){
   } catch (e) { /* localStorage indisponível - usa omissão */ }
   return accessible.length ? accessible[0].id : null;
 }
-let selectedPatientId = null; // resolvido em login(), depois de se saber currentUserEmail
+let selectedPatientId = null; // resolvido em login(), depois de se saber currentUserEmail/currentRole
 
 // Placeholder devolvido por selectedPatient() quando a conta atual não
 // tem NENHUM paciente atribuído — sem isto, o antigo fallback final
@@ -2103,15 +2159,6 @@ function fillRecurringTimes(intervalHours){
   timesEl.value = times.join(', ');
 }
 
-function submitAddPatient(){
-  const name = document.getElementById('newPatientName').value;
-  const age = document.getElementById('newPatientAge').value;
-  const deviceName = document.getElementById('newPatientDevice').value;
-  const mac = document.getElementById('newPatientMac').value;
-  const ok = addPatient(name, age, deviceName, mac);
-  if (!ok) alert('Indica pelo menos o nome e uma idade válida para adicionar o paciente.');
-}
-
 function addMedicationForPatient(){
   const nameEl = document.getElementById('newMedName');
   const doseEl = document.getElementById('newMedDose');
@@ -2190,8 +2237,24 @@ function submitSignup(){
   }
   if (signupRole === 'utente'){
     const patient = document.getElementById('signupPatient').value.trim();
+    const patientAge = document.getElementById('signupPatientAge').value;
     if (!patient){
       alert('Indica o nome do utente monitorizado.');
+      return;
+    }
+    if (!patientAge || parseInt(patientAge, 10) <= 0){
+      alert('Indica a idade do utente monitorizado.');
+      return;
+    }
+    // BUG DE MODELO CORRIGIDO (2026-07-16, reportado pelo utilizador):
+    // "Criar conta" como Utente/Família deixou de ser só uma simulação
+    // que não guardava nada — regista mesmo um paciente novo, ligado a
+    // este email (ver registerOwnPatient()). É o único sítio da app que
+    // pode criar um paciente do zero; a área clínica só pode associar-se
+    // a um que já exista (ver "Atribuir-me este paciente" em Pacientes).
+    const record = registerOwnPatient(patient, patientAge, email);
+    if (!record){
+      alert('Não foi possível registar o utente monitorizado — confirma o nome e a idade.');
       return;
     }
   } else {
@@ -2202,10 +2265,11 @@ function submitSignup(){
     }
   }
 
-  // Protótipo: não há backend/BD ainda (ver PROJECT_STATUS.md) — só
-  // devolve ao login, já com o perfil e email preenchidos, para
-  // demonstrar o fluxo completo de "criar conta -> entrar".
-  alert(`Conta criada (demonstração): ${name} <${email}> como ${signupRole === 'utente' ? 'Utente/Família' : 'Médico/Técnico'}.\n\nEsta é uma simulação — nada foi guardado. A persistência real fica pendente da base de dados SQL.`);
+  // Protótipo: a CONTA em si (nome/email/password de quem está a criar
+  // o login) continua sem backend real — só o paciente monitorizado
+  // (perfil Utente/Família) passa a ficar de facto registado, porque é
+  // o que a área clínica precisa de poder consultar depois.
+  alert(`Conta criada (demonstração): ${name} <${email}> como ${signupRole === 'utente' ? 'Utente/Família' : 'Médico/Técnico'}.\n\n${signupRole === 'utente' ? 'O utente monitorizado ficou registado e já pode ser consultado pela equipa clínica.' : 'A conta em si continua a ser só uma simulação — falta backend real para autenticação.'}`);
   setLoginRole(signupRole);
   document.getElementById('loginEmail').value = email;
   showLogin();
@@ -3236,17 +3300,6 @@ TEMPLATES.pacientes = () => {
           </tr>`).join('')}
       </tbody>
     </table>
-    ` : ''}
-    ${currentRole !== 'utente' ? `
-    <div class="card-head" style="margin-top:18px;"><div><h3>Adicionar paciente</h3><div class="card-sub">Área de técnico — regista um novo paciente/dispositivo nesta conta</div></div></div>
-    <div class="note-form">
-      <input id="newPatientName" type="text" placeholder="Nome completo" style="flex:1;">
-      <input id="newPatientAge" type="number" min="1" max="120" placeholder="Idade" style="max-width:90px;">
-      <input id="newPatientDevice" type="text" placeholder="Dispositivo (ex: Wearable)" style="max-width:160px;">
-      <input id="newPatientMac" type="text" placeholder="MAC (ex: A1:B2:C3:D4:E5:F6)" style="max-width:180px;">
-      <button class="btn-secondary" onclick="submitAddPatient()">Adicionar paciente</button>
-    </div>
-    <p class="empty-hint">Protótipo: guardado só neste browser (localStorage) — um sistema real exigiria emparelhamento BLE + validação clínica antes de ativar o dispositivo. O paciente novo começa sem alertas/anomalias/medicação — usa "Gerir medicação" e as ações de cada vista para preencher o resto.</p>
     ` : ''}
   </div>
   ${mine.length ? `
