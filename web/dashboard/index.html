@@ -3375,6 +3375,7 @@ TEMPLATES.anomalias = () => {
       <div><h3>Registo de anomalias — ${selectedPatient().name}</h3><div class="card-sub">Deteção combinada: LSTM Autoencoder (comportamental) + regras de duração, com supressão em cascata</div></div>
       ${!isUtente && anomalyLog.length ? `<button class="btn-danger" onclick="if(confirm('Apagar TODAS as anomalias deste paciente? Esta ação não pode ser desfeita.')) clearAllAnomaliesForPatient();">Limpar tudo</button>` : ''}
     </div>
+    <p class="empty-hint"><b>Limitação honesta:</b> os detetores (LSTM Autoencoder + regras de duração) ainda não foram validados clinicamente — podem não detetar uma anomalia real (falso negativo) ou assinalar algo que não é (falso positivo). Este registo apoia a decisão da equipa clínica, não a substitui — mesmo padrão de transparência já usado por sistemas de deteção de queda de referência (ex.: MobileHelp/Medical Guardian admitem publicamente que a deteção automática "não funciona 100% das vezes").</p>
     ${!loadConsent().shareAlerts ? `
     <p class="empty-hint">Este utente/família não autorizou a partilha de alertas/anomalias com a equipa clínica (ver Definições → Consentimento).</p>
     ` : `
@@ -3409,6 +3410,7 @@ TEMPLATES.alertas = () => {
       <div><h3>Histórico de alertas — ${selectedPatient().name}</h3><div class="card-sub">Todos os alertas (lidos e por ler) deste paciente, incluindo os já removidos da área de alertas recentes</div></div>
       ${!isUtente && all.length ? `<button class="btn-danger" onclick="if(confirm('Apagar TODOS os alertas deste paciente? Esta ação não pode ser desfeita.')) clearAllAlertsForPatient();">Limpar tudo</button>` : ''}
     </div>
+    <p class="empty-hint"><b>Limitação honesta:</b> estes alertas disparam por limiares (fixos ou personalizados por pessoa, ver Definições) — não são um diagnóstico. A ausência de alertas não significa ausência de problemas; a presença de um alerta não confirma um problema real. Usa como apoio à decisão, não como substituto de supervisão direta.</p>
     ${all.length ? `
     <table class="data-table">
       <thead><tr><th>Título</th><th>Detalhe</th><th>Severidade</th><th>Quando</th><th>Estado</th>${!isUtente ? '<th></th>' : ''}</tr></thead>
@@ -3443,7 +3445,7 @@ TEMPLATES.emergencias = () => {
       <div><h3>Registo de emergências — ${selectedPatient().name}</h3><div class="card-sub">SOS manual (gesto de cliques) e deteção automática de queda + inatividade prolongada — ver módulo firmware Emergency</div></div>
       ${!isUtente && hasClearable ? `<button class="btn-danger" onclick="if(confirm('Apagar todos os registos de emergência RESOLVIDOS/CANCELADOS deste paciente? Emergências ativas não são afetadas. Esta ação não pode ser desfeita.')) clearAllEmergenciesForPatient();">Limpar tudo</button>` : ''}
     </div>
-    <p class="empty-hint">O bridge (<code>ble_bridge.py</code>) escuta a characteristic <code>emergencyAlertChar</code> do dispositivo — eventos marcados <b>"Em direto"</b> abaixo vieram mesmo do wearable ligado; os restantes continuam a ser dados de demonstração. <b>Limitação honesta</b>: o bridge só liga a um dispositivo físico de cada vez, por isso um alerta em direto fica sempre atribuído ao paciente selecionado no momento em que chega, não a uma identidade confirmada pelo hardware (ver seletor de paciente).</p>
+    <p class="empty-hint">O bridge (<code>ble_bridge.py</code>) escuta a characteristic <code>emergencyAlertChar</code> do dispositivo — eventos marcados <b>"Em direto"</b> abaixo vieram mesmo do wearable ligado; os restantes continuam a ser dados de demonstração. <b>Limitação honesta</b>: o bridge só liga a um dispositivo físico de cada vez, por isso um alerta em direto fica sempre atribuído ao paciente selecionado no momento em que chega, não a uma identidade confirmada pelo hardware (ver seletor de paciente). A deteção automática de queda + inatividade prolongada também não foi validada clinicamente — pode falhar em detetar uma queda real ou disparar sem uma ter ocorrido; o botão SOS manual continua a ser o mecanismo mais fiável.</p>
     ${currentEmergencyLog().length ? `
     <table class="data-table">
       <thead><tr><th>ID</th><th>Tipo</th><th>Quando</th><th>Origem</th><th>Estado</th><th>Nota</th><th></th></tr></thead>
