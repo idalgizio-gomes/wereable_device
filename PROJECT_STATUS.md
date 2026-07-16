@@ -4239,5 +4239,36 @@ Lote de bugs reportados diretamente pelo utilizador após usar a dashboard com o
 - **Bateria sem valor**: não é bug, é limitação já documentada no próprio HTML (title="O firmware ainda não reporta nível de bateria") — o firmware nunca leu/reportou tensão de bateria por BLE. Precisa de sensor ADC + characteristic nova.
 
 ### Pendente — âmbito grande demais para esta sessão, adiado a pedido do utilizador
-- **Tradução completa (i18n)**: só elementos com data-i18n (menus/login) usam o sistema de tradução; todo o conteúdo das páginas (milhares de strings nos templates de Resumo/Sinais vitais/Medicação/etc.) está hardcoded em português. Confirmado com o utilizador que fica para depois.
 - **Área de técnico** e **pesquisa comparativa alargada a 40 dashboards**: deixados propositadamente para o fim desta sessão.
+
+## Tradução completa (i18n) + correção do layout de impressão/PDF (2026-07-16)
+
+**i18n**: convertidas para o sistema de tradução (`I18N`/`t()`) as 14 vistas que antes tinham
+todo o conteúdo hardcoded em português (`TEMPLATES.resumo/rotina/vitais/tendencia/definicoes/
+ajuda/pacientes/dispositivo/anomalias/alertas/emergencias/medicacao/perfil/limites/exportar`).
+273 chaves novas adicionadas nos 7 idiomas (pt/en/zh/es/fr/de/it) — títulos e subtítulos de
+cartão, labels, botões, aria-labels de gráficos, cabeçalhos de tabela, placeholders, mensagens
+vazias, FAQ. Inclui um namespace `common.*` (Guardar/Cancelar/Adicionar/Remover/etc.) para
+ações repetidas entre vistas. Não traduzido, propositadamente: nomes de pacientes/medicamentos,
+valores dinâmicos, datas/horas, unidades, endereços MAC/BLE, nomes de idiomas no seletor
+(ficam em endónimo), nomes próprios do projeto/instituição.
+
+Trabalho executado em paralelo por 9 agentes orquestrados (1 Fable 5 a planear a convenção de
+nomes de chave e a dividir as 14 vistas em 8 lotes não sobrepostos, 8 executores Opus/Sonnet a
+converter cada lote — um lote falhou por erro de rede a meio e foi repetido isoladamente).
+Verificado depois do merge: as 7 tabelas de idioma têm exatamente as mesmas 273 chaves, sem
+chave em falta nem valor vazio; nenhuma referência `t('...')` no código aponta para uma chave
+inexistente; `node --check` ao script inline (linhas 869–6169) sem erros de sintaxe; teste
+Playwright completo (2 perfis × 7 idiomas × todas as vistas + botões de ação — marcar dose,
+apagar anomalia/emergência, adicionar paciente/medicação, exportar, trocar de paciente) sem
+erros de JavaScript e sem nenhuma chave i18n a aparecer como texto literal no ecrã.
+
+**Bug de impressão/PDF corrigido**: a exportação de PDF (`exportClinicalPdf()` + CSS
+`@media print`) ficava com o conteúdo comprimido numa coluna estreita à esquerda em vez de
+ocupar a página inteira. Causa: `#view-app` usa CSS Grid (`grid-template-columns: 232px 1fr`,
+coluna da sidebar + coluna de conteúdo); o `@media print` escondia a sidebar mas nunca reiniciava
+esse grid — com a sidebar removida do grid (`display:none`), o `.main` tornava-se o único item e
+era colocado na 1ª coluna (232px) em vez de ocupar a largura toda. Corrigido com
+`#view-app{ display:block !important; }` e `.content{ max-width:none !important; }` dentro do
+`@media print`. Confirmado com Playwright (`emulateMedia({media:'print'})`): `.main` passa a
+ocupar a largura total da página.
