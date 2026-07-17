@@ -49,6 +49,16 @@ if DB_URL.startswith("sqlite"):
     def set_sqlite_pragma(dbapi_conn, connection_record):
         cursor = dbapi_conn.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
+        # OTIMIZAÇÃO (Lote C): mesma justificação documentada em
+        # storage.py get_connection() — com o dual-write, os SensorRecord
+        # também são escritos aqui (em lote, ver orm_persistence.py). WAL +
+        # synchronous=NORMAL evita o fsync por commit do modo por omissão
+        # (rollback journal + FULL), que bloquearia o event loop asyncio do
+        # bridge. Num protótipo local de uso pessoal (sem requisitos de
+        # durabilidade contra corte de energia) a troca é adequada. Em
+        # SQLite :memory: (testes) o PRAGMA é inócuo — não há ficheiro -wal.
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.close()
 else:
     # PostgreSQL em produção
@@ -118,6 +128,22 @@ class Patient(Base):
     # overhead da cifra (nonce + tag + base64) em moradas mais longas.
     nif_encrypted = Column(String(512))  # aprovação obrigatória, ver dashboard
     address_encrypted = Column(String(512))
+    # GDPR-005 (Lote C) — DECISÃO DOCUMENTADA: NÃO estender a cifra de
+    # campo (padrão nif/address, ver propriedades abaixo) a `phone` e aos
+    # `emergency_contact_*` NESTE lote. Motivos concretos:
+    #   1. Ao contrário de nif_encrypted/address_encrypted, estas colunas
+    #      são fixadas por nome no esquema SQL canónico (bridge/schema.sql)
+    #      e por uma migração Alembic já aplicada
+    #      (migrations/versions/daaeabc42ec5_schema_inicial.py) — ficheiros
+    #      FORA do âmbito deste lote. Renomeá-las para *_encrypted aqui
+    #      dessincronizaria o ORM do esquema/migração sem uma migração nova
+    #      correspondente (risco real numa base de dados existente).
+    #   2. Não é a "extensão direta e óbvia" do padrão que o cifrar de
+    #      Strings via propriedade seria em isolamento — arrasta alterações
+    #      coordenadas em 3 ficheiros de esquema para ser correto.
+    # A extensão fica registada como próximo passo a fazer em conjunto com
+    # uma migração Alembic dedicada (rename coluna + backfill cifrado),
+    # não como uma alteração pontual do modelo.
     phone = Column(String(20))
     emergency_contact_name = Column(String(255))
     emergency_contact_phone = Column(String(20))

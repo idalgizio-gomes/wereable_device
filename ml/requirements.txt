@@ -5,4 +5,7 @@ xgboost
 matplotlib
 joblib
 emlearn
-tensorflow-cpu
+tensorflow-cpu>=2.19.0  # DEP-004: piso subido por CVE-2025-55559
+# numpy, pandas, scikit-learn, xgboost, matplotlib, joblib, emlearn: sem
+# restrição de piso de propósito — fora do âmbito deste lote (DEP-005 limita-se
+# aos dois requirements do bridge) e sem CVE aplicável em SECURITY_STATUS.md

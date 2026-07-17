@@ -106,6 +106,17 @@ from Crypto.Cipher import AES
 
 import storage
 
+try:
+    # Dual-write transitório do Lote C (ver comentário em __init__ abaixo).
+    # sqlalchemy/argon2-cffi (arrastados por orm_persistence -> storage_advanced
+    # -> crypto_utils) só estão em requirements_db.txt, não no requirements.txt
+    # mínimo usado por start_carewear.bat — por isso este import nunca pode
+    # impedir `import ble_bridge` de suceder numa instalação mínima.
+    import orm_persistence
+except ImportError as exc:
+    print(f"[BRIDGE] AVISO: modulo orm_persistence indisponivel ({exc}); dual-write desativado")
+    orm_persistence = None
+
 # ============================================================
 # IDENTIFICADORES BLE — têm de corresponder exatamente aos definidos
 # em src/Ble/Ble.cpp. Se algum UUID mudar no firmware, tem de mudar aqui
@@ -387,6 +398,19 @@ def decode_emergency_alert(raw: bytes) -> dict:
     }
 
 
+def _ws_remote_ip(ws) -> Optional[str]:
+    """Extrai o IP de origem de uma ligação WebSocket para auditoria
+    (GDPR-003). `ws.remote_address` é um tuplo (host, port, ...) nas
+    ligações reais do `websockets`; nos testes (FakeWebSocket) o atributo
+    pode não existir — devolve None em vez de rebentar."""
+    remote = getattr(ws, "remote_address", None)
+    if isinstance(remote, (tuple, list)) and remote:
+        return str(remote[0])
+    if isinstance(remote, str):
+        return remote
+    return None
+
+
 def build_current_time_payload(dt: Optional[datetime] = None) -> bytes:
     """Constrói os 10 bytes esperados pela characteristic Current Time
     (0x2A2B), no mesmo formato que Ble::ctsToEpochUtc() descodifica em
@@ -429,6 +453,20 @@ class BleBridge:
         # uma única vez no arranque do bridge, reutilizada para todos os
         # inserts/queries desta execução.
         self.db = storage.init_db()
+        # Segundo destino de escrita (ORM, storage_advanced.py) do
+        # dual-write transitório do Lote C — ver orm_persistence.py. É
+        # SECUNDÁRIO: storage.py (self.db acima) continua a ser o caminho
+        # primário de TODAS as leituras do dashboard. Construído dentro de
+        # try/except porque uma falha aqui (BD ORM indisponível, esquema em
+        # migração, etc.) nunca deve impedir o bridge de arrancar nem de
+        # persistir via storage.py — degrada para None e continua.
+        self.orm = None
+        if orm_persistence is not None:
+            try:
+                self.orm = orm_persistence.OrmPersistence()
+            except Exception as exc:  # noqa: BLE001 - dual-write nunca derruba o arranque
+                print(f"[BRIDGE] AVISO: persistencia ORM (dual-write) indisponivel: {exc}")
+                self.orm = None
         # Chave AES para decifrar o "modo de dados" (ver
         # "CIFRA AES-CTR DO MODO DE DADOS" no cabeçalho deste ficheiro) —
         # None se CAREWEAR_AES_KEY_HEX não estiver configurada.
@@ -492,6 +530,10 @@ class BleBridge:
                 if deleted:
                     print(f"[BRIDGE] retencao: apagados {deleted} registos de sensores "
                           f"com mais de {days} dias")
+                # Dual-write (Lote C): aplica a MESMA retenção configurável
+                # ao ORM (usa `days`, não os 365d fixos das RETENTION_POLICIES).
+                if self.orm:
+                    self.orm.purge(days)
             except Exception as exc:  # noqa: BLE001 - nunca deve derrubar o bridge
                 print(f"[BRIDGE] erro na limpeza de retencao: {exc}")
             await asyncio.sleep(self.RETENTION_CHECK_INTERVAL_S)
@@ -634,6 +676,14 @@ class BleBridge:
         except Exception as exc:  # noqa: BLE001 - nao deve travar o streaming
             print(f"[BRIDGE] erro a gravar registo na base de dados local: {exc}")
 
+        # Dual-write (Lote C): segundo destino de escrita no ORM. Vem DEPOIS
+        # de storage.insert_record de propósito — o caminho primário nunca
+        # espera pelo ORM. insert_sensor_record acumula em buffer e faz
+        # flush em lote (não 1 commit/registo) e é tolerante a falha por
+        # dentro; não precisa de try/except aqui.
+        if self.orm:
+            self.orm.insert_sensor_record(record)
+
         has_new_vital = record["hr"] is not None or record["spo2"] is not None
         now = time.monotonic()
         due = (now - self._last_broadcast_monotonic) >= self.RECORD_BROADCAST_MIN_INTERVAL_S
@@ -676,6 +726,11 @@ class BleBridge:
             storage.insert_emergency_alert(self.db, alert)
         except Exception as exc:  # noqa: BLE001 - a gravacao nunca deve bloquear o alerta
             print(f"[BRIDGE] erro a gravar alerta de emergencia na base de dados local: {exc}")
+        # Dual-write (Lote C): escrita imediata do alerta no ORM, com dedup
+        # por (device, seq) igual ao INSERT OR IGNORE do storage.py.
+        # Tolerante a falha por dentro; não bloqueia o alerta.
+        if self.orm:
+            self.orm.insert_emergency_alert(alert)
         asyncio.create_task(self.broadcast({"kind": "emergency_alert", **alert}))
 
     async def _maybe_send_time(self, client: BleakClient) -> None:
@@ -714,6 +769,23 @@ class BleBridge:
                     self.current_client = client
                     await self.broadcast({"kind": "device_status", "connected": True})
 
+                    # Dual-write (Lote C): regista o MAC real do dispositivo
+                    # (device.address do bleak) e audita o INÍCIO da sessão
+                    # de ingestão. DECISÃO DOCUMENTADA (GDPR-003): audita-se
+                    # UMA entrada por ligação BLE (session_start/session_end),
+                    # nunca por registo de sensor — a ~52 registos/s um audit
+                    # por registo inundaria audit_log e tornaria a auditoria
+                    # inútil. O que importa registar é que uma sessão de
+                    # ingestão de dados de saúde começou/terminou.
+                    if self.orm:
+                        self.orm.update_device_mac(device.address)
+                        self.orm.audit(
+                            action="ingestion.session_start",
+                            resource_type="device",
+                            resource_id=self.orm.device_id,
+                            details={"address": str(device.address)},
+                        )
+
                     await self._maybe_send_time(client)
 
                     # Subscreve notificacoes de dados e de estado.
@@ -744,6 +816,17 @@ class BleBridge:
 
             self.connected_device_name = None
             self.current_client = None
+            # Dual-write (Lote C): garante que o buffer de sensores pendente
+            # é comprometido ao fim da sessão (não fica perdido à espera do
+            # próximo flush por tamanho/tempo) e audita o FIM da sessão de
+            # ingestão (par do session_start acima).
+            if self.orm:
+                self.orm.flush()
+                self.orm.audit(
+                    action="ingestion.session_end",
+                    resource_type="device",
+                    resource_id=self.orm.device_id,
+                )
             await self.broadcast({"kind": "device_status", "connected": False})
             print("[BRIDGE] desligado — a tentar reconectar em 3s")
             await asyncio.sleep(3)
@@ -793,6 +876,17 @@ class BleBridge:
             await client.write_gatt_char(UUID_DUMP_CTRL, payload, response=False)
             print(f"[BRIDGE] comando do dashboard enviado: {name}")
             await ws.send(json.dumps({"kind": "command_result", "cmd": name, "ok": True}))
+            # GDPR-003 (Lote C): auditar SÓ reset_readings, e só quando
+            # ACEITE (passou o rate limit e a escrita BLE teve sucesso) — é
+            # a ação destrutiva/irreversível (apaga o ring buffer do
+            # dispositivo). force_reading é benigno e não se audita.
+            if name == "reset_readings" and self.orm:
+                self.orm.audit(
+                    action="device.reset_readings",
+                    resource_type="device",
+                    resource_id=self.orm.device_id,
+                    ip=_ws_remote_ip(ws),
+                )
         except Exception as exc:  # noqa: BLE001
             print(f"[BRIDGE] falha a enviar comando {name}: {exc}")
             await ws.send(json.dumps({"kind": "command_result", "cmd": name, "ok": False, "error": str(exc)}))
@@ -828,6 +922,15 @@ class BleBridge:
                 await ws.send(json.dumps({"kind": "history", "records": [], "total_records": 0, "error": str(exc)}))
                 return
             await ws.send(json.dumps({"kind": "history", "records": records, "total_records": total, "hours": hours}))
+            # GDPR-003 (Lote C, lado bridge): auditar o acesso a dados de
+            # paciente. O lado API pertence ao Lote B (api.py) — não mexido.
+            if self.orm:
+                self.orm.audit(
+                    action="sensor_records.read",
+                    resource_type="sensor_records",
+                    details={"hours": hours},
+                    ip=_ws_remote_ip(ws),
+                )
             return
         if cmd == "get_daily_trend":
             # Histórico REAL agregado por dia (ver storage.get_daily_summary)
@@ -846,6 +949,13 @@ class BleBridge:
                 await ws.send(json.dumps({"kind": "daily_trend", "days_summary": [], "error": str(exc)}))
                 return
             await ws.send(json.dumps({"kind": "daily_trend", "days_summary": summary, "days": days}))
+            if self.orm:
+                self.orm.audit(
+                    action="sensor_records.read_aggregate",
+                    resource_type="sensor_records",
+                    details={"days": days},
+                    ip=_ws_remote_ip(ws),
+                )
             return
         if cmd == "export_csv":
             # Exportação CSV (2026-07-03, pedido do utilizador) — devolve
@@ -864,6 +974,13 @@ class BleBridge:
                 await ws.send(json.dumps({"kind": "csv_export", "csv": "", "error": str(exc)}))
                 return
             await ws.send(json.dumps({"kind": "csv_export", "csv": csv_text, "hours": hours}))
+            if self.orm:
+                self.orm.audit(
+                    action="sensor_records.export",
+                    resource_type="sensor_records",
+                    details={"hours": hours},
+                    ip=_ws_remote_ip(ws),
+                )
             return
         if cmd == "get_retention_days":
             # Item pendente do backlog (PROJECT_STATUS.md, Prioridade 4):
@@ -898,6 +1015,13 @@ class BleBridge:
                 return
             print(f"[BRIDGE] retencao configurada pelo dashboard: {saved} dias")
             await ws.send(json.dumps({"kind": "retention_days_result", "ok": True, "days": saved}))
+            if self.orm:
+                self.orm.audit(
+                    action="retention.write",
+                    resource_type="settings",
+                    details={"days": saved},
+                    ip=_ws_remote_ip(ws),
+                )
 
     async def ws_handler(self, ws: "websockets.ServerConnection") -> None:
         self.ws_clients.add(ws)

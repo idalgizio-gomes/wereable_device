@@ -1084,10 +1084,10 @@ prova (teste automatizado a passar).
 | Injeção SQL/NoSQL | Sim (`storage.py`, `storage_advanced.py`) | **Revisto, sem achados** — ver abaixo |
 | Command Injection / Path Traversal | Sim (export CSV, caminho `.db`) | **Revisto, sem achados** — ver abaixo |
 | Broken Authentication/Authorization — WebSocket | Sim (`ble_bridge.py`) | Risco conhecido, já documentado; ver "WS-001" abaixo |
-| Broken Authorization / IDOR — API REST | **Sim, desde 2026-07-07/08** (contrariamente ao enunciado) | **API-002, ABERTO** — ver abaixo |
+| Broken Authorization / IDOR — API REST | **Sim, desde 2026-07-07/08** (contrariamente ao enunciado) | **API-002, RESOLVIDO em 2026-07-17** — ver abaixo |
 | Mass Assignment | Sim (`MedicationAdherenceIn`, comandos WS que escrevem em `settings`) | **Revisto, sem achados** — ver abaixo |
 | Rate limiting em comandos de escrita | Sim (`reset_readings` etc., WebSocket) | **API-001, MITIGADO nesta execução** |
-| Rate limiting na API REST (HTTP) | Sim (chave estática, sem throttling) | **API-003, ABERTO** — ver abaixo |
+| Rate limiting na API REST (HTTP) | Sim (chave estática, sem throttling) | **API-003, RESOLVIDO em 2026-07-17** (ressalva não bloqueante registada) — ver abaixo |
 | SSRF/XXE | Procurado | **Sem parsing de URL/XML no backend — não aplicável** |
 
 ### API-001 — `reset_readings`/`force_reading`/`set_retention_days` sem limite de taxa (MITIGADO nesta execução)
@@ -1184,9 +1184,19 @@ proponho):
   customizados, ou um token no primeiro frame da ligação. Decisão do
   utilizador quando/se este cenário se tornar real.
 
-### API-002 — API REST: uma única chave partilhada, sem âmbito por-utente/paciente (ABERTO)
+### API-002 — API REST: uma única chave partilhada, sem âmbito por-utente/paciente (RESOLVIDO em 2026-07-17)
 
-**Gravidade**: alta (dados de saúde — FC, aderência a medicação — e
+**RESOLVIDO** (2026-07-17, Fase 3 Lote B — ver PROJECT_STATUS.md): a chave estática
+`CAREWEAR_API_KEY` foi removida. `bridge/api_auth.py` (novo) introduz `ApiKey` (chave
+por-utilizador, hash SHA-256, revogável por linha, CLI `create`/`revoke`); `bridge/api.py`
+ganhou `_authorize_patient()`, que valida a associação `patient_caregivers` em cada endpoint e
+devolve 404 (não 403) quando não autorizado — deliberadamente indistinguível de "não existe",
+para não permitir enumeração de IDs sequenciais. Escrita exige `can_edit_medications` ou papel
+`clinician`/`admin`. Verificado por validação cética independente (diff linha a linha +
+`pytest bridge/tests/` — 104 passed) antes do commit. A descrição abaixo do vetor original
+fica como registo histórico do achado.
+
+**Gravidade (histórica)**: alta (dados de saúde — FC, aderência a medicação — e
 agora também uma escrita clínica, expostos por rede a qualquer detentor
 da chave, sem qualquer verificação de "este pedido pode ver/alterar
 ESTE paciente?"). Diferente de WS-001: **este canal já é pensado para
@@ -1232,9 +1242,18 @@ Isto é o mesmo requisito já listado como "JWT + política de autorização
 por papel" na secção seguinte — mover para aqui reflete que já não é um
 requisito só do futuro, a API que precisa disto já está a correr.
 
-### API-003 — Sem rate limiting nos pedidos HTTP da API REST (ABERTO)
+### API-003 — Sem rate limiting nos pedidos HTTP da API REST (RESOLVIDO em 2026-07-17)
 
-**Gravidade**: média. `bridge/api.py` não tem nenhum limite de tentativas
+**RESOLVIDO** (2026-07-17, Fase 3 Lote B — ver PROJECT_STATUS.md): `RateLimitMiddleware`
+(`bridge/api_auth.py`), middleware ASGI escrito à mão (sem dependência nova), janela deslizante
+de 60s: 60 pedidos/min leitura, 10/min escrita, por `(ip, prefixo-da-chave-de-API)`, corre antes
+da autenticação (também trava força-bruta à própria chave). **Ressalva não bloqueante**: o
+bucket é por prefixo da chave — um atacante que rode o prefixo apresentado obtém buckets novos,
+esvaziando parcialmente a proteção; aceitável para um protótipo em `127.0.0.1`, mas se a API for
+exposta além de localhost, limitar também por IP sozinho (ou impor teto ao nº de buckets) fica
+como próximo passo. A descrição abaixo fica como registo histórico do achado original.
+
+**Gravidade (histórica)**: média. `bridge/api.py` não tem nenhum limite de tentativas
 por IP/cliente — nem para pedidos de autenticação (a chave estática podia
 ser atacada por força bruta online, sem qualquer atraso ou bloqueio
 depois de N falhas — a comparação em tempo constante impede o ataque de

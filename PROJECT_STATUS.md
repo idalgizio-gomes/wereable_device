@@ -4508,6 +4508,67 @@ lembretes de medicação/análise de adesão, dados simulados vs. reais, e idiom
 anomalias de exemplo (`PATIENTS[i].alerts`/`anomalyLog` em `index.html`) — título, descrição e
 explicação longa ("plain") de cada alerta estão hardcoded em português, em vários pacientes.
 Âmbito comparável à conversão i18n original das 14 vistas (título+descrição+explicação por
-alerta × vários alertas × 3 pacientes). Cores do heatmap semanal (rampa de um único tom, difícil
-de distinguir) e um indicador mais claro de "como ligar" quando o bridge está desligado também
-ficam identificados, por tratar a seguir.
+alerta × vários alertas × 3 pacientes). Um indicador mais claro de "como ligar" quando o bridge
+está desligado também fica identificado, por tratar a seguir.
+
+## Fase 3 — Dependências, autenticação por-utilizador na API, persistência ORM real (2026-07-17)
+
+Trabalho executado por 3 agentes em paralelo (Batches A/B/C, orquestração Fable 5 plan + Opus/
+Sonnet execução, ver memória permanente do agente), com uma 4ª passagem de validação cética
+independente antes de commitar — que encontrou um bug real bloqueante, corrigido abaixo.
+
+**Lote A — DEP-001/004/005 (pisos de dependências)**: `cryptography>=41.0.0` → `>=48.0.1` em
+`bridge/requirements.txt` e `requirements_db.txt` (GHSA-r6ph-v2qm-q3c2, GHSA-p423-j2cm-9vmq,
+GHSA-537c-gmf6-5ccf, GHSA-m959-cc7f-wv43); `bleak>=0.20.0`→`>=1.0` e `websockets>=11.0`→`>=15.0`
+em `requirements_db.txt` para alinhar com `requirements.txt` (DEP-005 — os dois ficheiros tinham
+pisos divergentes); `tensorflow-cpu` (sem piso) → `>=2.19.0` em `ml/requirements.txt`
+(CVE-2025-55559).
+
+**Lote B — API-002/API-003 (autenticação por-utilizador + rate limiting na API REST)**: a chave
+estática partilhada `CAREWEAR_API_KEY` foi **removida** — era o próprio vetor a eliminar (uma só
+chave, sem rotação, sem revogação individual). Substituída por `bridge/api_auth.py` (novo):
+modelo `ApiKey` (SHA-256 da chave, nunca a chave em claro; revogação por linha), CLI
+`create`/`revoke` para provisionar, e `RateLimitMiddleware` ASGI escrito à mão (sem dependência
+nova) — 60 pedidos/min leitura, 10/min escrita, por `(ip, prefixo-da-chave)`, corre antes da
+autenticação (também trava força-bruta à própria chave). `bridge/api.py`: `_require_user` (fail
+-closed, 401 sem chave válida) substitui `_require_api_key`; `_authorize_patient` nova valida que
+o utilizador está associado ao paciente via `patient_caregivers` — devolve **404** (não 403)
+quando não autorizado, deliberadamente indistinguível de "não existe" (evita enumeração de IDs
+sequenciais); escrita exige `can_edit_medications` ou papel `clinician`/`admin`. Auditoria
+(`AuditLog`) passa a incluir `user_id` de quem leu/escreveu.
+
+**Ressalva não bloqueante (registada pela validação, não corrigida neste lote)**: o bucket do
+rate limiter é `(ip, prefixo-da-chave)`; um atacante que rode o prefixo da `X-API-Key` obtém
+buckets novos, esvaziando parcialmente a proteção anti-força-bruta reclamada e permitindo
+crescimento lento de memória sob tráfego adversarial. Aceitável para um protótipo em
+`127.0.0.1`; se a API for exposta para além de localhost, limitar também por IP sozinho (ou
+impor um teto ao nº de buckets) fica como próximo passo.
+
+**Lote C — Persistência ORM real + GDPR-003/005**: `bridge/orm_persistence.py` (novo) liga
+`ble_bridge.py` a `storage_advanced.py` (BD ORM completa) em **dual-write transitório** —
+`storage.py` (SQLite simples) continua o caminho primário de leitura do dashboard;
+`orm_persistence` escreve em paralelo, falha de forma isolada (nunca derruba o bridge) e é
+puramente aditivo. `storage_advanced.py`: `PRAGMA journal_mode=WAL` + `synchronous=NORMAL`
+(evita fsync por commit a bloquear o event loop asyncio do bridge, aceitável num protótipo local
+sem requisito de durabilidade contra corte de energia). GDPR-005: decisão documentada de **não**
+estender a cifra de campo a `phone`/`emergency_contact_*` neste lote — ao contrário de
+`nif_encrypted`/`address_encrypted`, estas colunas estão fixadas por nome no schema SQL canónico
+e numa migração Alembic já aplicada, fora do âmbito deste lote; fica registado como próximo passo
+(migração dedicada de rename + backfill cifrado), não como alteração pontual ao modelo.
+
+**Bug real encontrado na validação e corrigido antes do commit**: `bridge/ble_bridge.py` tinha
+`import orm_persistence` **incondicional** no topo do ficheiro — como `orm_persistence` arrasta
+`sqlalchemy`/`argon2-cffi` (via `storage_advanced`/`crypto_utils`), que só estão em
+`requirements_db.txt` e não no `requirements.txt` mínimo usado por `start_carewear.bat`, uma
+instalação mínima deixava de conseguir sequer importar `ble_bridge.py`
+(`ModuleNotFoundError: sqlalchemy`, antes de qualquer `try/except`) — quebrava exatamente o
+caminho de instalação simples documentado no README. Corrigido envolvendo o import em
+`try/except ImportError` (`orm_persistence = None` se ausente) e guardando a construção em
+`BridgeState.__init__` com `if orm_persistence is not None`. Confirmado por simulação: com
+`sqlalchemy`/`argon2` bloqueados, `import ble_bridge` agora sucede com aviso em vez de rebentar.
+
+**Verificação**: suite completa `pytest bridge/tests/` — 104 passed (inclui os testes novos de
+`test_api.py` e `test_orm_persistence.py`); `python -m py_compile` sobre os ficheiros alterados;
+roundtrip manual (fora do pytest) contra SQLite temporário confirmando 60 `sensor_records`
+escritos e lidos byte-a-byte corretos, dedup de `emergency_alerts` por `(device, seq)`, e
+`audit_log` gravado.
