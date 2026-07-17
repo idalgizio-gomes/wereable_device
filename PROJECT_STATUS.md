@@ -4321,3 +4321,48 @@ está sob o nosso controlo); não garante remoção de forks já existentes de t
 caches internas do GitHub anteriores à eliminação — irrelevante aqui porque o utilizador
 confirmou que os dados eram de testes próprios, mas fica registado para o caso de uma fuga
 futura com dados de utente real, onde isso teria de ser avaliado.
+
+## Fase 5 — Notificações externas de emergência (SMS/email), 2026-07-17
+
+**Novo módulo `bridge/notifications.py`** (17 testes unitários, `bridge/tests/test_notifications.py`,
+todos com credenciais Twilio/SendGrid simuladas — nenhum contacta serviços reais): envia SMS
+(Twilio) e email (SendGrid, também Twilio) quando `_on_emergency_alert()` recebe um SOS manual ou
+queda+inatividade confirmada. Credenciais via variáveis de ambiente (`CAREWEAR_TWILIO_*`,
+`CAREWEAR_SENDGRID_*`), mesmo padrão de `crypto_utils.py` — nunca no código, degrada para aviso
+no log sem credenciais configuradas, nunca finge enviar.
+
+**Escalonamento com horário do cuidador** (pedido explícito do utilizador: cuidadores podem estar
+incontactáveis durante o horário de trabalho): o cuidador declara janelas semanais de
+indisponibilidade (`ScheduleWindow`). Se um alerta acontecer dentro dessa janela e ninguém
+confirmar (`EscalationManager.acknowledge()`) dentro de `CAREWEAR_ESCALATION_TIMEOUT_MIN` (omissão
+10 min), escala automaticamente para o **contacto de emergência** do paciente (`Patient.
+emergency_contact_*`, já existia no esquema) com uma mensagem urgente. Fora da janela declarada
+(cuidador presumivelmente contactável) ou sem horário nenhum declarado, o sistema NUNCA escala
+sozinho — decisão explícita do utilizador: só o cuidador pode agir nesse caso.
+
+**DECISÃO RECUSADA — contacto automático e direto ao 112**: o utilizador pediu explicitamente
+(confirmando entender o risco) que o escalonamento, ao expirar sem confirmação, tentasse
+contactar diretamente o 112/serviços de emergência reais, sem confirmação humana prévia. Recusado
+por esta sessão, com justificação explicada ao utilizador:
+- **Legal**: em Portugal (e em geral na UE), uso indevido de linha de emergência — incluindo
+  chamadas/mensagens automatizadas não verificadas por um humano — pode configurar
+  contraordenação/crime, independentemente da intenção.
+- **Termos de serviço**: a Twilio (e a generalidade dos operadores VOIP) proíbe explicitamente
+  encaminhar chamadas automatizadas/robotizadas para números de emergência.
+- **Segurança real**: deteção de queda por acelerómetro tem uma taxa de falsos positivos
+  conhecida (já documentada neste projeto); um falso positivo a acionar recursos reais de
+  emergência tira-os da disponibilidade para uma emergência real algures.
+- Nenhum sistema real de teleassistência (Life Alert e equivalentes) automatiza a chamada ao
+  112 — todos passam por confirmação humana (num centro de monitorização) antes de escalar.
+
+O escalonamento implementado fica assim limitado a notificar humanos (cuidador → contacto de
+emergência) de forma cada vez mais urgente, nunca contactando serviços de emergência reais por
+automação. Decisão registada aqui para não ser reaberta sem motivo por uma rotina futura.
+
+**Ainda por fazer** (fora do âmbito desta sessão): ligar `notifications.py` a `ble_bridge.py`
+(`_on_emergency_alert()`) — adiado para depois da Fase 3 (agentes em paralelo estavam a editar
+`ble_bridge.py`/`storage_advanced.py` ao mesmo tempo, risco de conflito); UI no dashboard para o
+cuidador definir o seu horário e o contacto de emergência do paciente; adicionar `twilio`/
+`sendgrid` a `bridge/requirements_db.txt` (mesmo motivo de adiamento — `requirements*.txt`
+também em edição pelos agentes da Fase 3 nesse momento); credenciais reais do utilizador (Twilio/
+SendGrid) por configurar quando quiser ativar o envio real.
