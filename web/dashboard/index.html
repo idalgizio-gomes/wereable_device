@@ -1073,6 +1073,20 @@ const I18N = {
     // --- common ---
     'common.save': 'Guardar', 'common.cancel': 'Cancelar', 'common.close': 'Fechar', 'common.edit': 'Editar', 'common.delete': 'Remover', 'common.add': 'Adicionar', 'common.search': 'Pesquisar',
     'common.back': 'Voltar', 'common.confirm': 'Confirmar', 'common.today': 'Hoje',
+    // --- definicoes.schedule + emergencyContact ---
+    'definicoes.scheduleTitle': 'Horário de indisponibilidade do cuidador',
+    'definicoes.scheduleSubtitle': 'Dias e horas em que o cuidador principal pode estar incontactável (ex.: horário de trabalho) — usado para decidir quando escalar um alerta de emergência não confirmado para o contacto de emergência',
+    'definicoes.scheduleThDay': 'Dia', 'definicoes.scheduleThStart': 'Início', 'definicoes.scheduleThEnd': 'Fim', 'definicoes.scheduleDayAria': 'Indisponível à',
+    'definicoes.scheduleWeekdaysBtn': 'Dias úteis', 'definicoes.scheduleWeekendBtn': 'Fim de semana', 'definicoes.scheduleCustomBtn': 'Escolher dias',
+    'definicoes.scheduleOverrideLabel': 'Hoje estou disponível (ignora o horário abaixo só por hoje)',
+    'definicoes.scheduleOverrideAria': 'Marcar hoje como disponível, ignorando o horário declarado',
+    'definicoes.scheduleEmpty': 'Deixa um dia por marcar se o cuidador costuma estar contactável nesse dia — o sistema nunca escala automaticamente fora das horas declaradas.',
+    'definicoes.weekdayMon': 'Segunda-feira', 'definicoes.weekdayTue': 'Terça-feira', 'definicoes.weekdayWed': 'Quarta-feira', 'definicoes.weekdayThu': 'Quinta-feira',
+    'definicoes.weekdayFri': 'Sexta-feira', 'definicoes.weekdaySat': 'Sábado', 'definicoes.weekdaySun': 'Domingo', 'definicoes.emergencyContactTitle': 'Contacto de emergência',
+    'definicoes.emergencyContactSubtitle': 'Pessoa a notificar automaticamente se o cuidador não confirmar um alerta dentro do horário de indisponibilidade acima — nunca contacta serviços de emergência reais diretamente, só esta pessoa',
+    'definicoes.emergencyContactNamePlaceholder': 'Nome', 'definicoes.emergencyContactPhonePlaceholder': 'Telefone',
+    'definicoes.emergencyContactRelationPlaceholder': 'Relação (ex.: vizinho, irmão)',
+    'definicoes.emergencyContactNote': 'Este contacto só é notificado automaticamente se o alerta acontecer dentro do horário declarado acima e o cuidador não confirmar a tempo.',
   },
   en: {
     'app.title': 'CareWear · Routine Monitoring',
@@ -1262,6 +1276,20 @@ const I18N = {
     // --- common ---
     'common.save': 'Save', 'common.cancel': 'Cancel', 'common.close': 'Close', 'common.edit': 'Edit', 'common.delete': 'Remove', 'common.add': 'Add', 'common.search': 'Search', 'common.back': 'Back',
     'common.confirm': 'Confirm', 'common.today': 'Today',
+    // --- definicoes.schedule + emergencyContact ---
+    'definicoes.scheduleTitle': 'Caregiver unavailability schedule',
+    'definicoes.scheduleSubtitle': 'Days and hours when the primary caregiver may be unreachable (e.g. work hours) — used to decide when to escalate an unconfirmed emergency alert to the emergency contact',
+    'definicoes.scheduleThDay': 'Day', 'definicoes.scheduleThStart': 'Start', 'definicoes.scheduleThEnd': 'End', 'definicoes.scheduleDayAria': 'Unavailable on',
+    'definicoes.scheduleWeekdaysBtn': 'Weekdays', 'definicoes.scheduleWeekendBtn': 'Weekend', 'definicoes.scheduleCustomBtn': 'Choose days',
+    'definicoes.scheduleOverrideLabel': 'I\'m available today (ignores the schedule below just for today)',
+    'definicoes.scheduleOverrideAria': 'Mark today as available, ignoring the declared schedule',
+    'definicoes.scheduleEmpty': 'Leave a day unchecked if the caregiver is normally reachable then — the system never escalates automatically outside the declared hours.',
+    'definicoes.weekdayMon': 'Monday', 'definicoes.weekdayTue': 'Tuesday', 'definicoes.weekdayWed': 'Wednesday', 'definicoes.weekdayThu': 'Thursday', 'definicoes.weekdayFri': 'Friday',
+    'definicoes.weekdaySat': 'Saturday', 'definicoes.weekdaySun': 'Sunday', 'definicoes.emergencyContactTitle': 'Emergency contact',
+    'definicoes.emergencyContactSubtitle': 'Person to notify automatically if the caregiver doesn\'t confirm an alert within the unavailability hours above — never contacts real emergency services directly, only this person',
+    'definicoes.emergencyContactNamePlaceholder': 'Name', 'definicoes.emergencyContactPhonePlaceholder': 'Phone',
+    'definicoes.emergencyContactRelationPlaceholder': 'Relationship (e.g. neighbor, sibling)',
+    'definicoes.emergencyContactNote': 'This contact is only notified automatically if the alert happens within the declared hours above and the caregiver doesn\'t confirm in time.',
   },
   zh: {
     'app.title': 'CareWear · 日常活动监测',
@@ -1413,6 +1441,15 @@ const I18N = {
     // --- common ---
     'common.save': '保存', 'common.cancel': '取消', 'common.close': '关闭', 'common.edit': '编辑', 'common.delete': '移除', 'common.add': '添加', 'common.search': '搜索', 'common.back': '返回',
     'common.confirm': '确认', 'common.today': '今天',
+    // --- definicoes.schedule + emergencyContact ---
+    'definicoes.scheduleTitle': '照护者不可用时段', 'definicoes.scheduleSubtitle': '主要照护者可能无法联系的日期与时间（例如工作时间）——用于决定何时将未确认的紧急警报升级给紧急联系人', 'definicoes.scheduleThDay': '日期',
+    'definicoes.scheduleThStart': '开始', 'definicoes.scheduleThEnd': '结束', 'definicoes.scheduleDayAria': '不可用日', 'definicoes.scheduleWeekdaysBtn': '工作日', 'definicoes.scheduleWeekendBtn': '周末',
+    'definicoes.scheduleCustomBtn': '选择日期', 'definicoes.scheduleOverrideLabel': '我今天有空（今天暂不适用下方的时间表）', 'definicoes.scheduleOverrideAria': '将今天标记为有空，忽略已设置的时间表',
+    'definicoes.scheduleEmpty': '如果照护者当天通常可以联系，请取消勾选——系统在声明的时段之外绝不会自动升级。', 'definicoes.weekdayMon': '星期一', 'definicoes.weekdayTue': '星期二', 'definicoes.weekdayWed': '星期三',
+    'definicoes.weekdayThu': '星期四', 'definicoes.weekdayFri': '星期五', 'definicoes.weekdaySat': '星期六', 'definicoes.weekdaySun': '星期日', 'definicoes.emergencyContactTitle': '紧急联系人',
+    'definicoes.emergencyContactSubtitle': '如果照护者在上方不可用时段内未确认警报，将自动通知的人——绝不会直接联系真实的紧急服务，只通知此人', 'definicoes.emergencyContactNamePlaceholder': '姓名',
+    'definicoes.emergencyContactPhonePlaceholder': '电话', 'definicoes.emergencyContactRelationPlaceholder': '关系（例如邻居、兄弟姐妹）',
+    'definicoes.emergencyContactNote': '只有当警报发生在上方声明的时段内且照护者未能及时确认时，才会自动通知此联系人。',
   },
   es: {
     'app.title': 'CareWear · Monitorización de Rutina',
@@ -1608,6 +1645,20 @@ const I18N = {
     // --- common ---
     'common.save': 'Guardar', 'common.cancel': 'Cancelar', 'common.close': 'Cerrar', 'common.edit': 'Editar', 'common.delete': 'Quitar', 'common.add': 'Añadir', 'common.search': 'Buscar',
     'common.back': 'Volver', 'common.confirm': 'Confirmar', 'common.today': 'Hoy',
+    // --- definicoes.schedule + emergencyContact ---
+    'definicoes.scheduleTitle': 'Horario de indisponibilidad del cuidador',
+    'definicoes.scheduleSubtitle': 'Días y horas en que el cuidador principal puede estar incomunicado (ej.: horario laboral) — se usa para decidir cuándo escalar una alerta de emergencia no confirmada al contacto de emergencia',
+    'definicoes.scheduleThDay': 'Día', 'definicoes.scheduleThStart': 'Inicio', 'definicoes.scheduleThEnd': 'Fin', 'definicoes.scheduleDayAria': 'No disponible el',
+    'definicoes.scheduleWeekdaysBtn': 'Días laborables', 'definicoes.scheduleWeekendBtn': 'Fin de semana', 'definicoes.scheduleCustomBtn': 'Elegir días',
+    'definicoes.scheduleOverrideLabel': 'Hoy estoy disponible (ignora el horario de abajo solo por hoy)',
+    'definicoes.scheduleOverrideAria': 'Marcar hoy como disponible, ignorando el horario declarado',
+    'definicoes.scheduleEmpty': 'Deja un día sin marcar si el cuidador suele estar disponible entonces — el sistema nunca escala automáticamente fuera de las horas declaradas.',
+    'definicoes.weekdayMon': 'Lunes', 'definicoes.weekdayTue': 'Martes', 'definicoes.weekdayWed': 'Miércoles', 'definicoes.weekdayThu': 'Jueves', 'definicoes.weekdayFri': 'Viernes',
+    'definicoes.weekdaySat': 'Sábado', 'definicoes.weekdaySun': 'Domingo', 'definicoes.emergencyContactTitle': 'Contacto de emergencia',
+    'definicoes.emergencyContactSubtitle': 'Persona a notificar automáticamente si el cuidador no confirma una alerta dentro del horario de indisponibilidad de arriba — nunca contacta directamente a servicios de emergencia reales, solo a esta persona',
+    'definicoes.emergencyContactNamePlaceholder': 'Nombre', 'definicoes.emergencyContactPhonePlaceholder': 'Teléfono',
+    'definicoes.emergencyContactRelationPlaceholder': 'Relación (ej.: vecino, hermano)',
+    'definicoes.emergencyContactNote': 'Este contacto solo se notifica automáticamente si la alerta ocurre dentro del horario declarado arriba y el cuidador no confirma a tiempo.',
   },
   fr: {
     'app.title': 'CareWear · Suivi de Routine',
@@ -1804,6 +1855,20 @@ const I18N = {
     // --- common ---
     'common.save': 'Enregistrer', 'common.cancel': 'Annuler', 'common.close': 'Fermer', 'common.edit': 'Modifier', 'common.delete': 'Retirer', 'common.add': 'Ajouter', 'common.search': 'Rechercher',
     'common.back': 'Retour', 'common.confirm': 'Confirmer', 'common.today': 'Aujourd\'hui',
+    // --- definicoes.schedule + emergencyContact ---
+    'definicoes.scheduleTitle': 'Horaire d\'indisponibilité de l\'aidant',
+    'definicoes.scheduleSubtitle': 'Jours et heures où l\'aidant principal peut être injoignable (ex. horaires de travail) — utilisé pour décider quand escalader une alerte d\'urgence non confirmée vers le contact d\'urgence',
+    'definicoes.scheduleThDay': 'Jour', 'definicoes.scheduleThStart': 'Début', 'definicoes.scheduleThEnd': 'Fin', 'definicoes.scheduleDayAria': 'Indisponible le',
+    'definicoes.scheduleWeekdaysBtn': 'Jours ouvrés', 'definicoes.scheduleWeekendBtn': 'Week-end', 'definicoes.scheduleCustomBtn': 'Choisir les jours',
+    'definicoes.scheduleOverrideLabel': 'Je suis disponible aujourd\'hui (ignore l\'horaire ci-dessous juste pour aujourd\'hui)',
+    'definicoes.scheduleOverrideAria': 'Marquer aujourd\'hui comme disponible, en ignorant l\'horaire déclaré',
+    'definicoes.scheduleEmpty': 'Laissez un jour décoché si l\'aidant est normalement joignable ce jour-là — le système n\'escalade jamais automatiquement en dehors des heures déclarées.',
+    'definicoes.weekdayMon': 'Lundi', 'definicoes.weekdayTue': 'Mardi', 'definicoes.weekdayWed': 'Mercredi', 'definicoes.weekdayThu': 'Jeudi', 'definicoes.weekdayFri': 'Vendredi',
+    'definicoes.weekdaySat': 'Samedi', 'definicoes.weekdaySun': 'Dimanche', 'definicoes.emergencyContactTitle': 'Contact d\'urgence',
+    'definicoes.emergencyContactSubtitle': 'Personne à notifier automatiquement si l\'aidant ne confirme pas une alerte dans les heures d\'indisponibilité ci-dessus — ne contacte jamais directement les services d\'urgence réels, seulement cette personne',
+    'definicoes.emergencyContactNamePlaceholder': 'Nom', 'definicoes.emergencyContactPhonePlaceholder': 'Téléphone',
+    'definicoes.emergencyContactRelationPlaceholder': 'Lien (ex. voisin, frère/sœur)',
+    'definicoes.emergencyContactNote': 'Ce contact n\'est notifié automatiquement que si l\'alerte survient pendant les heures déclarées ci-dessus et que l\'aidant ne confirme pas à temps.',
   },
   de: {
     'app.title': 'CareWear · Routineüberwachung',
@@ -1998,6 +2063,20 @@ const I18N = {
     // --- common ---
     'common.save': 'Speichern', 'common.cancel': 'Abbrechen', 'common.close': 'Schließen', 'common.edit': 'Bearbeiten', 'common.delete': 'Entfernen', 'common.add': 'Hinzufügen',
     'common.search': 'Suchen', 'common.back': 'Zurück', 'common.confirm': 'Bestätigen', 'common.today': 'Heute',
+    // --- definicoes.schedule + emergencyContact ---
+    'definicoes.scheduleTitle': 'Nichtverfügbarkeitszeiten der Betreuungsperson',
+    'definicoes.scheduleSubtitle': 'Tage und Uhrzeiten, an denen die Hauptbetreuungsperson unerreichbar sein kann (z. B. Arbeitszeiten) — wird verwendet, um zu entscheiden, wann ein unbestätigter Notfallalarm an den Notfallkontakt eskaliert wird',
+    'definicoes.scheduleThDay': 'Tag', 'definicoes.scheduleThStart': 'Beginn', 'definicoes.scheduleThEnd': 'Ende', 'definicoes.scheduleDayAria': 'Nicht verfügbar am',
+    'definicoes.scheduleWeekdaysBtn': 'Werktage', 'definicoes.scheduleWeekendBtn': 'Wochenende', 'definicoes.scheduleCustomBtn': 'Tage auswählen',
+    'definicoes.scheduleOverrideLabel': 'Ich bin heute verfügbar (ignoriert den untenstehenden Zeitplan nur für heute)',
+    'definicoes.scheduleOverrideAria': 'Heute als verfügbar markieren, unabhängig vom festgelegten Zeitplan',
+    'definicoes.scheduleEmpty': 'Lasse einen Tag deaktiviert, wenn die Betreuungsperson dann normalerweise erreichbar ist — das System eskaliert außerhalb der angegebenen Zeiten nie automatisch.',
+    'definicoes.weekdayMon': 'Montag', 'definicoes.weekdayTue': 'Dienstag', 'definicoes.weekdayWed': 'Mittwoch', 'definicoes.weekdayThu': 'Donnerstag', 'definicoes.weekdayFri': 'Freitag',
+    'definicoes.weekdaySat': 'Samstag', 'definicoes.weekdaySun': 'Sonntag', 'definicoes.emergencyContactTitle': 'Notfallkontakt',
+    'definicoes.emergencyContactSubtitle': 'Person, die automatisch benachrichtigt wird, wenn die Betreuungsperson einen Alarm nicht innerhalb der oben angegebenen Nichtverfügbarkeitszeiten bestätigt — kontaktiert nie direkt echte Notdienste, nur diese Person',
+    'definicoes.emergencyContactNamePlaceholder': 'Name', 'definicoes.emergencyContactPhonePlaceholder': 'Telefon',
+    'definicoes.emergencyContactRelationPlaceholder': 'Beziehung (z. B. Nachbar/in, Geschwister)',
+    'definicoes.emergencyContactNote': 'Dieser Kontakt wird nur automatisch benachrichtigt, wenn der Alarm innerhalb der oben angegebenen Zeiten auftritt und die Betreuungsperson nicht rechtzeitig bestätigt.',
   },
   it: {
     'app.title': 'CareWear · Monitoraggio della Routine',
@@ -2192,6 +2271,20 @@ const I18N = {
     // --- common ---
     'common.save': 'Salva', 'common.cancel': 'Annulla', 'common.close': 'Chiudi', 'common.edit': 'Modifica', 'common.delete': 'Rimuovi', 'common.add': 'Aggiungi', 'common.search': 'Cerca',
     'common.back': 'Indietro', 'common.confirm': 'Conferma', 'common.today': 'Oggi',
+    // --- definicoes.schedule + emergencyContact ---
+    'definicoes.scheduleTitle': 'Orario di indisponibilità del caregiver',
+    'definicoes.scheduleSubtitle': 'Giorni e orari in cui il caregiver principale potrebbe essere irraggiungibile (es. orario di lavoro) — usato per decidere quando inoltrare un avviso di emergenza non confermato al contatto di emergenza',
+    'definicoes.scheduleThDay': 'Giorno', 'definicoes.scheduleThStart': 'Inizio', 'definicoes.scheduleThEnd': 'Fine', 'definicoes.scheduleDayAria': 'Non disponibile il',
+    'definicoes.scheduleWeekdaysBtn': 'Giorni feriali', 'definicoes.scheduleWeekendBtn': 'Fine settimana', 'definicoes.scheduleCustomBtn': 'Scegli i giorni',
+    'definicoes.scheduleOverrideLabel': 'Oggi sono disponibile (ignora l\'orario sottostante solo per oggi)',
+    'definicoes.scheduleOverrideAria': 'Segna oggi come disponibile, ignorando l\'orario dichiarato',
+    'definicoes.scheduleEmpty': 'Lascia un giorno deselezionato se il caregiver è di solito raggiungibile in quel giorno — il sistema non inoltra mai automaticamente al di fuori degli orari dichiarati.',
+    'definicoes.weekdayMon': 'Lunedì', 'definicoes.weekdayTue': 'Martedì', 'definicoes.weekdayWed': 'Mercoledì', 'definicoes.weekdayThu': 'Giovedì', 'definicoes.weekdayFri': 'Venerdì',
+    'definicoes.weekdaySat': 'Sabato', 'definicoes.weekdaySun': 'Domenica', 'definicoes.emergencyContactTitle': 'Contatto di emergenza',
+    'definicoes.emergencyContactSubtitle': 'Persona da avvisare automaticamente se il caregiver non conferma un avviso entro gli orari di indisponibilità sopra indicati — non contatta mai direttamente i servizi di emergenza reali, solo questa persona',
+    'definicoes.emergencyContactNamePlaceholder': 'Nome', 'definicoes.emergencyContactPhonePlaceholder': 'Telefono',
+    'definicoes.emergencyContactRelationPlaceholder': 'Relazione (es. vicino, fratello/sorella)',
+    'definicoes.emergencyContactNote': 'Questo contatto viene avvisato automaticamente solo se l\'avviso si verifica negli orari dichiarati sopra e il caregiver non conferma in tempo.',
   },
 };
 const LANG_NAMES = {pt:'Português', en:'English', zh:'中文', es:'Español', fr:'Français', de:'Deutsch', it:'Italiano'};
@@ -2511,6 +2604,129 @@ function setCaregiverPermission(id, field, value){
   if (member) member[field] = value;
   saveCaregiverTeam(team);
   if (currentView) renderView(currentView);
+}
+
+/* ------------------------------------------------------------
+   HORÁRIO DE INDISPONIBILIDADE DO CUIDADOR (Fase 5, ver
+   bridge/notifications.py::ScheduleWindow/caregiver_unavailable_now())
+   ------------------------------------------------------------
+   Pedido explícito do utilizador: cuidadores podem estar incontactáveis
+   durante o trabalho — um único horário igual para os 7 dias não chega
+   (pode trabalhar seg-sex mas não ao fim de semana, por exemplo), por
+   isso cada dia guarda a sua própria janela {weekday, start, end}, tal
+   como o backend espera (weekday: 0=segunda...6=domingo, igual a
+   datetime.weekday() em Python). Namespaced por paciente, mesmo padrão
+   de loadCaregiverTeam()/loadConsent() acima.
+------------------------------------------------------------ */
+const CAREGIVER_SCHEDULE_KEY = 'carewear_caregiver_schedule';
+function loadAllCaregiverSchedules(){
+  try {
+    const raw = localStorage.getItem(CAREGIVER_SCHEDULE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* localStorage indisponível ou dados corrompidos - ignora */ }
+  return {};
+}
+// Sem nenhuma janela definida, o cuidador é tratado como sempre
+// contactável (mesma decisão conservadora de notifications.py: sem
+// horário declarado, nunca escala automaticamente).
+function loadCaregiverSchedule(patientId = selectedPatient().id){
+  const all = loadAllCaregiverSchedules();
+  return all[patientId] || [];
+}
+function saveCaregiverSchedule(schedule, patientId = selectedPatient().id){
+  const all = loadAllCaregiverSchedules();
+  all[patientId] = schedule;
+  try { localStorage.setItem(CAREGIVER_SCHEDULE_KEY, JSON.stringify(all)); }
+  catch (e) { /* quota excedida ou localStorage indisponível - fica só em memória */ }
+}
+function setCaregiverScheduleDay(weekday, field, value){
+  const schedule = loadCaregiverSchedule();
+  const entry = schedule.find(w => w.weekday === weekday);
+  if (field === 'enabled') {
+    if (value && !entry) schedule.push({ weekday, start: '09:00', end: '17:00' });
+    else if (!value && entry) schedule.splice(schedule.indexOf(entry), 1);
+  } else if (entry) {
+    entry[field] = value;
+  }
+  saveCaregiverSchedule(schedule);
+  if (currentView) renderView(currentView);
+}
+// Deriva o preset ativo a partir dos dias marcados, em vez de guardar um
+// campo à parte — evita o horário e o "modo" ficarem dessincronizados se
+// o utilizador editar um dia manualmente depois de escolher um preset.
+function currentSchedulePreset(schedule){
+  const days = new Set(schedule.map(w => w.weekday));
+  if (days.size === 5 && [0,1,2,3,4].every(d => days.has(d))) return 'weekdays';
+  if (days.size === 2 && [5,6].every(d => days.has(d))) return 'weekend';
+  return 'custom';
+}
+// 'custom' não aplica nenhum padrão pré-definido — limpa a seleção para
+// o utilizador escolher os dias um a um nas checkboxes abaixo (o botão
+// "Escolher dias" pedido explicitamente, ao lado de "Dias úteis"/"Fim de
+// semana", à semelhança dos presets de horário recorrente da medicação).
+function applyCaregiverSchedulePreset(preset){
+  const weekdays = preset === 'weekdays' ? [0,1,2,3,4] : preset === 'weekend' ? [5,6] : [];
+  saveCaregiverSchedule(weekdays.map(weekday => ({ weekday, start: '09:00', end: '17:00' })));
+  if (currentView) renderView(currentView);
+}
+
+// Suspensão pontual (pedido explícito do utilizador): em vez de editar o
+// horário semanal por causa de uma exceção de um dia (ex.: hoje o
+// cuidador está de folga, ou ao contrário, hoje não vai conseguir estar
+// contactável mesmo fora do horário habitual), esta chave desliga
+// TEMPORARIAMENTE — só para a data de hoje — a leitura do horário
+// semanal, sem apagar nem alterar as janelas já configuradas. Expira
+// sozinha no dia seguinte (comparação de data, sem necessidade de limpar
+// nada explicitamente).
+const SCHEDULE_OVERRIDE_KEY = 'carewear_schedule_override_date';
+function loadAllScheduleOverrides(){
+  try {
+    const raw = localStorage.getItem(SCHEDULE_OVERRIDE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* localStorage indisponível ou dados corrompidos - ignora */ }
+  return {};
+}
+function isScheduleOverrideActiveToday(patientId = selectedPatient().id){
+  const all = loadAllScheduleOverrides();
+  return all[patientId] === new Date().toISOString().slice(0, 10);
+}
+function toggleScheduleOverrideToday(active, patientId = selectedPatient().id){
+  const all = loadAllScheduleOverrides();
+  if (active) all[patientId] = new Date().toISOString().slice(0, 10);
+  else delete all[patientId];
+  try { localStorage.setItem(SCHEDULE_OVERRIDE_KEY, JSON.stringify(all)); }
+  catch (e) { /* quota excedida ou localStorage indisponível - fica só em memória */ }
+  if (currentView) renderView(currentView);
+}
+
+/* ------------------------------------------------------------
+   CONTACTO DE EMERGÊNCIA (Fase 5) — pessoa notificada se o cuidador não
+   confirmar um alerta dentro do horário acima (ver notifications.py,
+   EmergencyContact). Namespaced por paciente, mesmo padrão de
+   loadCaregiverSchedule() acima.
+------------------------------------------------------------ */
+const EMERGENCY_CONTACT_KEY = 'carewear_emergency_contact';
+function loadAllEmergencyContacts(){
+  try {
+    const raw = localStorage.getItem(EMERGENCY_CONTACT_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* localStorage indisponível ou dados corrompidos - ignora */ }
+  return {};
+}
+function loadEmergencyContact(patientId = selectedPatient().id){
+  const all = loadAllEmergencyContacts();
+  return all[patientId] || { name:'', phone:'', relation:'' };
+}
+function saveEmergencyContact(contact, patientId = selectedPatient().id){
+  const all = loadAllEmergencyContacts();
+  all[patientId] = contact;
+  try { localStorage.setItem(EMERGENCY_CONTACT_KEY, JSON.stringify(all)); }
+  catch (e) { /* quota excedida ou localStorage indisponível - fica só em memória */ }
+}
+function updateEmergencyContactField(field, value){
+  const contact = loadEmergencyContact();
+  contact[field] = value;
+  saveEmergencyContact(contact);
 }
 
 function buildHeatmap(seed){
@@ -4366,6 +4582,57 @@ TEMPLATES.definicoes = () => `
       <button class="btn-secondary" onclick="addCaregiver()">${t('definicoes.inviteBtn')}</button>
     </div>
     <p class="empty-hint">${t('definicoes.caregiverTeamNote')}</p>
+  </div>`;
+  })()}
+
+  ${(() => {
+    const schedule = loadCaregiverSchedule();
+    const preset = currentSchedulePreset(schedule);
+    const overrideActive = isScheduleOverrideActiveToday();
+    const WEEKDAY_KEYS = ['definicoes.weekdayMon','definicoes.weekdayTue','definicoes.weekdayWed','definicoes.weekdayThu','definicoes.weekdayFri','definicoes.weekdaySat','definicoes.weekdaySun'];
+    return `
+  <div class="card">
+    <div class="card-head"><div><h3>${t('definicoes.scheduleTitle')}</h3><div class="card-sub">${t('definicoes.scheduleSubtitle')}</div></div></div>
+    <div class="role-toggle" style="margin-bottom:14px;">
+      <button type="button" aria-pressed="${preset === 'weekdays'}" onclick="applyCaregiverSchedulePreset('weekdays')">${t('definicoes.scheduleWeekdaysBtn')}</button>
+      <button type="button" aria-pressed="${preset === 'weekend'}" onclick="applyCaregiverSchedulePreset('weekend')">${t('definicoes.scheduleWeekendBtn')}</button>
+      <button type="button" aria-pressed="${preset === 'custom'}" onclick="applyCaregiverSchedulePreset('custom')">${t('definicoes.scheduleCustomBtn')}</button>
+    </div>
+    <table class="data-table">
+      <thead><tr><th>${t('definicoes.scheduleThDay')}</th><th></th><th>${t('definicoes.scheduleThStart')}</th><th>${t('definicoes.scheduleThEnd')}</th></tr></thead>
+      <tbody>
+        ${[0,1,2,3,4,5,6].map(wd => {
+          const entry = schedule.find(w => w.weekday === wd);
+          const enabled = !!entry;
+          return `
+        <tr>
+          <td>${t(WEEKDAY_KEYS[wd])}</td>
+          <td><label class="consent-toggle"><input type="checkbox" aria-label="${t('definicoes.scheduleDayAria')} ${t(WEEKDAY_KEYS[wd])}" ${enabled?'checked':''} onchange="setCaregiverScheduleDay(${wd},'enabled',this.checked)"><span></span></label></td>
+          <td><input type="time" class="row-input" value="${entry ? entry.start : '09:00'}" ${enabled?'':'disabled'} onchange="setCaregiverScheduleDay(${wd},'start',this.value)"></td>
+          <td><input type="time" class="row-input" value="${entry ? entry.end : '17:00'}" ${enabled?'':'disabled'} onchange="setCaregiverScheduleDay(${wd},'end',this.value)"></td>
+        </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+    <div style="display:flex; align-items:center; gap:10px; margin-top:12px; padding-top:12px; border-top:1px solid var(--border-soft);">
+      <label class="consent-toggle"><input type="checkbox" aria-label="${t('definicoes.scheduleOverrideAria')}" ${overrideActive?'checked':''} onchange="toggleScheduleOverrideToday(this.checked)"><span></span></label>
+      <span style="font-size:13px;">${t('definicoes.scheduleOverrideLabel')}</span>
+    </div>
+    <p class="empty-hint">${t('definicoes.scheduleEmpty')}</p>
+  </div>`;
+  })()}
+
+  ${(() => {
+    const ec = loadEmergencyContact();
+    return `
+  <div class="card">
+    <div class="card-head"><div><h3>${t('definicoes.emergencyContactTitle')}</h3><div class="card-sub">${t('definicoes.emergencyContactSubtitle')}</div></div></div>
+    <div class="note-form">
+      <input type="text" value="${escapeHtml(ec.name)}" placeholder="${t('definicoes.emergencyContactNamePlaceholder')}" style="flex:1;" onchange="updateEmergencyContactField('name', this.value)">
+      <input type="tel" value="${escapeHtml(ec.phone)}" placeholder="${t('definicoes.emergencyContactPhonePlaceholder')}" onchange="updateEmergencyContactField('phone', this.value)">
+      <input type="text" value="${escapeHtml(ec.relation)}" placeholder="${t('definicoes.emergencyContactRelationPlaceholder')}" onchange="updateEmergencyContactField('relation', this.value)">
+    </div>
+    <p class="empty-hint">${t('definicoes.emergencyContactNote')}</p>
   </div>`;
   })()}
 
