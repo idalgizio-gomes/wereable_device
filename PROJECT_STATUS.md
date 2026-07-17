@@ -4609,3 +4609,11 @@ navegação correspondente. Mesmo bug corrigido em `setAlertMode()` (mesmo padr�
 mesma falha ao mudar o modo de alerta populacional/personalizado fora da vista de origem).
 Reverificado com Playwright após a correção: 16 itens do FAQ mantêm-se e traduzem corretamente
 nas 7 línguas.
+
+## NFC e GPS — confirmado que permanecem por esclarecer (2026-07-17)
+
+Perguntado diretamente ao utilizador se existe antena NFC ligada aos pinos P0.09/P0.10 no
+esquemático, e se existe algum módulo GPS externo ligado à placa. Resposta a ambos: **não se
+sabe ao certo**. Decisão: continuam FORA do trabalho ativo — não vale a pena escrever código de
+NFC/GPS para hardware cuja existência não está confirmada. Retomar assim que houver confirmação
+(ex. inspeção física do esquemático/placa pelo utilizador).

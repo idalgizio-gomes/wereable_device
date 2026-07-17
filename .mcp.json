@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "kicad": {
+      "command": "node",
+      "args": [
+        "C:\\Users\\35191\\Desktop\\Gi\\Aulas\\IPCA\\Formações\\2AI\\Plugin_kicad\\KiCAD-MCP-Server\\dist\\index.js"
+      ],
+      "env": {
+        "NODE_ENV": "production",
+        "PYTHONPATH": "C:\\Program Files\\KiCad\\10.0\\bin\\Lib\\site-packages",
+        "LOG_LEVEL": "info",
+        "KICAD_AUTO_LAUNCH": "false",
+        "KICAD_INTERACTIVE_SCHEMATIC": "false",
+        "KICAD_MCP_DEV": "0"
+      },
+      "description": "KiCAD 10 PCB Design Assistant (mixelpixx/KiCAD-MCP-Server, MIT) - 122 tools via IPC/SWIG"
+    }
+  }
+}

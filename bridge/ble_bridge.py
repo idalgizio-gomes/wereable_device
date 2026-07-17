@@ -33,9 +33,19 @@ Este script:
   5. Subscreve também emergencyAlertChar (módulo firmware Emergency — SOS
      manual ou queda+inatividade confirmada) e reencaminha o alerta de
      imediato para o dashboard, sem passar pelo limite de taxa dos
-     registos normais. Ainda não notifica externamente (SMS/email/push) —
-     precisa de um provedor real (ex.: Twilio) com credenciais do
-     utilizador, decisão pendente (ver PROJECT_STATUS.md).
+     registos normais. Desde 2026-07-17 também aciona `notifications.py`
+     (ver `_dispatch_emergency_notifications`/`EscalationManager`) para
+     notificar o(s) cuidador(es) + o contacto de emergência do paciente
+     por SMS/email (Twilio/SendGrid), e escalar ao contacto de emergência
+     se o alerta não for confirmado dentro do prazo E cair dentro do
+     horário declarado de indisponibilidade do cuidador — NUNCA contacta
+     o 112 ou qualquer serviço de emergência real (ver a "DECISÃO
+     DELIBERADA SOBRE O 112" no cabeçalho de notifications.py). Precisa de
+     `CAREWEAR_TWILIO_*`/`CAREWEAR_SENDGRID_*` + `CAREWEAR_CAREGIVER_*`/
+     `CAREWEAR_EMERGENCY_CONTACT_*` no ambiente (ver
+     `_load_notification_recipients_from_env` abaixo); sem isso, degrada
+     para um aviso no log, nunca finge notificar nem bloqueia o alerta ao
+     dashboard.
 
 CIFRA AES-CTR DO "MODO DE DADOS" (2026-07-07)
 ----------------------------------------------
@@ -95,7 +105,7 @@ import os
 import ssl
 import struct
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time as dt_time, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -116,6 +126,17 @@ try:
 except ImportError as exc:
     print(f"[BRIDGE] AVISO: modulo orm_persistence indisponivel ({exc}); dual-write desativado")
     orm_persistence = None
+
+try:
+    # Notificações externas de alertas de emergência (SMS/email + escalonamento,
+    # ver notifications.py) — não deve exigir twilio/sendgrid instalados só
+    # para importar ble_bridge.py (notifications.py já faz esse import tardio
+    # lá dentro, só quando as credenciais estão de facto configuradas); este
+    # try/except cobre só o caso (improvável) de o próprio ficheiro faltar.
+    import notifications
+except ImportError as exc:
+    print(f"[BRIDGE] AVISO: modulo notifications indisponivel ({exc}); notificacoes de emergencia desativadas")
+    notifications = None
 
 # ============================================================
 # IDENTIFICADORES BLE — têm de corresponder exatamente aos definidos
@@ -264,6 +285,85 @@ def _load_aes_key_from_env() -> Optional[bytes]:
         return None
     print(f"[BRIDGE] chave AES carregada do ambiente ({len(key) * 8} bits)")
     return key
+
+
+# ============================================================
+# NOTIFICAÇÕES EXTERNAS DE EMERGÊNCIA (SMS/email, ver notifications.py) —
+# mesma convenção de configuração por variável de ambiente usada acima para
+# a chave AES e o TLS opcional. As credenciais Twilio/SendGrid propriamente
+# ditas (CAREWEAR_TWILIO_*, CAREWEAR_SENDGRID_*, CAREWEAR_NOTIFY_FROM_EMAIL,
+# CAREWEAR_ESCALATION_TIMEOUT_MIN) são lidas diretamente por
+# notifications.py — aqui só carregamos QUEM notificar (cuidador(es) +
+# contacto de emergência) e QUANDO o cuidador está tipicamente indisponível
+# (ScheduleWindow), porque isso é específico de cada instalação/paciente,
+# não do provedor de SMS/email. Deliberadamente por variáveis de ambiente
+# (não um novo ficheiro de configuração) para não introduzir mais uma forma
+# de configurar o bridge além da já existente.
+# ============================================================
+_CAREGIVER_NAME_ENV = "CAREWEAR_CAREGIVER_NAME"
+_CAREGIVER_PHONE_ENV = "CAREWEAR_CAREGIVER_PHONE"
+_CAREGIVER_EMAIL_ENV = "CAREWEAR_CAREGIVER_EMAIL"
+# NOTA: o contacto de emergência é sempre uma PESSOA (ex.: vizinho/familiar),
+# nunca um número de emergência real — ver a "DECISÃO DELIBERADA SOBRE O
+# 112" no cabeçalho de notifications.py. Só tem telefone no esquema atual
+# (Patient.emergency_contact_*), sem coluna de email, mas aceitamos
+# CAREWEAR_EMERGENCY_CONTACT_EMAIL na mesma para não bloquear instalações
+# futuras que queiram configurar um email também.
+_EMERGENCY_CONTACT_NAME_ENV = "CAREWEAR_EMERGENCY_CONTACT_NAME"
+_EMERGENCY_CONTACT_PHONE_ENV = "CAREWEAR_EMERGENCY_CONTACT_PHONE"
+_EMERGENCY_CONTACT_EMAIL_ENV = "CAREWEAR_EMERGENCY_CONTACT_EMAIL"
+# JSON: lista de {"weekday": 0-6 (0=segunda, ver datetime.weekday()),
+# "start": "HH:MM", "end": "HH:MM"}. Ex.:
+#   CAREWEAR_CAREGIVER_SCHEDULE_JSON='[{"weekday":0,"start":"08:00","end":"17:00"}]'
+_CAREGIVER_SCHEDULE_ENV = "CAREWEAR_CAREGIVER_SCHEDULE_JSON"
+
+
+def _load_notification_recipients_from_env():
+    """Lê do ambiente quem notificar num alerta de emergência real. Sem
+    NENHUMA variável definida, devolve ([], None, None) — o bridge continua
+    a funcionar normalmente, só que `_dispatch_emergency_notifications` não
+    tem ninguém para notificar (regista um aviso uma vez, ver __init__).
+    Nunca levanta exceção: um horário mal formado (JSON inválido, chave em
+    falta) só descarta esse horário especificamente — nunca impede o resto
+    da configuração de carregar nem o arranque do bridge."""
+    caregivers = []
+    name = os.environ.get(_CAREGIVER_NAME_ENV)
+    if name:
+        caregivers.append(notifications.EmergencyContact(
+            name=name,
+            phone=os.environ.get(_CAREGIVER_PHONE_ENV) or None,
+            email=os.environ.get(_CAREGIVER_EMAIL_ENV) or None,
+        ))
+
+    emergency_contact = None
+    ec_name = os.environ.get(_EMERGENCY_CONTACT_NAME_ENV)
+    if ec_name:
+        emergency_contact = notifications.EmergencyContact(
+            name=ec_name,
+            phone=os.environ.get(_EMERGENCY_CONTACT_PHONE_ENV) or None,
+            email=os.environ.get(_EMERGENCY_CONTACT_EMAIL_ENV) or None,
+        )
+
+    schedule = None
+    schedule_raw = os.environ.get(_CAREGIVER_SCHEDULE_ENV)
+    if schedule_raw:
+        try:
+            entries = json.loads(schedule_raw)
+            schedule = [
+                notifications.ScheduleWindow(
+                    weekday=int(entry["weekday"]),
+                    start=dt_time.fromisoformat(entry["start"]),
+                    end=dt_time.fromisoformat(entry["end"]),
+                )
+                for entry in entries
+            ]
+        except (ValueError, KeyError, TypeError) as exc:
+            print(f"[BRIDGE] AVISO: {_CAREGIVER_SCHEDULE_ENV} invalido ({exc}) — "
+                  f"horario de indisponibilidade do cuidador ignorado (sem horario "
+                  f"declarado, o sistema nunca escala sozinho, ver notifications.py)")
+            schedule = None
+
+    return caregivers, emergency_contact, schedule
 
 
 def decrypt_full_plain(key: bytes, nonce: int, ciphertext: bytes) -> bytes:
@@ -473,6 +573,33 @@ class BleBridge:
         self.aes_key = _load_aes_key_from_env()
         self._missing_key_warned = False
         self._implausible_record_warned = False
+        # Notificações externas de alertas de emergência REAIS (SMS/email +
+        # escalonamento condicional ao contacto de emergência — ver
+        # notifications.py e _dispatch_emergency_notifications abaixo).
+        # Mesma lógica de degradação do self.orm acima: uma instância por
+        # processo do bridge; se notifications.py não estiver disponível
+        # (import falhou, ver topo do ficheiro) ou a configuração do
+        # timeout de escalonamento for inválida, self.escalation_manager
+        # fica None e _on_emergency_alert simplesmente não notifica
+        # ninguém — nunca impede o arranque do bridge nem o broadcast do
+        # alerta ao dashboard, que é o caminho crítico de segurança.
+        self.escalation_manager = None
+        self.notify_caregivers: list = []
+        self.notify_emergency_contact = None
+        self.notify_schedule = None
+        if notifications is not None:
+            try:
+                self.escalation_manager = notifications.EscalationManager()
+            except Exception as exc:  # noqa: BLE001 - nunca deve impedir o arranque do bridge
+                print(f"[BRIDGE] AVISO: gestor de escalonamento de notificacoes indisponivel: {exc}")
+                self.escalation_manager = None
+            self.notify_caregivers, self.notify_emergency_contact, self.notify_schedule = (
+                _load_notification_recipients_from_env()
+            )
+            if self.escalation_manager is not None and not self.notify_caregivers and self.notify_emergency_contact is None:
+                print(f"[BRIDGE] AVISO: nenhum cuidador/contacto de emergencia configurado "
+                      f"({_CAREGIVER_NAME_ENV}/{_EMERGENCY_CONTACT_NAME_ENV}) — alertas de "
+                      f"emergencia reais nao vao notificar ninguem fora do dashboard.")
         # Ver WRITE_COMMAND_MIN_INTERVAL_S abaixo — ultimo instante
         # (time.monotonic()) em que cada comando de escrita foi aceite,
         # por nome de comando. Global (nao por-cliente WebSocket) de
@@ -742,6 +869,45 @@ class BleBridge:
         if self.orm:
             self.orm.insert_emergency_alert(alert)
         asyncio.create_task(self.broadcast({"kind": "emergency_alert", **alert}))
+        # Notificações externas (SMS/email ao(s) cuidador(es) + escalonamento
+        # condicional ao contacto de emergência — ver notifications.py) NUNCA
+        # podem atrasar/bloquear o broadcast acima, que é o caminho crítico
+        # de segurança: o dashboard tem de ver o alerta de imediato, mesmo
+        # que a Twilio/SendGrid estejam lentas, em baixo, ou nem configuradas.
+        # Por isso corre como uma task asyncio SEPARADA (não um await direto
+        # aqui), criada DEPOIS da task de broadcast, com qualquer erro
+        # apanhado por dentro de _dispatch_emergency_notifications em vez de
+        # poder propagar para este callback de notificação BLE.
+        asyncio.create_task(self._dispatch_emergency_notifications(alert))
+
+    async def _dispatch_emergency_notifications(self, alert: dict) -> None:
+        """Aciona o EscalationManager (ver notifications.py) para um alerta
+        de emergência REAL vindo do wearable: notifica de imediato o(s)
+        cuidador(es) + o contacto de emergência, e agenda um escalonamento
+        automático SÓ se o alerta cair dentro do horário declarado de
+        indisponibilidade do cuidador e não for confirmado dentro do prazo
+        (`acknowledge_alert`, ver handle_dashboard_command) — nunca contacta
+        o 112 ou qualquer serviço de emergência real (ver a "DECISÃO
+        DELIBERADA SOBRE O 112" no cabeçalho de notifications.py; o
+        escalonamento é sempre uma mensagem mais urgente a um HUMANO, nunca
+        uma chamada automatizada). `alert_id` combina tipo+seq para ficar
+        estável o suficiente para `acknowledge_alert` cancelar o
+        escalonamento certo, mesmo que 'seq' (uint16) eventualmente dê a
+        volta numa sessão muito longa."""
+        if self.escalation_manager is None:
+            return
+        alert_id = f"{alert['alert_type']}-{alert['seq']}"
+        summary = f"{alert['alert_name']} (seq={alert['seq']})"
+        try:
+            self.escalation_manager.notify_emergency(
+                alert_id,
+                summary,
+                self.notify_caregivers,
+                self.notify_emergency_contact,
+                self.notify_schedule,
+            )
+        except Exception as exc:  # noqa: BLE001 - notificacoes externas nunca podem derrubar o bridge
+            print(f"[BRIDGE] erro ao acionar notificacoes de emergencia: {exc}")
 
     async def _maybe_send_time(self, client: BleakClient) -> None:
         """Se a characteristic Current Time existir e for escrevível
@@ -947,6 +1113,30 @@ class BleBridge:
             # run_device_loop, que ve' ble_enabled cair a False no seu
             # proximo ciclo (ate' 1s depois) e chama client.disconnect().
             await ws.send(json.dumps({"kind": "command_result", "cmd": cmd, "ok": True, "enabled": self.ble_enabled}))
+            return
+        if cmd == "acknowledge_alert":
+            # Confirmação manual de um alerta de emergência (ver
+            # notifications.py, EscalationManager.acknowledge) — cancela o
+            # escalonamento automático pendente ao contacto de emergência,
+            # se houver um agendado para este alert_id. 'alert_id' usa o
+            # mesmo formato "{alert_type}-{seq}" produzido em
+            # _dispatch_emergency_notifications; o dashboard já recebe
+            # 'alert_type' e 'seq' no payload "emergency_alert" e pode
+            # construir o mesmo id. Sem escalation_manager disponível ou
+            # sem alert_id, devolve ok=False sem rebentar — canal não
+            # autenticado, mesmo aviso de sempre (ver docstring deste
+            # método).
+            alert_id = msg.get("alert_id")
+            if self.escalation_manager is None or not alert_id:
+                await ws.send(json.dumps({
+                    "kind": "command_result", "cmd": cmd, "ok": False,
+                    "error": "escalonamento indisponivel ou alert_id em falta",
+                }))
+                return
+            was_pending = self.escalation_manager.acknowledge(str(alert_id))
+            await ws.send(json.dumps({
+                "kind": "command_result", "cmd": cmd, "ok": True, "was_pending": was_pending,
+            }))
             return
         if cmd == "get_history":
             # Pedido de histórico real (ver storage.py) — "hours" é

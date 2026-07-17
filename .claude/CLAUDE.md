@@ -1,4 +1,4 @@
-## vexp - Context-Aware AI Coding <!-- vexp v2.1.4 -->
+## vexp - Context-Aware AI Coding <!-- vexp v2.2.2 -->
 
 ### MANDATORY: use vexp pipeline - do NOT grep or glob the codebase
 For every task - bug fixes, features, refactors, debugging:
@@ -10,6 +10,12 @@ vexp returns pre-indexed, graph-ranked context that is more relevant and
 uses fewer tokens than manual searching. Prefer `get_skeleton` over Read to
 inspect files (detail: minimal/standard/detailed, 70-90% token savings).
 Only use Read when you need exact raw content to edit a specific line.
+
+The hook denies Grep/Glob while the daemon is up. That is policy, not a transient
+failure: call `run_pipeline` instead - do NOT work around it by shelling out or
+writing a script. vexp only covers indexed source inside the workspace: for runtime
+logs, build output (dist/, .vite/, node_modules/) or files outside the repo it has
+no answer - use Bash/Read there, those are never blocked.
 
 ### Primary Tool
 - `run_pipeline` - **USE THIS FOR EVERYTHING**. Single call that runs
@@ -25,6 +31,12 @@ Only use Read when you need exact raw content to edit a specific line.
 - `get_skeleton` - **preferred over Read** for inspecting files (minimal/standard/detailed detail levels, 70-90% token savings)
 - `index_status` - indexing status and health check
 - `expand_vexp_ref` - expand V-REF hash placeholders in v2 compact output
+
+### Query shape (do this)
+- Anchor the task on real identifiers (ClassName, functionName) or file paths:
+  `run_pipeline({ "task": "fix JWT expiry in AuthService.validateToken" })`
+- A pure natural-language question ("why does login fail?") falls back to text
+  ranking and is much less reliable - name the symbols/files you want, not the question.
 
 ### Workflow
 1. `run_pipeline("your task")` - ALWAYS FIRST. Returns pivots + impact + memories in 1 call

@@ -1,0 +1,14 @@
+{
+  "servers": {
+    "vexp": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "c:\\Users\\35191\\.vscode\\extensions\\vexp.vexp-vscode-2.2.2-win32-x64\\dist\\mcp-server.cjs"
+      ],
+      "env": {
+        "VEXP_WORKSPACE": "c:\\Users\\35191\\Desktop\\Gi\\Aulas\\IPCA\\Formações\\2AI\\Objetivos\\Código\\nRF_HfP_Cl2\\nRF_HfP_Cl2"
+      }
+    }
+  }
+}
