@@ -4433,3 +4433,45 @@ protocolo, só automatiza os passos já existentes (ver `bridge/ble_bridge.py`, 
 em `ws://localhost:8765`, dashboard abriu no browser e estabeleceu ligação WebSocket automática
 (confirmado por `netstat` — ligação `ESTABLISHED` entre o processo do browser e o do bridge).
 Mencionado em `README.md`.
+
+## Fase 4 — Testes com hardware real (placa ligada), 2026-07-17
+
+Primeira sessão com acesso real à placa (Seeed XIAO nRF52840 Sense Plus, MAC `E6:ED:42:57:1F:20`,
+COM6). `pio run` (ambientes `seeed-xiao-afruitnrf52-nrf52840-sense-plus` e `test_lora_isolated`)
+confirmado a compilar sem erros — nada foi reflashado nesta sessão, testado o firmware já a
+correr no dispositivo. Fluxo completo BLE→bridge→WebSocket confirmado a funcionar de ponta a
+ponta:
+
+**Confirmado a funcionar**: ligação BLE automática, sincronização de hora (Current Time 0x2A2B),
+início de streaming (`dumpCtrlChar`), cifra AES-CTR decifrada corretamente pelo bridge (valores de
+acelerómetro/giroscópio plausíveis, não ruído), contagem de passos persistente, `reset_readings`
+e `force_reading` (comandos WebSocket) confirmados a chegar ao firmware e a serem processados.
+
+**FC/SpO2 — sensor funciona, mas leituras instáveis (limitação conhecida, não corrigida)**:
+`Ppg.cpp` deteta sinal real (confirmado por log série direto: SpO2 91-100%, plausível) mas o
+batimento cardíaco calculado varia de forma fisiologicamente impossível entre leituras
+consecutivas (`38 bpm → 89 bpm → 115 bpm` em menos de 1 segundo, reproduzido em 2 tentativas
+independentes com dedo firme no sensor). O código já tem as salvaguardas habituais
+(`detectHeartbeat()`: período refratário de 300ms; `computeBPM()`: só aceita 30-200 bpm;
+`smoothBPM()`: média móvel de 5 amostras) — não há um bug óbvio de correção rápida. Suspeita mais
+provável: o detetor de batimento (cruzamento de zero num sinal filtrado) é sensível a artefacto de
+movimento e não usa o acelerómetro (já disponível no mesmo dispositivo) para rejeitar leituras
+durante movimento — abordagem comum em implementações PPG mais robustas, não implementada aqui.
+**Não corrigido nesta sessão** (exigiria acesso a um oxímetro de referência para validar contra
+valores reais, e possivelmente redesenho do filtro — âmbito maior que uma correção pontual).
+
+**Descoberta lateral, resolvida como não-problema**: `ImuPpgPayloadV1` está definida duas vezes,
+independentemente, em `main.cpp` (campo `hr_x10`) e `Ble.cpp` (campo `hr`) — nomes diferentes, mas
+`packed` com os mesmos campos na mesma ordem, logo o layout em memória é idêntico e não há bug
+funcional. Ainda assim, código duplicado — risco real se um dos dois ficheiros for editado sem o
+outro no futuro (ex.: adicionar um campo só numa das definições corromperia silenciosamente os
+dados lidos). Recomendação para sessão futura: extrair para um header partilhado.
+
+**Descoberta lateral, explica a dificuldade de testar em janelas curtas**: o buffer em anel
+(flash QSPI) acumula ~54 registos/segundo continuamente (`storageTask`), independentemente de
+haver um bridge a escoá-los. Mesmo depois de um `reset_readings`, um teste de leitura forçada
+minutos depois já tem milhares de registos por escoar antes do dump chegar ao registo novo — o
+dump é estritamente FIFO (mais antigo primeiro), sem forma de "saltar para o mais recente". Numa
+utilização real, um cuidador a pedir "medir agora" podia esperar dezenas de segundos a minutos só
+por causa deste backlog, não por o sensor ser lento. Recomendação para sessão futura: dar
+prioridade aos registos com PPG válido no dump, ou um modo de dump que salte para o fim da fila.
