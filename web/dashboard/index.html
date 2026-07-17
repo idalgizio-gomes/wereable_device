@@ -5499,7 +5499,13 @@ function drawHrSeries(id){
    PC), a ligação falha silenciosamente e o dashboard mantém os dados
    simulados — nada se parte por não haver bridge disponível.
 ============================================================ */
-const WS_URL = 'ws://localhost:8765';
+// TLS opcional (GDPR-004, ver SECURITY_STATUS.md): por omissão o bridge
+// corre em ws:// simples. Para usar wss://, corre o bridge com
+// CAREWEAR_WS_TLS=1 (gera um certificado autoassinado na 1ª vez),
+// aceita manualmente o certificado em https://localhost:8765 no browser,
+// e só depois define localStorage.setItem('carewear_ws_tls','1') aqui —
+// sem os dois passos anteriores a ligação WSS falha silenciosamente.
+const WS_URL = (localStorage.getItem('carewear_ws_tls') === '1' ? 'wss' : 'ws') + '://localhost:8765';
 const LIVE_HR_WINDOW = 60; // amostras mantidas no gráfico de FC ao vivo
 
 const liveState = {

@@ -30,6 +30,12 @@ bridge/*.db-shm
 # dispositivo/bridge tem a sua própria chave.
 bridge/device_key.env
 
+# Certificado TLS autoassinado do WebSocket do bridge (opt-in via
+# CAREWEAR_WS_TLS=1, ver ble_bridge.py) — gerado localmente na 1ª vez,
+# específico desta instalação, nunca deve ir para o repositório.
+bridge/tls_cert.pem
+bridge/tls_key.pem
+
 *.db-wal
 *.db-shm
 *.db-journal

@@ -928,6 +928,22 @@ doméstica), `wss://` + autenticação por token tornam-se obrigatórios,
 não opcionais. Enquanto for estritamente local/single-user, risco
 aceite documentado, não uma correção pendente.
 
+**Mitigação implementada (2026-07-17), opt-in**: `ble_bridge.py` sabe
+gerar um certificado autoassinado (`cryptography`, SAN `localhost` +
+`127.0.0.1`/`::1`, válido 10 anos, gitignored) e servir o WebSocket em
+`wss://` quando `CAREWEAR_WS_TLS=1` está definido no ambiente. Desligado
+por omissão porque um browser recusa um certificado autoassinado sem
+confirmação manual prévia (visitar `https://localhost:8765` e aceitar o
+aviso uma vez) — ligar TLS sem esse passo faz a ligação WSS falhar
+silenciosamente e o dashboard mostra "sem ligação ao bridge", pior do
+que o `ws://` atual. O dashboard (`web/dashboard/index.html`, `WS_URL`)
+lê `localStorage.carewear_ws_tls` para escolher `ws://`/`wss://` —
+instruções de ativação nos comentários de ambos os ficheiros.
+Verificado: teste end-to-end real (servidor `wss://` + cliente,
+handshake e troca de mensagem completos) e teste de idempotência
+(certificado não é regenerado em chamadas seguintes, para não invalidar
+um certificado já aceite no browser).
+
 ---
 
 ### GDPR-005 — `.db` sem cifra em repouso (fora dos 2 campos já cifrados)
