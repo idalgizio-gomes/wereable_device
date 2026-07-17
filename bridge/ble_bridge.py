@@ -481,6 +481,16 @@ class BleBridge:
         # limite por-cliente seria trivial de contornar abrindo outra
         # ligacao WebSocket.
         self._last_write_command_monotonic: dict[str, float] = {}
+        # Controlo manual da ligacao BLE (pedido do dashboard, ver
+        # handle_dashboard_command "set_ble_enabled"). True = run_device_loop
+        # procura/mantem a ligacao normalmente (comportamento de sempre).
+        # False = o dashboard pediu para largar a ligacao ao wearable (ex.:
+        # libertar o radio/porta serie para outra ferramenta, gravar
+        # firmware novo, ou so' parar de transmitir sinais vitais por
+        # privacidade) — run_device_loop desliga o cliente atual se estiver
+        # ligado e para de tentar reconectar ate' voltar a True. Nao afeta o
+        # WebSocket dashboard<->bridge, que continua ligado normalmente.
+        self.ble_enabled = True
 
     RECORD_BROADCAST_MIN_INTERVAL_S = 0.25  # no maximo ~4 atualizacoes/seg
     # Intervalo entre limpezas automaticas de sensor_records (ver
@@ -752,6 +762,16 @@ class BleBridge:
         """Ciclo principal: procura o dispositivo, liga-se, mantém a
         ligação, e volta a tentar automaticamente se cair."""
         while True:
+            if not self.ble_enabled:
+                # Pedido do dashboard (ver handle_dashboard_command,
+                # "set_ble_enabled") para largar a ligacao BLE — nao
+                # procura nem liga enquanto isto nao voltar a True.
+                # broadcast ja' foi feito no ponto onde ble_enabled passou
+                # a False (ver abaixo); aqui so' aguardamos, sem repetir.
+                while not self.ble_enabled:
+                    await asyncio.sleep(1)
+                continue
+
             print(f"[BRIDGE] a procurar dispositivo \"{DEVICE_NAME}\"...")
             device = await BleakScanner.find_device_by_filter(
                 lambda d, adv: d.name == DEVICE_NAME or (adv.local_name == DEVICE_NAME),
@@ -807,9 +827,13 @@ class BleBridge:
                               f"(normal se ainda em provisioning): {exc}")
 
                     print("[BRIDGE] ligado e a receber dados. Ctrl+C para parar.")
-                    # Mantem a ligacao viva ate ela cair sozinha.
-                    while client.is_connected:
+                    # Mantem a ligacao viva ate ela cair sozinha OU o
+                    # dashboard pedir para desligar (ble_enabled -> False).
+                    while client.is_connected and self.ble_enabled:
                         await asyncio.sleep(1)
+                    if not self.ble_enabled and client.is_connected:
+                        print("[BRIDGE] desconexao BLE pedida pelo dashboard")
+                        await client.disconnect()
 
             except Exception as exc:  # noqa: BLE001 - queremos reconectar em qualquer erro
                 print(f"[BRIDGE] ligacao perdida/erro: {exc}")
@@ -827,7 +851,12 @@ class BleBridge:
                     resource_type="device",
                     resource_id=self.orm.device_id,
                 )
-            await self.broadcast({"kind": "device_status", "connected": False})
+            await self.broadcast({"kind": "device_status", "connected": False, "paused": not self.ble_enabled})
+            if not self.ble_enabled:
+                # Desligado a pedido do dashboard — nao ha' motivo para
+                # tentar reconectar, o topo do loop vai ficar a aguardar
+                # ble_enabled voltar a True (ver inicio de run_device_loop).
+                continue
             print("[BRIDGE] desligado — a tentar reconectar em 3s")
             await asyncio.sleep(3)
 
@@ -904,6 +933,20 @@ class BleBridge:
         cmd = msg.get("cmd") if isinstance(msg, dict) else None
         if cmd in ("force_reading", "reset_readings"):
             await self.send_command(ws, cmd)
+            return
+        if cmd == "set_ble_enabled":
+            # Ligar/desligar manualmente a ligacao BLE ao wearable (botao
+            # do dashboard) — nao e' uma escrita ao dispositivo (so' um
+            # flag local que run_device_loop respeita), por isso nao passa
+            # pelo rate limit de comandos de escrita (_check_write_rate_limit)
+            # nem precisa de payload BLE. Ver self.ble_enabled no __init__.
+            self.ble_enabled = bool(msg.get("enabled", True))
+            state = "ativada" if self.ble_enabled else "desativada"
+            print(f"[BRIDGE] ligacao BLE {state} pelo dashboard")
+            # A desconexao real (se estava ligado) e' tratada por
+            # run_device_loop, que ve' ble_enabled cair a False no seu
+            # proximo ciclo (ate' 1s depois) e chama client.disconnect().
+            await ws.send(json.dumps({"kind": "command_result", "cmd": cmd, "ok": True, "enabled": self.ble_enabled}))
             return
         if cmd == "get_history":
             # Pedido de histórico real (ver storage.py) — "hours" é

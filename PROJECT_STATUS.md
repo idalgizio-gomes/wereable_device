@@ -4572,3 +4572,40 @@ caminho de instalação simples documentado no README. Corrigido envolvendo o im
 roundtrip manual (fora do pytest) contra SQLite temporário confirmando 60 `sensor_records`
 escritos e lidos byte-a-byte corretos, dedup de `emergency_alerts` por `(device, seq)`, e
 `audit_log` gravado.
+
+## Botão de ligar/desligar BLE + bug real de troca de idioma corrigido (2026-07-17)
+
+**Botão "Ligar/Desligar da placa"** (topbar, junto ao indicador de ligação): pedido do
+utilizador ("Faz sentido um botão para desligar a ligação do dashboard à placa?") para poder
+libertar a ligação Bluetooth ao wearable sem fechar o bridge — útil para gravar firmware novo,
+usar outra ferramenta de porta série (ex. `pio device monitor`), ou por privacidade (parar de
+transmitir sinais vitais). Implementação:
+- **Bridge** (`bridge/ble_bridge.py`): novo flag `self.ble_enabled` (default `True`) e comando
+  WS `set_ble_enabled`. `run_device_loop()` para de procurar/ligar enquanto `ble_enabled=False`
+  e desliga ativamente (`client.disconnect()`) uma ligação já estabelecida quando o utilizador
+  pede para desligar — sem fechar o processo do bridge nem o WebSocket dashboard↔bridge.
+  `device_status` passa a incluir `paused` para o dashboard distinguir "desligado porque o
+  utilizador pediu" de "a tentar ligar/perdeu sinal".
+- **Dashboard** (`web/dashboard/index.html`): botão novo na topbar (`toggleBleConnection()`),
+  estado `liveState.blePaused`, texto/aria-pressed dinâmicos, tradução nas 7 línguas
+  (`topbar.bleConnect`/`bleDisconnect`/`bleToggleHint`/`pausedManual`), e menção adicionada à
+  resposta do FAQ Q1 ("Como ligo o wearable ao dashboard?").
+- Testado com Playwright: estado inicial, clique sem bridge ligado (no-op), payload do comando
+  enviado, atualização otimista da UI, texto/estado corretos após confirmação do bridge, e
+  troca de idioma sem quebrar o botão.
+
+**Bug real encontrado (não relacionado ao botão) e corrigido**: `applyI18n()` decidia "qual
+vista voltar a renderizar depois de trocar de idioma" com
+`document.querySelector('.nav-item.active[data-view]')` — mas os botões "Ajuda" e "Terminar
+sessão" chamam `renderView()` diretamente por `onclick`, sem atualizar a classe `.active` de
+nenhum item de navegação. Resultado: ao mudar de idioma estando na vista Ajuda, o seletor
+encontrava o último item de navegação `.active` genuíno (ex. "Resumo", nunca desmarcado) e
+`renderView('resumo')` substituía silenciosamente todo o conteúdo da Ajuda — a vista aberta
+"desaparecia" sem qualquer erro na consola. Confirmado com Playwright (16 itens de FAQ → 0
+itens após `setLanguage()`, em qualquer idioma incluindo repetir o mesmo). Corrigido trocando o
+lookup por `currentView` (já existente em `renderView()`, `let currentView = null; ... 
+currentView = view;`), que rastreia corretamente qualquer vista aberta, com ou sem item de
+navegação correspondente. Mesmo bug corrigido em `setAlertMode()` (mesmo padrão, sofria da
+mesma falha ao mudar o modo de alerta populacional/personalizado fora da vista de origem).
+Reverificado com Playwright após a correção: 16 itens do FAQ mantêm-se e traduzem corretamente
+nas 7 línguas.

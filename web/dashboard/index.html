@@ -256,6 +256,15 @@
   .icon-btn:hover{ color:var(--text-primary); border-color:var(--accent); }
   .icon-btn svg{ width:16px; height:16px; }
 
+  .ble-toggle-btn{
+    display:flex; align-items:center; gap:6px; height:28px; padding:0 10px; border-radius:var(--radius-sm);
+    background:var(--bg-surface-2); border:1px solid var(--border); color:var(--text-secondary);
+    font-size:12px; font-weight:600; cursor:pointer; white-space:nowrap;
+  }
+  .ble-toggle-btn:hover{ color:var(--text-primary); border-color:var(--accent); }
+  .ble-toggle-btn svg{ width:14px; height:14px; flex-shrink:0; }
+  .ble-toggle-btn[aria-pressed="false"]{ color:var(--status-warning); border-color:var(--status-warning-bg); }
+
   .lang-select{
     height:34px; padding:0 8px; border-radius:var(--radius-sm); background:var(--bg-surface-2);
     border:1px solid var(--border); color:var(--text-secondary); font-size:12.5px; font-weight:600; cursor:pointer;
@@ -779,6 +788,10 @@
       <div class="topbar-left">
         <h1 id="topbarTitle">Resumo</h1>
         <div class="device-status"><span class="status-dot warn" id="deviceDot"></span><span id="deviceStatusText" data-i18n="topbar.connecting">A ligar ao bridge…</span></div>
+        <button class="ble-toggle-btn" id="bleToggleBtn" aria-pressed="false" onclick="toggleBleConnection()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22v-5M9 8V2M15 8V2M18 8v3a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8z"/></svg>
+          <span id="bleToggleBtnText" data-i18n="topbar.bleDisconnect">Desligar da placa</span>
+        </button>
         <div class="battery-chip" title="O firmware ainda não reporta nível de bateria">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="18" height="10" rx="2"/><path d="M22 10v4" stroke-linecap="round"/></svg>
           <span class="tabular" id="batteryText">—</span>
@@ -899,6 +912,9 @@ const I18N = {
     'nav.limits': 'Limites de duração', 'nav.export': 'Exportar dados',
     'topbar.connecting': 'A ligar ao bridge…', 'topbar.connected': 'Wearable ligado · dados em direto',
     'topbar.disconnected': 'Sem ligação ao bridge · a mostrar demonstração',
+    'topbar.pausedManual': 'Ligação BLE desligada manualmente',
+    'topbar.bleConnect': 'Ligar à placa', 'topbar.bleDisconnect': 'Desligar da placa',
+    'topbar.bleToggleHint': "Desliga a ligação Bluetooth ao wearable sem fechar o bridge — útil para libertar a placa para gravar firmware ou usar outra ferramenta",
     'help.title': 'Ajuda & sobre', 'help.faqTitle': 'Perguntas frequentes', 'help.devTitle': 'Sobre o projeto',
     'alert.explainShow': 'O que significa isto?', 'alert.explainHide': 'Esconder explicação',
     'definicoes.alertPrefsTitle': 'Preferências de alertas',
@@ -930,7 +946,7 @@ const I18N = {
     'definicoes.eraseDataTitle': 'Apagar todos os dados', 'definicoes.eraseDataDesc': 'Elimina permanentemente todo o histórico e definições guardados neste dispositivo.', 'definicoes.eraseDataBtn': 'Apagar dados',
     'definicoes.eraseDataConfirm': 'Tens a certeza de que queres apagar todos os dados locais? Esta ação não pode ser desfeita.',
     'definicoes.eraseDataAutoTtlNote': 'Estes dados também são apagados automaticamente ao fim de 30 dias sem usares esta app neste navegador.',
-    'ajuda.faqQ1': 'Como ligo o wearable ao dashboard?', 'ajuda.faqA1': 'Corre "start_carewear.bat" (duplo-clique, na pasta do projeto) — arranca o bridge e abre o dashboard já ligado, sem precisares de terminal. Certifica-te de que o wearable está ligado e próximo. A ligação aparece na barra superior assim que os dados começam a chegar.',
+    'ajuda.faqQ1': 'Como ligo o wearable ao dashboard?', 'ajuda.faqA1': 'Corre "start_carewear.bat" (duplo-clique, na pasta do projeto) — arranca o bridge e abre o dashboard já ligado, sem precisares de terminal. Certifica-te de que o wearable está ligado e próximo. A ligação aparece na barra superior assim que os dados começam a chegar. Junto ao indicador existe também um botão para ligar/desligar manualmente a ligação Bluetooth à placa (útil para a libertar para gravar firmware ou usar outra ferramenta), sem precisares de fechar o bridge.',
     'ajuda.faqQ6': 'Como faço uma leitura contínua de FC/SpO₂?', 'ajuda.faqA6': 'Na vista Sinais vitais, usa o botão "Leitura contínua" — reenvia o pedido automaticamente enquanto estiver ligado, sem precisares de carregar repetidamente em "Medir agora". Desliga quando quiseres parar.',
     'ajuda.faqQ7': 'Como funciona o alerta de emergência se o cuidador não responder?', 'ajuda.faqA7': 'Em Definições, defines o teu horário de indisponibilidade (ex.: horário de trabalho) e um contacto de emergência. Se um alerta acontecer dentro desse horário e não confirmares a tempo, o sistema notifica automaticamente esse contacto — nunca contacta serviços de emergência reais diretamente, essa decisão fica sempre com uma pessoa.',
     'ajuda.faqQ2': 'O que acontece se perder a ligação?', 'ajuda.faqA2': 'O dashboard passa a mostrar dados de demonstração e assinala o estado na barra superior. Os dados em direto voltam automaticamente assim que a ligação for restabelecida.',
@@ -1025,6 +1041,28 @@ const I18N = {
     'emergencias.statusResolved': 'Resolvido', 'emergencias.cancelAlertBtn': 'Cancelar alerta…', 'emergencias.deleteConfirmPrefix': 'Apagar este registo de emergência',
     'emergencias.deleteConfirmSuffix': '? Esta ação não pode ser desfeita.', 'emergencias.deleteBtn': 'Apagar', 'emergencias.listEmpty': 'Sem eventos de emergência registados para este paciente.',
     'emergencias.cancelInfoText': 'Cancelar um alerta ativo exige confirmação reforçada (palavra-passe + código de verificação) — pensado para o caso de o wearable ficar sem resposta a meio de um falso positivo, sem abrir uma forma fácil de silenciar uma emergência real por engano.',
+    // --- alertData / anomalyType / anomalyDetector / anomalyDetail / emergencyType / emergencyNote / emergencyLive / alertRow ---
+    'alertData.hrAlta.title': 'Frequência cardíaca elevada', 'alertData.hrAlta.desc': '92 bpm sustentados durante 6 min em repouso (referência: 58–78 bpm).',
+    'alertData.hrAlta.plain': 'O coração esteve a bater mais depressa do que o normal para uma pessoa em repouso, e manteve-se assim durante vários minutos seguidos (não foi só um pico rápido). Pode acontecer por esforço recente, dor, ansiedade, febre ou desidratação — mas também pode não ter causa aparente. Vale a pena verificar como a pessoa está agora e, se se mantiver ou vier acompanhado de outros sintomas, contactar o médico.', 'alertData.hrAlta.time': 'há 6 min',
+    'alertData.inatividadeProlongada.title': 'Inatividade prolongada', 'alertData.inatividadeProlongada.desc': 'Sem movimento detetado desde as 14:35 (3h12min) — acima do limite configurado.',
+    'alertData.inatividadeProlongada.plain': 'O dispositivo não deteta movimento há mais tempo do que o habitual para esta hora do dia. Muitas vezes é só a pessoa a descansar ou a dormir uma sesta — mas se não for essa a rotina esperada a esta hora, pode valer a pena ir verificar em pessoa.', 'alertData.inatividadeProlongada.time': 'há 41 min',
+    'alertData.rotinaAlterada.title': 'Bloco de rotina alterado', 'alertData.rotinaAlterada.desc': '"Atividade" da tarde substituída por padrão sedentário — fora do esperado pelo template diário.',
+    'alertData.rotinaAlterada.plain': 'A pessoa costuma estar mais ativa a esta hora do dia, mas hoje ficou mais tempo parada/sentada do que é habitual. Isto sozinho não é necessariamente preocupante (pode ser só um dia mais cansativo), mas é um desvio à rotina normal que vale a pena ter em conta, especialmente se se repetir em dias seguidos.', 'alertData.rotinaAlterada.time': 'há 2h',
+    'alertData.spo2Limite.title': 'SpO₂ no limite', 'alertData.spo2Limite.desc': 'Leitura de 93% às 03:14 — uma amostra isolada, sem tendência de queda.',
+    'alertData.spo2Limite.plain': 'O nível de oxigénio no sangue teve uma leitura um pouco abaixo do intervalo normal (95–100%), mas foi só uma vez, sem se manter baixo nas leituras seguintes. Isto acontece com frequência por mau contacto do sensor durante o sono (ex.: mão fora da posição) e normalmente não é motivo de alarme quando é um valor isolado — mas se voltar a acontecer de forma repetida, vale a pena falar com o médico.', 'alertData.spo2Limite.time': 'há 9h',
+    'alertData.sonoCurto.title': 'Sono abaixo do habitual', 'alertData.sonoCurto.desc': '4h20min de sono estimado esta noite (média das últimas 2 semanas: 6h50min).',
+    'alertData.sonoCurto.plain': 'A pessoa dormiu bastante menos do que é habitual para ela. Uma noite isolada mais curta não é necessariamente grave, mas se se repetir vale a pena perceber a causa (dor, desconforto, mudança de rotina).', 'alertData.sonoCurto.time': 'há 3h',
+    'anomalyType.duracao': 'Duração', 'anomalyType.comportamental': 'Comportamental', 'anomalyType.fisiologica': 'Fisiológica',
+    'anomalyDetector.regraDuracao': 'Regra de duração', 'anomalyDetector.lstm': 'LSTM Autoencoder', 'anomalyDetector.limiarClinico': 'Limiar clínico', 'anomalyDetector.diagnosticoDispositivo': 'Diagnóstico do dispositivo',
+    'anomalyDetail.a1042': 'Higiene 46 min acima do limite (d_max × 3.0)', 'anomalyDetail.a1041': 'Substituição contextual: "Atividade" às 09:30 (era "Descanso")',
+    'anomalyDetail.a1039': 'Bloco de atividade truncado (25 min abaixo do mínimo)', 'anomalyDetail.a1035': 'FC 92 bpm sustentada em repouso',
+    'anomalyDetail.a0982': 'Sono 4h20min, abaixo de d_min × 0.30', 'anomalyDetail.a0975': 'Bateria do dispositivo abaixo de 40%', 'anomalyDetail.a0810': 'Dispositivo desligado/sem sincronização há mais de 12h',
+    'emergencyType.sos': 'SOS manual (3 cliques)', 'emergencyType.fall': 'Queda + inatividade prolongada', 'emergencyType.unknown': 'Alerta de emergência (tipo desconhecido)',
+    'emergencyNote.e204': 'Confirmado falso alarme pela família por telefone.', 'emergencyNote.e198': 'Utente pediu ajuda para se levantar, sem gravidade.',
+    'emergencyLive.bannerTitle': 'Alerta de emergência em direto', 'emergencyLive.viewLogLink': 'Ver registo de emergências', 'emergencyLive.nowLabel': 'agora',
+    'alertRow.escalationNote': 'Repetiu-se {n}x nas últimas 24h — prioridade subida automaticamente de "aviso" para "grave" para reduzir o risco de ser ignorado. Silenciar reinicia a contagem.',
+    'alertRow.criticalNoMute': 'Alertas críticos não podem ser silenciados.', 'alertRow.mutedUntilPrefix': 'Silenciado até às', 'alertRow.reactivateNow': 'reativar agora',
+    'alertRow.muteBtn': 'Silenciar por 4h', 'alertRow.readBadge': '✓ Lida', 'alertRow.markReadBtn': 'Marcar como lida',
     // --- medicacao ---
     'medicacao.statusTaken': 'Tomado', 'medicacao.statusLate': 'Em atraso', 'medicacao.statusPending': 'Pendente', 'medicacao.markTakenBtn': 'Marcar como tomado',
     'medicacao.correlationPrefix': 'Nos dias com adesão incompleta',
@@ -1161,6 +1199,9 @@ const I18N = {
     'nav.limits': 'Duration limits', 'nav.export': 'Export data',
     'topbar.connecting': 'Connecting to bridge…', 'topbar.connected': 'Wearable connected · live data',
     'topbar.disconnected': 'Not connected to bridge · showing demo',
+    'topbar.pausedManual': 'BLE connection manually disconnected',
+    'topbar.bleConnect': 'Connect to device', 'topbar.bleDisconnect': 'Disconnect from device',
+    'topbar.bleToggleHint': "Disconnects the Bluetooth link to the wearable without closing the bridge — useful to free the device for firmware flashing or another tool",
     'help.title': 'Help & about', 'help.faqTitle': 'Frequently asked questions', 'help.devTitle': 'About this project',
     'alert.explainShow': 'What does this mean?', 'alert.explainHide': 'Hide explanation',
     'definicoes.alertPrefsTitle': 'Alert preferences',
@@ -1192,7 +1233,7 @@ const I18N = {
     'definicoes.eraseDataTitle': 'Erase all data', 'definicoes.eraseDataDesc': 'Permanently deletes all history and settings stored on this device.', 'definicoes.eraseDataBtn': 'Erase data',
     'definicoes.eraseDataConfirm': 'Are you sure you want to erase all local data? This action cannot be undone.',
     'definicoes.eraseDataAutoTtlNote': 'This data is also erased automatically after 30 days without using this app in this browser.',
-    'ajuda.faqQ1': 'How do I connect the wearable to the dashboard?', 'ajuda.faqA1': 'Run "start_carewear.bat" (double-click, in the project folder) — it starts the bridge and opens the dashboard already connected, no terminal needed. Make sure the wearable is on and nearby. The connection appears in the top bar as soon as data starts arriving.',
+    'ajuda.faqQ1': 'How do I connect the wearable to the dashboard?', 'ajuda.faqA1': 'Run "start_carewear.bat" (double-click, in the project folder) — it starts the bridge and opens the dashboard already connected, no terminal needed. Make sure the wearable is on and nearby. The connection appears in the top bar as soon as data starts arriving. Next to the indicator there is also a button to manually connect/disconnect the Bluetooth link to the device (useful to free it for firmware flashing or another tool), without needing to close the bridge.',
     'ajuda.faqQ6': 'How do I take a continuous HR/SpO₂ reading?', 'ajuda.faqA6': 'On the Vital signs view, use the "Continuous reading" button — it automatically resends the request while it\'s on, so you don\'t have to keep clicking "Measure now". Turn it off whenever you want to stop.',
     'ajuda.faqQ7': "How does the emergency alert work if the caregiver doesn't respond?", 'ajuda.faqA7': "In Settings, set your unavailability schedule (e.g. work hours) and an emergency contact. If an alert happens within those hours and you don't confirm in time, the system automatically notifies that contact — it never contacts real emergency services directly, that decision always stays with a person.",
     'ajuda.faqQ2': 'What happens if I lose the connection?', 'ajuda.faqA2': 'The dashboard switches to demo data and flags the status in the top bar. Live data returns automatically as soon as the connection is restored.',
@@ -1419,6 +1460,9 @@ const I18N = {
     'nav.limits': '时长限制', 'nav.export': '导出数据',
     'topbar.connecting': '正在连接网桥…', 'topbar.connected': '穿戴设备已连接 · 实时数据',
     'topbar.disconnected': '未连接网桥 · 显示演示数据',
+    'topbar.pausedManual': 'BLE 连接已手动断开',
+    'topbar.bleConnect': '连接设备', 'topbar.bleDisconnect': '断开设备连接',
+    'topbar.bleToggleHint': '断开与可穿戴设备的蓝牙连接，但不关闭网桥 —— 便于将设备释放给固件烧录等其他工具使用',
     'help.title': '帮助与关于', 'help.faqTitle': '常见问题', 'help.devTitle': '关于本项目',
     'alert.explainShow': '这是什么意思？', 'alert.explainHide': '隐藏说明',
     'definicoes.alertPrefsTitle': '警报偏好设置',
@@ -1450,7 +1494,7 @@ const I18N = {
     'definicoes.eraseDataTitle': '清除所有数据', 'definicoes.eraseDataDesc': '永久删除本设备上保存的所有历史记录和设置。', 'definicoes.eraseDataBtn': '清除数据',
     'definicoes.eraseDataConfirm': '确定要清除所有本地数据吗？此操作无法撤销。',
     'definicoes.eraseDataAutoTtlNote': '如果 30 天内未在此浏览器中使用本应用，这些数据也会自动删除。',
-    'ajuda.faqQ1': '如何将穿戴设备连接到仪表板？', 'ajuda.faqA1': '运行"start_carewear.bat"（双击，位于项目文件夹中）——它会启动网桥并打开已连接的仪表板，无需使用终端。请确保穿戴设备已开启且在附近。数据开始到达后，连接状态会显示在顶部栏中。',
+    'ajuda.faqQ1': '如何将穿戴设备连接到仪表板？', 'ajuda.faqA1': '运行"start_carewear.bat"（双击，位于项目文件夹中）——它会启动网桥并打开已连接的仪表板，无需使用终端。请确保穿戴设备已开启且在附近。数据开始到达后，连接状态会显示在顶部栏中。指示器旁边还有一个按钮，可手动连接/断开与设备的蓝牙连接（便于将设备释放给固件烧录等其他工具），无需关闭网桥。',
     'ajuda.faqQ6': '如何进行持续的心率/血氧测量？', 'ajuda.faqA6': '在"生命体征"页面，使用"持续读取"按钮——开启后会自动重复发送请求，无需反复点击"立即测量"。想停止时再关闭即可。',
     'ajuda.faqQ7': '如果照护者未响应，紧急警报会如何处理？', 'ajuda.faqA7': '在"设置"中，设定你的不可用时段（例如工作时间）和一个紧急联系人。如果警报发生在该时段内且你未能及时确认，系统会自动通知该联系人——绝不会直接联系真实的紧急服务，这个决定始终由人来做。',
     'ajuda.faqQ2': '如果连接断开会怎样？', 'ajuda.faqA2': '仪表板将切换为演示数据，并在顶部栏标示状态。连接恢复后，实时数据会自动返回。',
@@ -1613,6 +1657,9 @@ const I18N = {
     'nav.limits': 'Límites de duración', 'nav.export': 'Exportar datos',
     'topbar.connecting': 'Conectando al bridge…', 'topbar.connected': 'Wearable conectado · datos en vivo',
     'topbar.disconnected': 'Sin conexión al bridge · mostrando demo',
+    'topbar.pausedManual': 'Conexión BLE desconectada manualmente',
+    'topbar.bleConnect': 'Conectar al dispositivo', 'topbar.bleDisconnect': 'Desconectar del dispositivo',
+    'topbar.bleToggleHint': "Desconecta el enlace Bluetooth al wearable sin cerrar el bridge — útil para liberar el dispositivo para grabar firmware u otra herramienta",
     'help.title': 'Ayuda y acerca de', 'help.faqTitle': 'Preguntas frecuentes', 'help.devTitle': 'Acerca del proyecto',
     'alert.explainShow': '¿Qué significa esto?', 'alert.explainHide': 'Ocultar explicación',
     'definicoes.alertPrefsTitle': 'Preferencias de alertas',
@@ -1644,7 +1691,7 @@ const I18N = {
     'definicoes.eraseDataTitle': 'Borrar todos los datos', 'definicoes.eraseDataDesc': 'Elimina permanentemente todo el historial y la configuración guardados en este dispositivo.', 'definicoes.eraseDataBtn': 'Borrar datos',
     'definicoes.eraseDataConfirm': '¿Seguro que quieres borrar todos los datos locales? Esta acción no se puede deshacer.',
     'definicoes.eraseDataAutoTtlNote': 'Estos datos también se borran automáticamente tras 30 días sin usar esta app en este navegador.',
-    'ajuda.faqQ1': '¿Cómo conecto el wearable al panel?', 'ajuda.faqA1': 'Ejecuta "start_carewear.bat" (doble clic, en la carpeta del proyecto) — arranca el bridge y abre el panel ya conectado, sin necesidad de terminal. Asegúrate de que el wearable esté encendido y cerca. La conexión aparece en la barra superior en cuanto los datos empiezan a llegar.',
+    'ajuda.faqQ1': '¿Cómo conecto el wearable al panel?', 'ajuda.faqA1': 'Ejecuta "start_carewear.bat" (doble clic, en la carpeta del proyecto) — arranca el bridge y abre el panel ya conectado, sin necesidad de terminal. Asegúrate de que el wearable esté encendido y cerca. La conexión aparece en la barra superior en cuanto los datos empiezan a llegar. Junto al indicador también hay un botón para conectar/desconectar manualmente el enlace Bluetooth al dispositivo (útil para liberarlo para grabar firmware u otra herramienta), sin necesidad de cerrar el bridge.',
     'ajuda.faqQ6': '¿Cómo hago una lectura continua de FC/SpO₂?', 'ajuda.faqA6': 'En la vista Signos vitales, usa el botón "Lectura continua" — reenvía la solicitud automáticamente mientras esté activado, sin que tengas que pulsar repetidamente "Medir ahora". Desactívalo cuando quieras parar.',
     'ajuda.faqQ7': '¿Cómo funciona la alerta de emergencia si el cuidador no responde?', 'ajuda.faqA7': 'En Ajustes, define tu horario de indisponibilidad (p. ej., horario laboral) y un contacto de emergencia. Si ocurre una alerta dentro de ese horario y no confirmas a tiempo, el sistema notifica automáticamente a ese contacto — nunca contacta directamente a servicios de emergencia reales, esa decisión siempre queda en manos de una persona.',
     'ajuda.faqQ2': '¿Qué pasa si pierdo la conexión?', 'ajuda.faqA2': 'El panel muestra datos de demostración e indica el estado en la barra superior. Los datos en vivo vuelven automáticamente en cuanto se restablece la conexión.',
@@ -1878,6 +1925,9 @@ const I18N = {
     'nav.limits': 'Limites de durée', 'nav.export': 'Exporter les données',
     'topbar.connecting': 'Connexion au bridge…', 'topbar.connected': 'Wearable connecté · données en direct',
     'topbar.disconnected': 'Non connecté au bridge · démonstration affichée',
+    'topbar.pausedManual': 'Connexion BLE déconnectée manuellement',
+    'topbar.bleConnect': "Connecter à l'appareil", 'topbar.bleDisconnect': "Déconnecter de l'appareil",
+    'topbar.bleToggleHint': "Déconnecte la liaison Bluetooth au wearable sans fermer le bridge — utile pour libérer l'appareil afin de flasher un firmware ou un autre outil",
     'help.title': 'Aide et à propos', 'help.faqTitle': 'Questions fréquentes', 'help.devTitle': 'À propos du projet',
     'alert.explainShow': 'Qu\'est-ce que cela signifie ?', 'alert.explainHide': 'Masquer l\'explication',
     'definicoes.alertPrefsTitle': 'Préférences d’alertes',
@@ -1909,7 +1959,7 @@ const I18N = {
     'definicoes.eraseDataTitle': 'Effacer toutes les données', 'definicoes.eraseDataDesc': 'Supprime définitivement tout l’historique et les réglages enregistrés sur cet appareil.', 'definicoes.eraseDataBtn': 'Effacer les données',
     'definicoes.eraseDataConfirm': 'Voulez-vous vraiment effacer toutes les données locales ? Cette action est irréversible.',
     'definicoes.eraseDataAutoTtlNote': 'Ces données sont aussi effacées automatiquement après 30 jours sans utiliser cette application dans ce navigateur.',
-    'ajuda.faqQ1': 'Comment connecter le wearable au tableau de bord ?', 'ajuda.faqA1': 'Exécutez « start_carewear.bat » (double-clic, dans le dossier du projet) — cela démarre le bridge et ouvre le tableau de bord déjà connecté, sans terminal. Assurez-vous que le wearable est allumé et à proximité. La connexion apparaît dans la barre supérieure dès que les données arrivent.',
+    'ajuda.faqQ1': 'Comment connecter le wearable au tableau de bord ?', 'ajuda.faqA1': "Exécutez « start_carewear.bat » (double-clic, dans le dossier du projet) — cela démarre le bridge et ouvre le tableau de bord déjà connecté, sans terminal. Assurez-vous que le wearable est allumé et à proximité. La connexion apparaît dans la barre supérieure dès que les données arrivent. À côté de l'indicateur se trouve aussi un bouton pour connecter/déconnecter manuellement la liaison Bluetooth à l'appareil (utile pour le libérer afin de flasher un firmware ou un autre outil), sans avoir à fermer le bridge.",
     'ajuda.faqQ6': 'Comment faire une lecture continue de la FC/SpO₂ ?', 'ajuda.faqA6': "Dans la vue Signes vitaux, utilisez le bouton « Lecture continue » — il renvoie automatiquement la demande tant qu'il est activé, sans avoir à cliquer sans cesse sur « Mesurer maintenant ». Désactivez-le quand vous voulez arrêter.",
     'ajuda.faqQ7': "Comment fonctionne l'alerte d'urgence si l'aidant ne répond pas ?", 'ajuda.faqA7': "Dans les Paramètres, définissez votre horaire d'indisponibilité (ex. horaires de travail) et un contact d'urgence. Si une alerte survient pendant ces heures et que vous ne confirmez pas à temps, le système notifie automatiquement ce contact — il ne contacte jamais directement les services d'urgence réels, cette décision reste toujours entre les mains d'une personne.",
     'ajuda.faqQ2': 'Que se passe-t-il si je perds la connexion ?', 'ajuda.faqA2': 'Le tableau de bord affiche des données de démonstration et signale l’état dans la barre supérieure. Les données en direct reviennent automatiquement dès que la connexion est rétablie.',
@@ -2148,6 +2198,9 @@ const I18N = {
     'nav.limits': 'Dauergrenzwerte', 'nav.export': 'Daten exportieren',
     'topbar.connecting': 'Verbindung zur Bridge…', 'topbar.connected': 'Wearable verbunden · Live-Daten',
     'topbar.disconnected': 'Keine Bridge-Verbindung · Demo wird angezeigt',
+    'topbar.pausedManual': 'BLE-Verbindung manuell getrennt',
+    'topbar.bleConnect': 'Mit Gerät verbinden', 'topbar.bleDisconnect': 'Von Gerät trennen',
+    'topbar.bleToggleHint': "Trennt die Bluetooth-Verbindung zum Wearable, ohne die Bridge zu schließen — nützlich, um das Gerät für Firmware-Flashing oder ein anderes Tool freizugeben",
     'help.title': 'Hilfe & Über', 'help.faqTitle': 'Häufige Fragen', 'help.devTitle': 'Über dieses Projekt',
     'alert.explainShow': 'Was bedeutet das?', 'alert.explainHide': 'Erklärung ausblenden',
     'definicoes.alertPrefsTitle': 'Alarm-Einstellungen',
@@ -2179,7 +2232,7 @@ const I18N = {
     'definicoes.eraseDataTitle': 'Alle Daten löschen', 'definicoes.eraseDataDesc': 'Löscht dauerhaft den gesamten auf diesem Gerät gespeicherten Verlauf und alle Einstellungen.', 'definicoes.eraseDataBtn': 'Daten löschen',
     'definicoes.eraseDataConfirm': 'Möchtest du wirklich alle lokalen Daten löschen? Diese Aktion kann nicht rückgängig gemacht werden.',
     'definicoes.eraseDataAutoTtlNote': 'Diese Daten werden auch automatisch gelöscht, wenn diese App 30 Tage lang nicht in diesem Browser verwendet wird.',
-    'ajuda.faqQ1': 'Wie verbinde ich das Wearable mit dem Dashboard?', 'ajuda.faqA1': 'Starte "start_carewear.bat" (Doppelklick, im Projektordner) — startet die Bridge und öffnet das Dashboard bereits verbunden, ohne Terminal. Stelle sicher, dass das Wearable eingeschaltet und in der Nähe ist. Die Verbindung erscheint in der oberen Leiste, sobald Daten eintreffen.',
+    'ajuda.faqQ1': 'Wie verbinde ich das Wearable mit dem Dashboard?', 'ajuda.faqA1': 'Starte "start_carewear.bat" (Doppelklick, im Projektordner) — startet die Bridge und öffnet das Dashboard bereits verbunden, ohne Terminal. Stelle sicher, dass das Wearable eingeschaltet und in der Nähe ist. Die Verbindung erscheint in der oberen Leiste, sobald Daten eintreffen. Neben der Anzeige gibt es außerdem eine Schaltfläche, um die Bluetooth-Verbindung zum Gerät manuell zu verbinden/trennen (nützlich, um es für Firmware-Flashing oder ein anderes Tool freizugeben), ohne die Bridge schließen zu müssen.',
     'ajuda.faqQ6': 'Wie mache ich eine kontinuierliche HF-/SpO₂-Messung?', 'ajuda.faqA6': 'Verwende in der Ansicht Vitalwerte die Schaltfläche „Kontinuierliche Messung" — sie sendet die Anfrage automatisch erneut, solange sie aktiviert ist, ohne dass du wiederholt auf „Jetzt messen" klicken musst. Schalte sie aus, wenn du stoppen möchtest.',
     'ajuda.faqQ7': 'Wie funktioniert der Notfallalarm, wenn die Betreuungsperson nicht reagiert?', 'ajuda.faqA7': 'Lege in den Einstellungen deine Nichtverfügbarkeitszeiten (z. B. Arbeitszeiten) und einen Notfallkontakt fest. Tritt ein Alarm innerhalb dieser Zeiten auf und bestätigst du nicht rechtzeitig, benachrichtigt das System automatisch diesen Kontakt — es kontaktiert nie direkt echte Notdienste, diese Entscheidung liegt immer bei einer Person.',
     'ajuda.faqQ2': 'Was passiert, wenn die Verbindung abbricht?', 'ajuda.faqA2': 'Das Dashboard zeigt Demodaten an und kennzeichnet den Status in der oberen Leiste. Live-Daten kehren automatisch zurück, sobald die Verbindung wiederhergestellt ist.',
@@ -2413,6 +2466,9 @@ const I18N = {
     'nav.limits': 'Limiti di durata', 'nav.export': 'Esporta dati',
     'topbar.connecting': 'Connessione al bridge…', 'topbar.connected': 'Wearable connesso · dati in diretta',
     'topbar.disconnected': 'Bridge non connesso · demo mostrata',
+    'topbar.pausedManual': 'Connessione BLE disconnessa manualmente',
+    'topbar.bleConnect': 'Connetti al dispositivo', 'topbar.bleDisconnect': 'Disconnetti dal dispositivo',
+    'topbar.bleToggleHint': "Disconnette il collegamento Bluetooth al wearable senza chiudere il bridge — utile per liberare il dispositivo per il flashing del firmware o un altro strumento",
     'help.title': 'Aiuto e informazioni', 'help.faqTitle': 'Domande frequenti', 'help.devTitle': 'Informazioni sul progetto',
     'alert.explainShow': 'Cosa significa?', 'alert.explainHide': 'Nascondi spiegazione',
     'definicoes.alertPrefsTitle': 'Preferenze di avviso',
@@ -2444,7 +2500,7 @@ const I18N = {
     'definicoes.eraseDataTitle': 'Cancella tutti i dati', 'definicoes.eraseDataDesc': 'Elimina definitivamente tutta la cronologia e le impostazioni salvate su questo dispositivo.', 'definicoes.eraseDataBtn': 'Cancella dati',
     'definicoes.eraseDataConfirm': 'Sei sicuro di voler cancellare tutti i dati locali? Questa azione non può essere annullata.',
     'definicoes.eraseDataAutoTtlNote': 'Questi dati vengono cancellati automaticamente anche dopo 30 giorni senza usare questa app in questo browser.',
-    'ajuda.faqQ1': 'Come collego il wearable alla dashboard?', 'ajuda.faqA1': 'Esegui "start_carewear.bat" (doppio clic, nella cartella del progetto) — avvia il bridge e apre la dashboard già connessa, senza bisogno del terminale. Assicurati che il wearable sia acceso e vicino. La connessione compare nella barra superiore non appena i dati iniziano ad arrivare.',
+    'ajuda.faqQ1': 'Come collego il wearable alla dashboard?', 'ajuda.faqA1': "Esegui \"start_carewear.bat\" (doppio clic, nella cartella del progetto) — avvia il bridge e apre la dashboard già connessa, senza bisogno del terminale. Assicurati che il wearable sia acceso e vicino. La connessione compare nella barra superiore non appena i dati iniziano ad arrivare. Accanto all'indicatore c'è anche un pulsante per connettere/disconnettere manualmente il collegamento Bluetooth al dispositivo (utile per liberarlo per il flashing del firmware o un altro strumento), senza dover chiudere il bridge.",
     'ajuda.faqQ6': 'Come faccio una lettura continua di FC/SpO₂?', 'ajuda.faqA6': 'Nella vista Parametri vitali, usa il pulsante "Lettura continua" — reinvia automaticamente la richiesta finché è attivo, senza dover cliccare ripetutamente su "Misura ora". Disattivalo quando vuoi fermarti.',
     'ajuda.faqQ7': 'Come funziona l\'avviso di emergenza se il caregiver non risponde?', 'ajuda.faqA7': 'Nelle Impostazioni, definisci il tuo orario di indisponibilità (es. orario di lavoro) e un contatto di emergenza. Se un avviso si verifica in quell\'orario e non confermi in tempo, il sistema avvisa automaticamente quel contatto — non contatta mai direttamente i servizi di emergenza reali, quella decisione resta sempre a una persona.',
     'ajuda.faqQ2': 'Cosa succede se perdo la connessione?', 'ajuda.faqA2': 'La dashboard mostra dati dimostrativi e segnala lo stato nella barra superiore. I dati in diretta tornano automaticamente non appena la connessione viene ripristinata.',
@@ -2692,9 +2748,11 @@ const LOCAL_DATA_TTL_DAYS = 30;
 
 let currentLang = localStorage.getItem('carewear_lang') || 'pt';
 
-function t(key){
+function t(key, vars){
   const dict = I18N[currentLang] || I18N.pt;
-  return dict[key] ?? I18N.pt[key] ?? key;
+  let s = dict[key] ?? I18N.pt[key] ?? key;
+  if (vars) Object.keys(vars).forEach(k => { s = s.replace(new RegExp('\\{' + k + '\\}', 'g'), vars[k]); });
+  return s;
 }
 
 function applyI18n(){
@@ -2702,9 +2760,17 @@ function applyI18n(){
   document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
   document.querySelectorAll('[data-i18n-placeholder]').forEach(el => { el.placeholder = t(el.dataset.i18nPlaceholder); });
   // Reaplica o título da vista atual (VIEW_TITLES é traduzido dinamicamente, ver renderView).
-  const activeItem = document.querySelector('.nav-item.active[data-view]');
-  if (activeItem && document.getElementById('view-app').classList.contains('active')) renderView(activeItem.dataset.view);
+  // BUG CORRIGIDO (2026-07-17): usava document.querySelector('.nav-item.active[data-view]')
+  // para saber "qual vista está aberta" — mas os botões "Ajuda" e "Terminar sessão" chamam
+  // renderView() diretamente por onclick, sem passar por nenhum handler que atualize a
+  // classe .active dos itens de navegação. Resultado: ao trocar de idioma estando na vista
+  // Ajuda, o querySelector encontrava o item .active MAIS ANTIGO (ex. "Resumo", nunca
+  // desmarcado) e renderView('resumo') substituía silenciosamente o conteúdo da Ajuda pelo
+  // Resumo — a vista aberta "desaparecia" sem qualquer erro. currentView (ver renderView())
+  // já rastreia isto corretamente para qualquer vista, incluindo as que não têm nav-item.
+  if (currentView && document.getElementById('view-app').classList.contains('active')) renderView(currentView);
   updateDeviceStatusUI();
+  updateLiveEmergencyBanner();
 }
 
 function setLanguage(lang){
@@ -2875,8 +2941,9 @@ function getAlertMode(){
 }
 function setAlertMode(mode){
   localStorage.setItem('carewear_alert_mode', mode);
-  const activeItem = document.querySelector('.nav-item.active[data-view]');
-  if (activeItem) renderView(activeItem.dataset.view);
+  // Ver o mesmo bug corrigido em applyI18n() (2026-07-17): currentView é
+  // fiável para qualquer vista, ao contrário do lookup por .nav-item.active.
+  if (currentView) renderView(currentView);
 }
 
 /* ------------------------------------------------------------
@@ -3576,6 +3643,56 @@ function currentAnomalyLog(){
   return selectedPatient().anomalyLog.filter(a => !deletedAnomaliesMap[`${selectedPatientId}:${a.id}`]);
 }
 
+/* ------------------------------------------------------------
+   TRADUÇÃO DE ALERTAS/ANOMALIAS/EMERGÊNCIAS (pedido do utilizador:
+   "Quero que as mensagens de emergência e alertas sempre traduzidos")
+   ------------------------------------------------------------
+   Os dados de demonstração (PATIENTS[i].alerts/anomalyLog, EMERGENCY_LOG)
+   continuam a guardar o texto em português tal como sempre existiu — é
+   usado como fallback (ver t()) se faltar a entrada traduzida. As
+   funções abaixo resolvem o texto de facto mostrado a partir de uma
+   chave estável (a.key / a.id / e.type) num namespace I18N dedicado, em
+   vez de ler os campos de texto diretamente.
+------------------------------------------------------------ */
+const ALERT_KEY_TO_I18N_SEGMENT = {
+  'hr-alta': 'hrAlta', 'inatividade-prolongada': 'inatividadeProlongada', 'rotina-alterada': 'rotinaAlterada',
+  'spo2-limite': 'spo2Limite', 'sono-curto': 'sonoCurto',
+};
+function alertField(a, field){
+  const seg = ALERT_KEY_TO_I18N_SEGMENT[a.key];
+  if (!seg) return a[field];
+  const i18nKey = `alertData.${seg}.${field}`;
+  const val = t(i18nKey);
+  return val === i18nKey ? a[field] : val;
+}
+const ANOMALY_TYPE_TO_I18N_SEGMENT = { 'Duração': 'duracao', 'Comportamental': 'comportamental', 'Fisiológica': 'fisiologica' };
+const ANOMALY_DETECTOR_TO_I18N_SEGMENT = {
+  'Regra de duração': 'regraDuracao', 'LSTM Autoencoder': 'lstm', 'Limiar clínico': 'limiarClinico', 'Diagnóstico do dispositivo': 'diagnosticoDispositivo',
+};
+function anomalyTypeText(a){
+  const seg = ANOMALY_TYPE_TO_I18N_SEGMENT[a.type];
+  return seg ? t(`anomalyType.${seg}`) : a.type;
+}
+function anomalyDetectorText(a){
+  const seg = ANOMALY_DETECTOR_TO_I18N_SEGMENT[a.detector];
+  return seg ? t(`anomalyDetector.${seg}`) : a.detector;
+}
+function anomalyDetailText(a){
+  const i18nKey = `anomalyDetail.a${String(a.id).replace(/^A-/i, '').toLowerCase()}`;
+  const val = t(i18nKey);
+  return val === i18nKey ? a.detail : val;
+}
+function emergencyLabelText(e){
+  const i18nKey = e.type === 'sos' ? 'emergencyType.sos' : e.type === 'fall' ? 'emergencyType.fall' : 'emergencyType.unknown';
+  const val = t(i18nKey);
+  return val === i18nKey ? (e.label || val) : val;
+}
+function emergencyNoteText(e){
+  const i18nKey = `emergencyNote.e${String(e.id).replace(/^E-/i, '').toLowerCase()}`;
+  const val = t(i18nKey);
+  return val === i18nKey ? e.resolvedNote : val;
+}
+
 // Alertas ainda não lidos e não apagados — o que aparece em "Alertas
 // recentes" (Resumo) e "Alertas por severidade" (Pacientes). Ler um
 // alerta (markAlertRead()) remove-o desta lista; ele continua acessível
@@ -3685,11 +3802,11 @@ function onLiveEmergencyAlert(msg){
   if (seq != null && log.some(e => e.liveSeq === seq)) return;
 
   const meta = EMERGENCY_ALERT_TYPE_TO_LOG[msg.alert_name]
-    || { type: 'sos', label: 'Alerta de emergência (tipo desconhecido)' };
+    || { type: 'unknown', label: t('emergencyType.unknown') };
   const ts = toFiniteNumber(msg.timestamp_utc);
   const timeLabel = ts
-    ? new Date(ts * 1000).toLocaleString('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
-    : 'agora';
+    ? new Date(ts * 1000).toLocaleString(currentLang, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+    : t('emergencyLive.nowLabel');
 
   log.unshift({
     id: `E-LIVE-${seq != null ? seq : Date.now()}`,
@@ -3715,10 +3832,10 @@ function updateLiveEmergencyBanner(){
   if (!el) return;
   const active = currentEmergencyLog().filter(e => e.live && e.status === 'ativo');
   if (!active.length) { el.style.display = 'none'; return; }
-  const label = active[0].label;
+  const label = emergencyLabelText(active[0]);
   el.style.display = 'flex';
   el.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
-    <span><b>Alerta de emergência em direto</b> — ${label} (${selectedPatient().name}). <a href="#" onclick="renderView('emergencias'); return false;">Ver registo de emergências</a></span>`;
+    <span><b>${t('emergencyLive.bannerTitle')}</b> — ${label} (${selectedPatient().name}). <a href="#" onclick="renderView('emergencias'); return false;">${t('emergencyLive.viewLogLink')}</a></span>`;
 }
 
 // Estado do modal de cancelamento — o código gerado (6 dígitos) é
@@ -5236,9 +5353,9 @@ TEMPLATES.anomalias = () => {
         ${currentAnomalyLog().length ? currentAnomalyLog().map(a => `
           <tr>
             <td class="num">${a.id}</td>
-            <td>${a.type}</td>
-            <td>${a.detail}</td>
-            <td>${a.detector}</td>
+            <td>${anomalyTypeText(a)}</td>
+            <td>${anomalyDetailText(a)}</td>
+            <td>${anomalyDetectorText(a)}</td>
             <td class="num">${a.conf}</td>
             <td>${pillHtml(a.sev, a.sev==='critical'?t('anomalias.severityCritical'):a.sev==='serious'?t('anomalias.severitySerious'):t('anomalias.severityWarning'))}</td>
             <td class="num">${a.time}</td>
@@ -5271,10 +5388,10 @@ TEMPLATES.alertas = () => {
           const read = isAlertRead(fullKey);
           return `
           <tr>
-            <td>${a.title}</td>
-            <td>${a.desc}</td>
+            <td>${alertField(a,'title')}</td>
+            <td>${alertField(a,'desc')}</td>
             <td>${pillHtml(a.sev, a.sev==='critical'?t('alertas.severityCritical'):a.sev==='serious'?t('alertas.severitySerious'):t('alertas.severityWarning'))}</td>
-            <td class="num">${a.time}</td>
+            <td class="num">${alertField(a,'time')}</td>
             <td>${read ? pillHtml('neutral',t('alertas.statusRead')) : pillHtml('warning',t('alertas.statusNew'))}</td>
             ${!isUtente ? `<td><button class="btn-secondary" onclick="deleteAlert('${fullKey}')">${t('alertas.deleteBtn')}</button></td>` : ''}
           </tr>`;
@@ -5304,11 +5421,11 @@ TEMPLATES.emergencias = () => {
         ${currentEmergencyLog().map(e => `
           <tr>
             <td class="num">${e.id}</td>
-            <td>${e.label}</td>
+            <td>${emergencyLabelText(e)}</td>
             <td class="num">${e.time}</td>
             <td>${e.live ? pillHtml('critical',t('emergencias.sourceLive')) : pillHtml('neutral',t('emergencias.sourceDemo'))}</td>
             <td>${pillHtml(e.status==='ativo'?'critical':e.status==='cancelado'?'neutral':'good', e.status==='ativo'?t('emergencias.statusActive'):e.status==='cancelado'?t('emergencias.statusCancelled'):t('emergencias.statusResolved'))}</td>
-            <td>${e.resolvedNote || '—'}</td>
+            <td>${emergencyNoteText(e) || '—'}</td>
             <td style="display:flex; gap:6px;">
               ${e.status==='ativo' ? `<button class="btn-danger" onclick="openEmergencyCancelModal('${e.id}')">${t('emergencias.cancelAlertBtn')}</button>` : ''}
               ${!isUtente && e.status!=='ativo' ? `<button class="btn-secondary" onclick="if(confirm('${t('emergencias.deleteConfirmPrefix')} (${e.id})${t('emergencias.deleteConfirmSuffix')}')) deleteEmergencyRecord('${e.id}')">${t('emergencias.deleteBtn')}</button>` : ''}
@@ -5806,40 +5923,40 @@ function alertRow(a, idx){
   const explainId = `alertPlain-${idx}`;
   const explainBtn = a.plain
     ? `<button type="button" class="alert-explain-btn" data-i18n="alert.explainShow" onclick="toggleAlertPlain('${explainId}', this)">${t('alert.explainShow')}</button>
-       <div class="alert-explain-box" id="${explainId}" style="display:none;">${a.plain}</div>`
+       <div class="alert-explain-box" id="${explainId}" style="display:none;">${alertField(a,'plain')}</div>`
     : '';
 
   const escalationNote = esc.escalated
-    ? `<p class="alert-escalation-note">Repetiu-se ${esc.count}x nas últimas 24h — prioridade subida automaticamente de "aviso" para "grave" para reduzir o risco de ser ignorado. Silenciar reinicia a contagem.</p>`
+    ? `<p class="alert-escalation-note">${t('alertRow.escalationNote', {n: esc.count})}</p>`
     : '';
 
   const mutedUntil = fullKey ? alertMutedUntil(fullKey) : null;
   let muteControl = '';
   if (a.sev === 'critical') {
-    muteControl = `<p class="alert-mute-note">Alertas críticos não podem ser silenciados.</p>`;
+    muteControl = `<p class="alert-mute-note">${t('alertRow.criticalNoMute')}</p>`;
   } else if (mutedUntil) {
-    const untilStr = new Date(mutedUntil).toLocaleTimeString('pt-PT', {hour:'2-digit', minute:'2-digit'});
-    muteControl = `<p class="alert-mute-note">Silenciado até às ${untilStr} — <button type="button" class="alert-explain-btn" onclick="unmuteAlert('${fullKey}')">reativar agora</button></p>`;
+    const untilStr = new Date(mutedUntil).toLocaleTimeString(currentLang, {hour:'2-digit', minute:'2-digit'});
+    muteControl = `<p class="alert-mute-note">${t('alertRow.mutedUntilPrefix')} ${untilStr} — <button type="button" class="alert-explain-btn" onclick="unmuteAlert('${fullKey}')">${t('alertRow.reactivateNow')}</button></p>`;
   } else if (fullKey) {
-    muteControl = `<button type="button" class="alert-explain-btn" onclick="muteAlert('${fullKey}', 4)">Silenciar por 4h</button>`;
+    muteControl = `<button type="button" class="alert-explain-btn" onclick="muteAlert('${fullKey}', 4)">${t('alertRow.muteBtn')}</button>`;
   }
 
   const isRead = fullKey ? isAlertRead(fullKey) : false;
   const readControl = !fullKey ? '' : isRead
-    ? `<span class="alert-read-badge">✓ Lida</span>`
-    : `<button type="button" class="alert-explain-btn" onclick="markAlertRead('${fullKey}')">Marcar como lida</button>`;
+    ? `<span class="alert-read-badge">${t('alertRow.readBadge')}</span>`
+    : `<button type="button" class="alert-explain-btn" onclick="markAlertRead('${fullKey}')">${t('alertRow.markReadBtn')}</button>`;
 
   return `
     <div class="alert-row ${esc.severity}${mutedUntil ? ' muted' : ''}">
       <span class="alert-icon" style="background:${SEV_BG[esc.severity]}; color:${SEV_COLOR[esc.severity]}">${iconFor(icon)}</span>
       <div class="body">
-        <div class="title">${a.title}</div>
-        <div class="desc">${a.desc}</div>
+        <div class="title">${alertField(a,'title')}</div>
+        <div class="desc">${alertField(a,'desc')}</div>
         ${escalationNote}
         ${explainBtn}
         <div class="alert-actions">${readControl}${muteControl}</div>
       </div>
-      <div class="time">${a.time}</div>
+      <div class="time">${alertField(a,'time')}</div>
     </div>`;
 }
 
@@ -6245,6 +6362,11 @@ const LIVE_HR_WINDOW = 60; // amostras mantidas no gráfico de FC ao vivo
 
 const liveState = {
   connected: false,
+  // true quando o utilizador desligou manualmente a ligação BLE ao
+  // wearable pelo botão da topbar (ver toggleBleConnection()) — distingue
+  // "desligado porque o utilizador pediu" de "a tentar ligar/perdeu o
+  // sinal", que usam a mesma liveState.connected=false.
+  blePaused: false,
   hr: null, spo2: null, steps: null, freefall: false, inactivity: false,
   // Índice 0-100 de "pacing"/curvas apertadas (ver Imu::detectPacing em
   // Imu.cpp), reencaminhado pelo bridge a partir de FullPlain.pacing_index.
@@ -6313,14 +6435,45 @@ function renderStorageWarningBanner(){
 function updateDeviceStatusUI(){
   const dot = document.getElementById('deviceDot');
   const text = document.getElementById('deviceStatusText');
-  if (!dot || !text) return;
-  if (liveState.connected){
-    dot.classList.remove('warn');
-    text.textContent = t('topbar.connected');
-  } else {
-    dot.classList.add('warn');
-    text.textContent = t('topbar.disconnected');
+  if (dot && text){
+    if (liveState.connected){
+      dot.classList.remove('warn');
+      text.textContent = t('topbar.connected');
+    } else if (liveState.blePaused){
+      dot.classList.add('warn');
+      text.textContent = t('topbar.pausedManual');
+    } else {
+      dot.classList.add('warn');
+      text.textContent = t('topbar.disconnected');
+    }
   }
+  updateBleToggleUI();
+}
+
+// Botão da topbar que pede ao bridge para largar/retomar a ligação BLE ao
+// wearable (comando "set_ble_enabled") — não fecha o WebSocket
+// dashboard<->bridge, só a ligação Bluetooth ao dispositivo. Pedido do
+// utilizador para poder libertar a placa (gravar firmware, outra
+// ferramenta de série) sem ter de fechar o bridge no terminal.
+function updateBleToggleUI(){
+  const btn = document.getElementById('bleToggleBtn');
+  const btnText = document.getElementById('bleToggleBtnText');
+  if (!btn || !btnText) return;
+  const enabled = !liveState.blePaused;
+  btn.setAttribute('aria-pressed', String(enabled));
+  btn.title = t('topbar.bleToggleHint');
+  btnText.textContent = enabled ? t('topbar.bleDisconnect') : t('topbar.bleConnect');
+}
+
+function toggleBleConnection(){
+  const nextEnabled = liveState.blePaused; // estava pausado -> vamos ligar
+  const sent = sendWsCommandWithArgs('set_ble_enabled', {enabled: nextEnabled});
+  if (!sent) return; // sem ligação ao bridge — nada a pedir
+  // Otimista: reflete já o pedido na UI, sem esperar pelo próximo
+  // device_status (que pode demorar até ~1s, ver run_device_loop no bridge).
+  liveState.blePaused = !nextEnabled;
+  if (!nextEnabled) liveState.connected = false;
+  updateDeviceStatusUI();
 }
 
 // Converte um valor vindo do bridge (não confiável — canal WebSocket sem
@@ -6352,6 +6505,7 @@ function applyLiveVitals(){
 function handleBridgeMessage(msg){
   if (msg.kind === 'device_status'){
     liveState.connected = !!msg.connected;
+    liveState.blePaused = !!msg.paused;
     updateDeviceStatusUI();
     applyLiveVitals();
     return;
@@ -6696,11 +6850,11 @@ function buildFhirBundle(){
     resourceType: 'Observation',
     id: `alert-${a.key || i}`,
     status: 'final',
-    code: { text: a.title },
+    code: { text: alertField(a,'title') },
     subject: { reference: `Patient/${p.id}` },
     effectiveDateTime: nowIso,
-    valueString: a.desc,
-    note: a.plain ? [{ text: a.plain }] : undefined,
+    valueString: alertField(a,'desc'),
+    note: a.plain ? [{ text: alertField(a,'plain') }] : undefined,
     extension: [{ url: 'severity', valueString: a.sev }],
   })) : [{
     resourceType: 'Observation',
@@ -6952,12 +7106,12 @@ function exportClinicalPdf(){
     <h3 class="print-section-title">Alertas ativos</h3>
     ${tableHtml(
       ['Título', 'Detalhe', 'Severidade', 'Quando'],
-      alerts.map(a => [a.title, a.desc, a.sev, a.time])
+      alerts.map(a => [alertField(a,'title'), alertField(a,'desc'), a.sev, alertField(a,'time')])
     )}
     <h3 class="print-section-title">Registo de anomalias recente</h3>
     ${tableHtml(
       ['ID', 'Tipo', 'Detalhe', 'Quando'],
-      anomalies.map(a => [a.id, a.type, a.detail, a.time])
+      anomalies.map(a => [a.id, anomalyTypeText(a), anomalyDetailText(a), a.time])
     )}
     <footer class="print-footer">CareWear · Documento gerado localmente, confidencial · ${p.name}</footer>
   `;
