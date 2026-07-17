@@ -4381,3 +4381,40 @@ guardados no dashboard a `ble_bridge.py` (`_on_emergency_alert()`) — adiado pa
 de conflito); adicionar `twilio`/`sendgrid` a `bridge/requirements_db.txt` (mesmo motivo de
 adiamento); credenciais reais do utilizador (Twilio/SendGrid) por configurar quando quiser ativar
 o envio real.
+
+## i18n — 2ª passagem, gaps fora das 14 vistas principais (2026-07-17)
+
+Reportado pelo utilizador com capturas de ecrã: texto PT hardcoded ainda visível com outro idioma
+selecionado, em zonas que a conversão original (14 `TEMPLATES.<vista>`) não cobria por estarem em
+**funções auxiliares** chamadas via `AFTER_RENDER` (não dentro do template literal da vista) ou em
+**ficheiros à parte**:
+- `renderNightSummary()`, `renderPacingSummary()` (resumo noturno, índice de pacing/deambulação).
+- `renderStorageWarningBanner()` (aviso de armazenamento do wearable cheio/quase cheio).
+- `applyLiveVitals()` ("Parado"/"Ativo", deteção de queda) e `renderRealTrendTable()` (estados
+  "sem dados"/"sem ligação", "leituras").
+- `renderCaregiverNotes()` — autor da nota ("Familiar"/"Cuidador(a)"/"Médico/Técnico") e o locale
+  da data ficavam fixos em `pt-PT` independentemente do idioma escolhido.
+- Ecrã de login/registo — dois parágrafos "Protótipo de interface..." eram HTML estático fora de
+  qualquer `TEMPLATES.*`.
+- **`web/dashboard/medication-reminders.js`** — ficheiro carregado à parte (`<script src="...">`),
+  totalmente fora do âmbito da conversão original: título/corpo da notificação do browser, botão
+  "Tomei agora", e toda a análise de adesão (`AdherenceAnalytics` — alertas de adesão baixa/
+  moderada/ótima, deteção de padrão, sugestões).
+
+**Bug funcional corrigido no mesmo lote**: `AdherenceAnalytics.getRecommendations()` decidia que
+sugestão mostrar comparando `summary.patterns.includes('correlação')` — uma substring fixa em
+português. Depois de traduzir `patterns` via `t()`, essa comparação deixaria de encontrar a
+substring em qualquer idioma que não fosse português, escondendo silenciosamente a sugestão extra.
+Corrigido introduzindo `patternsKey`/`alertKey` (identificadores estáveis, independentes de
+idioma) para a lógica interna, mantendo `patterns`/`alert` só para exibição.
+
+**Chaves novas**: 52, nos 7 idiomas (364 valores). **Não traduzido, deliberadamente**: texto de
+dados/exemplo (nomes de pacientes, descrições de alertas sintéticos como "Leitura de 93% às
+03:14", notas de cuidador de exemplo) — mesma convenção já seguida na 1ª passagem, só UI/chrome é
+traduzido.
+
+**Verificado**: `node --check` a `medication-reminders.js` e ao script inline sem erros; validação
+de consistência das 7 tabelas de idioma (481 chaves cada, sem valores em falta); teste Playwright
+dedicado com idioma inglês confirma resumo noturno, pacing, ecrã de login e notificação de
+medicação todos em inglês, sem nenhuma chave i18n a aparecer como texto literal; regressão
+completa (2 perfis × 7 idiomas × todas as vistas) continua limpa.

@@ -608,7 +608,7 @@
 
       <button class="btn-primary" onclick="login()"><span data-i18n="login.enterAs">Entrar como</span> <span id="loginRoleLabel">Utente / Família</span></button>
       <p class="login-switch"><span data-i18n="login.noAccount">Ainda não tens conta?</span> <a href="#" onclick="showSignup(); return false;" data-i18n="login.createAccount">Criar conta</a></p>
-      <p class="login-note"><b>Protótipo de interface.</b> Sem autenticação real ligada — este ecrã demonstra a separação de perfis; dados clínicos usam leituras reais do wearable, dados de rotina/atividade são simulados até o classificador de HAR ser embarcado no firmware.</p>
+      <p class="login-note"><b data-i18n="login.prototypeLabel">Protótipo de interface.</b> <span data-i18n="login.prototypeNote">Sem autenticação real ligada — este ecrã demonstra a separação de perfis; dados clínicos usam leituras reais do wearable, dados de rotina/atividade são simulados até o classificador de HAR ser embarcado no firmware.</span></p>
     </div>
 
     <div class="login-form" id="signupPanel" style="display:none;">
@@ -670,7 +670,7 @@
 
       <button class="btn-primary" onclick="submitSignup()" data-i18n="signup.submit">Criar conta</button>
       <p class="login-switch"><span data-i18n="signup.haveAccount">Já tens conta?</span> <a href="#" onclick="showLogin(); return false;" data-i18n="signup.login">Iniciar sessão</a></p>
-      <p class="login-note"><b>Protótipo de interface.</b> O registo não cria uma conta real nem persiste dados — falta ligar a um backend/base de dados SQL (ver roadmap). Serve para validar o fluxo e os campos pedidos por perfil.</p>
+      <p class="login-note"><b data-i18n="login.prototypeLabel">Protótipo de interface.</b> <span data-i18n="signup.prototypeNote">O registo não cria uma conta real nem persiste dados — falta ligar a um backend/base de dados SQL (ver roadmap). Serve para validar o fluxo e os campos pedidos por perfil.</span></p>
     </div>
   </div>
 </div>
@@ -1087,6 +1087,32 @@ const I18N = {
     'definicoes.emergencyContactNamePlaceholder': 'Nome', 'definicoes.emergencyContactPhonePlaceholder': 'Telefone',
     'definicoes.emergencyContactRelationPlaceholder': 'Relação (ex.: vizinho, irmão)',
     'definicoes.emergencyContactNote': 'Este contacto só é notificado automaticamente se o alerta acontecer dentro do horário declarado acima e o cuidador não confirmar a tempo.',
+    // --- i18n gap 2 (render*() helpers + medication-reminders.js + login) ---
+    'resumo.nightBedTime': 'Hora de deitar', 'resumo.nightWakeTime': 'Hora de acordar', 'resumo.nightRestlessEpisodes': 'Episódios de agitação',
+    'resumo.nightTimeOutOfBed': 'Tempo fora da cama (total)', 'resumo.nightRestlessEvent': 'Levantou-se / agitação detetada',
+    'resumo.nightNoEvents': 'Sem episódios de agitação detetados esta noite.', 'rotina.pacingAboveUsual': 'Acima do habitual', 'rotina.pacingWithinUsual': 'Dentro do habitual',
+    'rotina.pacingLive': 'ao vivo', 'rotina.pacingDemo': 'demonstração', 'rotina.pacingTodayIndex': 'Índice hoje (0-100)', 'rotina.pacingWeekAvg': 'Média dos últimos 7 dias',
+    'rotina.pacingStateLabel': 'Estado',
+    'rotina.pacingLiveHint': 'Índice de hoje calculado pelo firmware a partir do giroscópio real do dispositivo ligado (última janela de 1 minuto). A tendência dos últimos 7 dias abaixo continua simulada — ainda não há histórico real acumulado (ver PROJECT_STATUS.md, "Base de dados").',
+    'rotina.pacingExplainHint': 'Índice mais alto = mais mudanças de direção apertadas do que é habitual — pode indicar deambulação (wandering) dentro de casa, mesmo sem sair do alcance do GPS. Um valor isolado não é preocupante; um aumento sustentado ao longo de vários dias vale a pena observar.',
+    'medicacao.analyticsRealDataFlag': 'dados reais deste browser', 'perfil.currentValueLabel': 'Valor atual:', 'perfil.pendingChangeLabel': 'Alteração pedida (pendente de aprovação):',
+    'perfil.requiresApprovalNote': 'alterações a este campo exigem aprovação da equipa clínica',
+    'topbar.storageFullWarning': 'O armazenamento do wearable está cheio — dados antigos ainda não exportados estão a ser substituídos agora.',
+    'topbar.storageFullExportLink': 'Exportar o que resta',
+    'topbar.storageAlmostFullWarning': 'O armazenamento do wearable está quase cheio (≥90%) — exporta os dados em breve, antes de começarem a ser substituídos.',
+    'topbar.storageAlmostFullExportLink': 'Ir para Exportar dados', 'resumo.movementStill': 'Parado', 'resumo.movementActive': 'Ativo', 'resumo.fallsRecentDetection': 'Deteção recente',
+    'tendencia.realHistoryNotEnoughData': 'Ainda sem dados suficientes na base de dados local do bridge para estes dias.',
+    'tendencia.realHistoryNotConnected': 'Sem ligação ao bridge — liga o dispositivo para veres histórico real.', 'tendencia.realHistoryReadings': 'leituras',
+    'tendencia.realHistoryNoReadings': 'sem leituras', 'rotina.noteAuthorFamily': 'Familiar', 'rotina.noteAuthorCaregiver': 'Cuidador(a)', 'rotina.noteAuthorClinician': 'Médico/Técnico',
+    'login.prototypeLabel': 'Protótipo de interface.',
+    'login.prototypeNote': 'Sem autenticação real ligada — este ecrã demonstra a separação de perfis; dados clínicos usam leituras reais do wearable, dados de rotina/atividade são simulados até o classificador de HAR ser embarcado no firmware.',
+    'signup.prototypeNote': 'O registo não cria uma conta real nem persiste dados — falta ligar a um backend/base de dados SQL (ver roadmap). Serve para validar o fluxo e os campos pedidos por perfil.',
+    'medrem.notifTitle': 'Hora de tomar medicação', 'medrem.at': 'às', 'medrem.takenNowBtn': 'Tomei agora', 'medrem.patternsNoData': 'Sem dados', 'medrem.noHistoryYet': 'Sem histórico ainda',
+    'medrem.alertLow': 'Adesão muito baixa esta semana', 'medrem.alertModerate': 'Adesão moderada — aumentar atenção', 'medrem.alertGreat': 'Ótima adesão esta semana',
+    'medrem.patternsNormal': 'Padrão normal', 'medrem.patternsCorrelation': 'Possível correlação: menor adesão em dias mais ativos',
+    'medrem.recCriticalContact': 'Adesão crítica: contactar cuidador ou clínico', 'medrem.recCriticalAlarms': 'Sugestão: usar alarmes do relógio/telemóvel como lembretes extras',
+    'medrem.recModerateAttention': 'Adesão moderada: melhorar atenção aos horários', 'medrem.recModerateMealTiming': 'Sugestão: marcar medicação imediatamente após as refeições',
+    'medrem.recExcellent': 'Excelente adesão: manter a rotina', 'medrem.recLowActivityScheduling': 'Sugestão: agendar medicação para períodos de menor atividade',
   },
   en: {
     'app.title': 'CareWear · Routine Monitoring',
@@ -1290,6 +1316,30 @@ const I18N = {
     'definicoes.emergencyContactNamePlaceholder': 'Name', 'definicoes.emergencyContactPhonePlaceholder': 'Phone',
     'definicoes.emergencyContactRelationPlaceholder': 'Relationship (e.g. neighbor, sibling)',
     'definicoes.emergencyContactNote': 'This contact is only notified automatically if the alert happens within the declared hours above and the caregiver doesn\'t confirm in time.',
+    // --- i18n gap 2 (render*() helpers + medication-reminders.js + login) ---
+    'resumo.nightBedTime': 'Bedtime', 'resumo.nightWakeTime': 'Wake time', 'resumo.nightRestlessEpisodes': 'Restlessness episodes', 'resumo.nightTimeOutOfBed': 'Time out of bed (total)',
+    'resumo.nightRestlessEvent': 'Got up / restlessness detected', 'resumo.nightNoEvents': 'No restlessness episodes detected tonight.', 'rotina.pacingAboveUsual': 'Above usual',
+    'rotina.pacingWithinUsual': 'Within usual', 'rotina.pacingLive': 'live', 'rotina.pacingDemo': 'demo', 'rotina.pacingTodayIndex': 'Today\'s index (0-100)',
+    'rotina.pacingWeekAvg': 'Average of the last 7 days', 'rotina.pacingStateLabel': 'State',
+    'rotina.pacingLiveHint': 'Today\'s index is calculated by the firmware from the connected device\'s real gyroscope (last 1-minute window). The 7-day trend below is still simulated — there is no accumulated real history yet (see PROJECT_STATUS.md, "Database").',
+    'rotina.pacingExplainHint': 'Higher index = more tight direction changes than usual — may indicate wandering inside the home, even without leaving GPS range. An isolated value is not concerning; a sustained increase over several days is worth watching.',
+    'medicacao.analyticsRealDataFlag': 'real data from this browser', 'perfil.currentValueLabel': 'Current value:', 'perfil.pendingChangeLabel': 'Requested change (pending approval):',
+    'perfil.requiresApprovalNote': 'changes to this field require approval from the clinical team',
+    'topbar.storageFullWarning': 'The wearable\'s storage is full — old, not-yet-exported data is being overwritten now.', 'topbar.storageFullExportLink': 'Export what\'s left',
+    'topbar.storageAlmostFullWarning': 'The wearable\'s storage is almost full (≥90%) — export the data soon, before it starts being overwritten.',
+    'topbar.storageAlmostFullExportLink': 'Go to Export data', 'resumo.movementStill': 'Still', 'resumo.movementActive': 'Active', 'resumo.fallsRecentDetection': 'Recent detection',
+    'tendencia.realHistoryNotEnoughData': 'Not enough data yet in the bridge\'s local database for these days.',
+    'tendencia.realHistoryNotConnected': 'Not connected to the bridge — connect the device to see real history.', 'tendencia.realHistoryReadings': 'readings',
+    'tendencia.realHistoryNoReadings': 'no readings', 'rotina.noteAuthorFamily': 'Family member', 'rotina.noteAuthorCaregiver': 'Caregiver', 'rotina.noteAuthorClinician': 'Doctor/Technician',
+    'login.prototypeLabel': 'Interface prototype.',
+    'login.prototypeNote': 'No real authentication connected — this screen demonstrates the separation of profiles; clinical data uses real wearable readings, routine/activity data is simulated until the HAR classifier is embedded in the firmware.',
+    'signup.prototypeNote': 'Signing up does not create a real account or persist data — it still needs to be connected to a backend/SQL database (see roadmap). It serves to validate the flow and the fields requested per profile.',
+    'medrem.notifTitle': 'Time to take medication', 'medrem.at': 'at', 'medrem.takenNowBtn': 'Taken now', 'medrem.patternsNoData': 'No data', 'medrem.noHistoryYet': 'No history yet',
+    'medrem.alertLow': 'Very low adherence this week', 'medrem.alertModerate': 'Moderate adherence — pay more attention', 'medrem.alertGreat': 'Great adherence this week',
+    'medrem.patternsNormal': 'Normal pattern', 'medrem.patternsCorrelation': 'Possible correlation: lower adherence on more active days',
+    'medrem.recCriticalContact': 'Critical adherence: contact caregiver or clinician', 'medrem.recCriticalAlarms': 'Suggestion: use watch/phone alarms as extra reminders',
+    'medrem.recModerateAttention': 'Moderate adherence: pay more attention to schedules', 'medrem.recModerateMealTiming': 'Suggestion: mark medication right after meals',
+    'medrem.recExcellent': 'Excellent adherence: keep up the routine', 'medrem.recLowActivityScheduling': 'Suggestion: schedule medication for lower-activity periods',
   },
   zh: {
     'app.title': 'CareWear · 日常活动监测',
@@ -1450,6 +1500,22 @@ const I18N = {
     'definicoes.emergencyContactSubtitle': '如果照护者在上方不可用时段内未确认警报，将自动通知的人——绝不会直接联系真实的紧急服务，只通知此人', 'definicoes.emergencyContactNamePlaceholder': '姓名',
     'definicoes.emergencyContactPhonePlaceholder': '电话', 'definicoes.emergencyContactRelationPlaceholder': '关系（例如邻居、兄弟姐妹）',
     'definicoes.emergencyContactNote': '只有当警报发生在上方声明的时段内且照护者未能及时确认时，才会自动通知此联系人。',
+    // --- i18n gap 2 (render*() helpers + medication-reminders.js + login) ---
+    'resumo.nightBedTime': '就寝时间', 'resumo.nightWakeTime': '起床时间', 'resumo.nightRestlessEpisodes': '躁动发作次数', 'resumo.nightTimeOutOfBed': '离床时间（总计）', 'resumo.nightRestlessEvent': '起床／检测到躁动',
+    'resumo.nightNoEvents': '今晚未检测到躁动发作。', 'rotina.pacingAboveUsual': '高于平时', 'rotina.pacingWithinUsual': '处于平时范围', 'rotina.pacingLive': '实时', 'rotina.pacingDemo': '演示',
+    'rotina.pacingTodayIndex': '今日指数 (0-100)', 'rotina.pacingWeekAvg': '过去 7 天平均值', 'rotina.pacingStateLabel': '状态',
+    'rotina.pacingLiveHint': '今日指数由固件根据已连接设备的真实陀螺仪数据计算（最近 1 分钟窗口）。下方的 7 天趋势仍为模拟数据 — 尚无累积的真实历史记录（见 PROJECT_STATUS.md，"数据库"）。',
+    'rotina.pacingExplainHint': '指数越高＝方向急转弯次数比平时多——可能表示在家中游走（wandering），即使没有离开 GPS 覆盖范围。单一数值不必担心；若持续多日上升则值得留意。', 'medicacao.analyticsRealDataFlag': '来自此浏览器的真实数据',
+    'perfil.currentValueLabel': '当前值：', 'perfil.pendingChangeLabel': '请求的更改（待批准）：', 'perfil.requiresApprovalNote': '更改此字段需要临床团队批准', 'topbar.storageFullWarning': '穿戴设备存储已满 — 尚未导出的旧数据正在被覆盖。',
+    'topbar.storageFullExportLink': '导出剩余数据', 'topbar.storageAlmostFullWarning': '穿戴设备存储即将占满 (≥90%) — 请尽快导出数据，以免开始被覆盖。', 'topbar.storageAlmostFullExportLink': '前往导出数据',
+    'resumo.movementStill': '静止', 'resumo.movementActive': '活跃', 'resumo.fallsRecentDetection': '最近检测到', 'tendencia.realHistoryNotEnoughData': '网桥本地数据库中这些天的数据尚不足。',
+    'tendencia.realHistoryNotConnected': '未连接到网桥 — 连接设备以查看真实历史记录。', 'tendencia.realHistoryReadings': '次读数', 'tendencia.realHistoryNoReadings': '无读数', 'rotina.noteAuthorFamily': '家属',
+    'rotina.noteAuthorCaregiver': '照护者', 'rotina.noteAuthorClinician': '医生/技术人员', 'login.prototypeLabel': '界面原型。',
+    'login.prototypeNote': '未连接真实身份验证 — 此屏幕演示身份配置文件的分离；临床数据使用穿戴设备的真实读数，日常活动数据为模拟数据，直到 HAR 分类器嵌入固件为止。', 'signup.prototypeNote': '注册不会创建真实账户，也不会持久化数据 — 仍需连接到后端/SQL 数据库（见路线图）。用于验证流程以及各身份所需字段。',
+    'medrem.notifTitle': '该服药了', 'medrem.at': '于', 'medrem.takenNowBtn': '刚刚已服用', 'medrem.patternsNoData': '无数据', 'medrem.noHistoryYet': '暂无历史记录', 'medrem.alertLow': '本周依从性很低',
+    'medrem.alertModerate': '依从性中等 — 需多加留意', 'medrem.alertGreat': '本周依从性很好', 'medrem.patternsNormal': '正常模式', 'medrem.patternsCorrelation': '可能存在关联：活动量较高的日子依从性较低',
+    'medrem.recCriticalContact': '依从性严重不足：请联系照护者或临床医生', 'medrem.recCriticalAlarms': '建议：使用手表/手机闹钟作为额外提醒', 'medrem.recModerateAttention': '依从性中等：需更加注意服药时间',
+    'medrem.recModerateMealTiming': '建议：饭后立即标记服药', 'medrem.recExcellent': '依从性极佳：保持当前习惯', 'medrem.recLowActivityScheduling': '建议：将服药时间安排在活动量较低的时段',
   },
   es: {
     'app.title': 'CareWear · Monitorización de Rutina',
@@ -1659,6 +1725,32 @@ const I18N = {
     'definicoes.emergencyContactNamePlaceholder': 'Nombre', 'definicoes.emergencyContactPhonePlaceholder': 'Teléfono',
     'definicoes.emergencyContactRelationPlaceholder': 'Relación (ej.: vecino, hermano)',
     'definicoes.emergencyContactNote': 'Este contacto solo se notifica automáticamente si la alerta ocurre dentro del horario declarado arriba y el cuidador no confirma a tiempo.',
+    // --- i18n gap 2 (render*() helpers + medication-reminders.js + login) ---
+    'resumo.nightBedTime': 'Hora de acostarse', 'resumo.nightWakeTime': 'Hora de despertar', 'resumo.nightRestlessEpisodes': 'Episodios de agitación',
+    'resumo.nightTimeOutOfBed': 'Tiempo fuera de la cama (total)', 'resumo.nightRestlessEvent': 'Se levantó / agitación detectada',
+    'resumo.nightNoEvents': 'No se detectaron episodios de agitación esta noche.', 'rotina.pacingAboveUsual': 'Por encima de lo habitual', 'rotina.pacingWithinUsual': 'Dentro de lo habitual',
+    'rotina.pacingLive': 'en vivo', 'rotina.pacingDemo': 'demostración', 'rotina.pacingTodayIndex': 'Índice de hoy (0-100)', 'rotina.pacingWeekAvg': 'Media de los últimos 7 días',
+    'rotina.pacingStateLabel': 'Estado',
+    'rotina.pacingLiveHint': 'El índice de hoy lo calcula el firmware a partir del giroscopio real del dispositivo conectado (última ventana de 1 minuto). La tendencia de los últimos 7 días de abajo sigue siendo simulada — aún no hay historial real acumulado (ver PROJECT_STATUS.md, "Base de datos").',
+    'rotina.pacingExplainHint': 'Índice más alto = más cambios de dirección bruscos de lo habitual — puede indicar deambulación (wandering) dentro de casa, incluso sin salir del alcance del GPS. Un valor aislado no es preocupante; un aumento sostenido durante varios días merece atención.',
+    'medicacao.analyticsRealDataFlag': 'datos reales de este navegador', 'perfil.currentValueLabel': 'Valor actual:',
+    'perfil.pendingChangeLabel': 'Cambio solicitado (pendiente de aprobación):', 'perfil.requiresApprovalNote': 'los cambios en este campo requieren aprobación del equipo clínico',
+    'topbar.storageFullWarning': 'El almacenamiento del wearable está lleno — los datos antiguos aún no exportados se están sobrescribiendo ahora.',
+    'topbar.storageFullExportLink': 'Exportar lo que queda',
+    'topbar.storageAlmostFullWarning': 'El almacenamiento del wearable está casi lleno (≥90%) — exporta los datos pronto, antes de que empiecen a sobrescribirse.',
+    'topbar.storageAlmostFullExportLink': 'Ir a Exportar datos', 'resumo.movementStill': 'Quieto', 'resumo.movementActive': 'Activo', 'resumo.fallsRecentDetection': 'Detección reciente',
+    'tendencia.realHistoryNotEnoughData': 'Aún no hay suficientes datos en la base de datos local del bridge para estos días.',
+    'tendencia.realHistoryNotConnected': 'Sin conexión al bridge — conecta el dispositivo para ver el historial real.', 'tendencia.realHistoryReadings': 'lecturas',
+    'tendencia.realHistoryNoReadings': 'sin lecturas', 'rotina.noteAuthorFamily': 'Familiar', 'rotina.noteAuthorCaregiver': 'Cuidador/a', 'rotina.noteAuthorClinician': 'Médico/Técnico',
+    'login.prototypeLabel': 'Prototipo de interfaz.',
+    'login.prototypeNote': 'Sin autenticación real conectada — esta pantalla demuestra la separación de perfiles; los datos clínicos usan lecturas reales del wearable, los datos de rutina/actividad son simulados hasta que el clasificador HAR se integre en el firmware.',
+    'signup.prototypeNote': 'El registro no crea una cuenta real ni persiste datos — falta conectarlo a un backend/base de datos SQL (ver hoja de ruta). Sirve para validar el flujo y los campos solicitados por perfil.',
+    'medrem.notifTitle': 'Hora de tomar la medicación', 'medrem.at': 'a las', 'medrem.takenNowBtn': 'Tomado ahora', 'medrem.patternsNoData': 'Sin datos',
+    'medrem.noHistoryYet': 'Aún sin historial', 'medrem.alertLow': 'Adherencia muy baja esta semana', 'medrem.alertModerate': 'Adherencia moderada — aumentar la atención',
+    'medrem.alertGreat': 'Excelente adherencia esta semana', 'medrem.patternsNormal': 'Patrón normal', 'medrem.patternsCorrelation': 'Posible correlación: menor adherencia en días más activos',
+    'medrem.recCriticalContact': 'Adherencia crítica: contactar al cuidador o al clínico', 'medrem.recCriticalAlarms': 'Sugerencia: usar alarmas del reloj/móvil como recordatorios extra',
+    'medrem.recModerateAttention': 'Adherencia moderada: mejorar la atención a los horarios', 'medrem.recModerateMealTiming': 'Sugerencia: marcar la medicación justo después de las comidas',
+    'medrem.recExcellent': 'Excelente adherencia: mantener la rutina', 'medrem.recLowActivityScheduling': 'Sugerencia: programar la medicación para periodos de menor actividad',
   },
   fr: {
     'app.title': 'CareWear · Suivi de Routine',
@@ -1869,6 +1961,36 @@ const I18N = {
     'definicoes.emergencyContactNamePlaceholder': 'Nom', 'definicoes.emergencyContactPhonePlaceholder': 'Téléphone',
     'definicoes.emergencyContactRelationPlaceholder': 'Lien (ex. voisin, frère/sœur)',
     'definicoes.emergencyContactNote': 'Ce contact n\'est notifié automatiquement que si l\'alerte survient pendant les heures déclarées ci-dessus et que l\'aidant ne confirme pas à temps.',
+    // --- i18n gap 2 (render*() helpers + medication-reminders.js + login) ---
+    'resumo.nightBedTime': 'Heure du coucher', 'resumo.nightWakeTime': 'Heure du réveil', 'resumo.nightRestlessEpisodes': 'Épisodes d\'agitation',
+    'resumo.nightTimeOutOfBed': 'Temps hors du lit (total)', 'resumo.nightRestlessEvent': 'S\'est levé(e) / agitation détectée',
+    'resumo.nightNoEvents': 'Aucun épisode d\'agitation détecté cette nuit.', 'rotina.pacingAboveUsual': 'Au-dessus de l\'habituel', 'rotina.pacingWithinUsual': 'Dans la norme habituelle',
+    'rotina.pacingLive': 'en direct', 'rotina.pacingDemo': 'démonstration', 'rotina.pacingTodayIndex': 'Indice aujourd\'hui (0-100)', 'rotina.pacingWeekAvg': 'Moyenne des 7 derniers jours',
+    'rotina.pacingStateLabel': 'État',
+    'rotina.pacingLiveHint': 'L\'indice d\'aujourd\'hui est calculé par le firmware à partir du gyroscope réel de l\'appareil connecté (dernière fenêtre d\'1 minute). La tendance des 7 derniers jours ci-dessous reste simulée — il n\'y a pas encore d\'historique réel accumulé (voir PROJECT_STATUS.md, « Base de données »).',
+    'rotina.pacingExplainHint': 'Un indice plus élevé = plus de changements de direction serrés que d\'habitude — peut indiquer une déambulation (wandering) à l\'intérieur du domicile, même sans sortir de la portée du GPS. Une valeur isolée n\'est pas préoccupante ; une augmentation soutenue sur plusieurs jours mérite d\'être surveillée.',
+    'medicacao.analyticsRealDataFlag': 'données réelles de ce navigateur', 'perfil.currentValueLabel': 'Valeur actuelle :',
+    'perfil.pendingChangeLabel': 'Modification demandée (en attente d\'approbation) :',
+    'perfil.requiresApprovalNote': 'les modifications de ce champ nécessitent l\'approbation de l\'équipe clinique',
+    'topbar.storageFullWarning': 'Le stockage du wearable est plein — les anciennes données pas encore exportées sont en train d\'être écrasées.',
+    'topbar.storageFullExportLink': 'Exporter ce qui reste',
+    'topbar.storageAlmostFullWarning': 'Le stockage du wearable est presque plein (≥90 %) — exportez bientôt les données, avant qu\'elles ne commencent à être écrasées.',
+    'topbar.storageAlmostFullExportLink': 'Aller à Exporter les données', 'resumo.movementStill': 'Immobile', 'resumo.movementActive': 'Actif',
+    'resumo.fallsRecentDetection': 'Détection récente', 'tendencia.realHistoryNotEnoughData': 'Pas encore assez de données dans la base de données locale du bridge pour ces jours.',
+    'tendencia.realHistoryNotConnected': 'Pas de connexion au bridge — connectez l\'appareil pour voir l\'historique réel.', 'tendencia.realHistoryReadings': 'lectures',
+    'tendencia.realHistoryNoReadings': 'aucune lecture', 'rotina.noteAuthorFamily': 'Proche', 'rotina.noteAuthorCaregiver': 'Soignant(e)', 'rotina.noteAuthorClinician': 'Médecin/Technicien',
+    'login.prototypeLabel': 'Prototype d\'interface.',
+    'login.prototypeNote': 'Aucune authentification réelle connectée — cet écran illustre la séparation des profils ; les données cliniques utilisent des lectures réelles du wearable, les données de routine/activité sont simulées jusqu\'à ce que le classificateur HAR soit intégré au firmware.',
+    'signup.prototypeNote': 'L\'inscription ne crée pas de compte réel et ne persiste pas de données — il reste à la connecter à un backend/une base de données SQL (voir la feuille de route). Elle sert à valider le flux et les champs demandés par profil.',
+    'medrem.notifTitle': 'Heure de prendre le médicament', 'medrem.at': 'à', 'medrem.takenNowBtn': 'Pris maintenant', 'medrem.patternsNoData': 'Aucune donnée',
+    'medrem.noHistoryYet': 'Pas encore d\'historique', 'medrem.alertLow': 'Très faible observance cette semaine', 'medrem.alertModerate': 'Observance modérée — augmenter l\'attention',
+    'medrem.alertGreat': 'Excellente observance cette semaine', 'medrem.patternsNormal': 'Schéma normal',
+    'medrem.patternsCorrelation': 'Corrélation possible : observance plus faible les jours plus actifs',
+    'medrem.recCriticalContact': 'Observance critique : contactez l\'aidant ou le clinicien',
+    'medrem.recCriticalAlarms': 'Suggestion : utiliser les alarmes de la montre/du téléphone comme rappels supplémentaires',
+    'medrem.recModerateAttention': 'Observance modérée : améliorer l\'attention aux horaires',
+    'medrem.recModerateMealTiming': 'Suggestion : marquer la prise du médicament juste après les repas', 'medrem.recExcellent': 'Excellente observance : maintenir la routine',
+    'medrem.recLowActivityScheduling': 'Suggestion : planifier le médicament pour les périodes de moindre activité',
   },
   de: {
     'app.title': 'CareWear · Routineüberwachung',
@@ -2077,6 +2199,33 @@ const I18N = {
     'definicoes.emergencyContactNamePlaceholder': 'Name', 'definicoes.emergencyContactPhonePlaceholder': 'Telefon',
     'definicoes.emergencyContactRelationPlaceholder': 'Beziehung (z. B. Nachbar/in, Geschwister)',
     'definicoes.emergencyContactNote': 'Dieser Kontakt wird nur automatisch benachrichtigt, wenn der Alarm innerhalb der oben angegebenen Zeiten auftritt und die Betreuungsperson nicht rechtzeitig bestätigt.',
+    // --- i18n gap 2 (render*() helpers + medication-reminders.js + login) ---
+    'resumo.nightBedTime': 'Zubettgehzeit', 'resumo.nightWakeTime': 'Aufwachzeit', 'resumo.nightRestlessEpisodes': 'Unruhe-Episoden',
+    'resumo.nightTimeOutOfBed': 'Zeit außerhalb des Bettes (gesamt)', 'resumo.nightRestlessEvent': 'Aufgestanden / Unruhe erkannt',
+    'resumo.nightNoEvents': 'Heute Nacht wurden keine Unruhe-Episoden erkannt.', 'rotina.pacingAboveUsual': 'Über dem Üblichen', 'rotina.pacingWithinUsual': 'Im üblichen Bereich',
+    'rotina.pacingLive': 'live', 'rotina.pacingDemo': 'Demo', 'rotina.pacingTodayIndex': 'Index heute (0-100)', 'rotina.pacingWeekAvg': 'Durchschnitt der letzten 7 Tage',
+    'rotina.pacingStateLabel': 'Status',
+    'rotina.pacingLiveHint': 'Der heutige Index wird von der Firmware aus dem echten Gyroskop des verbundenen Geräts berechnet (letztes 1-Minuten-Fenster). Der 7-Tage-Trend unten ist weiterhin simuliert — es gibt noch keinen realen Verlauf (siehe PROJECT_STATUS.md, „Datenbank").',
+    'rotina.pacingExplainHint': 'Höherer Index = mehr enge Richtungswechsel als üblich — kann auf Umherwandern (Wandering) innerhalb der Wohnung hindeuten, auch ohne den GPS-Bereich zu verlassen. Ein einzelner Wert ist nicht besorgniserregend; ein anhaltender Anstieg über mehrere Tage ist beobachtenswert.',
+    'medicacao.analyticsRealDataFlag': 'reale Daten dieses Browsers', 'perfil.currentValueLabel': 'Aktueller Wert:',
+    'perfil.pendingChangeLabel': 'Angeforderte Änderung (Genehmigung ausstehend):', 'perfil.requiresApprovalNote': 'Änderungen an diesem Feld erfordern die Genehmigung des klinischen Teams',
+    'topbar.storageFullWarning': 'Der Speicher des Wearables ist voll — noch nicht exportierte alte Daten werden gerade überschrieben.',
+    'topbar.storageFullExportLink': 'Verbleibendes exportieren',
+    'topbar.storageAlmostFullWarning': 'Der Speicher des Wearables ist fast voll (≥90 %) — exportiere die Daten bald, bevor sie überschrieben werden.',
+    'topbar.storageAlmostFullExportLink': 'Zu Daten exportieren gehen', 'resumo.movementStill': 'Ruhig', 'resumo.movementActive': 'Aktiv', 'resumo.fallsRecentDetection': 'Kürzliche Erkennung',
+    'tendencia.realHistoryNotEnoughData': 'Noch nicht genügend Daten in der lokalen Datenbank der Bridge für diese Tage.',
+    'tendencia.realHistoryNotConnected': 'Keine Verbindung zur Bridge — verbinde das Gerät, um den echten Verlauf zu sehen.', 'tendencia.realHistoryReadings': 'Messwerte',
+    'tendencia.realHistoryNoReadings': 'keine Messwerte', 'rotina.noteAuthorFamily': 'Angehörige/r', 'rotina.noteAuthorCaregiver': 'Betreuer/in', 'rotina.noteAuthorClinician': 'Arzt/Techniker',
+    'login.prototypeLabel': 'Oberflächen-Prototyp.',
+    'login.prototypeNote': 'Keine echte Authentifizierung verbunden — dieser Bildschirm zeigt die Trennung der Profile; klinische Daten verwenden echte Wearable-Messwerte, Routine-/Aktivitätsdaten sind simuliert, bis der HAR-Klassifikator in die Firmware integriert ist.',
+    'signup.prototypeNote': 'Die Registrierung erstellt kein echtes Konto und speichert keine Daten dauerhaft — die Anbindung an ein Backend/eine SQL-Datenbank fehlt noch (siehe Roadmap). Sie dient dazu, den Ablauf und die pro Profil abgefragten Felder zu validieren.',
+    'medrem.notifTitle': 'Zeit für die Medikamenteneinnahme', 'medrem.at': 'um', 'medrem.takenNowBtn': 'Jetzt eingenommen', 'medrem.patternsNoData': 'Keine Daten',
+    'medrem.noHistoryYet': 'Noch kein Verlauf', 'medrem.alertLow': 'Sehr geringe Therapietreue diese Woche', 'medrem.alertModerate': 'Mäßige Therapietreue — mehr Aufmerksamkeit nötig',
+    'medrem.alertGreat': 'Sehr gute Therapietreue diese Woche', 'medrem.patternsNormal': 'Normales Muster',
+    'medrem.patternsCorrelation': 'Mögliche Korrelation: geringere Therapietreue an aktiveren Tagen',
+    'medrem.recCriticalContact': 'Kritische Therapietreue: Betreuer oder Kliniker kontaktieren', 'medrem.recCriticalAlarms': 'Vorschlag: Uhr-/Handy-Alarme als zusätzliche Erinnerungen nutzen',
+    'medrem.recModerateAttention': 'Mäßige Therapietreue: mehr auf die Zeiten achten', 'medrem.recModerateMealTiming': 'Vorschlag: Medikament direkt nach den Mahlzeiten markieren',
+    'medrem.recExcellent': 'Ausgezeichnete Therapietreue: Routine beibehalten', 'medrem.recLowActivityScheduling': 'Vorschlag: Medikamentenzeiten in Phasen geringerer Aktivität legen',
   },
   it: {
     'app.title': 'CareWear · Monitoraggio della Routine',
@@ -2285,6 +2434,32 @@ const I18N = {
     'definicoes.emergencyContactNamePlaceholder': 'Nome', 'definicoes.emergencyContactPhonePlaceholder': 'Telefono',
     'definicoes.emergencyContactRelationPlaceholder': 'Relazione (es. vicino, fratello/sorella)',
     'definicoes.emergencyContactNote': 'Questo contatto viene avvisato automaticamente solo se l\'avviso si verifica negli orari dichiarati sopra e il caregiver non conferma in tempo.',
+    // --- i18n gap 2 (render*() helpers + medication-reminders.js + login) ---
+    'resumo.nightBedTime': 'Ora di andare a letto', 'resumo.nightWakeTime': 'Ora della sveglia', 'resumo.nightRestlessEpisodes': 'Episodi di agitazione',
+    'resumo.nightTimeOutOfBed': 'Tempo fuori dal letto (totale)', 'resumo.nightRestlessEvent': 'Si è alzato/a / agitazione rilevata',
+    'resumo.nightNoEvents': 'Nessun episodio di agitazione rilevato stanotte.', 'rotina.pacingAboveUsual': 'Sopra il solito', 'rotina.pacingWithinUsual': 'Nella norma abituale',
+    'rotina.pacingLive': 'in diretta', 'rotina.pacingDemo': 'dimostrazione', 'rotina.pacingTodayIndex': 'Indice di oggi (0-100)', 'rotina.pacingWeekAvg': 'Media degli ultimi 7 giorni',
+    'rotina.pacingStateLabel': 'Stato',
+    'rotina.pacingLiveHint': 'L\'indice di oggi è calcolato dal firmware a partire dal giroscopio reale del dispositivo connesso (ultima finestra di 1 minuto). La tendenza degli ultimi 7 giorni qui sotto è ancora simulata — non c\'è ancora una cronologia reale accumulata (vedi PROJECT_STATUS.md, "Database").',
+    'rotina.pacingExplainHint': 'Indice più alto = più cambi di direzione stretti del solito — può indicare vagabondaggio (wandering) in casa, anche senza uscire dal raggio del GPS. Un valore isolato non è preoccupante; un aumento sostenuto per più giorni merita attenzione.',
+    'medicacao.analyticsRealDataFlag': 'dati reali di questo browser', 'perfil.currentValueLabel': 'Valore attuale:',
+    'perfil.pendingChangeLabel': 'Modifica richiesta (in attesa di approvazione):', 'perfil.requiresApprovalNote': 'le modifiche a questo campo richiedono l\'approvazione del team clinico',
+    'topbar.storageFullWarning': 'La memoria del wearable è piena — i vecchi dati non ancora esportati vengono sovrascritti ora.', 'topbar.storageFullExportLink': 'Esporta ciò che resta',
+    'topbar.storageAlmostFullWarning': 'La memoria del wearable è quasi piena (≥90%) — esporta presto i dati, prima che inizino a essere sovrascritti.',
+    'topbar.storageAlmostFullExportLink': 'Vai a Esporta dati', 'resumo.movementStill': 'Fermo', 'resumo.movementActive': 'Attivo', 'resumo.fallsRecentDetection': 'Rilevamento recente',
+    'tendencia.realHistoryNotEnoughData': 'Non ci sono ancora dati sufficienti nel database locale del bridge per questi giorni.',
+    'tendencia.realHistoryNotConnected': 'Nessuna connessione al bridge — collega il dispositivo per vedere la cronologia reale.', 'tendencia.realHistoryReadings': 'letture',
+    'tendencia.realHistoryNoReadings': 'nessuna lettura', 'rotina.noteAuthorFamily': 'Familiare', 'rotina.noteAuthorCaregiver': 'Assistente', 'rotina.noteAuthorClinician': 'Medico/Tecnico',
+    'login.prototypeLabel': 'Prototipo di interfaccia.',
+    'login.prototypeNote': 'Nessuna autenticazione reale collegata — questa schermata dimostra la separazione dei profili; i dati clinici usano letture reali del wearable, i dati di routine/attività sono simulati finché il classificatore HAR non sarà integrato nel firmware.',
+    'signup.prototypeNote': 'La registrazione non crea un account reale né salva dati in modo permanente — manca ancora il collegamento a un backend/database SQL (vedi roadmap). Serve a convalidare il flusso e i campi richiesti per profilo.',
+    'medrem.notifTitle': 'Ora di prendere il farmaco', 'medrem.at': 'alle', 'medrem.takenNowBtn': 'Preso ora', 'medrem.patternsNoData': 'Nessun dato',
+    'medrem.noHistoryYet': 'Ancora nessuna cronologia', 'medrem.alertLow': 'Aderenza molto bassa questa settimana', 'medrem.alertModerate': 'Aderenza moderata — aumentare l\'attenzione',
+    'medrem.alertGreat': 'Ottima aderenza questa settimana', 'medrem.patternsNormal': 'Schema normale',
+    'medrem.patternsCorrelation': 'Possibile correlazione: minore aderenza nei giorni più attivi', 'medrem.recCriticalContact': 'Aderenza critica: contattare il caregiver o il medico',
+    'medrem.recCriticalAlarms': 'Suggerimento: usare le sveglie di orologio/telefono come promemoria extra',
+    'medrem.recModerateAttention': 'Aderenza moderata: migliorare l\'attenzione agli orari', 'medrem.recModerateMealTiming': 'Suggerimento: segnare il farmaco subito dopo i pasti',
+    'medrem.recExcellent': 'Aderenza eccellente: mantenere la routine', 'medrem.recLowActivityScheduling': 'Suggerimento: pianificare il farmaco nei periodi di minore attività',
   },
 };
 const LANG_NAMES = {pt:'Português', en:'English', zh:'中文', es:'Español', fr:'Français', de:'Deutsch', it:'Italiano'};
@@ -4101,10 +4276,10 @@ function renderNightSummary(){
 
   host.innerHTML = `
     <div class="activity-stat-row">
-      <div class="activity-stat"><div class="n tabular">${bedTime}</div><div class="l">Hora de deitar</div></div>
-      <div class="activity-stat"><div class="n tabular">${wakeTime}</div><div class="l">Hora de acordar</div></div>
-      <div class="activity-stat"><div class="n tabular">${currentNightEvents().length}</div><div class="l">Episódios de agitação</div></div>
-      <div class="activity-stat"><div class="n tabular" style="color:${totalOutOfBedMin>15?'var(--status-warning)':'var(--status-good)'}">${totalOutOfBedMin} min</div><div class="l">Tempo fora da cama (total)</div></div>
+      <div class="activity-stat"><div class="n tabular">${bedTime}</div><div class="l">${t('resumo.nightBedTime')}</div></div>
+      <div class="activity-stat"><div class="n tabular">${wakeTime}</div><div class="l">${t('resumo.nightWakeTime')}</div></div>
+      <div class="activity-stat"><div class="n tabular">${currentNightEvents().length}</div><div class="l">${t('resumo.nightRestlessEpisodes')}</div></div>
+      <div class="activity-stat"><div class="n tabular" style="color:${totalOutOfBedMin>15?'var(--status-warning)':'var(--status-good)'}">${totalOutOfBedMin} min</div><div class="l">${t('resumo.nightTimeOutOfBed')}</div></div>
     </div>
     ${currentNightEvents().length ? `
       <div class="activity-blocks-list">
@@ -4112,11 +4287,11 @@ function renderNightSummary(){
           <div class="activity-block-row">
             <span class="legend-swatch" style="background:var(--cat-dormir)"></span>
             <span class="tabular">${e.time}</span>
-            <span>Levantou-se / agitação detetada</span>
+            <span>${t('resumo.nightRestlessEvent')}</span>
             <span class="activity-block-dur tabular">${e.durationMin} min</span>
           </div>`).join('')}
       </div>
-    ` : '<p class="empty-hint">Sem episódios de agitação detetados esta noite.</p>'}
+    ` : `<p class="empty-hint">${t('resumo.nightNoEvents')}</p>`}
   `;
 }
 
@@ -4170,15 +4345,15 @@ function renderPacingSummary(){
   // duas saídas eram idênticas) — só existem dois estados reais aqui,
   // como o próprio levelLabel (2 valores) já deixava claro.
   const level = today >= 60 ? 'warning' : 'good';
-  const levelLabel = today >= 60 ? 'Acima do habitual' : 'Dentro do habitual';
-  const todayLabelSuffix = live ? ' — ao vivo' : ' — demonstração';
+  const levelLabel = today >= 60 ? t('rotina.pacingAboveUsual') : t('rotina.pacingWithinUsual');
+  const todayLabelSuffix = live ? ` — ${t('rotina.pacingLive')}` : ` — ${t('rotina.pacingDemo')}`;
   host.innerHTML = `
     <div class="activity-stat-row">
-      <div class="activity-stat"><div class="n tabular" style="color:var(--status-${level})">${today}</div><div class="l">Índice hoje (0-100)${todayLabelSuffix}</div></div>
-      <div class="activity-stat"><div class="n tabular">${weekAvg}</div><div class="l">Média dos últimos 7 dias <span class="sim-flag">simulado</span></div></div>
-      <div class="activity-stat"><div class="n">${pillHtml(level, levelLabel)}</div><div class="l">Estado</div></div>
+      <div class="activity-stat"><div class="n tabular" style="color:var(--status-${level})">${today}</div><div class="l">${t('rotina.pacingTodayIndex')}${todayLabelSuffix}</div></div>
+      <div class="activity-stat"><div class="n tabular">${weekAvg}</div><div class="l">${t('rotina.pacingWeekAvg')} <span class="sim-flag">${t('rotina.simFlag')}</span></div></div>
+      <div class="activity-stat"><div class="n">${pillHtml(level, levelLabel)}</div><div class="l">${t('rotina.pacingStateLabel')}</div></div>
     </div>
-    <p class="empty-hint">${live ? 'Índice de hoje calculado pelo firmware a partir do giroscópio real do dispositivo ligado (última janela de 1 minuto). A tendência dos últimos 7 dias abaixo continua simulada — ainda não há histórico real acumulado (ver PROJECT_STATUS.md, "Base de dados"). ' : ''}Índice mais alto = mais mudanças de direção apertadas do que é habitual — pode indicar deambulação (wandering) dentro de casa, mesmo sem sair do alcance do GPS. Um valor isolado não é preocupante; um aumento sustentado ao longo de vários dias vale a pena observar.</p>
+    <p class="empty-hint">${live ? t('rotina.pacingLiveHint') + ' ' : ''}${t('rotina.pacingExplainHint')}</p>
   `;
 }
 
@@ -4261,8 +4436,8 @@ function loadCaregiverNotes(){
   } catch (e) { /* localStorage indisponível ou dados corrompidos - ignora */ }
   // Notas de exemplo, só na primeira utilização (nada ainda guardado).
   return [
-    {text: 'Recusou o pequeno-almoço, comeu só uma torrada.', author: 'Familiar', ts: Date.parse('2026-07-02T08:35:00')},
-    {text: 'Esteve mais agitada do que o habitual antes do jantar.', author: 'Cuidador(a)', ts: Date.parse('2026-07-02T18:50:00')},
+    {text: 'Recusou o pequeno-almoço, comeu só uma torrada.', authorKey: 'rotina.noteAuthorFamily', ts: Date.parse('2026-07-02T08:35:00')},
+    {text: 'Esteve mais agitada do que o habitual antes do jantar.', authorKey: 'rotina.noteAuthorCaregiver', ts: Date.parse('2026-07-02T18:50:00')},
   ];
 }
 function saveCaregiverNotes(notes){
@@ -4275,7 +4450,7 @@ function addCaregiverNote(){
   const input = document.getElementById('noteInput');
   const text = input.value.trim();
   if (!text) return;
-  caregiverNotes.unshift({text, author: currentRole === 'utente' ? 'Familiar' : 'Médico/Técnico', ts: Date.now()});
+  caregiverNotes.unshift({text, authorKey: currentRole === 'utente' ? 'rotina.noteAuthorFamily' : 'rotina.noteAuthorClinician', ts: Date.now()});
   saveCaregiverNotes(caregiverNotes);
   input.value = '';
   renderCaregiverNotes();
@@ -4290,7 +4465,7 @@ function renderCaregiverNotes(){
   }
   host.innerHTML = caregiverNotes.map(n => `
     <div class="note-row">
-      <div class="note-meta"><b>${n.author}</b><span class="tabular">${new Date(n.ts).toLocaleString('pt-PT', {dateStyle:'short', timeStyle:'short'})}</span></div>
+      <div class="note-meta"><b>${t(n.authorKey || 'rotina.noteAuthorFamily')}</b><span class="tabular">${new Date(n.ts).toLocaleString(currentLang, {dateStyle:'short', timeStyle:'short'})}</span></div>
       <p>${n.text.replace(/</g,'&lt;')}</p>
     </div>
   `).join('');
@@ -4954,7 +5129,7 @@ TEMPLATES.medicacao = () => {
   `).join('');
 
   const correlationNote = missedDays.length
-    ? `<p class="empty-hint"><span class="sim-flag">simulado</span> ${t('medicacao.correlationPrefix')} (${missedDays.map(d => d.day).join(', ')}), ${t('medicacao.correlationSuffix')}</p>`
+    ? `<p class="empty-hint"><span class="sim-flag">${t('rotina.simFlag')}</span> ${t('medicacao.correlationPrefix')} (${missedDays.map(d => d.day).join(', ')}), ${t('medicacao.correlationSuffix')}</p>`
     : `<p class="empty-hint">${t('medicacao.noIncompleteEmpty')}</p>`;
 
   // Cartão "Análise de adesão" (window.adherenceAnalytics,
@@ -4967,7 +5142,7 @@ TEMPLATES.medicacao = () => {
   const analyticsRecs = window.adherenceAnalytics ? window.adherenceAnalytics.getRecommendations(p.id, p) : [];
   const analyticsCard = analyticsSummary ? `
   <div class="card">
-    <div class="card-head"><div><h3>${t('medicacao.analyticsTitle')} <span class="sim-flag">dados reais deste browser</span></h3><div class="card-sub">${t('medicacao.analyticsSubtitle')}</div></div></div>
+    <div class="card-head"><div><h3>${t('medicacao.analyticsTitle')} <span class="sim-flag">${t('medicacao.analyticsRealDataFlag')}</span></h3><div class="card-sub">${t('medicacao.analyticsSubtitle')}</div></div></div>
     ${analyticsSummary.entries && analyticsSummary.entries.length ? `
       <p class="empty-hint">${t('medicacao.avgPrefix')} ${analyticsSummary.entries.length} ${t('medicacao.avgDaysMid')} <b>${analyticsSummary.avg_adherence}%</b> — ${escapeHtml(analyticsSummary.alert)}</p>
       <p class="empty-hint">${escapeHtml(analyticsSummary.patterns)}</p>
@@ -5050,14 +5225,14 @@ function sensitiveProfileFieldHtml(role, field, label, currentValue, inputType){
     <div class="field">
       <label>${label}</label>
       <div class="empty-hint" style="padding:8px 10px; background:var(--status-warning-bg); border-radius:var(--radius-sm); color:var(--status-warning);">
-        Valor atual: <b>${escapeHtml(currentValue)}</b><br>
-        Alteração pedida (pendente de aprovação): <b>${escapeHtml(pendingChange.newValue)}</b>
+        ${t('perfil.currentValueLabel')} <b>${escapeHtml(currentValue)}</b><br>
+        ${t('perfil.pendingChangeLabel')} <b>${escapeHtml(pendingChange.newValue)}</b>
       </div>
     </div>`;
   }
   return `
     <div class="field">
-      <label for="profile_${field}">${label} <span class="empty-hint" style="padding:0; display:inline;">— alterações a este campo exigem aprovação da equipa clínica</span></label>
+      <label for="profile_${field}">${label} <span class="empty-hint" style="padding:0; display:inline;">— ${t('perfil.requiresApprovalNote')}</span></label>
       <input id="profile_${field}" type="${inputType || 'text'}" value="${currentValue}">
     </div>`;
 }
@@ -5833,9 +6008,9 @@ function renderStorageWarningBanner(){
   el.style.display = 'flex';
   el.innerHTML = flag === 2
     ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
-       <span>O armazenamento do wearable está cheio — dados antigos ainda não exportados estão a ser substituídos agora. <a href="#" onclick="renderView('exportar'); return false;">Exportar o que resta</a></span>`
+       <span>${t('topbar.storageFullWarning')} <a href="#" onclick="renderView('exportar'); return false;">${t('topbar.storageFullExportLink')}</a></span>`
     : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
-       <span>O armazenamento do wearable está quase cheio (≥90%) — exporta os dados em breve, antes de começarem a ser substituídos. <a href="#" onclick="renderView('exportar'); return false;">Ir para Exportar dados</a></span>`;
+       <span>${t('topbar.storageAlmostFullWarning')} <a href="#" onclick="renderView('exportar'); return false;">${t('topbar.storageAlmostFullExportLink')}</a></span>`;
 }
 
 // Atualiza a pastilha de estado do dispositivo na barra superior.
@@ -5873,9 +6048,9 @@ function applyLiveVitals(){
 
   setVal('stat-hr', hrText); setVal('stat-hr-2', hrText);
   setVal('stat-spo2', spo2Text); setVal('stat-spo2-2', spo2Text);
-  setVal('stat-steps-2', liveState.steps != null ? liveState.steps.toLocaleString('pt-PT') : '—');
-  setVal('stat-movement', liveState.inactivity ? 'Parado' : 'Ativo');
-  setVal('stat-falls-2', liveState.freefall ? '⚠ Deteção recente' : '0');
+  setVal('stat-steps-2', liveState.steps != null ? liveState.steps.toLocaleString(currentLang) : '—');
+  setVal('stat-movement', liveState.inactivity ? t('resumo.movementStill') : t('resumo.movementActive'));
+  setVal('stat-falls-2', liveState.freefall ? `⚠ ${t('resumo.fallsRecentDetection')}` : '0');
 }
 
 function handleBridgeMessage(msg){
@@ -6356,8 +6531,8 @@ function renderRealTrendTable(){
     body.innerHTML = '';
     if (status){
       status.textContent = liveState.connected
-        ? 'Ainda sem dados suficientes na base de dados local do bridge para estes dias.'
-        : 'Sem ligação ao bridge — liga o dispositivo para veres histórico real.';
+        ? t('tendencia.realHistoryNotEnoughData')
+        : t('tendencia.realHistoryNotConnected');
     }
     return;
   }
@@ -6373,7 +6548,7 @@ function renderRealTrendTable(){
   body.innerHTML = rows.map(d => {
     const hrSamples = toFiniteNumber(d.hr_samples) || 0;
     const avgHr = toFiniteNumber(d.avg_hr) || 0;
-    const hrText = hrSamples > 0 ? `${Math.round(avgHr)} bpm (${hrSamples} leituras)` : 'sem leituras';
+    const hrText = hrSamples > 0 ? `${Math.round(avgHr)} bpm (${hrSamples} ${t('tendencia.realHistoryReadings')})` : t('tendencia.realHistoryNoReadings');
     const maxSteps = toFiniteNumber(d.max_steps), minSteps = toFiniteNumber(d.min_steps);
     const stepsText = (maxSteps != null && minSteps != null) ? `${maxSteps - minSteps}` : '—';
     const recordCount = toFiniteNumber(d.record_count) || 0;

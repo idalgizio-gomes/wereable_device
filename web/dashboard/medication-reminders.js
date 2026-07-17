@@ -112,9 +112,9 @@ class MedicationReminder {
       return;
     }
 
-    const title = `💊 Hora de tomar medicação`;
+    const title = `💊 ${t('medrem.notifTitle')}`;
     const options = {
-      body: `${medication.name} ${medication.dose} às ${time}`,
+      body: `${medication.name} ${medication.dose} ${t('medrem.at')} ${time}`,
       tag: `med_${patient.id}_${medication.id}_${time}`,
       badge: '💊',
       icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="50%" x="50%" dominant-baseline="middle" text-anchor="middle" font-size="50">💊</text></svg>',
@@ -201,11 +201,11 @@ class MedicationReminder {
     title.textContent = `💊 ${medication.name}`;
     div.appendChild(title);
     div.appendChild(document.createElement('br'));
-    div.appendChild(document.createTextNode(`${medication.dose} às ${time}`));
+    div.appendChild(document.createTextNode(`${medication.dose} ${t('medrem.at')} ${time}`));
     div.appendChild(document.createElement('br'));
 
     const btn = document.createElement('button');
-    btn.textContent = '✓ Tomei agora';
+    btn.textContent = `✓ ${t('medrem.takenNowBtn')}`;
     btn.style.cssText = 'margin-top:8px; padding:6px 12px; background:var(--accent,#3FD6C0); border:none; border-radius:4px; cursor:pointer; color:var(--accent-ink,#04211D);';
     btn.addEventListener('click', () => {
       if (typeof markDoseTaken === 'function') markDoseTaken(patient.id, medication.id, time);
@@ -302,19 +302,24 @@ class AdherenceAnalytics {
       .slice(0, 7);
 
     if (entries.length === 0) {
-      return { avg_adherence: 0, patterns: 'Sem dados', alert: 'Sem histórico ainda' };
+      // patternsKey/alertKey: identificadores estáveis (independentes de
+      // idioma) usados por getRecommendations() abaixo para decidir o que
+      // mostrar — nunca comparar a STRING traduzida (patterns/alert), que
+      // muda conforme t()/currentLang (bug corrigido: antes comparava-se
+      // texto PT fixo com .includes(), partia-se ao trocar de idioma).
+      return { avg_adherence: 0, patterns: t('medrem.patternsNoData'), patternsKey: 'no_data', alert: t('medrem.noHistoryYet'), alertKey: 'no_history' };
     }
 
     const adherences = entries.map(([_, v]) => v.adherence_pct);
     const avgAdherence = Math.round(adherences.reduce((a, b) => a + b, 0) / adherences.length);
 
-    let alert = '';
+    let alert = '', alertKey = '';
     if (avgAdherence < 50) {
-      alert = '⚠️ Adesão muito baixa esta semana';
+      alert = `⚠️ ${t('medrem.alertLow')}`; alertKey = 'low';
     } else if (avgAdherence < 80) {
-      alert = '✓ Adesão moderada — aumentar atenção';
+      alert = `✓ ${t('medrem.alertModerate')}`; alertKey = 'moderate';
     } else {
-      alert = '✅ Ótima adesão esta semana';
+      alert = `✅ ${t('medrem.alertGreat')}`; alertKey = 'great';
     }
 
     // Correlação simplificada: dias com alta atividade mas baixa adesão
@@ -322,15 +327,15 @@ class AdherenceAnalytics {
       v.adherence_pct < 80 && v.activity_level === 'high'
     ).length;
 
-    let patterns = 'Padrão normal';
+    let patterns = t('medrem.patternsNormal'), patternsKey = 'normal';
     if (lowAdherenceHighActivity > 2) {
-      patterns = 'Possível correlação: menor adesão em dias mais ativos';
+      patterns = t('medrem.patternsCorrelation'); patternsKey = 'correlation';
     }
 
     return {
       avg_adherence: avgAdherence,
-      patterns,
-      alert,
+      patterns, patternsKey,
+      alert, alertKey,
       entries: entries.map(([date, v]) => ({ date, ...v }))
     };
   }
@@ -343,17 +348,17 @@ class AdherenceAnalytics {
     const recs = [];
 
     if (summary.avg_adherence < 50) {
-      recs.push('🔴 Adesão crítica: contactar cuidador ou clínico');
-      recs.push('💡 Sugestão: usar alarmes do relógio/telemóvel como lembretes extras');
+      recs.push(`🔴 ${t('medrem.recCriticalContact')}`);
+      recs.push(`💡 ${t('medrem.recCriticalAlarms')}`);
     } else if (summary.avg_adherence < 80) {
-      recs.push('🟡 Adesão moderada: melhorar atenção aos horários');
-      recs.push('💡 Sugestão: marcar medicação imediatamente após as refeições');
+      recs.push(`🟡 ${t('medrem.recModerateAttention')}`);
+      recs.push(`💡 ${t('medrem.recModerateMealTiming')}`);
     } else {
-      recs.push('🟢 Excelente adesão: manter a rotina');
+      recs.push(`🟢 ${t('medrem.recExcellent')}`);
     }
 
-    if (summary.patterns.includes('correlação')) {
-      recs.push('💡 Sugestão: agendar medicação para períodos de menor atividade');
+    if (summary.patternsKey === 'correlation') {
+      recs.push(`💡 ${t('medrem.recLowActivityScheduling')}`);
     }
 
     return recs;
