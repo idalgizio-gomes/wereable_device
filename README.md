@@ -14,6 +14,16 @@ cuidados de demência.
 - `bridge/` — ponte Python (BLE → WebSocket) que liga o dashboard a dados reais do dispositivo.
 - `test/` — sketches de teste isolados por sensor/funcionalidade (não fazem parte do build principal).
 
+## Arrancar com dados reais do wearable
+
+Duplo-clique em [`start_carewear.bat`](start_carewear.bat) — arranca o
+bridge (liga-se sozinho por BLE ao dispositivo) e abre o dashboard no
+browser, já ligado. Requer `bridge/device_key.env` com a chave AES do
+dispositivo (ver cabeçalho de `bridge/ble_bridge.py`) e as dependências de
+`bridge/requirements.txt` instaladas (`pip install -r bridge/requirements.txt`).
+Sem wearable ligado, o dashboard funciona à mesma com dados simulados —
+basta abrir `web/dashboard/index.html` diretamente.
+
 ## Base científica
 
 O firmware e a estrutura de dados seguem o artigo *"Routine-Aware

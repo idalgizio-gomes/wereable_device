@@ -4418,3 +4418,18 @@ de consistência das 7 tabelas de idioma (481 chaves cada, sem valores em falta)
 dedicado com idioma inglês confirma resumo noturno, pacing, ecrã de login e notificação de
 medicação todos em inglês, sem nenhuma chave i18n a aparecer como texto literal; regressão
 completa (2 perfis × 7 idiomas × todas as vistas) continua limpa.
+
+## Lançador de um clique (2026-07-17)
+
+Pedido do utilizador: arrancar o bridge + abrir o dashboard exigia dois passos manuais (terminal +
+`export`/definir a chave AES + `python ble_bridge.py`, depois abrir o `index.html`). Novo
+`start_carewear.bat` (duplo-clique) → `start_carewear.ps1`: lê `bridge/device_key.env` (se
+existir) para variáveis de ambiente só do processo do bridge, arranca `ble_bridge.py` numa janela
+própria visível, espera o WebSocket ficar a ouvir, e abre `web/dashboard/index.html` no browser
+por omissão — o dashboard liga-se sozinho ao bridge assim que a página carrega. Não muda nenhum
+protocolo, só automatiza os passos já existentes (ver `bridge/ble_bridge.py`, "UTILIZAÇÃO").
+
+**Verificado com o hardware real ligado**: script corrido do zero, bridge arrancou e ficou a ouvir
+em `ws://localhost:8765`, dashboard abriu no browser e estabeleceu ligação WebSocket automática
+(confirmado por `netstat` — ligação `ESTABLISHED` entre o processo do browser e o do bridge).
+Mencionado em `README.md`.
