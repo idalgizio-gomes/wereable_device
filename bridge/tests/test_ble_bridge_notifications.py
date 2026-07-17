@@ -222,11 +222,11 @@ class TestEmergencyAlertAcionaNotificacoes:
 class TestAcknowledgeAlertCommand:
     def test_acknowledge_cancela_escalonamento_pendente(self, bridge):
         bridge.escalation_manager = notifications.EscalationManager(escalation_timeout_minutes=10)
-        bridge.escalation_manager._pending["1-42"] = asyncio.get_event_loop().create_future()  # placeholder cancelavel abaixo
 
         async def run():
-            # Substitui o placeholder por uma task real cancelavel, para
-            # exercitar o mesmo caminho que notify_emergency usaria.
+            # Task real cancelavel em "_pending", para exercitar o mesmo
+            # caminho que notify_emergency usaria (ver EscalationManager
+            # em notifications.py).
             async def _never():
                 await asyncio.sleep(999)
             bridge.escalation_manager._pending["1-42"] = asyncio.create_task(_never())
