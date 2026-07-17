@@ -14,12 +14,8 @@ name: Demo data (dados simulados diários)
 #   - o security scan semanal (security.yml, segunda-feira 03:00 UTC).
 
 on:
-  # Cron temporariamente desativado (2026-07-17) enquanto se reescreve o
-  # histórico do git (remoção de bridge/carewear_history.db-wal/-shm do
-  # commit e8da6c7, ver PROJECT_STATUS.md) — evita um push automático a
-  # colidir com o force-push da reescrita. Reativar a seguir.
-  # schedule:
-  #   - cron: "15 4 * * *"
+  schedule:
+    - cron: "15 4 * * *"
   workflow_dispatch: {}  # permite correr manualmente para testar
 
 jobs:

@@ -4272,3 +4272,52 @@ era colocado na 1ª coluna (232px) em vez de ocupar a largura toda. Corrigido co
 `#view-app{ display:block !important; }` e `.content{ max-width:none !important; }` dentro do
 `@media print`. Confirmado com Playwright (`emulateMedia({media:'print'})`): `.main` passa a
 ocupar a largura total da página.
+
+## Reescrita do histórico do git — remoção de dados reais de sensores expostos (2026-07-17)
+
+**Motivo**: o commit `e8da6c7` (ver achado registado acima, "Fuga real de dados de sensores
+para o histórico do git") incluía `bridge/carewear_history.db-shm`/`-wal` (~2.1MB) com dados
+reais de sensores (FC, SpO2, aceleração, passos). Confirmado com o utilizador: são dados de
+testes próprios (sem implicação de RGPD a terceiros), mas mesmo assim não deviam estar no
+histórico público. Correção anterior (mesmo dia) só tinha impedido *novos* commits (`.gitignore`
++ `git rm --cached`); o conteúdo já commitado continuava recuperável do histórico.
+
+**Descoberta durante a operação**: o repositório tinha duas branches "default" em paralelo —
+`Main` (maiúscula, configurada como default no GitHub, parada num estado muito antigo/menos
+desenvolvido — `04ba6a9`) e `main` (minúscula, a branch realmente usada durante toda esta sessão
+e sessões anteriores). No Windows (sistema de ficheiros case-insensitive), o git local não
+consegue distinguir as duas como refs separadas — colidem no mesmo ficheiro em
+`.git/refs/...`, o que impediu inicialmente o `git filter-repo` de correr sobre todas as
+branches. Resolvido: confirmado com o utilizador que `Main` não tinha nenhum trabalho de projeto
+que `main` já não tivesse (era uma versão mais antiga, mais uns workflows de CI já substituídos
+por versões melhores, e ficheiros de configuração do "vexp" que não interessava introduzir);
+utilizador mudou a branch default do repositório para `main` no GitHub, o que permitiu apagar
+`Main` a seguir.
+
+Descoberta adicional: o commit `e8da6c7` (e o payload "vexp" associado) também eram alcançáveis
+a partir de mais 13 branches remotas (`feature/ci-workflows`, várias `seguranca/*`, `rotina/*`,
+`claude/gifted-hamilton-*`). Analisadas uma a uma: 10 já estavam totalmente fundidas em `main`
+(conteúdo preservado, branch redundante); as outras 3 só continham commits de configuração vexp
+do próprio utilizador (nomes de commit sem relação com o conteúdo, ex. "Meia v1/v2/v3",
+"Vecna/vecna1/Vecna2") sem qualquer código de projeto exclusivo. Nenhuma tinha trabalho a perder.
+
+**Ações executadas**:
+1. Cron `demo-data.yml` (push automático diário) pausado temporariamente para não colidir com o
+   force-push da reescrita.
+2. `git filter-repo --refs main --path bridge/carewear_history.db-wal --path
+   bridge/carewear_history.db-shm --invert-paths --force` — remove os dois ficheiros de todos os
+   commits da branch `main` (reescreve hashes a partir daí).
+3. `git push origin main --force-with-lease` — publica o histórico limpo.
+4. Branch default do repositório mudada de `Main` para `main` no GitHub (ação do utilizador,
+   necessária porque o GitHub não deixa apagar a branch default).
+5. As 14 branches obsoletas (`Main` + as 13 listadas acima) apagadas de `origin` (exigiu remover
+   temporariamente uma Repository Rule que bloqueava eliminação de branches) e localmente.
+6. Confirmado por `git branch -a --contains e8da6c7`: já não é alcançável de nenhuma ref local ou
+   remota conhecida.
+7. Cron `demo-data.yml` reativado.
+
+**Limitação honesta**: isto remove os dados de todas as refs conhecidas do repositório (o que
+está sob o nosso controlo); não garante remoção de forks já existentes de terceiros nem de
+caches internas do GitHub anteriores à eliminação — irrelevante aqui porque o utilizador
+confirmou que os dados eram de testes próprios, mas fica registado para o caso de uma fuga
+futura com dados de utente real, onde isso teria de ser avaliado.
