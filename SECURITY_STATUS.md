@@ -857,11 +857,19 @@ simples, sem expiração, e **sem nenhuma forma de as apagar**:
   novos; captura de ecrã confirma o botão renderizado corretamente na
   Zona de risco.
 
-**Ainda em aberto** (não resolvido nesta execução, requisito/proposta):
-- Sem TTL automático — os dados continuam a viver indefinidamente até
-  alguém carregar no botão novo. Implementar expiração automática
-  exigiria decidir um prazo (decisão do utilizador/responsável, fora
-  do âmbito desta correção contida).
+**Correção adicional (2026-07-17)** — TTL automático implementado:
+`purgeExpiredLocalDataIfNeeded()`, chamada uma vez no arranque do script
+(antes de qualquer outra leitura de `localStorage`), guarda
+`carewear_last_activity` a cada visita; se passarem mais de
+`LOCAL_DATA_TTL_DAYS` (30, mesmo prazo já usado na retenção do bridge)
+dias sem nenhuma visita, todas as chaves `carewear_*` são apagadas
+automaticamente. É uma janela deslizante de inatividade (reinicia a cada
+visita), não um prazo fixo desde a criação — não apaga dados de quem usa
+a app ativamente. Nota visível também na UI (Definições → Zona de perigo).
+Verificado com Playwright: purga aos 31 dias de inatividade simulada,
+preserva aos 10 dias.
+
+**Ainda em aberto** (não resolvido, requisito/proposta):
 - `localStorage` continua sem cifra (é sempre texto simples por
   natureza da API do browser) — cifrar exigiria uma chave/passphrase
   gerida pelo próprio utilizador no browser, uma mudança maior de UX
