@@ -930,7 +930,9 @@ const I18N = {
     'definicoes.eraseDataTitle': 'Apagar todos os dados', 'definicoes.eraseDataDesc': 'Elimina permanentemente todo o histórico e definições guardados neste dispositivo.', 'definicoes.eraseDataBtn': 'Apagar dados',
     'definicoes.eraseDataConfirm': 'Tens a certeza de que queres apagar todos os dados locais? Esta ação não pode ser desfeita.',
     'definicoes.eraseDataAutoTtlNote': 'Estes dados também são apagados automaticamente ao fim de 30 dias sem usares esta app neste navegador.',
-    'ajuda.faqQ1': 'Como ligo o wearable ao dashboard?', 'ajuda.faqA1': 'Liga o bridge no computador e certifica-te de que o wearable está ligado e próximo. A ligação aparece na barra superior assim que os dados começam a chegar.',
+    'ajuda.faqQ1': 'Como ligo o wearable ao dashboard?', 'ajuda.faqA1': 'Corre "start_carewear.bat" (duplo-clique, na pasta do projeto) — arranca o bridge e abre o dashboard já ligado, sem precisares de terminal. Certifica-te de que o wearable está ligado e próximo. A ligação aparece na barra superior assim que os dados começam a chegar.',
+    'ajuda.faqQ6': 'Como faço uma leitura contínua de FC/SpO₂?', 'ajuda.faqA6': 'Na vista Sinais vitais, usa o botão "Leitura contínua" — reenvia o pedido automaticamente enquanto estiver ligado, sem precisares de carregar repetidamente em "Medir agora". Desliga quando quiseres parar.',
+    'ajuda.faqQ7': 'Como funciona o alerta de emergência se o cuidador não responder?', 'ajuda.faqA7': 'Em Definições, defines o teu horário de indisponibilidade (ex.: horário de trabalho) e um contacto de emergência. Se um alerta acontecer dentro desse horário e não confirmares a tempo, o sistema notifica automaticamente esse contacto — nunca contacta serviços de emergência reais diretamente, essa decisão fica sempre com uma pessoa.',
     'ajuda.faqQ2': 'O que acontece se perder a ligação?', 'ajuda.faqA2': 'O dashboard passa a mostrar dados de demonstração e assinala o estado na barra superior. Os dados em direto voltam automaticamente assim que a ligação for restabelecida.',
     'ajuda.faqQ3': 'Os meus dados são enviados para a nuvem?', 'ajuda.faqA3': 'Não. Neste protótipo, todos os dados são processados e guardados localmente no dispositivo onde o dashboard corre.',
     'ajuda.faqQ4': 'Como funcionam os limites personalizados?', 'ajuda.faqA4': 'São calculados a partir da linha de base individual do utente, em vez de valores fixos, para se ajustarem ao seu padrão habitual. Podes ativá-los nas Definições.',
@@ -1097,10 +1099,10 @@ const I18N = {
     'rotina.pacingExplainHint': 'Índice mais alto = mais mudanças de direção apertadas do que é habitual — pode indicar deambulação (wandering) dentro de casa, mesmo sem sair do alcance do GPS. Um valor isolado não é preocupante; um aumento sustentado ao longo de vários dias vale a pena observar.',
     'medicacao.analyticsRealDataFlag': 'dados reais deste browser', 'perfil.currentValueLabel': 'Valor atual:', 'perfil.pendingChangeLabel': 'Alteração pedida (pendente de aprovação):',
     'perfil.requiresApprovalNote': 'alterações a este campo exigem aprovação da equipa clínica',
-    'topbar.storageFullWarning': 'O armazenamento do wearable está cheio — dados antigos ainda não exportados estão a ser substituídos agora.',
-    'topbar.storageFullExportLink': 'Exportar o que resta',
-    'topbar.storageAlmostFullWarning': 'O armazenamento do wearable está quase cheio (≥90%) — exporta os dados em breve, antes de começarem a ser substituídos.',
-    'topbar.storageAlmostFullExportLink': 'Ir para Exportar dados', 'resumo.movementStill': 'Parado', 'resumo.movementActive': 'Ativo', 'resumo.fallsRecentDetection': 'Deteção recente',
+    'topbar.storageFullWarning': 'O armazenamento do wearable está cheio — dados ainda não transferidos para o computador estão a ser substituídos agora. Mantém o bridge ligado: a transferência por Bluetooth já está a decorrer ao máximo possível.',
+    'topbar.storageDrainProgressPrefix': '· já transferidos:', 'topbar.storageDrainProgressSuffix': ' registos',
+    'topbar.storageAlmostFullWarning': 'O armazenamento do wearable está quase cheio (≥90%) — mantém o bridge ligado para a transferência continuar antes de começar a substituir dados.',
+    'resumo.movementStill': 'Parado', 'resumo.movementActive': 'Ativo', 'resumo.fallsRecentDetection': 'Deteção recente',
     'tendencia.realHistoryNotEnoughData': 'Ainda sem dados suficientes na base de dados local do bridge para estes dias.',
     'tendencia.realHistoryNotConnected': 'Sem ligação ao bridge — liga o dispositivo para veres histórico real.', 'tendencia.realHistoryReadings': 'leituras',
     'tendencia.realHistoryNoReadings': 'sem leituras', 'rotina.noteAuthorFamily': 'Familiar', 'rotina.noteAuthorCaregiver': 'Cuidador(a)', 'rotina.noteAuthorClinician': 'Médico/Técnico',
@@ -1113,6 +1115,34 @@ const I18N = {
     'medrem.recCriticalContact': 'Adesão crítica: contactar cuidador ou clínico', 'medrem.recCriticalAlarms': 'Sugestão: usar alarmes do relógio/telemóvel como lembretes extras',
     'medrem.recModerateAttention': 'Adesão moderada: melhorar atenção aos horários', 'medrem.recModerateMealTiming': 'Sugestão: marcar medicação imediatamente após as refeições',
     'medrem.recExcellent': 'Excelente adesão: manter a rotina', 'medrem.recLowActivityScheduling': 'Sugestão: agendar medicação para períodos de menor atividade',
+    // --- i18n gap 3 (continuous HR, export all, misc hints) ---
+    'vitais.continuousHrHint': 'Reenvia o pedido de medição automaticamente enquanto ligado, até desligares', 'vitais.continuousHrStartBtn': 'Leitura contínua',
+    'vitais.continuousHrStopBtn': 'A ler continuamente — parar', 'vitais.measuringHint': 'A medir…', 'vitais.secondsRemainingSuffix': 's restantes)',
+    'vitais.measurementDoneHint': 'Leitura concluída — os valores devem estar atualizados.', 'vitais.noBridgeConnectionHint': 'Sem ligação ao bridge — liga o dispositivo primeiro.',
+    'exportar.exportAllBtn': 'Exportar tudo (CSV)',
+    'exportar.exportAllNote': 'Exporta tudo o que já chegou ao bridge (sem limite de dias) — não acelera a transferência do que ainda está no dispositivo, só reúne num único ficheiro o que já está guardado localmente.',
+    'exportar.noBridgeConnectionHint': 'Sem ligação ao bridge — não é possível exportar agora.', 'exportar.bridgeUnreachableHint': 'Não foi possível contactar o bridge.',
+    'exportar.generatingCsvHint': 'A gerar CSV…', 'exportar.csvFailedPrefix': 'Falhou:', 'exportar.csvNoDataFallback': 'sem dados', 'exportar.csvDownloadedHint': 'CSV descarregado.',
+    'resumo.heatmapIntensityLabel': 'Intensidade de atividade',
+    // --- ajuda FAQ Q8-Q16 (cobertura completa das funcionalidades) ---
+    'ajuda.faqQ8': 'Qual a diferença entre os dois perfis (Utente/Família e Médico/Técnico)?',
+    'ajuda.faqA8': 'Utente/Família vê os seus próprios dados de rotina, sinais vitais e medicação. Médico/Técnico gere vários pacientes, define limites clínicos, regista anomalias e exporta relatórios — vistas diferentes, com permissões diferentes.',
+    'ajuda.faqQ9': 'Como funciona a equipa de cuidadores e as suas permissões?',
+    'ajuda.faqA9': 'Em Definições, a equipa de cuidadores lista quem acompanha o paciente, com permissões próprias para ver alertas e editar notas. Podes convidar (simulado neste protótipo) ou remover alguém a qualquer momento.',
+    'ajuda.faqQ10': 'O que controla o "Consentimento e partilha de dados"?',
+    'ajuda.faqA10': 'Em Definições, controla se sinais vitais, rotina e alertas são partilhados com a equipa clínica — só afeta o que o browser mostra/exporta, não é aplicado no servidor (protótipo).',
+    'ajuda.faqQ11': 'Como são detetadas as anomalias na área clínica?',
+    'ajuda.faqA11': 'Combinam-se duas fontes: uma regra de duração (bloco fora do intervalo esperado) e um LSTM Autoencoder que aprende o padrão habitual e assinala desvios — ver os limites de cada uma em Limites de duração.',
+    'ajuda.faqQ12': 'Que formatos de exportação existem e quando usar cada um?',
+    'ajuda.faqA12': 'FHIR (JSON, formato clínico padrão) e PDF (resumo para imprimir) exportam só o que está visível nesta sessão. CSV exporta o histórico real guardado no bridge — usa "Exportar tudo" para o histórico completo já guardado, sem limite de dias.',
+    'ajuda.faqQ13': 'Porque é que alterar o NIF ou a morada no perfil precisa de aprovação?',
+    'ajuda.faqA13': 'NIF e morada são dados sensíveis — qualquer alteração fica pendente até a equipa clínica aprovar, para evitar alterações não verificadas a dados usados clinicamente.',
+    'ajuda.faqQ14': 'Como funcionam os lembretes de medicação e a análise de adesão?',
+    'ajuda.faqA14': 'O browser notifica quando é hora de tomar um medicamento (janela de ±30 min); marcar como tomado atualiza a adesão. A análise de adesão usa esses cliques reais (não os dados de exemplo do histórico de 6 dias) para sugerir ajustes.',
+    'ajuda.faqQ15': 'O que significa "dados simulados" nalguns gráficos?',
+    'ajuda.faqA15': 'Vários gráficos (rotina, tendência de 7 dias, mapa de calor semanal) ainda usam dados de exemplo, claramente marcados "simulado". Os sinais vitais ao vivo (FC/SpO₂/passos) já usam dados reais quando o bridge está ligado.',
+    'ajuda.faqQ16': 'Como mudo o idioma ou o tema (claro/escuro)?',
+    'ajuda.faqA16': 'O seletor de idioma está na barra superior; o botão de tema claro/escuro fica junto dele — a preferência escolhida fica guardada neste browser.',
   },
   en: {
     'app.title': 'CareWear · Routine Monitoring',
@@ -1162,7 +1192,9 @@ const I18N = {
     'definicoes.eraseDataTitle': 'Erase all data', 'definicoes.eraseDataDesc': 'Permanently deletes all history and settings stored on this device.', 'definicoes.eraseDataBtn': 'Erase data',
     'definicoes.eraseDataConfirm': 'Are you sure you want to erase all local data? This action cannot be undone.',
     'definicoes.eraseDataAutoTtlNote': 'This data is also erased automatically after 30 days without using this app in this browser.',
-    'ajuda.faqQ1': 'How do I connect the wearable to the dashboard?', 'ajuda.faqA1': 'Start the bridge on your computer and make sure the wearable is on and nearby. The connection appears in the top bar as soon as data starts arriving.',
+    'ajuda.faqQ1': 'How do I connect the wearable to the dashboard?', 'ajuda.faqA1': 'Run "start_carewear.bat" (double-click, in the project folder) — it starts the bridge and opens the dashboard already connected, no terminal needed. Make sure the wearable is on and nearby. The connection appears in the top bar as soon as data starts arriving.',
+    'ajuda.faqQ6': 'How do I take a continuous HR/SpO₂ reading?', 'ajuda.faqA6': 'On the Vital signs view, use the "Continuous reading" button — it automatically resends the request while it\'s on, so you don\'t have to keep clicking "Measure now". Turn it off whenever you want to stop.',
+    'ajuda.faqQ7': "How does the emergency alert work if the caregiver doesn't respond?", 'ajuda.faqA7': "In Settings, set your unavailability schedule (e.g. work hours) and an emergency contact. If an alert happens within those hours and you don't confirm in time, the system automatically notifies that contact — it never contacts real emergency services directly, that decision always stays with a person.",
     'ajuda.faqQ2': 'What happens if I lose the connection?', 'ajuda.faqA2': 'The dashboard switches to demo data and flags the status in the top bar. Live data returns automatically as soon as the connection is restored.',
     'ajuda.faqQ3': 'Is my data sent to the cloud?', 'ajuda.faqA3': 'No. In this prototype, all data is processed and stored locally on the device running the dashboard.',
     'ajuda.faqQ4': 'How do personalized thresholds work?', 'ajuda.faqA4': 'They are computed from the patient’s individual baseline instead of fixed values, so they adapt to their usual pattern. You can enable them in Settings.',
@@ -1325,9 +1357,10 @@ const I18N = {
     'rotina.pacingExplainHint': 'Higher index = more tight direction changes than usual — may indicate wandering inside the home, even without leaving GPS range. An isolated value is not concerning; a sustained increase over several days is worth watching.',
     'medicacao.analyticsRealDataFlag': 'real data from this browser', 'perfil.currentValueLabel': 'Current value:', 'perfil.pendingChangeLabel': 'Requested change (pending approval):',
     'perfil.requiresApprovalNote': 'changes to this field require approval from the clinical team',
-    'topbar.storageFullWarning': 'The wearable\'s storage is full — old, not-yet-exported data is being overwritten now.', 'topbar.storageFullExportLink': 'Export what\'s left',
-    'topbar.storageAlmostFullWarning': 'The wearable\'s storage is almost full (≥90%) — export the data soon, before it starts being overwritten.',
-    'topbar.storageAlmostFullExportLink': 'Go to Export data', 'resumo.movementStill': 'Still', 'resumo.movementActive': 'Active', 'resumo.fallsRecentDetection': 'Recent detection',
+    'topbar.storageFullWarning': "The wearable's storage is full — data not yet transferred to the computer is being overwritten now. Keep the bridge connected: the Bluetooth transfer is already running at full speed.",
+    'topbar.storageDrainProgressPrefix': '· transferred so far:', 'topbar.storageDrainProgressSuffix': ' records',
+    'topbar.storageAlmostFullWarning': 'The wearable\'s storage is almost full (≥90%) — keep the bridge connected so the transfer can continue before data starts being overwritten.',
+    'resumo.movementStill': 'Still', 'resumo.movementActive': 'Active', 'resumo.fallsRecentDetection': 'Recent detection',
     'tendencia.realHistoryNotEnoughData': 'Not enough data yet in the bridge\'s local database for these days.',
     'tendencia.realHistoryNotConnected': 'Not connected to the bridge — connect the device to see real history.', 'tendencia.realHistoryReadings': 'readings',
     'tendencia.realHistoryNoReadings': 'no readings', 'rotina.noteAuthorFamily': 'Family member', 'rotina.noteAuthorCaregiver': 'Caregiver', 'rotina.noteAuthorClinician': 'Doctor/Technician',
@@ -1340,6 +1373,34 @@ const I18N = {
     'medrem.recCriticalContact': 'Critical adherence: contact caregiver or clinician', 'medrem.recCriticalAlarms': 'Suggestion: use watch/phone alarms as extra reminders',
     'medrem.recModerateAttention': 'Moderate adherence: pay more attention to schedules', 'medrem.recModerateMealTiming': 'Suggestion: mark medication right after meals',
     'medrem.recExcellent': 'Excellent adherence: keep up the routine', 'medrem.recLowActivityScheduling': 'Suggestion: schedule medication for lower-activity periods',
+    // --- i18n gap 3 (continuous HR, export all, misc hints) ---
+    'vitais.continuousHrHint': 'Automatically resends the measurement request while on, until you turn it off', 'vitais.continuousHrStartBtn': 'Continuous reading',
+    'vitais.continuousHrStopBtn': 'Reading continuously — stop', 'vitais.measuringHint': 'Measuring…', 'vitais.secondsRemainingSuffix': 's remaining)',
+    'vitais.measurementDoneHint': 'Reading complete — values should now be up to date.', 'vitais.noBridgeConnectionHint': 'Not connected to the bridge — connect the device first.',
+    'exportar.exportAllBtn': 'Export everything (CSV)',
+    'exportar.exportAllNote': 'Exports everything that has already reached the bridge (no day limit) — it doesn\'t speed up the transfer of what\'s still on the device, it just bundles what\'s already stored locally into a single file.',
+    'exportar.noBridgeConnectionHint': 'Not connected to the bridge — cannot export right now.', 'exportar.bridgeUnreachableHint': 'Could not reach the bridge.',
+    'exportar.generatingCsvHint': 'Generating CSV…', 'exportar.csvFailedPrefix': 'Failed:', 'exportar.csvNoDataFallback': 'no data', 'exportar.csvDownloadedHint': 'CSV downloaded.',
+    'resumo.heatmapIntensityLabel': 'Activity intensity',
+    // --- ajuda FAQ Q8-Q16 (cobertura completa das funcionalidades) ---
+    'ajuda.faqQ8': 'What is the difference between the two profiles (Patient/Family and Doctor/Technician)?',
+    'ajuda.faqA8': 'Patient/Family sees their own routine, vital-sign, and medication data. Doctor/Technician manages multiple patients, sets clinical thresholds, reviews anomalies, and exports reports — different views, with different permissions.',
+    'ajuda.faqQ9': 'How does the caregiver team and its permissions work?',
+    'ajuda.faqA9': 'In Settings, the caregiver team lists who follows the patient, each with their own permissions to view alerts and edit notes. You can invite (simulated in this prototype) or remove someone at any time.',
+    'ajuda.faqQ10': 'What does "Consent and data sharing" control?',
+    'ajuda.faqA10': 'In Settings, it controls whether vital signs, routine, and alerts are shared with the clinical team — it only affects what the browser shows/exports, it is not enforced server-side (prototype).',
+    'ajuda.faqQ11': 'How are anomalies detected in the clinical area?',
+    'ajuda.faqA11': 'Two sources are combined: a duration rule (a block outside the expected range) and an LSTM Autoencoder that learns the usual pattern and flags deviations — see the limits for each in Duration limits.',
+    'ajuda.faqQ12': 'What export formats exist and when should I use each one?',
+    'ajuda.faqA12': 'FHIR (JSON, standard clinical format) and PDF (printable summary) export only what is visible in this session. CSV exports the real history stored in the bridge — use "Export everything" for the full history already stored, with no day limit.',
+    'ajuda.faqQ13': 'Why does changing the NIF or address in the profile need approval?',
+    'ajuda.faqA13': 'NIF and address are sensitive data — any change stays pending until the clinical team approves it, to prevent unverified changes to clinically-used data.',
+    'ajuda.faqQ14': 'How do medication reminders and adherence analysis work?',
+    'ajuda.faqA14': 'The browser notifies you when it is time to take a medication (±30 min window); marking it as taken updates adherence. The adherence analysis uses those real clicks (not the sample data in the 6-day history) to suggest adjustments.',
+    'ajuda.faqQ15': 'What does "simulated data" mean on some charts?',
+    'ajuda.faqA15': 'Several charts (routine, 7-day trend, weekly heatmap) still use sample data, clearly marked "simulated". Live vital signs (HR/SpO₂/steps) already use real data when the bridge is connected.',
+    'ajuda.faqQ16': 'How do I change the language or theme (light/dark)?',
+    'ajuda.faqA16': 'The language selector is in the top bar; the light/dark theme button is right next to it — your choice is saved in this browser.',
   },
   zh: {
     'app.title': 'CareWear · 日常活动监测',
@@ -1389,7 +1450,9 @@ const I18N = {
     'definicoes.eraseDataTitle': '清除所有数据', 'definicoes.eraseDataDesc': '永久删除本设备上保存的所有历史记录和设置。', 'definicoes.eraseDataBtn': '清除数据',
     'definicoes.eraseDataConfirm': '确定要清除所有本地数据吗？此操作无法撤销。',
     'definicoes.eraseDataAutoTtlNote': '如果 30 天内未在此浏览器中使用本应用，这些数据也会自动删除。',
-    'ajuda.faqQ1': '如何将穿戴设备连接到仪表板？', 'ajuda.faqA1': '在电脑上启动网桥，并确保穿戴设备已开启且在附近。数据开始到达后，连接状态会显示在顶部栏中。',
+    'ajuda.faqQ1': '如何将穿戴设备连接到仪表板？', 'ajuda.faqA1': '运行"start_carewear.bat"（双击，位于项目文件夹中）——它会启动网桥并打开已连接的仪表板，无需使用终端。请确保穿戴设备已开启且在附近。数据开始到达后，连接状态会显示在顶部栏中。',
+    'ajuda.faqQ6': '如何进行持续的心率/血氧测量？', 'ajuda.faqA6': '在"生命体征"页面，使用"持续读取"按钮——开启后会自动重复发送请求，无需反复点击"立即测量"。想停止时再关闭即可。',
+    'ajuda.faqQ7': '如果照护者未响应，紧急警报会如何处理？', 'ajuda.faqA7': '在"设置"中，设定你的不可用时段（例如工作时间）和一个紧急联系人。如果警报发生在该时段内且你未能及时确认，系统会自动通知该联系人——绝不会直接联系真实的紧急服务，这个决定始终由人来做。',
     'ajuda.faqQ2': '如果连接断开会怎样？', 'ajuda.faqA2': '仪表板将切换为演示数据，并在顶部栏标示状态。连接恢复后，实时数据会自动返回。',
     'ajuda.faqQ3': '我的数据会上传到云端吗？', 'ajuda.faqA3': '不会。在本原型中，所有数据均在运行仪表板的设备上本地处理和保存。',
     'ajuda.faqQ4': '个性化阈值如何运作？', 'ajuda.faqA4': '它们根据患者的个人基线（而非固定值）计算，以适应其日常模式。你可以在“设置”中启用。',
@@ -1506,8 +1569,9 @@ const I18N = {
     'rotina.pacingTodayIndex': '今日指数 (0-100)', 'rotina.pacingWeekAvg': '过去 7 天平均值', 'rotina.pacingStateLabel': '状态',
     'rotina.pacingLiveHint': '今日指数由固件根据已连接设备的真实陀螺仪数据计算（最近 1 分钟窗口）。下方的 7 天趋势仍为模拟数据 — 尚无累积的真实历史记录（见 PROJECT_STATUS.md，"数据库"）。',
     'rotina.pacingExplainHint': '指数越高＝方向急转弯次数比平时多——可能表示在家中游走（wandering），即使没有离开 GPS 覆盖范围。单一数值不必担心；若持续多日上升则值得留意。', 'medicacao.analyticsRealDataFlag': '来自此浏览器的真实数据',
-    'perfil.currentValueLabel': '当前值：', 'perfil.pendingChangeLabel': '请求的更改（待批准）：', 'perfil.requiresApprovalNote': '更改此字段需要临床团队批准', 'topbar.storageFullWarning': '穿戴设备存储已满 — 尚未导出的旧数据正在被覆盖。',
-    'topbar.storageFullExportLink': '导出剩余数据', 'topbar.storageAlmostFullWarning': '穿戴设备存储即将占满 (≥90%) — 请尽快导出数据，以免开始被覆盖。', 'topbar.storageAlmostFullExportLink': '前往导出数据',
+    'perfil.currentValueLabel': '当前值：', 'perfil.pendingChangeLabel': '请求的更改（待批准）：', 'perfil.requiresApprovalNote': '更改此字段需要临床团队批准', 'topbar.storageFullWarning': '穿戴设备存储已满 — 尚未传输到电脑的数据正在被覆盖。请保持网桥连接：蓝牙传输已在全速进行中。',
+    'topbar.storageDrainProgressPrefix': '· 已传输：', 'topbar.storageDrainProgressSuffix': ' 条记录',
+    'topbar.storageAlmostFullWarning': '穿戴设备存储即将占满 (≥90%) — 请保持网桥连接，以便在数据开始被覆盖之前继续传输。',
     'resumo.movementStill': '静止', 'resumo.movementActive': '活跃', 'resumo.fallsRecentDetection': '最近检测到', 'tendencia.realHistoryNotEnoughData': '网桥本地数据库中这些天的数据尚不足。',
     'tendencia.realHistoryNotConnected': '未连接到网桥 — 连接设备以查看真实历史记录。', 'tendencia.realHistoryReadings': '次读数', 'tendencia.realHistoryNoReadings': '无读数', 'rotina.noteAuthorFamily': '家属',
     'rotina.noteAuthorCaregiver': '照护者', 'rotina.noteAuthorClinician': '医生/技术人员', 'login.prototypeLabel': '界面原型。',
@@ -1516,6 +1580,21 @@ const I18N = {
     'medrem.alertModerate': '依从性中等 — 需多加留意', 'medrem.alertGreat': '本周依从性很好', 'medrem.patternsNormal': '正常模式', 'medrem.patternsCorrelation': '可能存在关联：活动量较高的日子依从性较低',
     'medrem.recCriticalContact': '依从性严重不足：请联系照护者或临床医生', 'medrem.recCriticalAlarms': '建议：使用手表/手机闹钟作为额外提醒', 'medrem.recModerateAttention': '依从性中等：需更加注意服药时间',
     'medrem.recModerateMealTiming': '建议：饭后立即标记服药', 'medrem.recExcellent': '依从性极佳：保持当前习惯', 'medrem.recLowActivityScheduling': '建议：将服药时间安排在活动量较低的时段',
+    // --- i18n gap 3 (continuous HR, export all, misc hints) ---
+    'vitais.continuousHrHint': '开启后自动重复发送测量请求，直到关闭为止', 'vitais.continuousHrStartBtn': '持续读取', 'vitais.continuousHrStopBtn': '正在持续读取 — 停止', 'vitais.measuringHint': '正在测量……',
+    'vitais.secondsRemainingSuffix': '秒)', 'vitais.measurementDoneHint': '读取完成 — 数值现已更新。', 'vitais.noBridgeConnectionHint': '未连接到网桥 — 请先连接设备。', 'exportar.exportAllBtn': '导出全部 (CSV)',
+    'exportar.exportAllNote': '导出已到达网桥的所有数据（不限天数）— 不会加快设备上尚未传输数据的速度，只是将本地已保存的数据整合到一个文件中。', 'exportar.noBridgeConnectionHint': '未连接到网桥 — 目前无法导出。', 'exportar.bridgeUnreachableHint': '无法联系到网桥。',
+    'exportar.generatingCsvHint': '正在生成 CSV……', 'exportar.csvFailedPrefix': '失败：', 'exportar.csvNoDataFallback': '无数据', 'exportar.csvDownloadedHint': 'CSV 已下载。',
+    'resumo.heatmapIntensityLabel': '活动强度',
+    // --- ajuda FAQ Q8-Q16 (cobertura completa das funcionalidades) ---
+    'ajuda.faqQ8': '两种身份（患者/家属 与 医生/技术人员）有什么区别？', 'ajuda.faqA8': '患者/家属可查看自己的日常活动、生命体征和用药数据。医生/技术人员可管理多名患者、设置临床阈值、查看异常并导出报告——不同的视图，不同的权限。', 'ajuda.faqQ9': '照护团队及其权限如何运作？',
+    'ajuda.faqA9': '在"设置"中，照护团队列出了关注该患者的人员，每个人都有各自查看警报和编辑备注的权限。你可以随时邀请（本原型为模拟操作）或移除某人。', 'ajuda.faqQ10': '"同意与数据共享"控制什么？',
+    'ajuda.faqA10': '在"设置"中，控制生命体征、日常活动和警报是否与临床团队共享——仅影响浏览器显示/导出的内容，不会在服务器端强制执行（原型阶段）。', 'ajuda.faqQ11': '临床区域如何检测异常？',
+    'ajuda.faqA11': '结合了两种来源：一种是时长规则（超出预期范围的活动块），另一种是学习常规模式并标记偏差的 LSTM 自动编码器——各自的限值见"时长限制"。', 'ajuda.faqQ12': '有哪些导出格式，各自何时使用？',
+    'ajuda.faqA12': 'FHIR（JSON，标准临床格式）和 PDF（可打印摘要）只导出本次会话中可见的内容。CSV 导出网桥中保存的真实历史记录——使用"导出全部"可获取已保存的完整历史记录，不限天数。', 'ajuda.faqQ13': '为什么更改个人资料中的税号或地址需要批准？',
+    'ajuda.faqA13': '税号和地址属于敏感数据——任何更改都需要等待临床团队批准，以防止对临床使用的数据进行未经验证的更改。', 'ajuda.faqQ14': '用药提醒和依从性分析如何运作？',
+    'ajuda.faqA14': '到了服药时间，浏览器会发出通知（前后 30 分钟窗口）；标记为已服用会更新依从性。依从性分析使用这些真实的点击记录（而非 6 天历史记录中的示例数据）来提出调整建议。', 'ajuda.faqQ15': '某些图表上的"模拟数据"是什么意思？',
+    'ajuda.faqA15': '多个图表（日常活动、7 天趋势、每周热力图）仍使用示例数据，并清楚标注为"模拟"。当网桥连接后，实时生命体征（心率/血氧/步数）已使用真实数据。', 'ajuda.faqQ16': '如何更改语言或主题（浅色/深色）？', 'ajuda.faqA16': '语言选择器位于顶部栏；浅色/深色主题按钮就在旁边——你的选择会保存在此浏览器中。',
   },
   es: {
     'app.title': 'CareWear · Monitorización de Rutina',
@@ -1565,7 +1644,9 @@ const I18N = {
     'definicoes.eraseDataTitle': 'Borrar todos los datos', 'definicoes.eraseDataDesc': 'Elimina permanentemente todo el historial y la configuración guardados en este dispositivo.', 'definicoes.eraseDataBtn': 'Borrar datos',
     'definicoes.eraseDataConfirm': '¿Seguro que quieres borrar todos los datos locales? Esta acción no se puede deshacer.',
     'definicoes.eraseDataAutoTtlNote': 'Estos datos también se borran automáticamente tras 30 días sin usar esta app en este navegador.',
-    'ajuda.faqQ1': '¿Cómo conecto el wearable al panel?', 'ajuda.faqA1': 'Inicia el bridge en el ordenador y asegúrate de que el wearable esté encendido y cerca. La conexión aparece en la barra superior en cuanto los datos empiezan a llegar.',
+    'ajuda.faqQ1': '¿Cómo conecto el wearable al panel?', 'ajuda.faqA1': 'Ejecuta "start_carewear.bat" (doble clic, en la carpeta del proyecto) — arranca el bridge y abre el panel ya conectado, sin necesidad de terminal. Asegúrate de que el wearable esté encendido y cerca. La conexión aparece en la barra superior en cuanto los datos empiezan a llegar.',
+    'ajuda.faqQ6': '¿Cómo hago una lectura continua de FC/SpO₂?', 'ajuda.faqA6': 'En la vista Signos vitales, usa el botón "Lectura continua" — reenvía la solicitud automáticamente mientras esté activado, sin que tengas que pulsar repetidamente "Medir ahora". Desactívalo cuando quieras parar.',
+    'ajuda.faqQ7': '¿Cómo funciona la alerta de emergencia si el cuidador no responde?', 'ajuda.faqA7': 'En Ajustes, define tu horario de indisponibilidad (p. ej., horario laboral) y un contacto de emergencia. Si ocurre una alerta dentro de ese horario y no confirmas a tiempo, el sistema notifica automáticamente a ese contacto — nunca contacta directamente a servicios de emergencia reales, esa decisión siempre queda en manos de una persona.',
     'ajuda.faqQ2': '¿Qué pasa si pierdo la conexión?', 'ajuda.faqA2': 'El panel muestra datos de demostración e indica el estado en la barra superior. Los datos en vivo vuelven automáticamente en cuanto se restablece la conexión.',
     'ajuda.faqQ3': '¿Mis datos se envían a la nube?', 'ajuda.faqA3': 'No. En este prototipo, todos los datos se procesan y guardan localmente en el dispositivo donde se ejecuta el panel.',
     'ajuda.faqQ4': '¿Cómo funcionan los umbrales personalizados?', 'ajuda.faqA4': 'Se calculan a partir de la línea base individual del paciente, en lugar de valores fijos, para adaptarse a su patrón habitual. Puedes activarlos en Ajustes.',
@@ -1735,10 +1816,10 @@ const I18N = {
     'rotina.pacingExplainHint': 'Índice más alto = más cambios de dirección bruscos de lo habitual — puede indicar deambulación (wandering) dentro de casa, incluso sin salir del alcance del GPS. Un valor aislado no es preocupante; un aumento sostenido durante varios días merece atención.',
     'medicacao.analyticsRealDataFlag': 'datos reales de este navegador', 'perfil.currentValueLabel': 'Valor actual:',
     'perfil.pendingChangeLabel': 'Cambio solicitado (pendiente de aprobación):', 'perfil.requiresApprovalNote': 'los cambios en este campo requieren aprobación del equipo clínico',
-    'topbar.storageFullWarning': 'El almacenamiento del wearable está lleno — los datos antiguos aún no exportados se están sobrescribiendo ahora.',
-    'topbar.storageFullExportLink': 'Exportar lo que queda',
-    'topbar.storageAlmostFullWarning': 'El almacenamiento del wearable está casi lleno (≥90%) — exporta los datos pronto, antes de que empiecen a sobrescribirse.',
-    'topbar.storageAlmostFullExportLink': 'Ir a Exportar datos', 'resumo.movementStill': 'Quieto', 'resumo.movementActive': 'Activo', 'resumo.fallsRecentDetection': 'Detección reciente',
+    'topbar.storageFullWarning': 'El almacenamiento del wearable está lleno — los datos aún no transferidos al ordenador se están sobrescribiendo ahora. Mantén el bridge conectado: la transferencia por Bluetooth ya está funcionando al máximo.',
+    'topbar.storageDrainProgressPrefix': '· ya transferidos:', 'topbar.storageDrainProgressSuffix': ' registros',
+    'topbar.storageAlmostFullWarning': 'El almacenamiento del wearable está casi lleno (≥90%) — mantén el bridge conectado para que la transferencia continúe antes de que empiecen a sobrescribirse los datos.',
+    'resumo.movementStill': 'Quieto', 'resumo.movementActive': 'Activo', 'resumo.fallsRecentDetection': 'Detección reciente',
     'tendencia.realHistoryNotEnoughData': 'Aún no hay suficientes datos en la base de datos local del bridge para estos días.',
     'tendencia.realHistoryNotConnected': 'Sin conexión al bridge — conecta el dispositivo para ver el historial real.', 'tendencia.realHistoryReadings': 'lecturas',
     'tendencia.realHistoryNoReadings': 'sin lecturas', 'rotina.noteAuthorFamily': 'Familiar', 'rotina.noteAuthorCaregiver': 'Cuidador/a', 'rotina.noteAuthorClinician': 'Médico/Técnico',
@@ -1751,6 +1832,34 @@ const I18N = {
     'medrem.recCriticalContact': 'Adherencia crítica: contactar al cuidador o al clínico', 'medrem.recCriticalAlarms': 'Sugerencia: usar alarmas del reloj/móvil como recordatorios extra',
     'medrem.recModerateAttention': 'Adherencia moderada: mejorar la atención a los horarios', 'medrem.recModerateMealTiming': 'Sugerencia: marcar la medicación justo después de las comidas',
     'medrem.recExcellent': 'Excelente adherencia: mantener la rutina', 'medrem.recLowActivityScheduling': 'Sugerencia: programar la medicación para periodos de menor actividad',
+    // --- i18n gap 3 (continuous HR, export all, misc hints) ---
+    'vitais.continuousHrHint': 'Reenvía la solicitud de medición automáticamente mientras esté activado, hasta que lo apagues', 'vitais.continuousHrStartBtn': 'Lectura continua',
+    'vitais.continuousHrStopBtn': 'Leyendo continuamente — detener', 'vitais.measuringHint': 'Midiendo…', 'vitais.secondsRemainingSuffix': 's restantes)',
+    'vitais.measurementDoneHint': 'Lectura completada — los valores deberían estar actualizados.', 'vitais.noBridgeConnectionHint': 'Sin conexión al bridge — conecta primero el dispositivo.',
+    'exportar.exportAllBtn': 'Exportar todo (CSV)',
+    'exportar.exportAllNote': 'Exporta todo lo que ya ha llegado al bridge (sin límite de días) — no acelera la transferencia de lo que aún está en el dispositivo, solo reúne en un único archivo lo que ya está guardado localmente.',
+    'exportar.noBridgeConnectionHint': 'Sin conexión al bridge — no se puede exportar ahora.', 'exportar.bridgeUnreachableHint': 'No se pudo contactar con el bridge.',
+    'exportar.generatingCsvHint': 'Generando CSV…', 'exportar.csvFailedPrefix': 'Falló:', 'exportar.csvNoDataFallback': 'sin datos', 'exportar.csvDownloadedHint': 'CSV descargado.',
+    'resumo.heatmapIntensityLabel': 'Intensidad de actividad',
+    // --- ajuda FAQ Q8-Q16 (cobertura completa das funcionalidades) ---
+    'ajuda.faqQ8': '¿Cuál es la diferencia entre los dos perfiles (Paciente/Familia y Médico/Técnico)?',
+    'ajuda.faqA8': 'Paciente/Familia ve sus propios datos de rutina, signos vitales y medicación. Médico/Técnico gestiona varios pacientes, define umbrales clínicos, revisa anomalías y exporta informes — vistas distintas, con permisos distintos.',
+    'ajuda.faqQ9': '¿Cómo funciona el equipo de cuidadores y sus permisos?',
+    'ajuda.faqA9': 'En Ajustes, el equipo de cuidadores muestra quién sigue al paciente, cada uno con permisos propios para ver alertas y editar notas. Puedes invitar (simulado en este prototipo) o eliminar a alguien en cualquier momento.',
+    'ajuda.faqQ10': '¿Qué controla "Consentimiento y uso compartido de datos"?',
+    'ajuda.faqA10': 'En Ajustes, controla si los signos vitales, la rutina y las alertas se comparten con el equipo clínico — solo afecta a lo que el navegador muestra/exporta, no se aplica en el servidor (prototipo).',
+    'ajuda.faqQ11': '¿Cómo se detectan las anomalías en el área clínica?',
+    'ajuda.faqA11': 'Se combinan dos fuentes: una regla de duración (un bloque fuera del intervalo esperado) y un Autoencoder LSTM que aprende el patrón habitual y señala desviaciones — consulta los límites de cada uno en Límites de duración.',
+    'ajuda.faqQ12': '¿Qué formatos de exportación existen y cuándo usar cada uno?',
+    'ajuda.faqA12': 'FHIR (JSON, formato clínico estándar) y PDF (resumen imprimible) exportan solo lo visible en esta sesión. CSV exporta el historial real guardado en el bridge — usa "Exportar todo" para el historial completo ya guardado, sin límite de días.',
+    'ajuda.faqQ13': '¿Por qué cambiar el NIF o la dirección en el perfil necesita aprobación?',
+    'ajuda.faqA13': 'El NIF y la dirección son datos sensibles — cualquier cambio queda pendiente hasta que el equipo clínico lo apruebe, para evitar cambios no verificados en datos usados clínicamente.',
+    'ajuda.faqQ14': '¿Cómo funcionan los recordatorios de medicación y el análisis de adherencia?',
+    'ajuda.faqA14': 'El navegador avisa cuando es hora de tomar un medicamento (ventana de ±30 min); marcarlo como tomado actualiza la adherencia. El análisis de adherencia usa esos clics reales (no los datos de ejemplo del historial de 6 días) para sugerir ajustes.',
+    'ajuda.faqQ15': '¿Qué significa "datos simulados" en algunos gráficos?',
+    'ajuda.faqA15': 'Varios gráficos (rutina, tendencia de 7 días, mapa de calor semanal) todavía usan datos de ejemplo, claramente marcados como "simulado". Los signos vitales en vivo (FC/SpO₂/pasos) ya usan datos reales cuando el bridge está conectado.',
+    'ajuda.faqQ16': '¿Cómo cambio el idioma o el tema (claro/oscuro)?',
+    'ajuda.faqA16': 'El selector de idioma está en la barra superior; el botón de tema claro/oscuro está justo al lado — la elección se guarda en este navegador.',
   },
   fr: {
     'app.title': 'CareWear · Suivi de Routine',
@@ -1800,7 +1909,9 @@ const I18N = {
     'definicoes.eraseDataTitle': 'Effacer toutes les données', 'definicoes.eraseDataDesc': 'Supprime définitivement tout l’historique et les réglages enregistrés sur cet appareil.', 'definicoes.eraseDataBtn': 'Effacer les données',
     'definicoes.eraseDataConfirm': 'Voulez-vous vraiment effacer toutes les données locales ? Cette action est irréversible.',
     'definicoes.eraseDataAutoTtlNote': 'Ces données sont aussi effacées automatiquement après 30 jours sans utiliser cette application dans ce navigateur.',
-    'ajuda.faqQ1': 'Comment connecter le wearable au tableau de bord ?', 'ajuda.faqA1': 'Démarrez le bridge sur l’ordinateur et assurez-vous que le wearable est allumé et à proximité. La connexion apparaît dans la barre supérieure dès que les données arrivent.',
+    'ajuda.faqQ1': 'Comment connecter le wearable au tableau de bord ?', 'ajuda.faqA1': 'Exécutez « start_carewear.bat » (double-clic, dans le dossier du projet) — cela démarre le bridge et ouvre le tableau de bord déjà connecté, sans terminal. Assurez-vous que le wearable est allumé et à proximité. La connexion apparaît dans la barre supérieure dès que les données arrivent.',
+    'ajuda.faqQ6': 'Comment faire une lecture continue de la FC/SpO₂ ?', 'ajuda.faqA6': "Dans la vue Signes vitaux, utilisez le bouton « Lecture continue » — il renvoie automatiquement la demande tant qu'il est activé, sans avoir à cliquer sans cesse sur « Mesurer maintenant ». Désactivez-le quand vous voulez arrêter.",
+    'ajuda.faqQ7': "Comment fonctionne l'alerte d'urgence si l'aidant ne répond pas ?", 'ajuda.faqA7': "Dans les Paramètres, définissez votre horaire d'indisponibilité (ex. horaires de travail) et un contact d'urgence. Si une alerte survient pendant ces heures et que vous ne confirmez pas à temps, le système notifie automatiquement ce contact — il ne contacte jamais directement les services d'urgence réels, cette décision reste toujours entre les mains d'une personne.",
     'ajuda.faqQ2': 'Que se passe-t-il si je perds la connexion ?', 'ajuda.faqA2': 'Le tableau de bord affiche des données de démonstration et signale l’état dans la barre supérieure. Les données en direct reviennent automatiquement dès que la connexion est rétablie.',
     'ajuda.faqQ3': 'Mes données sont-elles envoyées dans le cloud ?', 'ajuda.faqA3': 'Non. Dans ce prototype, toutes les données sont traitées et enregistrées localement sur l’appareil qui exécute le tableau de bord.',
     'ajuda.faqQ4': 'Comment fonctionnent les seuils personnalisés ?', 'ajuda.faqA4': 'Ils sont calculés à partir de la ligne de base individuelle du patient, plutôt que de valeurs fixes, afin de s’adapter à son schéma habituel. Vous pouvez les activer dans les Paramètres.',
@@ -1972,10 +2083,10 @@ const I18N = {
     'medicacao.analyticsRealDataFlag': 'données réelles de ce navigateur', 'perfil.currentValueLabel': 'Valeur actuelle :',
     'perfil.pendingChangeLabel': 'Modification demandée (en attente d\'approbation) :',
     'perfil.requiresApprovalNote': 'les modifications de ce champ nécessitent l\'approbation de l\'équipe clinique',
-    'topbar.storageFullWarning': 'Le stockage du wearable est plein — les anciennes données pas encore exportées sont en train d\'être écrasées.',
-    'topbar.storageFullExportLink': 'Exporter ce qui reste',
-    'topbar.storageAlmostFullWarning': 'Le stockage du wearable est presque plein (≥90 %) — exportez bientôt les données, avant qu\'elles ne commencent à être écrasées.',
-    'topbar.storageAlmostFullExportLink': 'Aller à Exporter les données', 'resumo.movementStill': 'Immobile', 'resumo.movementActive': 'Actif',
+    'topbar.storageFullWarning': "Le stockage du wearable est plein — les données pas encore transférées vers l'ordinateur sont en train d'être écrasées. Gardez le bridge connecté : le transfert Bluetooth fonctionne déjà à plein régime.",
+    'topbar.storageDrainProgressPrefix': '· déjà transférés :', 'topbar.storageDrainProgressSuffix': ' enregistrements',
+    'topbar.storageAlmostFullWarning': "Le stockage du wearable est presque plein (≥90 %) — gardez le bridge connecté pour que le transfert continue avant que les données ne commencent à être écrasées.",
+    'resumo.movementStill': 'Immobile', 'resumo.movementActive': 'Actif',
     'resumo.fallsRecentDetection': 'Détection récente', 'tendencia.realHistoryNotEnoughData': 'Pas encore assez de données dans la base de données locale du bridge pour ces jours.',
     'tendencia.realHistoryNotConnected': 'Pas de connexion au bridge — connectez l\'appareil pour voir l\'historique réel.', 'tendencia.realHistoryReadings': 'lectures',
     'tendencia.realHistoryNoReadings': 'aucune lecture', 'rotina.noteAuthorFamily': 'Proche', 'rotina.noteAuthorCaregiver': 'Soignant(e)', 'rotina.noteAuthorClinician': 'Médecin/Technicien',
@@ -1991,6 +2102,34 @@ const I18N = {
     'medrem.recModerateAttention': 'Observance modérée : améliorer l\'attention aux horaires',
     'medrem.recModerateMealTiming': 'Suggestion : marquer la prise du médicament juste après les repas', 'medrem.recExcellent': 'Excellente observance : maintenir la routine',
     'medrem.recLowActivityScheduling': 'Suggestion : planifier le médicament pour les périodes de moindre activité',
+    // --- i18n gap 3 (continuous HR, export all, misc hints) ---
+    'vitais.continuousHrHint': 'Renvoie automatiquement la demande de mesure tant que activé, jusqu\'à ce que vous l\'éteigniez', 'vitais.continuousHrStartBtn': 'Lecture continue',
+    'vitais.continuousHrStopBtn': 'Lecture continue en cours — arrêter', 'vitais.measuringHint': 'Mesure en cours…', 'vitais.secondsRemainingSuffix': 's restantes)',
+    'vitais.measurementDoneHint': 'Mesure terminée — les valeurs devraient être à jour.', 'vitais.noBridgeConnectionHint': 'Pas de connexion au bridge — connectez d\'abord l\'appareil.',
+    'exportar.exportAllBtn': 'Tout exporter (CSV)',
+    'exportar.exportAllNote': 'Exporte tout ce qui est déjà arrivé au bridge (sans limite de jours) — n\'accélère pas le transfert de ce qui est encore sur l\'appareil, cela regroupe simplement dans un seul fichier ce qui est déjà stocké localement.',
+    'exportar.noBridgeConnectionHint': 'Pas de connexion au bridge — impossible d\'exporter maintenant.', 'exportar.bridgeUnreachableHint': 'Impossible de contacter le bridge.',
+    'exportar.generatingCsvHint': 'Génération du CSV…', 'exportar.csvFailedPrefix': 'Échec :', 'exportar.csvNoDataFallback': 'aucune donnée', 'exportar.csvDownloadedHint': 'CSV téléchargé.',
+    'resumo.heatmapIntensityLabel': 'Intensité d\'activité',
+    // --- ajuda FAQ Q8-Q16 (cobertura completa das funcionalidades) ---
+    'ajuda.faqQ8': 'Quelle est la différence entre les deux profils (Patient/Famille et Médecin/Technicien) ?',
+    'ajuda.faqA8': 'Patient/Famille voit ses propres données de routine, de signes vitaux et de médication. Médecin/Technicien gère plusieurs patients, définit des seuils cliniques, examine les anomalies et exporte des rapports — des vues différentes, avec des permissions différentes.',
+    'ajuda.faqQ9': 'Comment fonctionne l\'équipe de soignants et ses permissions ?',
+    'ajuda.faqA9': 'Dans les Paramètres, l\'équipe de soignants indique qui suit le patient, chacun avec ses propres permissions pour voir les alertes et modifier les notes. Vous pouvez inviter (simulé dans ce prototype) ou retirer quelqu\'un à tout moment.',
+    'ajuda.faqQ10': 'Que contrôle « Consentement et partage des données » ?',
+    'ajuda.faqA10': 'Dans les Paramètres, cela contrôle si les signes vitaux, la routine et les alertes sont partagés avec l\'équipe clinique — cela n\'affecte que ce que le navigateur affiche/exporte, ce n\'est pas appliqué côté serveur (prototype).',
+    'ajuda.faqQ11': 'Comment les anomalies sont-elles détectées dans la zone clinique ?',
+    'ajuda.faqA11': 'Deux sources sont combinées : une règle de durée (un bloc hors de la plage attendue) et un Autoencoder LSTM qui apprend le schéma habituel et signale les écarts — voir les limites de chacune dans Limites de durée.',
+    'ajuda.faqQ12': 'Quels formats d\'exportation existent et quand utiliser chacun ?',
+    'ajuda.faqA12': 'FHIR (JSON, format clinique standard) et PDF (résumé imprimable) n\'exportent que ce qui est visible dans cette session. CSV exporte l\'historique réel stocké dans le bridge — utilisez « Tout exporter » pour l\'historique complet déjà stocké, sans limite de jours.',
+    'ajuda.faqQ13': 'Pourquoi modifier le NIF ou l\'adresse dans le profil nécessite-t-il une approbation ?',
+    'ajuda.faqA13': 'Le NIF et l\'adresse sont des données sensibles — toute modification reste en attente jusqu\'à approbation par l\'équipe clinique, afin d\'éviter des modifications non vérifiées de données à usage clinique.',
+    'ajuda.faqQ14': 'Comment fonctionnent les rappels de médicaments et l\'analyse de l\'observance ?',
+    'ajuda.faqA14': 'Le navigateur vous avertit quand il est l\'heure de prendre un médicament (fenêtre de ±30 min) ; le marquer comme pris met à jour l\'observance. L\'analyse de l\'observance utilise ces clics réels (pas les données d\'exemple de l\'historique de 6 jours) pour suggérer des ajustements.',
+    'ajuda.faqQ15': 'Que signifie « données simulées » sur certains graphiques ?',
+    'ajuda.faqA15': 'Plusieurs graphiques (routine, tendance sur 7 jours, carte de chaleur hebdomadaire) utilisent encore des données d\'exemple, clairement marquées « simulé ». Les signes vitaux en direct (FC/SpO₂/pas) utilisent déjà de vraies données lorsque le bridge est connecté.',
+    'ajuda.faqQ16': 'Comment changer la langue ou le thème (clair/sombre) ?',
+    'ajuda.faqA16': 'Le sélecteur de langue se trouve dans la barre supérieure ; le bouton de thème clair/sombre est juste à côté — votre choix est enregistré dans ce navigateur.',
   },
   de: {
     'app.title': 'CareWear · Routineüberwachung',
@@ -2040,7 +2179,9 @@ const I18N = {
     'definicoes.eraseDataTitle': 'Alle Daten löschen', 'definicoes.eraseDataDesc': 'Löscht dauerhaft den gesamten auf diesem Gerät gespeicherten Verlauf und alle Einstellungen.', 'definicoes.eraseDataBtn': 'Daten löschen',
     'definicoes.eraseDataConfirm': 'Möchtest du wirklich alle lokalen Daten löschen? Diese Aktion kann nicht rückgängig gemacht werden.',
     'definicoes.eraseDataAutoTtlNote': 'Diese Daten werden auch automatisch gelöscht, wenn diese App 30 Tage lang nicht in diesem Browser verwendet wird.',
-    'ajuda.faqQ1': 'Wie verbinde ich das Wearable mit dem Dashboard?', 'ajuda.faqA1': 'Starte die Bridge auf dem Computer und stelle sicher, dass das Wearable eingeschaltet und in der Nähe ist. Die Verbindung erscheint in der oberen Leiste, sobald Daten eintreffen.',
+    'ajuda.faqQ1': 'Wie verbinde ich das Wearable mit dem Dashboard?', 'ajuda.faqA1': 'Starte "start_carewear.bat" (Doppelklick, im Projektordner) — startet die Bridge und öffnet das Dashboard bereits verbunden, ohne Terminal. Stelle sicher, dass das Wearable eingeschaltet und in der Nähe ist. Die Verbindung erscheint in der oberen Leiste, sobald Daten eintreffen.',
+    'ajuda.faqQ6': 'Wie mache ich eine kontinuierliche HF-/SpO₂-Messung?', 'ajuda.faqA6': 'Verwende in der Ansicht Vitalwerte die Schaltfläche „Kontinuierliche Messung" — sie sendet die Anfrage automatisch erneut, solange sie aktiviert ist, ohne dass du wiederholt auf „Jetzt messen" klicken musst. Schalte sie aus, wenn du stoppen möchtest.',
+    'ajuda.faqQ7': 'Wie funktioniert der Notfallalarm, wenn die Betreuungsperson nicht reagiert?', 'ajuda.faqA7': 'Lege in den Einstellungen deine Nichtverfügbarkeitszeiten (z. B. Arbeitszeiten) und einen Notfallkontakt fest. Tritt ein Alarm innerhalb dieser Zeiten auf und bestätigst du nicht rechtzeitig, benachrichtigt das System automatisch diesen Kontakt — es kontaktiert nie direkt echte Notdienste, diese Entscheidung liegt immer bei einer Person.',
     'ajuda.faqQ2': 'Was passiert, wenn die Verbindung abbricht?', 'ajuda.faqA2': 'Das Dashboard zeigt Demodaten an und kennzeichnet den Status in der oberen Leiste. Live-Daten kehren automatisch zurück, sobald die Verbindung wiederhergestellt ist.',
     'ajuda.faqQ3': 'Werden meine Daten in die Cloud gesendet?', 'ajuda.faqA3': 'Nein. In diesem Prototyp werden alle Daten lokal auf dem Gerät verarbeitet und gespeichert, auf dem das Dashboard läuft.',
     'ajuda.faqQ4': 'Wie funktionieren personalisierte Schwellenwerte?', 'ajuda.faqA4': 'Sie werden aus der individuellen Basislinie des Patienten statt aus festen Werten berechnet, um sich an dessen gewohntes Muster anzupassen. Du kannst sie in den Einstellungen aktivieren.',
@@ -2209,10 +2350,10 @@ const I18N = {
     'rotina.pacingExplainHint': 'Höherer Index = mehr enge Richtungswechsel als üblich — kann auf Umherwandern (Wandering) innerhalb der Wohnung hindeuten, auch ohne den GPS-Bereich zu verlassen. Ein einzelner Wert ist nicht besorgniserregend; ein anhaltender Anstieg über mehrere Tage ist beobachtenswert.',
     'medicacao.analyticsRealDataFlag': 'reale Daten dieses Browsers', 'perfil.currentValueLabel': 'Aktueller Wert:',
     'perfil.pendingChangeLabel': 'Angeforderte Änderung (Genehmigung ausstehend):', 'perfil.requiresApprovalNote': 'Änderungen an diesem Feld erfordern die Genehmigung des klinischen Teams',
-    'topbar.storageFullWarning': 'Der Speicher des Wearables ist voll — noch nicht exportierte alte Daten werden gerade überschrieben.',
-    'topbar.storageFullExportLink': 'Verbleibendes exportieren',
-    'topbar.storageAlmostFullWarning': 'Der Speicher des Wearables ist fast voll (≥90 %) — exportiere die Daten bald, bevor sie überschrieben werden.',
-    'topbar.storageAlmostFullExportLink': 'Zu Daten exportieren gehen', 'resumo.movementStill': 'Ruhig', 'resumo.movementActive': 'Aktiv', 'resumo.fallsRecentDetection': 'Kürzliche Erkennung',
+    'topbar.storageFullWarning': 'Der Speicher des Wearables ist voll — noch nicht auf den Computer übertragene Daten werden gerade überschrieben. Halte die Bridge verbunden: die Bluetooth-Übertragung läuft bereits mit voller Geschwindigkeit.',
+    'topbar.storageDrainProgressPrefix': '· bisher übertragen:', 'topbar.storageDrainProgressSuffix': ' Datensätze',
+    'topbar.storageAlmostFullWarning': 'Der Speicher des Wearables ist fast voll (≥90 %) — halte die Bridge verbunden, damit die Übertragung weiterläuft, bevor Daten überschrieben werden.',
+    'resumo.movementStill': 'Ruhig', 'resumo.movementActive': 'Aktiv', 'resumo.fallsRecentDetection': 'Kürzliche Erkennung',
     'tendencia.realHistoryNotEnoughData': 'Noch nicht genügend Daten in der lokalen Datenbank der Bridge für diese Tage.',
     'tendencia.realHistoryNotConnected': 'Keine Verbindung zur Bridge — verbinde das Gerät, um den echten Verlauf zu sehen.', 'tendencia.realHistoryReadings': 'Messwerte',
     'tendencia.realHistoryNoReadings': 'keine Messwerte', 'rotina.noteAuthorFamily': 'Angehörige/r', 'rotina.noteAuthorCaregiver': 'Betreuer/in', 'rotina.noteAuthorClinician': 'Arzt/Techniker',
@@ -2226,6 +2367,34 @@ const I18N = {
     'medrem.recCriticalContact': 'Kritische Therapietreue: Betreuer oder Kliniker kontaktieren', 'medrem.recCriticalAlarms': 'Vorschlag: Uhr-/Handy-Alarme als zusätzliche Erinnerungen nutzen',
     'medrem.recModerateAttention': 'Mäßige Therapietreue: mehr auf die Zeiten achten', 'medrem.recModerateMealTiming': 'Vorschlag: Medikament direkt nach den Mahlzeiten markieren',
     'medrem.recExcellent': 'Ausgezeichnete Therapietreue: Routine beibehalten', 'medrem.recLowActivityScheduling': 'Vorschlag: Medikamentenzeiten in Phasen geringerer Aktivität legen',
+    // --- i18n gap 3 (continuous HR, export all, misc hints) ---
+    'vitais.continuousHrHint': 'Sendet die Messanfrage automatisch erneut, solange aktiviert, bis du sie ausschaltest', 'vitais.continuousHrStartBtn': 'Kontinuierliche Messung',
+    'vitais.continuousHrStopBtn': 'Kontinuierliche Messung läuft — stoppen', 'vitais.measuringHint': 'Messung läuft…', 'vitais.secondsRemainingSuffix': 's verbleibend)',
+    'vitais.measurementDoneHint': 'Messung abgeschlossen — Werte sollten jetzt aktuell sein.', 'vitais.noBridgeConnectionHint': 'Keine Verbindung zur Bridge — verbinde zuerst das Gerät.',
+    'exportar.exportAllBtn': 'Alles exportieren (CSV)',
+    'exportar.exportAllNote': 'Exportiert alles, was bereits bei der Bridge angekommen ist (ohne Tageslimit) — beschleunigt nicht die Übertragung dessen, was noch auf dem Gerät ist, sondern bündelt nur das bereits lokal Gespeicherte in einer Datei.',
+    'exportar.noBridgeConnectionHint': 'Keine Verbindung zur Bridge — Export derzeit nicht möglich.', 'exportar.bridgeUnreachableHint': 'Bridge konnte nicht erreicht werden.',
+    'exportar.generatingCsvHint': 'CSV wird erstellt…', 'exportar.csvFailedPrefix': 'Fehlgeschlagen:', 'exportar.csvNoDataFallback': 'keine Daten',
+    'exportar.csvDownloadedHint': 'CSV heruntergeladen.', 'resumo.heatmapIntensityLabel': 'Aktivitätsintensität',
+    // --- ajuda FAQ Q8-Q16 (cobertura completa das funcionalidades) ---
+    'ajuda.faqQ8': 'Was ist der Unterschied zwischen den beiden Profilen (Patient/Familie und Arzt/Techniker)?',
+    'ajuda.faqA8': 'Patient/Familie sieht die eigenen Routine-, Vitalwert- und Medikationsdaten. Arzt/Techniker verwaltet mehrere Patienten, legt klinische Schwellenwerte fest, prüft Anomalien und exportiert Berichte — unterschiedliche Ansichten mit unterschiedlichen Berechtigungen.',
+    'ajuda.faqQ9': 'Wie funktioniert das Betreuungsteam und dessen Berechtigungen?',
+    'ajuda.faqA9': 'In den Einstellungen listet das Betreuungsteam auf, wer den Patienten begleitet, jeweils mit eigenen Berechtigungen zum Anzeigen von Alarmen und Bearbeiten von Notizen. Du kannst jederzeit jemanden einladen (in diesem Prototyp simuliert) oder entfernen.',
+    'ajuda.faqQ10': 'Was steuert „Einwilligung und Datenweitergabe"?',
+    'ajuda.faqA10': 'In den Einstellungen wird gesteuert, ob Vitalwerte, Routine und Alarme mit dem klinischen Team geteilt werden — betrifft nur, was der Browser anzeigt/exportiert, wird serverseitig nicht durchgesetzt (Prototyp).',
+    'ajuda.faqQ11': 'Wie werden Anomalien im klinischen Bereich erkannt?',
+    'ajuda.faqA11': 'Zwei Quellen werden kombiniert: eine Dauerregel (ein Block außerhalb des erwarteten Bereichs) und ein LSTM-Autoencoder, der das übliche Muster lernt und Abweichungen markiert — die Grenzwerte für beide findest du unter Dauergrenzwerte.',
+    'ajuda.faqQ12': 'Welche Exportformate gibt es und wann sollte man welches verwenden?',
+    'ajuda.faqA12': 'FHIR (JSON, klinisches Standardformat) und PDF (druckbare Zusammenfassung) exportieren nur das, was in dieser Sitzung sichtbar ist. CSV exportiert den echten, in der Bridge gespeicherten Verlauf — verwende „Alles exportieren" für den vollständigen bereits gespeicherten Verlauf ohne Tageslimit.',
+    'ajuda.faqQ13': 'Warum benötigt das Ändern der Steuernummer oder Adresse im Profil eine Genehmigung?',
+    'ajuda.faqA13': 'Steuernummer und Adresse sind sensible Daten — jede Änderung bleibt ausstehend, bis das klinische Team sie genehmigt, um unverifizierte Änderungen an klinisch genutzten Daten zu vermeiden.',
+    'ajuda.faqQ14': 'Wie funktionieren Medikamentenerinnerungen und die Therapietreue-Analyse?',
+    'ajuda.faqA14': 'Der Browser benachrichtigt dich, wenn es Zeit für ein Medikament ist (±30-Minuten-Fenster); das Markieren als eingenommen aktualisiert die Therapietreue. Die Therapietreue-Analyse nutzt diese echten Klicks (nicht die Beispieldaten aus dem 6-Tage-Verlauf), um Anpassungen vorzuschlagen.',
+    'ajuda.faqQ15': 'Was bedeutet „simulierte Daten" bei manchen Diagrammen?',
+    'ajuda.faqA15': 'Mehrere Diagramme (Routine, 7-Tage-Trend, wöchentliche Heatmap) verwenden noch Beispieldaten, deutlich mit „simuliert" gekennzeichnet. Live-Vitalwerte (HF/SpO₂/Schritte) verwenden bereits echte Daten, wenn die Bridge verbunden ist.',
+    'ajuda.faqQ16': 'Wie ändere ich die Sprache oder das Thema (hell/dunkel)?',
+    'ajuda.faqA16': 'Die Sprachauswahl befindet sich in der oberen Leiste; die Schaltfläche für helles/dunkles Thema ist direkt daneben — deine Wahl wird in diesem Browser gespeichert.',
   },
   it: {
     'app.title': 'CareWear · Monitoraggio della Routine',
@@ -2275,7 +2444,9 @@ const I18N = {
     'definicoes.eraseDataTitle': 'Cancella tutti i dati', 'definicoes.eraseDataDesc': 'Elimina definitivamente tutta la cronologia e le impostazioni salvate su questo dispositivo.', 'definicoes.eraseDataBtn': 'Cancella dati',
     'definicoes.eraseDataConfirm': 'Sei sicuro di voler cancellare tutti i dati locali? Questa azione non può essere annullata.',
     'definicoes.eraseDataAutoTtlNote': 'Questi dati vengono cancellati automaticamente anche dopo 30 giorni senza usare questa app in questo browser.',
-    'ajuda.faqQ1': 'Come collego il wearable alla dashboard?', 'ajuda.faqA1': 'Avvia il bridge sul computer e assicurati che il wearable sia acceso e vicino. La connessione compare nella barra superiore non appena i dati iniziano ad arrivare.',
+    'ajuda.faqQ1': 'Come collego il wearable alla dashboard?', 'ajuda.faqA1': 'Esegui "start_carewear.bat" (doppio clic, nella cartella del progetto) — avvia il bridge e apre la dashboard già connessa, senza bisogno del terminale. Assicurati che il wearable sia acceso e vicino. La connessione compare nella barra superiore non appena i dati iniziano ad arrivare.',
+    'ajuda.faqQ6': 'Come faccio una lettura continua di FC/SpO₂?', 'ajuda.faqA6': 'Nella vista Parametri vitali, usa il pulsante "Lettura continua" — reinvia automaticamente la richiesta finché è attivo, senza dover cliccare ripetutamente su "Misura ora". Disattivalo quando vuoi fermarti.',
+    'ajuda.faqQ7': 'Come funziona l\'avviso di emergenza se il caregiver non risponde?', 'ajuda.faqA7': 'Nelle Impostazioni, definisci il tuo orario di indisponibilità (es. orario di lavoro) e un contatto di emergenza. Se un avviso si verifica in quell\'orario e non confermi in tempo, il sistema avvisa automaticamente quel contatto — non contatta mai direttamente i servizi di emergenza reali, quella decisione resta sempre a una persona.',
     'ajuda.faqQ2': 'Cosa succede se perdo la connessione?', 'ajuda.faqA2': 'La dashboard mostra dati dimostrativi e segnala lo stato nella barra superiore. I dati in diretta tornano automaticamente non appena la connessione viene ripristinata.',
     'ajuda.faqQ3': 'I miei dati vengono inviati al cloud?', 'ajuda.faqA3': 'No. In questo prototipo, tutti i dati vengono elaborati e salvati localmente sul dispositivo su cui viene eseguita la dashboard.',
     'ajuda.faqQ4': 'Come funzionano le soglie personalizzate?', 'ajuda.faqA4': 'Vengono calcolate dalla linea di base individuale del paziente anziché da valori fissi, per adattarsi al suo schema abituale. Puoi attivarle nelle Impostazioni.',
@@ -2444,9 +2615,10 @@ const I18N = {
     'rotina.pacingExplainHint': 'Indice più alto = più cambi di direzione stretti del solito — può indicare vagabondaggio (wandering) in casa, anche senza uscire dal raggio del GPS. Un valore isolato non è preoccupante; un aumento sostenuto per più giorni merita attenzione.',
     'medicacao.analyticsRealDataFlag': 'dati reali di questo browser', 'perfil.currentValueLabel': 'Valore attuale:',
     'perfil.pendingChangeLabel': 'Modifica richiesta (in attesa di approvazione):', 'perfil.requiresApprovalNote': 'le modifiche a questo campo richiedono l\'approvazione del team clinico',
-    'topbar.storageFullWarning': 'La memoria del wearable è piena — i vecchi dati non ancora esportati vengono sovrascritti ora.', 'topbar.storageFullExportLink': 'Esporta ciò che resta',
-    'topbar.storageAlmostFullWarning': 'La memoria del wearable è quasi piena (≥90%) — esporta presto i dati, prima che inizino a essere sovrascritti.',
-    'topbar.storageAlmostFullExportLink': 'Vai a Esporta dati', 'resumo.movementStill': 'Fermo', 'resumo.movementActive': 'Attivo', 'resumo.fallsRecentDetection': 'Rilevamento recente',
+    'topbar.storageFullWarning': 'La memoria del wearable è piena — i dati non ancora trasferiti al computer vengono sovrascritti ora. Mantieni il bridge connesso: il trasferimento Bluetooth è già alla massima velocità possibile.',
+    'topbar.storageDrainProgressPrefix': '· già trasferiti:', 'topbar.storageDrainProgressSuffix': ' record',
+    'topbar.storageAlmostFullWarning': 'La memoria del wearable è quasi piena (≥90%) — mantieni il bridge connesso affinché il trasferimento continui prima che i dati inizino a essere sovrascritti.',
+    'resumo.movementStill': 'Fermo', 'resumo.movementActive': 'Attivo', 'resumo.fallsRecentDetection': 'Rilevamento recente',
     'tendencia.realHistoryNotEnoughData': 'Non ci sono ancora dati sufficienti nel database locale del bridge per questi giorni.',
     'tendencia.realHistoryNotConnected': 'Nessuna connessione al bridge — collega il dispositivo per vedere la cronologia reale.', 'tendencia.realHistoryReadings': 'letture',
     'tendencia.realHistoryNoReadings': 'nessuna lettura', 'rotina.noteAuthorFamily': 'Familiare', 'rotina.noteAuthorCaregiver': 'Assistente', 'rotina.noteAuthorClinician': 'Medico/Tecnico',
@@ -2460,6 +2632,34 @@ const I18N = {
     'medrem.recCriticalAlarms': 'Suggerimento: usare le sveglie di orologio/telefono come promemoria extra',
     'medrem.recModerateAttention': 'Aderenza moderata: migliorare l\'attenzione agli orari', 'medrem.recModerateMealTiming': 'Suggerimento: segnare il farmaco subito dopo i pasti',
     'medrem.recExcellent': 'Aderenza eccellente: mantenere la routine', 'medrem.recLowActivityScheduling': 'Suggerimento: pianificare il farmaco nei periodi di minore attività',
+    // --- i18n gap 3 (continuous HR, export all, misc hints) ---
+    'vitais.continuousHrHint': 'Reinvia automaticamente la richiesta di misurazione finché attivo, finché non lo disattivi', 'vitais.continuousHrStartBtn': 'Lettura continua',
+    'vitais.continuousHrStopBtn': 'Lettura continua in corso — ferma', 'vitais.measuringHint': 'Misurazione in corso…', 'vitais.secondsRemainingSuffix': 's rimanenti)',
+    'vitais.measurementDoneHint': 'Lettura completata — i valori dovrebbero essere aggiornati.',
+    'vitais.noBridgeConnectionHint': 'Nessuna connessione al bridge — collega prima il dispositivo.', 'exportar.exportAllBtn': 'Esporta tutto (CSV)',
+    'exportar.exportAllNote': 'Esporta tutto ciò che è già arrivato al bridge (senza limite di giorni) — non accelera il trasferimento di ciò che è ancora sul dispositivo, si limita a raccogliere in un unico file ciò che è già salvato localmente.',
+    'exportar.noBridgeConnectionHint': 'Nessuna connessione al bridge — impossibile esportare ora.', 'exportar.bridgeUnreachableHint': 'Impossibile contattare il bridge.',
+    'exportar.generatingCsvHint': 'Generazione CSV…', 'exportar.csvFailedPrefix': 'Non riuscito:', 'exportar.csvNoDataFallback': 'nessun dato', 'exportar.csvDownloadedHint': 'CSV scaricato.',
+    'resumo.heatmapIntensityLabel': 'Intensità di attività',
+    // --- ajuda FAQ Q8-Q16 (cobertura completa das funcionalidades) ---
+    'ajuda.faqQ8': 'Qual è la differenza tra i due profili (Paziente/Famiglia e Medico/Tecnico)?',
+    'ajuda.faqA8': 'Paziente/Famiglia vede i propri dati di routine, parametri vitali e farmaci. Medico/Tecnico gestisce più pazienti, definisce soglie cliniche, esamina le anomalie ed esporta report — viste diverse, con permessi diversi.',
+    'ajuda.faqQ9': 'Come funziona il team di assistenza e i suoi permessi?',
+    'ajuda.faqA9': 'Nelle Impostazioni, il team di assistenza elenca chi segue il paziente, ciascuno con permessi propri per vedere gli avvisi e modificare le note. Puoi invitare (simulato in questo prototipo) o rimuovere qualcuno in qualsiasi momento.',
+    'ajuda.faqQ10': 'Cosa controlla "Consenso e condivisione dei dati"?',
+    'ajuda.faqA10': 'Nelle Impostazioni, controlla se i parametri vitali, la routine e gli avvisi vengono condivisi con il team clinico — influisce solo su ciò che il browser mostra/esporta, non è applicato lato server (prototipo).',
+    'ajuda.faqQ11': 'Come vengono rilevate le anomalie nell\'area clinica?',
+    'ajuda.faqA11': 'Vengono combinate due fonti: una regola di durata (un blocco fuori dall\'intervallo previsto) e un Autoencoder LSTM che apprende lo schema abituale e segnala le deviazioni — vedi i limiti di ciascuna in Limiti di durata.',
+    'ajuda.faqQ12': 'Quali formati di esportazione esistono e quando usare ciascuno?',
+    'ajuda.faqA12': 'FHIR (JSON, formato clinico standard) e PDF (riepilogo stampabile) esportano solo ciò che è visibile in questa sessione. CSV esporta la cronologia reale salvata nel bridge — usa "Esporta tutto" per la cronologia completa già salvata, senza limite di giorni.',
+    'ajuda.faqQ13': 'Perché modificare il codice fiscale o l\'indirizzo nel profilo richiede approvazione?',
+    'ajuda.faqA13': 'Il codice fiscale e l\'indirizzo sono dati sensibili — qualsiasi modifica resta in sospeso finché il team clinico non la approva, per evitare modifiche non verificate a dati usati clinicamente.',
+    'ajuda.faqQ14': 'Come funzionano i promemoria dei farmaci e l\'analisi dell\'aderenza?',
+    'ajuda.faqA14': 'Il browser avvisa quando è ora di prendere un farmaco (finestra di ±30 min); segnarlo come assunto aggiorna l\'aderenza. L\'analisi dell\'aderenza usa questi clic reali (non i dati di esempio della cronologia di 6 giorni) per suggerire modifiche.',
+    'ajuda.faqQ15': 'Cosa significa "dati simulati" in alcuni grafici?',
+    'ajuda.faqA15': 'Diversi grafici (routine, tendenza a 7 giorni, mappa di calore settimanale) usano ancora dati di esempio, chiaramente contrassegnati come "simulato". I parametri vitali in diretta (FC/SpO₂/passi) usano già dati reali quando il bridge è connesso.',
+    'ajuda.faqQ16': 'Come cambio la lingua o il tema (chiaro/scuro)?',
+    'ajuda.faqA16': 'Il selettore della lingua si trova nella barra superiore; il pulsante del tema chiaro/scuro è proprio accanto — la scelta viene salvata in questo browser.',
   },
 };
 const LANG_NAMES = {pt:'Português', en:'English', zh:'中文', es:'Español', fr:'Français', de:'Deutsch', it:'Italiano'};
@@ -4603,10 +4803,16 @@ TEMPLATES.vitais = () => `
   <div class="card" style="padding:14px 17px;">
     <div style="display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;">
       <p class="empty-hint" id="forceReadingHint" style="padding:0; margin:0;">${t('vitais.forceReadingHint')}</p>
-      <button class="btn-secondary" id="forceReadingBtn" onclick="onForceReadingClick()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
-        ${t('vitais.measureNowBtn')}
-      </button>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn-secondary" id="forceReadingBtn" onclick="onForceReadingClick()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+          ${t('vitais.measureNowBtn')}
+        </button>
+        <button class="${continuousHrIntervalId != null ? 'btn-primary' : 'btn-secondary'}" id="continuousHrBtn" aria-pressed="${continuousHrIntervalId != null}" onclick="toggleContinuousHr()" title="${t('vitais.continuousHrHint')}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg>
+          ${continuousHrIntervalId != null ? t('vitais.continuousHrStopBtn') : t('vitais.continuousHrStartBtn')}
+        </button>
+      </div>
     </div>
   </div>
 
@@ -4853,6 +5059,17 @@ const FAQ_ITEMS = [
   { q: 'ajuda.faqQ3', a: 'ajuda.faqA3' },
   { q: 'ajuda.faqQ4', a: 'ajuda.faqA4' },
   { q: 'ajuda.faqQ5', a: 'ajuda.faqA5' },
+  { q: 'ajuda.faqQ6', a: 'ajuda.faqA6' },
+  { q: 'ajuda.faqQ7', a: 'ajuda.faqA7' },
+  { q: 'ajuda.faqQ8', a: 'ajuda.faqA8' },
+  { q: 'ajuda.faqQ9', a: 'ajuda.faqA9' },
+  { q: 'ajuda.faqQ10', a: 'ajuda.faqA10' },
+  { q: 'ajuda.faqQ11', a: 'ajuda.faqA11' },
+  { q: 'ajuda.faqQ12', a: 'ajuda.faqA12' },
+  { q: 'ajuda.faqQ13', a: 'ajuda.faqA13' },
+  { q: 'ajuda.faqQ14', a: 'ajuda.faqA14' },
+  { q: 'ajuda.faqQ15', a: 'ajuda.faqA15' },
+  { q: 'ajuda.faqQ16', a: 'ajuda.faqA16' },
 ];
 
 TEMPLATES.ajuda = () => `
@@ -5372,9 +5589,14 @@ TEMPLATES.exportar = () => `
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
         ${t('exportar.export7dBtn')}
       </button>
+      <button class="btn-secondary" onclick="exportRealCsv(EXPORT_ALL_HOURS)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+        ${t('exportar.exportAllBtn')}
+      </button>
       <span class="empty-hint" id="csvExportHint" style="margin:0;"></span>
     </div>
     <p class="empty-hint">${t('exportar.csvRequiresBridgeEmpty')}</p>
+    <p class="empty-hint">${t('exportar.exportAllNote')}</p>
   </div>
 
   <div class="card print-hide">
@@ -5791,7 +6013,7 @@ function drawHeatmap(id){
     if (!hit){ hideTip(); return; }
     showTip(e.clientX, e.clientY, `
       <div class="tt-title">${hit.day} · ${String(hit.hour).padStart(2,'0')}:00</div>
-      <div class="tt-row"><span>Intensidade de atividade</span><b>${Math.round(hit.v*100)}%</b></div>
+      <div class="tt-row"><span>${t('resumo.heatmapIntensityLabel')}</span><b>${Math.round(hit.v*100)}%</b></div>
     `);
   };
   S.cv.onmouseleave = hideTip;
@@ -5978,6 +6200,13 @@ const liveState = {
   // antigos não consumidos. Vem de DumpStatusPacket::data_loss_flag via
   // o bridge (ver handleBridgeMessage() abaixo e Ble.cpp/ble_bridge.py).
   dataLossFlag: 0,
+  // sentRecords (DumpStatusPacket::sent, via bridge): contagem cumulativa
+  // de registos já transferidos do wearable nesta sessão de ligação — não
+  // é "quantos faltam" (o firmware não expõe o tamanho do buffer em anel
+  // por BLE hoje, só via log série local), mas dá visibilidade de que a
+  // transferência está mesmo a avançar, em vez de um aviso vermelho
+  // parado sem indicação de progresso (pedido do utilizador).
+  sentRecords: null,
   // Histórico REAL agregado por dia (base de dados local do bridge, ver
   // storage.get_daily_summary), pedido sob demanda na vista "Tendência
   // semanal" — []  até chegar a primeira resposta ou se a BD ainda não
@@ -6006,11 +6235,20 @@ function renderStorageWarningBanner(){
   if (!flag) { el.style.display = 'none'; el.className = 'storage-warning-banner print-hide'; return; }
   el.className = `storage-warning-banner print-hide level-${flag}`;
   el.style.display = 'flex';
+  // Progresso ao vivo (pedido do utilizador): o firmware não expõe o
+  // tamanho do buffer em anel por BLE hoje (só em log série local), por
+  // isso não há como mostrar "faltam X registos" com precisão — mas
+  // sentRecords (contagem cumulativa desta ligação) já confirma
+  // visivelmente que a transferência está a avançar, em vez de um aviso
+  // parado sem qualquer sinal de progresso.
+  const progress = liveState.sentRecords != null
+    ? ` ${t('topbar.storageDrainProgressPrefix')} ${liveState.sentRecords.toLocaleString(currentLang)}${t('topbar.storageDrainProgressSuffix')}`
+    : '';
   el.innerHTML = flag === 2
     ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
-       <span>${t('topbar.storageFullWarning')} <a href="#" onclick="renderView('exportar'); return false;">${t('topbar.storageFullExportLink')}</a></span>`
+       <span>${t('topbar.storageFullWarning')}${progress}</span>`
     : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
-       <span>${t('topbar.storageAlmostFullWarning')} <a href="#" onclick="renderView('exportar'); return false;">${t('topbar.storageAlmostFullExportLink')}</a></span>`;
+       <span>${t('topbar.storageAlmostFullWarning')}${progress}</span>`;
 }
 
 // Atualiza a pastilha de estado do dispositivo na barra superior.
@@ -6066,6 +6304,7 @@ function handleBridgeMessage(msg){
   }
   if (msg.kind === 'status'){
     liveState.dataLossFlag = toFiniteNumber(msg.data_loss_flag) || 0;
+    liveState.sentRecords = toFiniteNumber(msg.sent_records);
     renderStorageWarningBanner();
     return;
   }
@@ -6200,6 +6439,13 @@ function sendWsCommandWithArgs(cmd, extra){
 // ok=false (falha real, não há nada por onde esperar).
 const FORCE_READING_SECONDS = 15;
 let forceReadingIntervalId = null;
+// Leitura contínua (pedido explícito do utilizador): sem mudar o firmware
+// nem o bridge, o dashboard reenvia force_reading pouco antes de cada
+// janela de 15s expirar, dando a sensação de "ligado até desligares" —
+// o firmware já limita cada pedido individual a 30s no máximo por desenho
+// (poupança de bateria, ver Ppg.cpp kManualHrMaxDurationMs), por isso
+// reenviar em vez de pedir uma janela única enorme respeita esse limite.
+let continuousHrIntervalId = null;
 
 function stopForceReadingCountdown(){
   if (forceReadingIntervalId != null){ clearInterval(forceReadingIntervalId); forceReadingIntervalId = null; }
@@ -6220,17 +6466,51 @@ function startForceReadingCountdown(){
   stopForceReadingCountdown();
   const hint = document.getElementById('forceReadingHint');
   let remaining = FORCE_READING_SECONDS;
-  const render = () => { if (hint) hint.textContent = `A medir… (~${remaining}s restantes)`; };
+  const render = () => { if (hint) hint.textContent = `${t('vitais.measuringHint')} (~${remaining}${t('vitais.secondsRemainingSuffix')})`; };
   if (hint) hint.style.color = '';
   render();
   forceReadingIntervalId = setInterval(() => {
     remaining -= 1;
     if (remaining <= 0){
-      finishForceReadingCountdown('Leitura concluída — os valores devem estar atualizados.', false);
+      if (continuousHrIntervalId != null){
+        // Em modo contínuo, o próprio toggleContinuousHr() já vai reenviar
+        // o pedido a seguir — não mostrar "concluído" só para ser
+        // imediatamente substituído por "a medir" outra vez.
+        stopForceReadingCountdown();
+        return;
+      }
+      finishForceReadingCountdown(t('vitais.measurementDoneHint'), false);
       return;
     }
     render();
   }, 1000);
+}
+
+function toggleContinuousHr(){
+  const btn = document.getElementById('continuousHrBtn');
+  const hint = document.getElementById('forceReadingHint');
+  const forceBtn = document.getElementById('forceReadingBtn');
+  if (continuousHrIntervalId != null){
+    clearInterval(continuousHrIntervalId);
+    continuousHrIntervalId = null;
+    stopForceReadingCountdown();
+    if (btn){ btn.className = 'btn-secondary'; btn.setAttribute('aria-pressed', 'false'); btn.textContent = ''; btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg> ${t('vitais.continuousHrStartBtn')}`; }
+    if (forceBtn) forceBtn.disabled = false;
+    if (hint){ hint.style.color = ''; hint.textContent = t('vitais.forceReadingHint'); }
+    return;
+  }
+  if (!liveState.connected){
+    if (hint){ hint.style.color = 'var(--status-warning)'; hint.textContent = t('vitais.noBridgeConnectionHint'); }
+    return;
+  }
+  const fire = () => {
+    sendWsCommand('force_reading');
+    startForceReadingCountdown();
+  };
+  if (btn){ btn.className = 'btn-primary'; btn.setAttribute('aria-pressed', 'true'); btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg> ${t('vitais.continuousHrStopBtn')}`; }
+  if (forceBtn) forceBtn.disabled = true;
+  fire();
+  continuousHrIntervalId = setInterval(fire, (FORCE_READING_SECONDS - 1) * 1000);
 }
 
 function resetPendingCommandButtons(){
@@ -6422,28 +6702,33 @@ function downloadCsvText(filenamePrefix, csvText){
    Diferente do FHIR/PDF acima (que só cobre o que está visível nesta
    sessão): isto pede ao bridge o histórico real persistido em disco.
 ------------------------------------------------------------ */
+// 87600h = 10 anos — não há "sem limite" real na API (hours é sempre um
+// filtro de corte), por isso usa-se um valor grande o suficiente para
+// cobrir qualquer instalação real deste protótipo como proxy de "tudo".
+const EXPORT_ALL_HOURS = 87600;
+
 function exportRealCsv(hours){
   const hint = document.getElementById('csvExportHint');
   if (!liveState.connected && !(bridgeWs && bridgeWs.readyState === WebSocket.OPEN)){
-    if (hint){ hint.style.color = 'var(--status-warning)'; hint.textContent = 'Sem ligação ao bridge — não é possível exportar agora.'; }
+    if (hint){ hint.style.color = 'var(--status-warning)'; hint.textContent = t('exportar.noBridgeConnectionHint'); }
     return;
   }
   const sent = sendWsCommandWithArgs('export_csv', { hours });
   if (!sent){
-    if (hint){ hint.style.color = 'var(--status-warning)'; hint.textContent = 'Não foi possível contactar o bridge.'; }
+    if (hint){ hint.style.color = 'var(--status-warning)'; hint.textContent = t('exportar.bridgeUnreachableHint'); }
     return;
   }
-  if (hint){ hint.style.color = ''; hint.textContent = 'A gerar CSV…'; }
+  if (hint){ hint.style.color = ''; hint.textContent = t('exportar.generatingCsvHint'); }
 }
 
 function handleCsvExportResult(msg){
   const hint = document.getElementById('csvExportHint');
   if (msg.error || !msg.csv){
-    if (hint){ hint.style.color = 'var(--status-warning)'; hint.textContent = `Falhou: ${msg.error || 'sem dados'}.`; }
+    if (hint){ hint.style.color = 'var(--status-warning)'; hint.textContent = `${t('exportar.csvFailedPrefix')} ${msg.error || t('exportar.csvNoDataFallback')}.`; }
     return;
   }
   downloadCsvText('carewear-dados-reais', msg.csv);
-  if (hint){ hint.style.color = 'var(--status-good)'; hint.textContent = 'CSV descarregado.'; }
+  if (hint){ hint.style.color = 'var(--status-good)'; hint.textContent = t('exportar.csvDownloadedHint'); }
 }
 
 /* ------------------------------------------------------------

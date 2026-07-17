@@ -4475,3 +4475,39 @@ dump é estritamente FIFO (mais antigo primeiro), sem forma de "saltar para o ma
 utilização real, um cuidador a pedir "medir agora" podia esperar dezenas de segundos a minutos só
 por causa deste backlog, não por o sensor ser lento. Recomendação para sessão futura: dar
 prioridade aos registos com PPG válido no dump, ou um modo de dump que salte para o fim da fila.
+
+## Melhorias de UX pedidas durante os testes de hardware (2026-07-17)
+
+**Leitura contínua de FC/SpO₂** (vista Sinais vitais): botão "Leitura contínua" reenvia
+`force_reading` automaticamente a cada ~14s enquanto ligado, sem mudar firmware nem bridge — só
+reaproveita o comando já existente, respeitando o limite de 30s por pedido já imposto pelo
+firmware (poupança de bateria). Desativa o botão manual "Medir agora" enquanto ativo, e desliga-se
+sozinho se a ligação ao bridge cair. Verificado com Playwright: liga/desliga corretamente,
+respeita o aviso "sem ligação" quando desligado do bridge.
+
+**Aviso de armazenamento corrigido** (banner vermelho "wearable cheio"): o texto anterior sugeria
+"Exportar o que resta" como solução — mas a exportação CSV lê da BD do bridge (já em segurança),
+não acelera a transferência do que ainda está na flash do dispositivo (limitada pela largura de
+banda do BLE, ~54-250 registos/s, ver achado acima). Mensagem corrigida para explicar o que
+ajuda de verdade (manter o bridge ligado) e mostrar progresso ao vivo (`sent_records` do
+`DumpStatusPacket`, já recebido pelo bridge mas antes não mostrado) — não é uma contagem exata de
+"quanto falta" (o firmware não expõe o tamanho do ring buffer por BLE), mas confirma visivelmente
+que a transferência está a avançar.
+
+**Botão "Exportar tudo" (CSV)**: reaproveita `export_csv`/`storage.export_records_csv()` com um
+valor de `hours` grande (87600 = 10 anos) como proxy de "sem limite de dias", já que a API não
+tinha um modo "tudo" dedicado — não precisou de alterações ao bridge.
+
+**Página de Ajuda revista de cima a baixo** (pedido explícito do utilizador, não só as
+funcionalidades desta sessão): FAQ passa de 5 para 16 perguntas, cobrindo o lançador de um clique,
+leitura contínua, escalonamento de emergência, diferença entre perfis, equipa de cuidadores,
+consentimento de partilha, deteção de anomalias, formatos de exportação, aprovação de NIF/morada,
+lembretes de medicação/análise de adesão, dados simulados vs. reais, e idioma/tema.
+
+**Pendente, âmbito grande demais para esta sessão**: internacionalizar o conteúdo dos alertas/
+anomalias de exemplo (`PATIENTS[i].alerts`/`anomalyLog` em `index.html`) — título, descrição e
+explicação longa ("plain") de cada alerta estão hardcoded em português, em vários pacientes.
+Âmbito comparável à conversão i18n original das 14 vistas (título+descrição+explicação por
+alerta × vários alertas × 3 pacientes). Cores do heatmap semanal (rampa de um único tom, difícil
+de distinguir) e um indicador mais claro de "como ligar" quando o bridge está desligado também
+ficam identificados, por tratar a seguir.
