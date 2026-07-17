@@ -3568,6 +3568,19 @@ function fillRecurringTimes(intervalHours){
   timesEl.value = times.join(', ');
 }
 
+// BUG CORRIGIDO (2026-07-17, reportado pelo utilizador): o botão
+// "Aplicar intervalo" chamava fillRecurringTimesCustom(), que nunca
+// chegou a ser definida — clicar não fazia nada (erro silencioso na
+// consola, sem alerta visível). Lê #newMedCustomInterval e reutiliza a
+// mesma lógica de fillRecurringTimes(), igual aos presets fixos acima.
+function fillRecurringTimesCustom(){
+  const intervalEl = document.getElementById('newMedCustomInterval');
+  if (!intervalEl) return;
+  const interval = Number(intervalEl.value);
+  if (!Number.isFinite(interval) || interval < 1 || interval > 24) return;
+  fillRecurringTimes(interval);
+}
+
 function addMedicationForPatient(){
   const nameEl = document.getElementById('newMedName');
   const doseEl = document.getElementById('newMedDose');
