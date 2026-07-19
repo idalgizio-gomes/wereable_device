@@ -4617,3 +4617,46 @@ esquemático, e se existe algum módulo GPS externo ligado à placa. Resposta a 
 sabe ao certo**. Decisão: continuam FORA do trabalho ativo — não vale a pena escrever código de
 NFC/GPS para hardware cuja existência não está confirmada. Retomar assim que houver confirmação
 (ex. inspeção física do esquemático/placa pelo utilizador).
+
+## Fase 5 — notifications.py ligado ao bridge (SMS/email de emergência reais) (2026-07-17)
+
+`bridge/notifications.py` (construído mais cedo nesta sessão, com 17 testes, mas nunca chamado
+de nenhum lado real) está agora ligado a `bridge/ble_bridge.py`: quando chega um alerta de
+emergência REAL do wearable (SOS manual ou queda+inatividade confirmada, via
+`emergencyAlertChar`), `_dispatch_emergency_notifications()` aciona o `EscalationManager` como
+uma `asyncio.create_task` SEPARADA do broadcast ao dashboard — o envio de SMS/email nunca pode
+atrasar/bloquear o dashboard a ver o alerta, mesmo que a Twilio/SendGrid estejam lentas, em
+baixo, ou nem configuradas (falha isolada, só regista aviso no log).
+
+**Configuração** (variáveis de ambiente, mesmo padrão de `CAREWEAR_AES_KEY_HEX`/`CAREWEAR_WS_TLS`
+— documentadas inline nos ficheiros que as leem):
+- `bridge/notifications.py`: `CAREWEAR_TWILIO_ACCOUNT_SID`, `CAREWEAR_TWILIO_AUTH_TOKEN`,
+  `CAREWEAR_TWILIO_FROM_NUMBER` (SMS), `CAREWEAR_SENDGRID_API_KEY`, `CAREWEAR_NOTIFY_FROM_EMAIL`
+  (email), `CAREWEAR_ESCALATION_TIMEOUT_MIN` (default 10 min).
+- `bridge/ble_bridge.py`: `CAREWEAR_CAREGIVER_NAME`/`_PHONE`/`_EMAIL` (cuidador principal),
+  `CAREWEAR_EMERGENCY_CONTACT_NAME`/`_PHONE`/`_EMAIL` (contacto de emergência — uma PESSOA, nunca
+  um serviço de emergência real), `CAREWEAR_CAREGIVER_SCHEDULE_JSON` (horário declarado de
+  indisponibilidade do cuidador, formato `[{"weekday":0-6,"start":"HH:MM","end":"HH:MM"}]`).
+- Sem nenhuma destas variáveis, o bridge continua a funcionar normalmente — só não notifica
+  ninguém fora do dashboard (aviso único no arranque).
+
+**Confirmação da restrição do 112 (não negociável, decidida explicitamente pelo utilizador
+nesta sessão)**: nenhum caminho de código contacta o 112 ou qualquer serviço de emergência real
+automaticamente. `EscalationManager.notify_emergency()` só envia SMS/email ao(s) cuidador(es) e,
+se o alerta cair dentro do horário declarado de indisponibilidade do cuidador e não for
+confirmado (`acknowledge_alert`, novo comando WS) dentro do timeout, uma mensagem MAIS URGENTE ao
+contacto de emergência — que é sempre uma pessoa (vizinho/familiar), e a própria mensagem de
+escalonamento apenas SUGERE à pessoa "considera ligar já para o 112", nunca automatiza essa
+chamada.
+
+**Gap encontrado e corrigido**: `bridge/notifications.py` importa `sendgrid` (import tardio,
+dentro de `send_email()`, só quando `CAREWEAR_SENDGRID_API_KEY` está definida), mas o pacote
+não estava listado em `bridge/requirements_db.txt` — só `twilio` lá estava. Sem isto, quem
+configurasse as variáveis de email esperando que funcionasse ia ter o envio a falhar em
+silêncio (erro capturado e só registado no log, nunca rebenta o bridge, mas o email nunca saía).
+Corrigido adicionando `sendgrid>=6.11.0` ao lado do `twilio>=8.10.0` já existente.
+
+**Verificação**: suite completa `pytest bridge/tests/` — 115 passed (104 anteriores + 11 novos
+testes em `bridge/tests/test_ble_bridge_notifications.py`, cobrindo o disparo do alerta real, o
+comando `acknowledge_alert`, e que uma falha em `notifications.py` nunca impede o broadcast ao
+dashboard); `python -m py_compile` sobre `ble_bridge.py`/`notifications.py`.

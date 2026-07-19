@@ -25,8 +25,18 @@ click>=8.1.0  # Command-line interface
 python-dotenv>=1.0.0  # Variáveis de ambiente (.env)
 pytz>=2023.3  # Timezones
 
-# Notificações externas (futura integração)
-twilio>=8.10.0  # SMS/email/push
+# Notificações externas de emergência (ver bridge/notifications.py, wiring em
+# ble_bridge.py::_dispatch_emergency_notifications, 2026-07-17) — ambos os
+# imports são tardios (só dentro de send_sms()/send_email(), quando as
+# credenciais correspondentes estão configuradas), por isso `import
+# ble_bridge` nunca falha por falta destes pacotes; mas para as notificações
+# funcionarem DE FACTO (não só degradar com aviso no log) precisam de estar
+# instalados.
+twilio>=8.10.0  # SMS (Twilio)
+sendgrid>=6.11.0  # Email (SendGrid, também da Twilio) — estava em falta aqui
+    # apesar de bridge/notifications.py já o importar; sem isto, EmergencyContact
+    # com email configurado falhava silenciosamente (erro capturado e só
+    # registado no log, nunca rebenta o bridge — mas o email nunca saía).
 pydantic>=2.0.0  # Validação de dados
 
 # API REST somente-leitura sobre as queries analíticas (bridge/api.py, 2026-07-07)
