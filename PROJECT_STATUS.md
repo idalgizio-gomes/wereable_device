@@ -4723,3 +4723,31 @@ o texto e o tooltip do chip da topbar (traduzido nas 7 línguas, `topbar.battery
 (`applyI18n()`). Testado com Playwright: estado inicial, valor recebido, caso `percent=0`
 (bateria vazia mostra corretamente "0%", não "—" — bug clássico de usar verdade/falsidade em vez
 de `!= null`), e troca de idioma. `pytest bridge/tests/` continua 115/115 após a alteração.
+
+## CSP parcial adicionada ao dashboard (2026-07-19)
+
+Até agora não existia NENHUMA Content-Security-Policy — nem `<meta>` nem cabeçalho (registado em
+SECURITY_STATUS.md como decisão pendente). Avaliado o âmbito de remover `unsafe-inline` por
+completo: exigiria mover ~6300 linhas de `<script>` inline para ficheiro(s) externo(s) e
+converter 76 handlers `onclick`/`onchange` inline espalhados por todas as vistas para
+`addEventListener` — uma refatoração de fundo que tocaria em literalmente todos os botões da
+aplicação, com risco real de partir algo silenciosamente numa vista pouco testada, e incerteza
+sobre como `script-src 'self'` se comporta a carregar `demo-data.js`/`medication-reminders.js`
+via `file://` (sem servidor, como o lançador usa hoje) em todos os browsers.
+
+**Decisão do utilizador (perguntado diretamente)**: CSP parcial agora, sem o refactor de risco.
+Adicionado `<meta http-equiv="Content-Security-Policy">` a `web/dashboard/index.html`:
+`default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';
+img-src 'self'; connect-src ws://localhost:8765 wss://localhost:8765; base-uri 'none';
+form-action 'none'; object-src 'none'`. Mantém `'unsafe-inline'` (nenhum botão muda de
+comportamento), mas já bloqueia: plugins/objetos, submissão de forms para fora, mudar a base de
+URLs relativas, e carregar qualquer recurso que não seja ficheiro local deste diretório ou o
+WebSocket do bridge. `frame-ancestors` deixado de fora deliberadamente — só funciona em
+cabeçalho HTTP real, é ignorado (com aviso) via `<meta>`, não há servidor aqui.
+
+**Verificação**: testado com Playwright via `file://` (mesmo protocolo do lançador) — carregamento
+de `demo-data.js`/`medication-reminders.js`, navegação entre as 8 vistas principais, clique real
+(não simulado) em `themeToggleBtn` e `bleToggleBtn`, troca de idioma, FAQ (16 itens gerados
+dinamicamente com `onclick` embutido), vistas de exportação/emergências — **0 violações de CSP,
+0 erros**. O refactor completo (remover `unsafe-inline`) fica registado em SECURITY_STATUS.md
+como trabalho futuro, não decidido para já.

@@ -1,5 +1,18 @@
 <!DOCTYPE html>
 <meta charset="UTF-8">
+<!-- CSP parcial (2026-07-19, ver SECURITY_STATUS.md) — mantém
+     'unsafe-inline' em script-src porque o dashboard ainda tem lógica em
+     <script> inline e handlers onclick="..." espalhados pelas vistas
+     (refactor de fundo, decisão maior, não feito aqui); mas já bloqueia o
+     resto: sem plugins/objetos, sem submissão de forms para fora, sem
+     carregar nada que não seja ficheiro local deste diretório ou o
+     WebSocket do bridge (ws/wss://localhost:8765, ver WS_URL mais abaixo
+     no <script>). NOTA: 'frame-ancestors' fica de fora de propósito — só
+     tem efeito num cabeçalho HTTP real, é ignorado (com aviso na consola)
+     quando definido via <meta>, e este ficheiro é servido estaticamente
+     sem servidor/cabeçalhos — incluí-lo aqui só geraria ruído sem
+     proteção real. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src ws://localhost:8765 wss://localhost:8765; base-uri 'none'; form-action 'none'; object-src 'none'">
 <title>CareWear · Monitorização de Rotina</title>
 <style>
   :root{

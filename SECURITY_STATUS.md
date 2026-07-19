@@ -1479,19 +1479,22 @@ riscos reais encontrados foram corrigidos). Os pontos abaixo ficam
 registados como propostas para uma rotina futura dedicada a esse eixo,
 conforme "Critérios para terminar sem alterações":
 
-- **CSP**: não existe `Content-Security-Policy` (nem `<meta
-  http-equiv="Content-Security-Policy">`, nem cabeçalho — o ficheiro é
-  servido estaticamente). Proposta: `default-src 'none'; script-src
-  'self'; style-src 'self' 'unsafe-inline'; connect-src ws://localhost:8765
-  wss://localhost:8765; img-src 'self' data:; base-uri 'none';
-  form-action 'none'`. **Trade-off a decidir**: o ficheiro usa `<script>`
-  inline (o próprio código da aplicação, não só handlers) e vários
-  `onclick="..."` inline espalhados pelas vistas — uma CSP sem
-  `'unsafe-inline'` em `script-src` exigiria mover todo o JS inline para
-  ficheiro(s) externo(s) e substituir todos os `onclick` por
-  `addEventListener` (o padrão já usado na correção de FE-001). É uma
-  refatoração de fundo, não um patch pontual — decisão maior a tomar
-  numa rotina própria.
+- **CSP — PARCIAL, implementada em 2026-07-19** (ver PROJECT_STATUS.md, secção "CSP parcial
+  adicionada"): `<meta http-equiv="Content-Security-Policy">` com `default-src 'none';
+  script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self';
+  connect-src ws://localhost:8765 wss://localhost:8765; base-uri 'none'; form-action 'none';
+  object-src 'none'`. Decisão explícita do utilizador (perguntado diretamente): manter
+  `'unsafe-inline'` em `script-src` por agora — o ficheiro ainda tem `<script>` inline (o
+  próprio código da aplicação) e ~76 `onclick`/`onchange` inline espalhados pelas vistas;
+  removê-lo exigiria mover todo o JS inline para ficheiro(s) externo(s) e substituir todos os
+  handlers por `addEventListener`, uma refatoração de fundo de alto risco (tocaria
+  literalmente em todos os botões da app) que fica registada como trabalho futuro, não feita
+  aqui. O que a CSP parcial já bloqueia: plugins/objetos (`object-src 'none'`), submissão de
+  forms para fora (`form-action 'none'`), mudar a base de URLs relativas (`base-uri 'none'`), e
+  carregar qualquer recurso (script/imagem/estilo) que não seja ficheiro local deste diretório
+  ou o WebSocket do próprio bridge. `frame-ancestors` foi deliberadamente deixado de fora — só
+  tem efeito num cabeçalho HTTP real, é ignorado (com aviso) via `<meta>`, e este ficheiro não
+  tem servidor/cabeçalhos.
 - **Clickjacking**: sem `X-Frame-Options`/`frame-ancestors` (não
   aplicável a um ficheiro aberto localmente sem servidor; relevante se o
   dashboard alguma vez for servido por um servidor real).
