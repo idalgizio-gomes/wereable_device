@@ -150,6 +150,13 @@ UUID_DUMP_CTRL = "abcd1234-5678-1234-5678-abcdef200001"
 UUID_DUMP_DATA = "abcd1234-5678-1234-5678-abcdef200002"
 UUID_DUMP_STATUS = "abcd1234-5678-1234-5678-abcdef200003"
 UUID_EMERGENCY_ALERT = "abcd1234-5678-1234-5678-abcdef200004"
+# Battery Level (0x2A19) — Battery Service padrão do Bluetooth SIG (0x180F),
+# publicada pelo firmware via Ble::updateBatteryLevel()/BLEBas (ver
+# Battery.h/Ble.cpp, 2026-07-19). UUID padrão, não um dos "abcd1234..."
+# próprios deste projeto — só existe em firmwares atualizados a partir
+# dessa data; subscrever é sempre feito em modo tolerante a falha (ver
+# abaixo), para não quebrar a ligação com firmware mais antigo.
+UUID_BATTERY_LEVEL = "00002a19-0000-1000-8000-00805f9b34fb"
 
 DUMP_CTRL_START = bytes([0x01])
 DUMP_CTRL_STOP = bytes([0x02])
@@ -849,6 +856,19 @@ class BleBridge:
             "seq": seq, "sent_records": sent, "acked_records": acked,
         }))
 
+    def _on_battery_level(self, _char: BleakGATTCharacteristic, data: bytearray) -> None:
+        """Callback de notificação da Battery Level (0x2A19, Battery
+        Service 0x180F padrão) — 1 byte, 0-100 (ver Ble::updateBatteryLevel()
+        em src/Ble/Ble.cpp, publicada a cada 60s pelo firmware). Percentagem
+        aproximada, não uma leitura de precisão — ver PROJECT_STATUS.md,
+        secção "Nível de bateria reportado por BLE"."""
+        if not data:
+            return
+        percent = data[0]
+        if percent > 100:
+            return  # valor implausível — ignora em vez de mostrar lixo
+        asyncio.create_task(self.broadcast({"kind": "battery", "percent": percent}))
+
     def _on_emergency_alert(self, _char: BleakGATTCharacteristic, data: bytearray) -> None:
         """Callback de notificação de emergencyAlertChar — disparada pelo
         módulo firmware Emergency ao confirmar um SOS manual (3 cliques)
@@ -981,6 +1001,19 @@ class BleBridge:
                         await client.start_notify(UUID_EMERGENCY_ALERT, self._on_emergency_alert)
                     except Exception as exc:  # noqa: BLE001 - nao bloqueia o resto da ligacao
                         print(f"[BRIDGE] nao foi possivel subscrever emergencyAlertChar: {exc}")
+                    # Battery Level (0x2A19) — so existe em firmware a partir de
+                    # 2026-07-19 (ver Battery.h/Ble.cpp); tolerante a falha para
+                    # nao quebrar a ligacao com firmware mais antigo que ainda
+                    # nao publica este servico. Le o valor atual de imediato
+                    # (nao espera pela primeira notificacao periodica do
+                    # firmware, que so' acontece 60s depois de ligar) e depois
+                    # subscreve para as atualizacoes seguintes.
+                    try:
+                        initial_battery = await client.read_gatt_char(UUID_BATTERY_LEVEL)
+                        self._on_battery_level(None, initial_battery)
+                        await client.start_notify(UUID_BATTERY_LEVEL, self._on_battery_level)
+                    except Exception as exc:  # noqa: BLE001 - nao bloqueia o resto da ligacao
+                        print(f"[BRIDGE] nivel de bateria indisponivel (normal em firmware antigo): {exc}")
 
                     # Pede explicitamente o inicio do streaming (o
                     # firmware so aceita este comando em modo de dados —

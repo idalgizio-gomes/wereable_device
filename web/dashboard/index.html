@@ -792,7 +792,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22v-5M9 8V2M15 8V2M18 8v3a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8z"/></svg>
           <span id="bleToggleBtnText" data-i18n="topbar.bleDisconnect">Desligar da placa</span>
         </button>
-        <div class="battery-chip" title="O firmware ainda não reporta nível de bateria">
+        <div class="battery-chip" id="batteryChip">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="18" height="10" rx="2"/><path d="M22 10v4" stroke-linecap="round"/></svg>
           <span class="tabular" id="batteryText">—</span>
         </div>
@@ -915,6 +915,8 @@ const I18N = {
     'topbar.pausedManual': 'Ligação BLE desligada manualmente',
     'topbar.bleConnect': 'Ligar à placa', 'topbar.bleDisconnect': 'Desligar da placa',
     'topbar.bleToggleHint': "Desliga a ligação Bluetooth ao wearable sem fechar o bridge — útil para libertar a placa para gravar firmware ou usar outra ferramenta",
+    'topbar.batteryUnknown': 'Nível de bateria ainda não recebido do wearable',
+    'topbar.batteryTitle': "Bateria do wearable: {pct}% (estimativa aproximada)",
     'help.title': 'Ajuda & sobre', 'help.faqTitle': 'Perguntas frequentes', 'help.devTitle': 'Sobre o projeto',
     'alert.explainShow': 'O que significa isto?', 'alert.explainHide': 'Esconder explicação',
     'definicoes.alertPrefsTitle': 'Preferências de alertas',
@@ -1202,6 +1204,8 @@ const I18N = {
     'topbar.pausedManual': 'BLE connection manually disconnected',
     'topbar.bleConnect': 'Connect to device', 'topbar.bleDisconnect': 'Disconnect from device',
     'topbar.bleToggleHint': "Disconnects the Bluetooth link to the wearable without closing the bridge — useful to free the device for firmware flashing or another tool",
+    'topbar.batteryUnknown': 'Battery level not yet received from the wearable',
+    'topbar.batteryTitle': "Wearable battery: {pct}% (rough estimate)",
     'help.title': 'Help & about', 'help.faqTitle': 'Frequently asked questions', 'help.devTitle': 'About this project',
     'alert.explainShow': 'What does this mean?', 'alert.explainHide': 'Hide explanation',
     'definicoes.alertPrefsTitle': 'Alert preferences',
@@ -1463,6 +1467,8 @@ const I18N = {
     'topbar.pausedManual': 'BLE 连接已手动断开',
     'topbar.bleConnect': '连接设备', 'topbar.bleDisconnect': '断开设备连接',
     'topbar.bleToggleHint': '断开与可穿戴设备的蓝牙连接，但不关闭网桥 —— 便于将设备释放给固件烧录等其他工具使用',
+    'topbar.batteryUnknown': '尚未收到穿戴设备的电量',
+    'topbar.batteryTitle': '穿戴设备电量：{pct}%（粗略估计）',
     'help.title': '帮助与关于', 'help.faqTitle': '常见问题', 'help.devTitle': '关于本项目',
     'alert.explainShow': '这是什么意思？', 'alert.explainHide': '隐藏说明',
     'definicoes.alertPrefsTitle': '警报偏好设置',
@@ -1660,6 +1666,8 @@ const I18N = {
     'topbar.pausedManual': 'Conexión BLE desconectada manualmente',
     'topbar.bleConnect': 'Conectar al dispositivo', 'topbar.bleDisconnect': 'Desconectar del dispositivo',
     'topbar.bleToggleHint': "Desconecta el enlace Bluetooth al wearable sin cerrar el bridge — útil para liberar el dispositivo para grabar firmware u otra herramienta",
+    'topbar.batteryUnknown': 'Nivel de batería aún no recibido del wearable',
+    'topbar.batteryTitle': "Batería del wearable: {pct}% (estimación aproximada)",
     'help.title': 'Ayuda y acerca de', 'help.faqTitle': 'Preguntas frecuentes', 'help.devTitle': 'Acerca del proyecto',
     'alert.explainShow': '¿Qué significa esto?', 'alert.explainHide': 'Ocultar explicación',
     'definicoes.alertPrefsTitle': 'Preferencias de alertas',
@@ -1928,6 +1936,8 @@ const I18N = {
     'topbar.pausedManual': 'Connexion BLE déconnectée manuellement',
     'topbar.bleConnect': "Connecter à l'appareil", 'topbar.bleDisconnect': "Déconnecter de l'appareil",
     'topbar.bleToggleHint': "Déconnecte la liaison Bluetooth au wearable sans fermer le bridge — utile pour libérer l'appareil afin de flasher un firmware ou un autre outil",
+    'topbar.batteryUnknown': "Niveau de batterie pas encore reçu du wearable",
+    'topbar.batteryTitle': "Batterie du wearable : {pct} % (estimation approximative)",
     'help.title': 'Aide et à propos', 'help.faqTitle': 'Questions fréquentes', 'help.devTitle': 'À propos du projet',
     'alert.explainShow': 'Qu\'est-ce que cela signifie ?', 'alert.explainHide': 'Masquer l\'explication',
     'definicoes.alertPrefsTitle': 'Préférences d’alertes',
@@ -2201,6 +2211,8 @@ const I18N = {
     'topbar.pausedManual': 'BLE-Verbindung manuell getrennt',
     'topbar.bleConnect': 'Mit Gerät verbinden', 'topbar.bleDisconnect': 'Von Gerät trennen',
     'topbar.bleToggleHint': "Trennt die Bluetooth-Verbindung zum Wearable, ohne die Bridge zu schließen — nützlich, um das Gerät für Firmware-Flashing oder ein anderes Tool freizugeben",
+    'topbar.batteryUnknown': 'Akkustand noch nicht vom Wearable empfangen',
+    'topbar.batteryTitle': "Wearable-Akku: {pct}% (grobe Schätzung)",
     'help.title': 'Hilfe & Über', 'help.faqTitle': 'Häufige Fragen', 'help.devTitle': 'Über dieses Projekt',
     'alert.explainShow': 'Was bedeutet das?', 'alert.explainHide': 'Erklärung ausblenden',
     'definicoes.alertPrefsTitle': 'Alarm-Einstellungen',
@@ -2469,6 +2481,8 @@ const I18N = {
     'topbar.pausedManual': 'Connessione BLE disconnessa manualmente',
     'topbar.bleConnect': 'Connetti al dispositivo', 'topbar.bleDisconnect': 'Disconnetti dal dispositivo',
     'topbar.bleToggleHint': "Disconnette il collegamento Bluetooth al wearable senza chiudere il bridge — utile per liberare il dispositivo per il flashing del firmware o un altro strumento",
+    'topbar.batteryUnknown': 'Livello della batteria non ancora ricevuto dal wearable',
+    'topbar.batteryTitle': "Batteria del wearable: {pct}% (stima approssimativa)",
     'help.title': 'Aiuto e informazioni', 'help.faqTitle': 'Domande frequenti', 'help.devTitle': 'Informazioni sul progetto',
     'alert.explainShow': 'Cosa significa?', 'alert.explainHide': 'Nascondi spiegazione',
     'definicoes.alertPrefsTitle': 'Preferenze di avviso',
@@ -2770,6 +2784,7 @@ function applyI18n(){
   // já rastreia isto corretamente para qualquer vista, incluindo as que não têm nav-item.
   if (currentView && document.getElementById('view-app').classList.contains('active')) renderView(currentView);
   updateDeviceStatusUI();
+  updateBatteryUI();
   updateLiveEmergencyBanner();
 }
 
@@ -6387,6 +6402,11 @@ const liveState = {
   // transferência está mesmo a avançar, em vez de um aviso vermelho
   // parado sem indicação de progresso (pedido do utilizador).
   sentRecords: null,
+  // Nível de bateria (0-100, ver Battery Service BLE padrão 0x180F/0x2A19,
+  // firmware a partir de 2026-07-19) — null até chegar a primeira leitura.
+  // Ao contrário de hr/spo2, não se reinicia ao perder a ligação: é o
+  // último valor conhecido, não um valor "ao vivo" sensível a segundos.
+  batteryPercent: null,
   // Histórico REAL agregado por dia (base de dados local do bridge, ver
   // storage.get_daily_summary), pedido sob demanda na vista "Tendência
   // semanal" — []  até chegar a primeira resposta ou se a BD ainda não
@@ -6465,6 +6485,17 @@ function updateBleToggleUI(){
   btnText.textContent = enabled ? t('topbar.bleDisconnect') : t('topbar.bleConnect');
 }
 
+// Atualiza o chip de bateria da topbar (ver liveState.batteryPercent,
+// preenchido a partir de handleBridgeMessage ao receber {kind:'battery'}).
+function updateBatteryUI(){
+  const text = document.getElementById('batteryText');
+  const chip = document.getElementById('batteryChip');
+  if (!text || !chip) return;
+  const pct = liveState.batteryPercent;
+  text.textContent = pct != null ? `${pct}%` : '—';
+  chip.title = pct != null ? t('topbar.batteryTitle', {pct}) : t('topbar.batteryUnknown');
+}
+
 function toggleBleConnection(){
   const nextEnabled = liveState.blePaused; // estava pausado -> vamos ligar
   const sent = sendWsCommandWithArgs('set_ble_enabled', {enabled: nextEnabled});
@@ -6518,6 +6549,11 @@ function handleBridgeMessage(msg){
     liveState.dataLossFlag = toFiniteNumber(msg.data_loss_flag) || 0;
     liveState.sentRecords = toFiniteNumber(msg.sent_records);
     renderStorageWarningBanner();
+    return;
+  }
+  if (msg.kind === 'battery'){
+    liveState.batteryPercent = toFiniteNumber(msg.percent);
+    updateBatteryUI();
     return;
   }
   if (msg.kind === 'emergency_alert'){

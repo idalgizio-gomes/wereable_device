@@ -4706,3 +4706,20 @@ Sem upload nem acesso à porta série (placa não estava disponível).
 para ler a characteristic padrão 0x2A19 (1 byte, 0-100) do serviço 0x180F e reencaminhar o valor
 ao dashboard, que já tem o elemento `#batteryText`/`.battery-chip` pronto a receber o dado — só
 falta o wiring bridge→dashboard, sem alterações de firmware necessárias para isso.
+
+## Bateria — bridge e dashboard ligados à characteristic 0x2A19 (2026-07-19)
+
+Fecha o "próximo passo" da secção anterior, sem tocar em firmware. `bridge/ble_bridge.py`: nova
+constante `UUID_BATTERY_LEVEL` (0x2A19 padrão), lê o valor imediatamente ao ligar (`read_gatt_char`,
+para não esperar os 60s até à primeira notificação periódica do firmware) e depois subscreve
+(`start_notify`) para as atualizações seguintes; tolerante a falha (firmware anterior a
+2026-07-19 não tem este serviço — a ligação continua normalmente, só sem nível de bateria).
+Broadcast ao dashboard como `{"kind":"battery","percent":N}`.
+
+`web/dashboard/index.html`: `liveState.batteryPercent` (não reiniciado ao perder a ligação —
+último valor conhecido, ao contrário de FC/SpO2 que são "ao vivo"), `updateBatteryUI()` atualiza
+o texto e o tooltip do chip da topbar (traduzido nas 7 línguas, `topbar.batteryTitle`/
+`batteryUnknown`), chamada tanto ao chegar um valor novo como ao mudar de idioma
+(`applyI18n()`). Testado com Playwright: estado inicial, valor recebido, caso `percent=0`
+(bateria vazia mostra corretamente "0%", não "—" — bug clássico de usar verdade/falsidade em vez
+de `!= null`), e troca de idioma. `pytest bridge/tests/` continua 115/115 após a alteração.
