@@ -45,6 +45,7 @@
 #include "Lora/Lora.h"                 // Rádio LoRa Wio-SX1262 (experimental — ver Lora.h)
 #include "Emergency/Emergency.h"       // Deteção de emergência: SOS manual + queda/inatividade (ver Emergency.h)
 #include "Nfc/Nfc.h"                   // NFC — preparação, antena ainda por confirmar (ver Nfc.h)
+#include "Battery/Battery.h"           // Nível de bateria via ADC (ver Battery.h para proveniência do pinout — UNVALIDADO em hardware real)
 
 // ============================================================
 // FLAGS DE CONFIGURAÇÃO (interruptores para ligar/desligar comportamentos)
@@ -798,6 +799,16 @@ void initNfc() {
   Serial.println("[NFC] ativo");
 }
 
+// BATERIA — configura os pinos usados para medir a tensao da bateria (ver
+// Battery.h para a proveniencia do pinout desta placa especifica e o que
+// ainda fica por validar em hardware real). Nao bloqueia nem tem caminho
+// de falha critico (begin() so configura pinMode/digitalWrite); a
+// primeira leitura so acontece mais tarde, no loop() (ver
+// kBatterySampleIntervalMs mais abaixo).
+void initBattery() {
+  Battery::begin();
+}
+
 // QSPI RING BUFFER — inicializa o "livro de registo" na flash externa
 // onde ficam guardadas as amostras de IMU/PPG (ver storageTask acima).
 void initQspiRingBuffer() {
@@ -974,6 +985,8 @@ void setup() {
   initPpg();
   Serial.println("[BOOT] step: initBleDataLink");
   initBleDataLink();
+  Serial.println("[BOOT] step: initBattery");
+  initBattery();
   Serial.println("[BOOT] step: initLora");
   initLora();
   Serial.println("[BOOT] step: initNfc");
@@ -1083,6 +1096,28 @@ void loop() {
     if ((nowMs - lastUiMs) >= 1000) {
       lastUiMs = nowMs;
       showHourDateScreen();
+    }
+
+    // BATERIA — amostragem periodica (nao a cada iteracao do loop: o
+    // nivel de bateria varia devagar, ver Battery.h/kBatterySampleIntervalMs
+    // e o pedido original de "uma vez a cada 30-60s e' suficiente"). Cada
+    // amostra ativa o divisor resistivo por uns milissegundos (ver
+    // Battery::sample()), le o ADC, e publica o resultado na Battery
+    // Service BLE padrao (Ble::updateBatteryLevel(), 0x180F/0x2A19).
+    static uint32_t lastBatteryMs = 0;
+    constexpr uint32_t kBatterySampleIntervalMs = 60000; // 60s
+    if ((nowMs - lastBatteryMs) >= kBatterySampleIntervalMs) {
+      lastBatteryMs = nowMs;
+      Battery::Reading batt{};
+      if (Battery::sample(batt)) {
+        Ble::updateBatteryLevel(batt.percent);
+        Serial.print("[BATTERY] mv=");
+        Serial.print(batt.voltage_mv);
+        Serial.print(" raw_adc=");
+        Serial.print(batt.raw_adc);
+        Serial.print(" percent=");
+        Serial.println(batt.percent);
+      }
     }
 
 #if DEBUG_STACK_WATERMARKS

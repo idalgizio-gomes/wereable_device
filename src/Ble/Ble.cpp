@@ -59,6 +59,16 @@ static BLECharacteristic dumpStatusChar ("abcd1234-5678-1234-5678-abcdef200003")
 // misturar semanticas (estado do streaming vs. um evento critico raro) e
 // para nao ter de alterar o formato ja fixo do DumpStatusPacket existente.
 static BLECharacteristic emergencyAlertChar("abcd1234-5678-1234-5678-abcdef200004");
+// batteryService: servico PADRAO do Bluetooth SIG "Battery Service"
+// (UUID16 0x180F, characteristic "Battery Level" 0x2A19), atraves da
+// classe BLEBas ja fornecida pela biblioteca Bluefruit (ver
+// services/BLEBas.h) — mesmo raciocinio ja usado para currentTimeService/
+// currentTimeChar acima (UUID padrao reconhecido por qualquer app/
+// ferramenta BLE genérica), mas aqui a propria biblioteca ja oferece uma
+// classe pronta para o servico, por isso nao se reconstroi a
+// characteristic a mao (ver Ble::updateBatteryLevel() no fim deste
+// ficheiro, e Battery.h para a origem do valor de percentagem publicado).
+static BLEBas batteryService;
 
 namespace {
 
@@ -1379,6 +1389,18 @@ bool begin() {
   emergencyAlertChar.setFixedLen(sizeof(EmergencyAlertPacket));
   emergencyAlertChar.begin();
 
+  // Servico padrao "Battery Service" (0x180F/0x2A19) — ver comentario
+  // junto da declaracao de batteryService, acima. begin() aqui cria o
+  // servico/characteristic com as propriedades ja definidas pela propria
+  // classe BLEBas (READ+NOTIFY, SECMODE_OPEN/NO_ACCESS, 1 byte fixo);
+  // o valor so fica com sentido depois da primeira chamada a
+  // Ble::updateBatteryLevel() (ver main.cpp, sample periodico via
+  // Battery::sample()) — ate la fica a 0, que e' um valor seguro por
+  // omissao (nao e' interpretado como "bateria cheia").
+  if (batteryService.begin() != ERROR_NONE) {
+    Serial.println("[BLE] falha ao iniciar Battery Service (0x180F) — nivel de bateria nao sera publicado por BLE");
+  }
+
   // Servico/characteristic padrao do Bluetooth SIG para sincronizacao
   // de hora (0x2A2B). Usar o UUID standard permite, em teoria, que
   // qualquer app compativel com BLE "Current Time" consiga escrever
@@ -1624,6 +1646,20 @@ void notifyEmergencyAlert(uint8_t alertType, uint32_t timestampUtc) {
   Serial.print(alertType);
   Serial.print(" seq=");
   Serial.println(pkt.seq);
+}
+
+void updateBatteryLevel(uint8_t percent) {
+  if (percent > 100) percent = 100; // defensivo: BLEBas.write()/notify() esperam 0-100.
+
+  // write() atualiza sempre o valor local da characteristic (disponivel
+  // por leitura mesmo sem ligacao ativa no momento, tal como
+  // dumpStatusChar/emergencyAlertChar acima); notify() so tem efeito com
+  // uma ligacao ativa, por isso e' condicional (mesmo padrao usado em
+  // publishDumpStatus()/notifyEmergencyAlert()).
+  batteryService.write(percent);
+  if (Bluefruit.connected() > 0) {
+    (void)batteryService.notify(percent);
+  }
 }
 
 } // namespace Ble

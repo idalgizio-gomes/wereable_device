@@ -4660,3 +4660,49 @@ Corrigido adicionando `sendgrid>=6.11.0` ao lado do `twilio>=8.10.0` já existen
 testes em `bridge/tests/test_ble_bridge_notifications.py`, cobrindo o disparo do alerta real, o
 comando `acknowledge_alert`, e que uma falha em `notifications.py` nunca impede o broadcast ao
 dashboard); `python -m py_compile` sobre `ble_bridge.py`/`notifications.py`.
+
+## Fase 4 — Nível de bateria reportado por BLE (firmware) (2026-07-19)
+
+Implementado o primeiro código de bateria do projeto — até agora o topbar do dashboard mostrava
+sempre "—" com o tooltip "O firmware ainda não reporta nível de bateria", agora deixa de ser
+verdade do lado do firmware (o bridge/dashboard ainda não leem o valor — ver "próximo passo"
+abaixo).
+
+**Pinout confirmado pela fonte mais forte possível**: em vez de assumir um pino por fórum/wiki,
+foi lido o código-fonte real do BSP instalado localmente para esta placa exata
+(`seeed-xiao-afruitnrf52-nrf52840-sense-plus`) —
+`framework-arduinoadafruitnrf52/variants/Seeed_XIAO_nRF52840_Sense_Plus/variant.h`: `PIN_VBAT`
+= pino 35 (P0.31), `VBAT_ENABLE` = pino 14 (P0.14, LOW = leitura ativa — desativado por omissão
+de fábrica, confirmado em `variant.cpp::initVariant()`). Padrão de leitura ADC
+(`AR_INTERNAL_3_0`, 12 bits, 0.73242188 mV/LSB) replicado do exemplo oficial Adafruit
+`Bluefruit52Lib/examples/Hardware/adc_vbat/adc_vbat.ino` (só a parte ADC→mV; o divisor resistivo
+desse exemplo é de outra placa). Fontes públicas complementares:
+[wiki.seeedstudio.com/XIAO_BLE](https://wiki.seeedstudio.com/XIAO_BLE/) e
+[wiki.seeedstudio.com/battery_charging_considerations](https://wiki.seeedstudio.com/battery_charging_considerations/)
+(divisor "~1/3", sem valores exatos das resistências; aviso de segurança — nunca deixar
+`VBAT_ENABLE` em HIGH durante o carregamento).
+
+**Implementação**: `include/Battery/Battery.h` + `src/Battery/Battery.cpp` (novo módulo, mesmo
+padrão `begin()`/`sample()` de `Emergency`), publicado via `Ble::updateBatteryLevel()`
+(`include/Ble/Ble.h`/`src/Ble/Ble.cpp`) na **Battery Service padrão do Bluetooth SIG** (0x180F /
+característica 0x2A19, classe `BLEBas` já incluída na Bluefruit52Lib) — UUID padrão em vez de
+uma characteristic própria, para qualquer app BLE genérica (ex. nRF Connect) conseguir ler o
+nível sem conhecer o protocolo do wearable. Amostragem a cada 60s em `main.cpp::loop()` (nível de
+bateria varia devagar, não há motivo para ler mais vezes).
+
+**Por validar em hardware real (não foi possível nesta sessão — placa ocupada com o teste LoRa e
+depois desconectada)**: o ratio exato do divisor resistivo (usa-se 3.0 = "~1/3" documentado,
+não um valor calibrado), o tempo de assentamento do ADC após ativar `VBAT_ENABLE` (10ms,
+conservador, sem valor oficial), e a curva tensão→percentagem (aproximação genérica de Li-Po de
+1 célula, por troços lineares, não medida na bateria específica deste projeto). Validar
+comparando `Battery::sample().voltage_mv` com um multímetro real em pelo menos 3 níveis de
+carga.
+
+**Verificação**: `pio run -e seeed-xiao-afruitnrf52-nrf52840-sense-plus` — SUCCESS (RAM 7.6%,
+Flash 26.8%), confirmado de forma independente (não só pelo relato do agente que implementou).
+Sem upload nem acesso à porta série (placa não estava disponível).
+
+**Próximo passo (não implementado, fora de âmbito desta tarefa)**: ligar `bridge/ble_bridge.py`
+para ler a characteristic padrão 0x2A19 (1 byte, 0-100) do serviço 0x180F e reencaminhar o valor
+ao dashboard, que já tem o elemento `#batteryText`/`.battery-chip` pronto a receber o dado — só
+falta o wiring bridge→dashboard, sem alterações de firmware necessárias para isso.

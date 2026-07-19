@@ -130,6 +130,22 @@ enum EmergencyAlertType : uint8_t {
 // confirmado ou uma queda com inatividade prolongada.
 void notifyEmergencyAlert(uint8_t alertType, uint32_t timestampUtc);
 
+// Publica o nivel de bateria atual (0-100%) na Battery Service BLE padrao
+// do Bluetooth SIG (servico 0x180F / characteristic "Battery Level"
+// 0x2A19), usando a classe BLEBas ja fornecida pela biblioteca Bluefruit
+// (ver services/BLEBas.h no pacote framework-arduinoadafruitnrf52) em vez
+// de uma characteristic custom — usar o UUID padrao permite que qualquer
+// app/ferramenta BLE genérica (ex.: nRF Connect) reconheca e mostre o
+// nivel de bateria sem precisar de conhecer o protocolo proprio do
+// wearable. Escreve sempre o valor (fica disponivel por leitura mesmo sem
+// ligacao ativa) e tambem notifica se houver uma ligacao BLE no momento.
+// 'percent' deve vir de Battery::sample()/Battery::latest() (ver
+// Battery.h) — este modulo nao faz a leitura do ADC, so publica o valor
+// que lhe e' passado. Chamar apos Ble::begin() (que e' quem cria o
+// servico); ver main.cpp para o ponto onde e' chamada periodicamente
+// (nao a cada iteracao do loop — o nivel de bateria varia devagar).
+void updateBatteryLevel(uint8_t percent);
+
 } // namespace Ble
 
 #endif
