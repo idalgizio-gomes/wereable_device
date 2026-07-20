@@ -38,9 +38,16 @@ def _still_record(ts, hr=None):
     return {"ts": ts, "ax": 0.0, "ay": 0.0, "az": 1.0, "gx": 0.0, "gy": 0.0, "gz": 0.0, "hr": hr}
 
 
-def _feed_still_window(inf, start_ts=0, n=530, hr_every=20, hr_value=60):
+def _feed_still_window(inf, start_ts=0.0, n=530, hr_every=20, hr_value=60):
     """Alimenta uma janela completa de sinal parado. Devolve o resultado da
-    última amostra (não-None só quando a janela fecha)."""
+    última amostra (não-None só quando a janela fecha).
+
+    ts em SEGUNDOS (não ms) — mesmo formato do "device_timestamp" real
+    gravado por storage.py (Unix epoch em segundos, ver schema.sql). Um
+    bug real (corrigido 2026-07-20, apanhado só com hardware real) tratava
+    ts como já estando em ms; estes fixtures alimentavam ts em ms também,
+    o que escondia o bug em vez de o apanhar — corrigido aqui para o
+    formato real."""
     result = None
     ts = start_ts
     for i in range(n):
@@ -48,7 +55,7 @@ def _feed_still_window(inf, start_ts=0, n=530, hr_every=20, hr_value=60):
         r = inf.add_sample(_still_record(ts, hr=hr))
         if r:
             result = r
-        ts += int(1000 / ai.FS_HZ)
+        ts += 1.0 / ai.FS_HZ
     return result, ts
 
 
@@ -73,18 +80,20 @@ class TestCarregamentoDoModelo:
 class TestJanelaDeslizante:
     def test_nao_classifica_antes_da_janela_completa(self):
         inf = ai.ActivityInference()
-        ts = 0
+        ts = 0.0
         for _ in range(100):  # bem menos que os ~520 esperados em 10s a 52Hz
             result = inf.add_sample(_still_record(ts))
             assert result is None
-            ts += int(1000 / ai.FS_HZ)
+            ts += 1.0 / ai.FS_HZ
 
     def test_janela_esparsa_e_descartada_nao_classificada(self):
         """Simula perda de pacotes: poucas amostras mas span temporal >=
-        WINDOW_MS (ex.: só chegaram 5 de ~520 amostras esperadas)."""
+        WINDOW_SECONDS (ex.: só chegaram 5 de ~520 amostras esperadas). ts
+        em SEGUNDOS (formato real do device_timestamp, ver docstring de
+        _feed_still_window)."""
         inf = ai.ActivityInference()
         inf.add_sample(_still_record(0))
-        result = inf.add_sample(_still_record(ai.WINDOW_MS + 1))
+        result = inf.add_sample(_still_record(ai.WINDOW_SECONDS + 1))
         assert result is None
         assert inf._buffer == []  # janela foi descartada, não deixada a acumular
 
@@ -112,7 +121,7 @@ class TestFrequenciaCardiacaEmFalta:
         _feed_still_window(inf, start_ts=0, hr_every=20, hr_value=72)
         assert inf._last_hr == 72
         # ...segunda janela sem nenhuma leitura nova de FC.
-        _feed_still_window(inf, start_ts=ai.WINDOW_MS + 100, hr_every=None)
+        _feed_still_window(inf, start_ts=ai.WINDOW_SECONDS + 1, hr_every=None)
         assert inf._last_hr == 72  # não foi apagado só por a janela não trazer FC
 
 

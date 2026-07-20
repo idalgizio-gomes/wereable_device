@@ -125,7 +125,20 @@ class ActivityInference:
             self._last_hr = record["hr"]
 
         self._buffer.append(record)
-        span_ms = self._buffer[-1]["ts"] - self._buffer[0]["ts"]
+        # BUG REAL corrigido (2026-07-20, apanhado em teste com hardware real):
+        # record["ts"] é o "device_timestamp" gravado por storage.py — Unix
+        # epoch em SEGUNDOS (ver schema.sql "Unix timestamp (segundos)" e
+        # storage.py::insert_record, que grava record["ts"] tal e qual em
+        # device_timestamp), não millis() nem já em ms como este módulo
+        # assumia. Sem o *1000, span_ms nunca atingia WINDOW_MS=10000 num
+        # stream real (precisaria de ~2.8h de span) — a janela nunca fechava
+        # e activity_classification nunca era emitido, apesar de
+        # sensor_records estar a encher normalmente. Confirmado em
+        # bridge/tests/test_activity_inference.py, que alimentava ts já em
+        # ms (consistente com este bug, não com o formato real) — os testes
+        # unitários passavam apesar do bug porque partilhavam a mesma
+        # assunção errada; só o teste com o dispositivo real o expôs.
+        span_ms = (self._buffer[-1]["ts"] - self._buffer[0]["ts"]) * 1000
         if span_ms < WINDOW_MS:
             return None
 
@@ -225,7 +238,8 @@ class ActivityInference:
             return None
 
         prev = self._current_block
-        duration_min = (prev["end_device_ts"] - prev["start_device_ts"]) / 60000.0
+        # device_ts em segundos (ver correção acima em add_sample) -> minutos = /60, não /60000.
+        duration_min = (prev["end_device_ts"] - prev["start_device_ts"]) / 60.0
         is_anomaly, reason = evaluate_block(prev["session"], prev["cls"], duration_min)
         start_local = time.localtime(prev["start_wall_clock_s"])
         end_local = time.localtime(prev["end_wall_clock_s"])

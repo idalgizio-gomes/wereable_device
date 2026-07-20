@@ -4824,3 +4824,61 @@ gerar rótulos reais do classificador (decisão do utilizador, ainda por pedir);
 limiar de deteção do autoencoder sobre dados reais (o script atual só faz fine-tuning dos pesos,
 não recalibra `detection_threshold_mse`); persistência do veredito `is_anomaly` do detetor de
 duração em `anomaly_detections` (hoje só transmitido ao dashboard, não guardado).
+
+## Firmware desatualizado na placa + bug real de unidades (segundos vs. ms) — encontrados e corrigidos (2026-07-20)
+
+Sequência completa, do sintoma ao root cause, com o utilizador a confirmar "a placa está
+conectada": o bridge corria limpo mas **não encontrava o dispositivo "Wearable"** em BLE. Diagnóstico
+por eliminação (sem acesso visual ao ecrã OLED, ainda por montar): confirmado via `Get-PnpDevice`
+que a placa estava mesmo ligada por USB (COM6, VID `2886` da Seeed) e que o adaptador Bluetooth do
+PC funcionava normalmente (outros dispositivos já emparelhados). A consola série (115200 baud,
+baud certo) ficava **completamente muda** — nem os prints incondicionais logo no arranque
+(`"Acordou do System OFF"`), nem os periódicos da `storageTask` (a cada 1s). Um reset físico
+confirmou-se real (a porta COM6 re-enumerou no Windows a meio de uma leitura), mas mesmo assim
+nada era impresso.
+
+**Causa raiz**: o binário flashado na placa era mais antigo do que o código-fonte atual — não tinha
+`DEBUG_DISABLE_SLEEP=1` (ver `src/main.cpp`, já presente no repositório), por isso ficava preso no
+ciclo "espera até 8s por um clique no botão físico → como o botão está avariado, nunca chega →
+`goToSleep()`" logo no arranque, sem nunca chegar a `Ble::begin()` nem à `storageTask`. **Corrigido**
+com `pio run -e seeed-xiao-afruitnrf52-nrf52840-sense-plus -t upload --upload-port COM6` (build
+limpo, mesmo footprint já documentado — RAM 7.6%/Flash 26.8% — "Device programmed."). Depois do
+flash: consola série voltou a imprimir (`[BLE] wait TIME... adv=1 connected=0`), e o bridge passou a
+encontrar e ligar-se ao dispositivo real (`E6:ED:42:57:1F:20`) de imediato.
+
+**Segundo bug real, este no código do pipeline de ML desta mesma rotina — só apanhado com hardware
+real**: com o bridge ligado e a decifrar registos reais (chave de `device_key.env`, já provisionada
+para este MAC), `sensor_records` enchia normalmente (confirmado: aceleração ~0.05-0.14g em x/y,
+~0.98g em z — plausível para o dispositivo pousado), mas **nenhuma mensagem
+`activity_classification` era emitida**, apesar de 111 registos reais recebidos num teste de 35s.
+Root cause: `bridge/activity_inference.py::add_sample` assumia `record["ts"]` já em milissegundos
+(`span_ms = ts_fim - ts_inicio`, comparado a `WINDOW_MS=10000`) — mas `record["ts"]` é na verdade
+**Unix epoch em SEGUNDOS** (ver `schema.sql`, `storage.py::insert_record` grava-o tal e qual em
+`device_timestamp`), confirmado diretamente com um valor real (`ts=1784292533` → 2026-07-17, uma
+data plausível, não um timestamp em ms de uma data qualquer). Sem o `*1000` em falta, uma janela só
+fechava ao fim de ~2.8 horas de dados reais, nunca em 10s — por isso nunca disparava em nenhum teste
+de poucos segundos. **Os testes automatizados escritos nesta mesma rotina não apanharam isto**
+porque os seus fixtures alimentavam `ts` já em ms — a mesma assunção errada do código de produção,
+não uma verificação independente. Corrigido em `activity_inference.py` (`add_sample` e
+`_update_block::duration_min`, agora `/60.0` em vez de `/60000.0`) **e** nos fixtures dos testes
+(`bridge/tests/test_activity_inference.py`, `ts` agora incrementado em segundos, `1.0/FS_HZ` por
+amostra) — `129/129` continuam a passar, mas agora a verificar o formato real, não uma versão
+autoconsistente mas errada dele.
+
+**Verificação final, com o dispositivo real ligado, chave AES real, cliente WebSocket real a
+ouvir**: `activity_classification` chegou (`"Dormir"` conf. 0.825, depois `"Descanso"` conf. 0.51,
+~10s de intervalo — bate certo com `WINDOW_SECONDS`), e `activity_duration_flag`/bloco fechado
+disparou corretamente na transição de classe (`duration_min=0.167` ≈10s, `is_anomaly=True`,
+`reason="classe_inesperada_nesta_sessao"` — "Dormir" durante a sessão "dia" é de facto inesperado
+para o gerador sintético; plausível, visto o dispositivo estar pousado numa secretária, não a ser
+usado por uma pessoa a dormir). **Esta é a primeira vez que o pipeline de ML corre de ponta a ponta
+com dados 100% reais** (BLE → decifra → features → classificador → detetor de duração → dashboard),
+não só sintéticos.
+
+**Lição a reter, não só o bug em si**: dois bugs reais e distintos (firmware desatualizado; unidade
+de tempo trocada) só foram encontrados porque se insistiu em testar com hardware real em vez de
+aceitar "os testes automatizados passam" como suficiente — os testes unitários, escritos pela mesma
+rotina que introduziu o bug de unidades, partilhavam a assunção errada e por isso não o apanhavam.
+`ml/retrain_autoencoder_from_real_data.py` não tinha este bug porque foi escrito com a conversão
+`*1000` explícita desde o início (tratando `timestamp_utc` como segundos corretamente) — a
+inconsistência entre os dois ficheiros só ficou visível ao correr ambos contra o mesmo dado real.
