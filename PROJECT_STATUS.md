@@ -4918,3 +4918,53 @@ seeed-xiao-afruitnrf52-nrf52840-sense-plus -t upload`) — o teste isolado subst
 temporariamente `main.cpp` no binário flashado (mesmo ambiente PlatformIO, binário diferente);
 confirmado via série que o firmware principal voltou a arrancar e a anunciar por BLE
 (`adv=1 connected=0`) antes de continuar para outro trabalho.
+
+## Stack watermarks reais capturados pela primeira vez em hardware (2026-07-20)
+
+`DEBUG_STACK_WATERMARKS` estava ativo no código desde 2026-07-03 mas nunca tinha sido lido em
+série (placa indisponível até esta rotina — ver "Pendente de confirmação em hardware real" mais
+acima). Capturado agora com o bridge ligado (a task de arranque só progride depois de a hora ser
+sincronizada por um central BLE — ver `[BLE] wait TIME...`, por isso sem o bridge ligado os
+watermarks nunca apareciam nos testes de série anteriores desta mesma rotina). Valores após
+estabilizarem (3 leituras a 15s/30s/45s de intervalo, já sem variação):
+
+| Task | Alocado (words) | Livre (words) | Usado | Margem (alocado/usado) | Regra ≥3x? |
+|---|---|---|---|---|---|
+| `storage_task` | 768 | 607 | 161 | **4.77x** | Cumpre |
+| `imu_task` | 768 | 453 | 315 | **2.44x** | **Não cumpre** |
+| `ppg_task` | 640 | 470 | 170 | **3.76x** | Cumpre |
+| `ble_gatt_dump_task` | 1280 | 947 | 333 | **3.84x** | Cumpre |
+
+**Confirma com dados reais, pela primeira vez, o que antes era só uma estimativa**: a nota anterior
+("`imu_task` margem ~1.5x, margem já apertada") estava na direção certa (é de facto a única das 4
+tasks abaixo da regra de ≥3x) mas o número exato era um palpite — a margem real medida é 2.44x, não
+1.5x. **Decisão que isto habilita**: não reduzir `IMU_TASK_STACK_WORDS`; as outras três têm folga
+real confirmada para uma eventual redução futura, se algum dia for necessário libertar RAM, mas
+isso continua a não ser uma prioridade atual (RAM global a 7.6%, ver builds anteriores).
+
+**Botão físico**: não validado nesta rotina porque é hardware confirmado avariado (`BTN_PIN`, ver
+"Riscos" — sem reparação física não há nada para testar por software). O bypass via série
+(`DEBUG_SERIAL_WAKE`, comando `WAKE`) continua a ser o único caminho para ligar o dispositivo, e é
+o que esta própria rotina usou em todos os testes de hardware.
+
+**Três achados não pedidos, mas reais e visíveis na mesma captura — registados por completude:**
+
+1. **LoRa parece estar a inicializar e a transmitir com sucesso**, no firmware principal, com o
+   MESMO pino NSS (`A3`) que o teste isolado desta rotina (ver secção anterior) tinha acabado de
+   sinalizar como "provavelmente sem chip a responder": `[LORA] SX1262 inicializado com sucesso` →
+   `[LORA] radio ativo` → `[LORA] envio concluido`, via `RadioLib::begin()` real (código de retorno
+   verificado explicitamente em `Lora.cpp`, não um print otimista). **Contradiz** tanto o teste
+   isolado desta mesma rotina como a nota antiga ("`Lora::begin()` falha sempre nesta placa").
+   **Não investigado a fundo aqui** (âmbito desta captura era watermarks, não LoRa) — hipótese mais
+   provável: o teste isolado, ao fazer só uma leitura SPI em bruto sem a sequência de inicialização
+   completa que o RadioLib faz, pode ter lido o módulo antes de algum outro periférico (inicializado
+   mais tarde no boot principal) ligar uma alimentação partilhada — mas isto é uma hipótese, não uma
+   conclusão verificada. **Próximo passo real**: repetir o boot do firmware principal mais uma vez
+   (reset limpo) para confirmar que o sucesso é reprodutível e não um artefacto de uma única
+   execução, antes de atualizar a conclusão do teste isolado.
+2. **Ring buffer QSPI já estava cheio e a sobrescrever dados não consumidos** (`[QSPIRB] AVISO:
+   ring buffer cheio`, `count` a oscilar perto da capacidade máxima de 32704) — evidência real,
+   não hipotética, do risco de perda de dados já documentado para uma placa que fica muito tempo
+   sem um bridge ligado a consumir o ring buffer.
+3. **Bateria a 8%** (`[BATTERY] mv=3423 raw_adc=1558 percent=8`) — a placa precisa de carregar antes
+   de mais sessões de teste prolongadas.
