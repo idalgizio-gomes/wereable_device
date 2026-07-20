@@ -168,6 +168,60 @@ def test_emergency_alert_different_seq_both_stored():
 
 
 # ---------------------------------------------------------------------------
+# (c.2) classificação de atividade — blocos fechados por activity_inference.py
+# ---------------------------------------------------------------------------
+
+def _make_closed_block(cls="Descanso", session="dia", start_wall_clock_s=1_800_000_000.0):
+    """Espelha a saída de activity_inference.py::_update_block (closed_block)."""
+    return {
+        "cls": cls,
+        "db_category": {"Dormir": "sleep", "Descanso": "rest", "Atividade": "activity",
+                         "Alimentação": "eating", "Higiene": "hygiene"}[cls],
+        "session": session,
+        "duration_min": 12.5,
+        "is_anomaly": False,
+        "reason": None,
+        "confidence": 0.87,
+        "start_wall_clock_s": start_wall_clock_s,
+        "start_time_minutes": 600,
+        "end_time_minutes": 612,
+    }
+
+
+def test_activity_window_round_trip_uses_english_category_from_mapping():
+    orm = orm_persistence.OrmPersistence()
+    orm.insert_activity_window(_make_closed_block(cls="Higiene"))
+
+    session = sa.get_db_session()
+    try:
+        rows = session.query(sa.ActivityWindow).all()
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.device_id == orm.device_id
+        assert row.activity_category == "hygiene"  # traduzido de "Higiene" pelo chamador
+        assert row.start_time == 600
+        assert row.end_time == 612
+        # round(12.5) == 12 em Python (banker's rounding, arredonda para o
+        # par mais próximo) — não 13 como um arredondamento "escolar" daria.
+        assert row.duration_minutes == 12
+        assert row.confidence == pytest.approx(0.87)
+    finally:
+        session.close()
+
+
+def test_activity_window_disabled_orm_is_a_noop():
+    orm = orm_persistence.OrmPersistence()
+    orm.disabled = True
+    orm.insert_activity_window(_make_closed_block())  # não deve lançar exceção
+
+    session = sa.get_db_session()
+    try:
+        assert session.query(sa.ActivityWindow).count() == 0
+    finally:
+        session.close()
+
+
+# ---------------------------------------------------------------------------
 # (d) auditoria GDPR-003 — get_history real via BleBridge gera audit_log
 # ---------------------------------------------------------------------------
 

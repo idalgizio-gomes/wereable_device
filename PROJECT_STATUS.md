@@ -4751,3 +4751,76 @@ de `demo-data.js`/`medication-reminders.js`, navegação entre as 8 vistas princ
 dinamicamente com `onclick` embutido), vistas de exportação/emergências — **0 violações de CSP,
 0 erros**. O refactor completo (remover `unsafe-inline`) fica registado em SECURITY_STATUS.md
 como trabalho futuro, não decidido para já.
+
+## Pipeline de ML ligado ao stream real do bridge (2026-07-20)
+
+Até agora, `ml/` existia treinado e avaliado (classificador Random Forest, LSTM Autoencoder,
+detetor de duração — ver `ml/README.md`), mas **nenhum dos três era invocado fora dessa pasta**:
+o dashboard mostrava sempre dados simulados (`chore(dashboard): dados simulados do dia ...`),
+nunca uma classificação real. Fecha essa lacuna, em duas partes distintas (a distinção importa —
+ver "Porquê só o autoencoder" abaixo):
+
+**1. Classificação de atividade ao vivo** (`bridge/activity_inference.py`, novo): janela deslizante
+não sobreposta de 10s (mesma janela do treino, `FS_HZ`/`WINDOW_SECONDS` alinhados com
+`ml/synthetic_data.py`) sobre os registos reais que já chegam a `_on_dump_data` — extrai features
+via `ml/features.py` (reaproveitado diretamente, sem duplicar lógica), classifica com o Random
+Forest já treinado (`ml/models/activity_classifier_rf.joblib`, carregado com `joblib`), e aplica
+`ml/duration_detector.py::evaluate_block` sobre blocos de classes consecutivas para sinalizar
+durações fora do esperado. Resultado transmitido ao dashboard como `{"kind":
+"activity_classification", ...}` (a cada ~10s) e `{"kind": "activity_duration_flag", ...}` (só
+quando um bloco fecha). Blocos fechados são persistidos em `activity_windows`
+(`bridge/orm_persistence.py::insert_activity_window`, novo) — mapeamento de classe PT→categoria EN
+do esquema via `CLASS_TO_DB_CATEGORY`. FC em falta numa janela (frequente — só chega quando há
+leitura nova) usa o último valor conhecido, ou um placeholder neutro (70bpm) se nunca houve
+nenhuma leitura ainda — documentado como feature pouco informativa nesse caso, não escondido.
+
+**Aviso ético, mostrado sempre junto ao resultado (nunca só no título)**: o classificador foi
+treinado inteiramente sobre dados SINTÉTICOS — nunca validado com comportamento humano real. O
+dashboard (vista Resumo, novo card "Atividade detetada (IA)") mostra um badge `experimental` +
+o texto completo do aviso permanentemente visível, não escondido atrás de tooltip. Decisão tomada
+com o utilizador antes de implementar (não assumida): live com aviso explícito, não escondido em
+modo debug nem adiado.
+
+**2. Porquê só o autoencoder tem retreino periódico, não o classificador**: o classificador é
+SUPERVISIONADO — precisa de um rótulo real ("isto foi Higiene") para aprender, que hoje não existe
+(`activity_windows` guarda `confidence`, não uma correção humana). Retreinar sobre dados reais sem
+rótulos não teria alvo nenhum. O LSTM Autoencoder é NÃO SUPERVISIONADO — só precisa de sequências
+"normais", por isso `ml/retrain_autoencoder_from_real_data.py` (novo) é honesto de construir agora:
+lê `SensorRecord` reais de `bridge/storage_advanced.py` (mesma BD do dual-write), reconstrói janelas
+de 10s + subsequências de `SEQ_LEN=12` (mesma lógica de `train_lstm_autoencoder.py`, reaproveitada
+via import), e faz *fine-tuning* do modelo já treinado tratando toda a janela real como "normal"
+(assunção explícita, sem filtragem de anomalias — documentada como limitação, não escondida).
+**Guarda de dados mínimos**: recusa-se a retreinar abaixo de `MIN_REAL_SUBSEQUENCES=20` — com
+poucos dados reais, um fine-tuning arriscaria desaprender o padrão sintético em vez de o adaptar.
+Script local (não cron cloud como `demo-data.yml` — precisa da BD real do bridge, que só existe na
+máquina onde o bridge corre com hardware ligado).
+
+**Verificação**: `pytest bridge/tests/` → **129/129** (115 já existentes + 12 de
+`test_activity_inference.py` + 2 de `insert_activity_window` em `test_orm_persistence.py`); `pytest
+ml/tests/` → **30/30** (24 já existentes + 6 de `test_retrain_autoencoder_from_real_data.py`).
+Smoke-test manual do pipeline completo (sinal parado → classifica "Dormir"/"Descanso" com
+confiança 1.0; mudança de classe → fecha bloco → `evaluate_block` chamado corretamente). UI testada
+com Playwright (`file://`, login real, estado inicial "a aguardar", classificação real, aviso de
+duração, **rejeição de categoria inválida/maliciosa vinda do WebSocket não autenticado** — canal
+sem autenticação, `category` validado contra um enum fechado antes de entrar em `liveState`,
+mesmo padrão de segurança já usado para `toFiniteNumber`/`escapeHtml` no resto do dashboard —,
+tradução para inglês) — 0 erros de consola. `ml/retrain_autoencoder_from_real_data.py` testado
+com `--dry-run` e sem ele contra a BD real do bridge (que já tinha 20 janelas reais de sessões de
+hardware anteriores): guarda de dados mínimos disparou corretamente (2 subsequências < 20),
+`lstm_autoencoder.keras` confirmado **não alterado** (timestamp do ficheiro inalterado) — o
+caminho de fine-tuning em si continua por validar (precisa de mais dias de uso real; TensorFlow
+também não está disponível nesta rotina para o exercitar diretamente — mesma lacuna já documentada
+em `ml-tests.yml`).
+
+**Tentativa de ligação à placa real**: com a placa entretanto ligada, o bridge correu limpo
+(`ws://localhost:8765` a ouvir, sem erros) mas **não encontrou o dispositivo "Wearable"** em duas
+tentativas de scan BLE (~20s e ~55s) a partir desta máquina/sessão — sem mais sinal para diagnosticar
+a causa (fora de alcance, não a anunciar, ou o scan BLE desta sessão não tem acesso ao rádio físico
+que o utilizador via como "ligado"). Fica por confirmar diretamente com o utilizador; o wiring em si
+está pronto a validar assim que o dispositivo for encontrado — não foi tocado nada no firmware.
+
+**Não feito nesta rotina (âmbito reconhecido, não esquecido)**: UI de correção do cuidador para
+gerar rótulos reais do classificador (decisão do utilizador, ainda por pedir); recalibração do
+limiar de deteção do autoencoder sobre dados reais (o script atual só faz fine-tuning dos pesos,
+não recalibra `detection_threshold_mse`); persistência do veredito `is_anomaly` do detetor de
+duração em `anomaly_detections` (hoje só transmitido ao dashboard, não guardado).

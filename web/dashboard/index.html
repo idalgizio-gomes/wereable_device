@@ -451,6 +451,19 @@
 
   .empty-hint{ font-size:12px; color:var(--text-muted); padding:8px 0; }
   .sim-flag{ font-size:10.5px; color:var(--text-muted); background:var(--bg-surface-2); border:1px solid var(--border); padding:1px 7px; border-radius:20px; font-weight:600; }
+  /* Distinto de .sim-flag de propósito: dados REAIS do sensor, mas
+     classificados por um modelo treinado só com dados sintéticos (ver
+     bridge/activity_inference.py) — o aviso precisa de se destacar mais do
+     que o simples "dados de demonstração". */
+  .experimental-flag{ font-size:10.5px; color:var(--status-warning); background:var(--status-warning-bg); border:1px solid var(--status-warning); padding:1px 7px; border-radius:20px; font-weight:600; }
+  .activity-live-card .card-sub{ margin-top:2px; }
+  .activity-live-empty{ font-size:12.5px; color:var(--text-muted); padding:10px 0; }
+  .activity-live-now{ display:flex; align-items:baseline; gap:10px; margin-bottom:10px; }
+  .activity-live-now .cat{ font-size:19px; font-weight:700; }
+  .activity-live-now .conf{ font-size:12px; color:var(--text-muted); }
+  .activity-live-flag{ display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:var(--radius-sm); font-size:12.5px; margin-top:8px; }
+  .activity-live-flag.anomaly{ background:var(--status-warning-bg); color:var(--status-warning); border:1px solid var(--status-warning); }
+  .activity-live-flag.normal{ background:var(--bg-surface-2); color:var(--text-secondary); border:1px solid var(--border); }
 
   /* análise por atividade (drill-down por categoria) */
   .activity-chips{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; }
@@ -995,6 +1008,12 @@ const I18N = {
     'resumo.trendCardSubtitle': 'Passos, sono e frequência cardíaca média', 'resumo.trendChartAria': 'Gráfico de tendência de passos, sono e frequência cardíaca média nos últimos 7 dias',
     'resumo.legendSteps': 'Passos', 'resumo.legendSleepHours': 'Sono (h)', 'resumo.legendAvgHr': 'FC média (bpm)', 'resumo.nightSummaryCardTitle': 'Resumo noturno',
     'resumo.nightSummaryCardSubtitle': 'A agitação/deambulação noturna ("sundowning") é uma preocupação distinta da atividade diurna — pedido de investigação de plataformas semelhantes',
+    'resumo.liveActivityCardTitle': 'Atividade detetada (IA)', 'resumo.experimentalBadge': 'experimental',
+    'resumo.liveActivityCardSubtitle': 'Classificação em tempo real a partir do sensor de movimento do wearable',
+    'resumo.liveActivityWaiting': 'A aguardar a primeira classificação…', 'resumo.liveActivityConfidence': 'confiança {pct}%',
+    'resumo.liveActivityDurationAnomaly': '{cat} durou {min} min — fora do esperado para esta hora do dia',
+    'resumo.liveActivityDurationNormal': '{cat} durou {min} min — dentro do esperado',
+    'resumo.liveActivityDisclaimer': 'Classificador treinado apenas com dados sintéticos — não validado clinicamente. Não usar como diagnóstico.',
     'resumo.routineTodayChartLabel': 'Rotina de hoje', 'resumo.routineAnomalyChartLabel': 'Simulação com anomalias',
     // --- pacientes ---
     'pacientes.monitoredCardTitle': 'Pacientes monitorizados', 'pacientes.assignedSingular': 'paciente atribuído', 'pacientes.assignedPlural': 'pacientes atribuídos',
@@ -1284,6 +1303,12 @@ const I18N = {
     'resumo.trendChartAria': 'Trend chart of steps, sleep and average heart rate over the last 7 days', 'resumo.legendSteps': 'Steps', 'resumo.legendSleepHours': 'Sleep (h)',
     'resumo.legendAvgHr': 'Avg HR (bpm)', 'resumo.nightSummaryCardTitle': 'Night summary',
     'resumo.nightSummaryCardSubtitle': 'Nighttime restlessness/wandering ("sundowning") is a concern distinct from daytime activity — feature requested by research on similar platforms',
+    'resumo.liveActivityCardTitle': 'Detected activity (AI)', 'resumo.experimentalBadge': 'experimental',
+    'resumo.liveActivityCardSubtitle': 'Real-time classification from the wearable\'s motion sensor',
+    'resumo.liveActivityWaiting': 'Waiting for the first classification…', 'resumo.liveActivityConfidence': 'confidence {pct}%',
+    'resumo.liveActivityDurationAnomaly': '{cat} lasted {min} min — outside what\'s expected for this time of day',
+    'resumo.liveActivityDurationNormal': '{cat} lasted {min} min — within expected range',
+    'resumo.liveActivityDisclaimer': 'Classifier trained only on synthetic data — not clinically validated. Do not use for diagnosis.',
     'resumo.routineTodayChartLabel': 'Today\'s routine', 'resumo.routineAnomalyChartLabel': 'Simulation with anomalies',
     // --- pacientes ---
     'pacientes.monitoredCardTitle': 'Monitored patients', 'pacientes.assignedSingular': 'patient assigned', 'pacientes.assignedPlural': 'patients assigned',
@@ -1540,7 +1565,14 @@ const I18N = {
     'resumo.recentAlertsCardTitle': '近期警报', 'resumo.recentAlertsEmpty': '没有新警报 — 请查看警报历史记录。', 'resumo.weeklyActivityCardTitle': '每周活动模式', 'resumo.weeklyActivityCardSubtitle': '过去7天每小时的运动强度',
     'resumo.heatmapChartAria': '过去7天每小时运动强度热图（模拟数据）', 'resumo.trendCardTitle': '趋势 — 过去7天', 'resumo.trendCardSubtitle': '步数、睡眠和平均心率', 'resumo.trendChartAria': '过去7天步数、睡眠和平均心率趋势图',
     'resumo.legendSteps': '步数', 'resumo.legendSleepHours': '睡眠（小时）', 'resumo.legendAvgHr': '平均心率（bpm）', 'resumo.nightSummaryCardTitle': '夜间摘要',
-    'resumo.nightSummaryCardSubtitle': '夜间躁动/游荡（"日落综合征"）是与日间活动不同的关注点 — 依据类似平台的研究请求', 'resumo.routineTodayChartLabel': '今日常规', 'resumo.routineAnomalyChartLabel': '含异常的模拟',
+    'resumo.nightSummaryCardSubtitle': '夜间躁动/游荡（"日落综合征"）是与日间活动不同的关注点 — 依据类似平台的研究请求',
+    'resumo.liveActivityCardTitle': '检测到的活动（AI）', 'resumo.experimentalBadge': '实验性',
+    'resumo.liveActivityCardSubtitle': '根据可穿戴设备运动传感器的实时分类',
+    'resumo.liveActivityWaiting': '等待首次分类……', 'resumo.liveActivityConfidence': '置信度 {pct}%',
+    'resumo.liveActivityDurationAnomaly': '{cat} 持续了 {min} 分钟 — 超出此时段的预期',
+    'resumo.liveActivityDurationNormal': '{cat} 持续了 {min} 分钟 — 在预期范围内',
+    'resumo.liveActivityDisclaimer': '分类器仅使用合成数据训练 — 未经临床验证。请勿用于诊断。',
+    'resumo.routineTodayChartLabel': '今日常规', 'resumo.routineAnomalyChartLabel': '含异常的模拟',
     // --- pacientes ---
     'pacientes.monitoredCardTitle': '受监测患者', 'pacientes.assignedSingular': '位患者已分配', 'pacientes.assignedPlural': '位患者已分配', 'pacientes.assignedToAccountSuffix': '至此账户',
     'pacientes.adminFullAccessNote': '（管理员账户 — 完全访问权限）', 'pacientes.chooseViewingHint': '选择您正在查看的患者', 'pacientes.thPatient': '患者', 'pacientes.thDevice': '设备', 'pacientes.thLastSync': '上次同步',
@@ -1746,6 +1778,12 @@ const I18N = {
     'resumo.trendCardSubtitle': 'Pasos, sueño y frecuencia cardíaca media', 'resumo.trendChartAria': 'Gráfico de tendencia de pasos, sueño y frecuencia cardíaca media en los últimos 7 días',
     'resumo.legendSteps': 'Pasos', 'resumo.legendSleepHours': 'Sueño (h)', 'resumo.legendAvgHr': 'FC media (bpm)', 'resumo.nightSummaryCardTitle': 'Resumen nocturno',
     'resumo.nightSummaryCardSubtitle': 'La agitación/deambulación nocturna ("sundowning") es una preocupación distinta de la actividad diurna — solicitud basada en la investigación de plataformas similares',
+    'resumo.liveActivityCardTitle': 'Actividad detectada (IA)', 'resumo.experimentalBadge': 'experimental',
+    'resumo.liveActivityCardSubtitle': 'Clasificación en tiempo real a partir del sensor de movimiento del wearable',
+    'resumo.liveActivityWaiting': 'Esperando la primera clasificación…', 'resumo.liveActivityConfidence': 'confianza {pct}%',
+    'resumo.liveActivityDurationAnomaly': '{cat} duró {min} min — fuera de lo esperado para esta hora del día',
+    'resumo.liveActivityDurationNormal': '{cat} duró {min} min — dentro de lo esperado',
+    'resumo.liveActivityDisclaimer': 'Clasificador entrenado solo con datos sintéticos — no validado clínicamente. No usar como diagnóstico.',
     'resumo.routineTodayChartLabel': 'Rutina de hoy', 'resumo.routineAnomalyChartLabel': 'Simulación con anomalías',
     // --- pacientes ---
     'pacientes.monitoredCardTitle': 'Pacientes monitorizados', 'pacientes.assignedSingular': 'paciente asignado', 'pacientes.assignedPlural': 'pacientes asignados',
@@ -2017,6 +2055,12 @@ const I18N = {
     'resumo.trendChartAria': 'Graphique de tendance des pas, du sommeil et de la fréquence cardiaque moyenne sur les 7 derniers jours', 'resumo.legendSteps': 'Pas',
     'resumo.legendSleepHours': 'Sommeil (h)', 'resumo.legendAvgHr': 'FC moyenne (bpm)', 'resumo.nightSummaryCardTitle': 'Résumé nocturne',
     'resumo.nightSummaryCardSubtitle': 'L\'agitation/l\'errance nocturne ("sundowning") est une préoccupation distincte de l\'activité diurne — demande issue de la recherche sur des plateformes similaires',
+    'resumo.liveActivityCardTitle': 'Activité détectée (IA)', 'resumo.experimentalBadge': 'expérimental',
+    'resumo.liveActivityCardSubtitle': 'Classification en temps réel à partir du capteur de mouvement du wearable',
+    'resumo.liveActivityWaiting': 'En attente de la première classification…', 'resumo.liveActivityConfidence': 'confiance {pct} %',
+    'resumo.liveActivityDurationAnomaly': '{cat} a duré {min} min — hors de ce qui est attendu à cette heure',
+    'resumo.liveActivityDurationNormal': '{cat} a duré {min} min — conforme à ce qui est attendu',
+    'resumo.liveActivityDisclaimer': 'Classificateur entraîné uniquement sur des données synthétiques — non validé cliniquement. Ne pas utiliser comme diagnostic.',
     'resumo.routineTodayChartLabel': 'Routine d\'aujourd\'hui', 'resumo.routineAnomalyChartLabel': 'Simulation avec anomalies',
     // --- pacientes ---
     'pacientes.monitoredCardTitle': 'Patients surveillés', 'pacientes.assignedSingular': 'patient attribué', 'pacientes.assignedPlural': 'patients attribués',
@@ -2291,6 +2335,12 @@ const I18N = {
     'resumo.trendChartAria': 'Trenddiagramm für Schritte, Schlaf und durchschnittliche Herzfrequenz der letzten 7 Tage', 'resumo.legendSteps': 'Schritte', 'resumo.legendSleepHours': 'Schlaf (h)',
     'resumo.legendAvgHr': 'Ø Herzfrequenz (bpm)', 'resumo.nightSummaryCardTitle': 'Nächtliche Zusammenfassung',
     'resumo.nightSummaryCardSubtitle': 'Nächtliche Unruhe/Umherwandern ("Sundowning") ist ein Anliegen, das sich von der Tagesaktivität unterscheidet — angefordert durch Recherche zu ähnlichen Plattformen',
+    'resumo.liveActivityCardTitle': 'Erkannte Aktivität (KI)', 'resumo.experimentalBadge': 'experimentell',
+    'resumo.liveActivityCardSubtitle': 'Echtzeit-Klassifikation anhand des Bewegungssensors des Wearables',
+    'resumo.liveActivityWaiting': 'Warten auf die erste Klassifikation…', 'resumo.liveActivityConfidence': 'Konfidenz {pct}%',
+    'resumo.liveActivityDurationAnomaly': '{cat} dauerte {min} Min. — außerhalb des Erwarteten für diese Tageszeit',
+    'resumo.liveActivityDurationNormal': '{cat} dauerte {min} Min. — im erwarteten Bereich',
+    'resumo.liveActivityDisclaimer': 'Klassifikator nur mit synthetischen Daten trainiert — klinisch nicht validiert. Nicht zur Diagnose verwenden.',
     'resumo.routineTodayChartLabel': 'Heutige Routine', 'resumo.routineAnomalyChartLabel': 'Simulation mit Anomalien',
     // --- pacientes ---
     'pacientes.monitoredCardTitle': 'Überwachte Patienten', 'pacientes.assignedSingular': 'Patient zugewiesen', 'pacientes.assignedPlural': 'Patienten zugewiesen',
@@ -2561,6 +2611,12 @@ const I18N = {
     'resumo.trendCardSubtitle': 'Passi, sonno e frequenza cardiaca media', 'resumo.trendChartAria': 'Grafico di tendenza di passi, sonno e frequenza cardiaca media negli ultimi 7 giorni',
     'resumo.legendSteps': 'Passi', 'resumo.legendSleepHours': 'Sonno (h)', 'resumo.legendAvgHr': 'FC media (bpm)', 'resumo.nightSummaryCardTitle': 'Riepilogo notturno',
     'resumo.nightSummaryCardSubtitle': 'L\'agitazione/il vagabondaggio notturno ("sundowning") è una preoccupazione distinta dall\'attività diurna — richiesta basata sulla ricerca di piattaforme simili',
+    'resumo.liveActivityCardTitle': 'Attività rilevata (IA)', 'resumo.experimentalBadge': 'sperimentale',
+    'resumo.liveActivityCardSubtitle': 'Classificazione in tempo reale dal sensore di movimento del wearable',
+    'resumo.liveActivityWaiting': 'In attesa della prima classificazione…', 'resumo.liveActivityConfidence': 'confidenza {pct}%',
+    'resumo.liveActivityDurationAnomaly': '{cat} è durata {min} min — fuori da quanto previsto per questa fascia oraria',
+    'resumo.liveActivityDurationNormal': '{cat} è durata {min} min — entro l\'intervallo previsto',
+    'resumo.liveActivityDisclaimer': 'Classificatore addestrato solo con dati sintetici — non validato clinicamente. Non utilizzare per la diagnosi.',
     'resumo.routineTodayChartLabel': 'Routine di oggi', 'resumo.routineAnomalyChartLabel': 'Simulazione con anomalie',
     // --- pacientes ---
     'pacientes.monitoredCardTitle': 'Pazienti monitorati', 'pacientes.assignedSingular': 'paziente assegnato', 'pacientes.assignedPlural': 'pazienti assegnati',
@@ -4540,6 +4596,13 @@ TEMPLATES.resumo = () => `
     ${statTile('zap',t('resumo.spo2CardTitle'),'—','%', 'var(--status-good)', 'stat-spo2')}
   </div>
 
+  <div class="card activity-live-card">
+    <div class="card-head">
+      <div><h3>${t('resumo.liveActivityCardTitle')} <span class="experimental-flag" title="${t('resumo.liveActivityDisclaimer')}">${t('resumo.experimentalBadge')}</span></h3><div class="card-sub">${t('resumo.liveActivityCardSubtitle')}</div></div>
+    </div>
+    <div id="liveActivityPanel"></div>
+  </div>
+
   <div class="grid-2">
     <div class="card">
       <div class="card-head">
@@ -4586,6 +4649,7 @@ AFTER_RENDER.resumo = () => {
   drawTrend('cvTrend');
   applyLiveVitals();
   renderNightSummary();
+  renderLiveActivityPanel();
 };
 
 /* ------------------------------------------------------------
@@ -6426,6 +6490,14 @@ const liveState = {
   // tiver dados. Distinto de `currentTrendData()` (sempre sintético) — nunca são
   // misturados no mesmo gráfico, ver renderRealTrendTable().
   realTrend: [],
+  // Classificação de atividade em tempo real (ver bridge/activity_inference.py,
+  // 2026-07-20) — modelo treinado só com dados SINTÉTICOS, nunca validado
+  // clinicamente (ver renderLiveActivityPanel(), que mostra o aviso sempre
+  // junto ao resultado, nunca escondido). null até chegar a 1ª classificação.
+  currentActivity: null, // {category, confidence, session, receivedAt}
+  // Último bloco fechado com veredito do detetor de duração (ver
+  // ml/duration_detector.py) — mostrado como aviso extra quando anómalo.
+  lastActivityDurationFlag: null,
 };
 const liveHrBuffer = []; // {t: epoch_s, hr, label: "HH:MM:SS"}
 
@@ -6509,6 +6581,65 @@ function updateBatteryUI(){
   chip.title = pct != null ? t('topbar.batteryTitle', {pct}) : t('topbar.batteryUnknown');
 }
 
+// Painel "Atividade detetada (IA)" na vista Resumo — mostra a classificação
+// em tempo real vinda do bridge (kind "activity_classification") e, quando
+// existir, o veredito de duração do último bloco fechado (kind
+// "activity_duration_flag"). O aviso de "não validado clinicamente" é
+// SEMPRE visível junto ao resultado, nunca só no título do card — ver
+// ACTIVITY_ML_DISCLAIMER em bridge/activity_inference.py, a mesma frase
+// (traduzida) é repetida aqui de propósito.
+function renderLiveActivityPanel(){
+  const host = document.getElementById('liveActivityPanel');
+  if (!host) return;
+
+  if (!liveState.currentActivity){
+    host.innerHTML = `<p class="activity-live-empty">${t('resumo.liveActivityWaiting')}</p>`;
+    return;
+  }
+
+  const a = liveState.currentActivity;
+  // Nomes de categoria (Dormir/Descanso/Atividade/Alimentação/Higiene) não
+  // são traduzidos em lado nenhum do dashboard hoje (ver o mesmo padrão em
+  // catMap, usado pela timeline de rotina simulada) — mostrados tal como o
+  // bridge os envia, não por omissão, mas por consistência com o resto da
+  // vista Resumo, que já faz o mesmo.
+  const catLabel = escapeHtml(a.category);
+  const pct = Math.round(a.confidence * 100);
+
+  let flagHtml = '';
+  const flag = liveState.lastActivityDurationFlag;
+  if (flag){
+    const flagCatLabel = escapeHtml(flag.category);
+    flagHtml = flag.isAnomaly
+      ? `<div class="activity-live-flag anomaly">⚠ ${t('resumo.liveActivityDurationAnomaly', {cat: flagCatLabel, min: flag.durationMin})}</div>`
+      : `<div class="activity-live-flag normal">✓ ${t('resumo.liveActivityDurationNormal', {cat: flagCatLabel, min: flag.durationMin})}</div>`;
+  }
+
+  host.innerHTML = `
+    <div class="activity-live-now">
+      <span class="cat" style="color:${categoryColorVar(a.category)}">${catLabel}</span>
+      <span class="conf">${t('resumo.liveActivityConfidence', {pct})}</span>
+    </div>
+    ${flagHtml}
+    <p class="activity-live-empty">${t('resumo.liveActivityDisclaimer')}</p>
+  `;
+}
+
+// Mapeia a classe do classificador (PT, ver
+// ml/models/activity_classifier_rf_labels.json) para a variável CSS de cor
+// já usada nos blocos de rotina simulados (catMap) — mesma paleta, para a
+// classificação real e a timeline simulada usarem as mesmas cores.
+const ACTIVITY_CLASS_COLOR_VAR = {
+  'Dormir': 'var(--cat-dormir)',
+  'Descanso': 'var(--cat-descanso)',
+  'Atividade': 'var(--cat-atividade)',
+  'Alimentação': 'var(--cat-alimentacao)',
+  'Higiene': 'var(--cat-higiene)',
+};
+function categoryColorVar(category){
+  return ACTIVITY_CLASS_COLOR_VAR[category] || 'var(--text-primary)';
+}
+
 function toggleBleConnection(){
   const nextEnabled = liveState.blePaused; // estava pausado -> vamos ligar
   const sent = sendWsCommandWithArgs('set_ble_enabled', {enabled: nextEnabled});
@@ -6567,6 +6698,29 @@ function handleBridgeMessage(msg){
   if (msg.kind === 'battery'){
     liveState.batteryPercent = toFiniteNumber(msg.percent);
     updateBatteryUI();
+    return;
+  }
+  if (msg.kind === 'activity_classification'){
+    // Canal não autenticado (ver toFiniteNumber() acima) — "category" é um
+    // enum fechado de 5 valores (ver ACTIVITY_CLASS_COLOR_VAR); qualquer
+    // outra coisa vinda do WebSocket é ignorada em vez de aceite às cegas.
+    const conf = toFiniteNumber(msg.confidence);
+    if (Object.prototype.hasOwnProperty.call(ACTIVITY_CLASS_COLOR_VAR, msg.category) && conf != null){
+      liveState.currentActivity = { category: msg.category, confidence: conf };
+      renderLiveActivityPanel();
+    }
+    return;
+  }
+  if (msg.kind === 'activity_duration_flag'){
+    const durationMin = toFiniteNumber(msg.duration_min);
+    if (Object.prototype.hasOwnProperty.call(ACTIVITY_CLASS_COLOR_VAR, msg.cls) && durationMin != null){
+      liveState.lastActivityDurationFlag = {
+        category: msg.cls,
+        durationMin: Math.round(durationMin),
+        isAnomaly: !!msg.is_anomaly,
+      };
+      renderLiveActivityPanel();
+    }
     return;
   }
   if (msg.kind === 'emergency_alert'){

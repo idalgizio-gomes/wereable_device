@@ -138,6 +138,17 @@ except ImportError as exc:
     print(f"[BRIDGE] AVISO: modulo notifications indisponivel ({exc}); notificacoes de emergencia desativadas")
     notifications = None
 
+try:
+    # Classificação de atividade em tempo real sobre o IMU (ver
+    # activity_inference.py, 2026-07-20) — scikit-learn/joblib/pandas só
+    # estão em requirements_db.txt, não no requirements.txt mínimo usado por
+    # start_carewear.bat, por isso este import nunca pode impedir
+    # `import ble_bridge` de suceder numa instalação mínima.
+    import activity_inference
+except ImportError as exc:
+    print(f"[BRIDGE] AVISO: modulo activity_inference indisponivel ({exc}); classificacao de atividade desativada")
+    activity_inference = None
+
 # ============================================================
 # IDENTIFICADORES BLE — têm de corresponder exatamente aos definidos
 # em src/Ble/Ble.cpp. Se algum UUID mudar no firmware, tem de mudar aqui
@@ -625,6 +636,21 @@ class BleBridge:
         # ligado e para de tentar reconectar ate' voltar a True. Nao afeta o
         # WebSocket dashboard<->bridge, que continua ligado normalmente.
         self.ble_enabled = True
+        # Classificação de atividade em tempo real (ver activity_inference.py)
+        # — mesmo padrão degradável do self.orm acima: uma falha aqui (modelo
+        # em falta, scikit-learn não instalado) nunca deve impedir o arranque
+        # do bridge nem o streaming BLE, só desativa a classificação.
+        self.activity_inference = None
+        if activity_inference is not None:
+            try:
+                self.activity_inference = activity_inference.ActivityInference()
+                if not self.activity_inference.available:
+                    print(f"[BRIDGE] AVISO: classificador de atividade indisponivel "
+                          f"({self.activity_inference.load_error}); classificacao desativada")
+                    self.activity_inference = None
+            except Exception as exc:  # noqa: BLE001 - nunca deve impedir o arranque
+                print(f"[BRIDGE] AVISO: falha ao inicializar activity_inference: {exc}")
+                self.activity_inference = None
 
     RECORD_BROADCAST_MIN_INTERVAL_S = 0.25  # no maximo ~4 atualizacoes/seg
     # Intervalo entre limpezas automaticas de sensor_records (ver
@@ -827,6 +853,32 @@ class BleBridge:
         # dentro; não precisa de try/except aqui.
         if self.orm:
             self.orm.insert_sensor_record(record)
+
+        # Classificação de atividade em tempo real (ver activity_inference.py)
+        # — alimentada por TODOS os registos, não só os que sobrevivem ao
+        # limite de taxa do broadcast abaixo (a janela de 10s precisa do
+        # sinal completo, não de uma amostragem esparsa pensada só para o
+        # browser). Devolve None na maioria das chamadas (ainda a acumular a
+        # janela); só produz um resultado a cada ~10s.
+        if self.activity_inference is not None:
+            try:
+                activity_result = self.activity_inference.add_sample(record)
+            except Exception as exc:  # noqa: BLE001 - nunca deve travar o streaming
+                print(f"[BRIDGE] erro na classificacao de atividade: {exc}")
+                activity_result = None
+            if activity_result:
+                asyncio.create_task(self.broadcast(activity_result))
+                closed = activity_result.get("closed_block")
+                if closed:
+                    # Só persiste em activity_windows quando um BLOCO fecha
+                    # (classe/sessão mudou) — activity_result chega a cada
+                    # ~10s, mas o esquema (start_time/end_time/duration_minutes)
+                    # descreve blocos agregados, não janelas individuais.
+                    if self.orm:
+                        self.orm.insert_activity_window(closed)
+                    asyncio.create_task(self.broadcast({
+                        "kind": "activity_duration_flag", **closed,
+                    }))
 
         has_new_vital = record["hr"] is not None or record["spo2"] is not None
         now = time.monotonic()

@@ -25,6 +25,19 @@ Autoencoder (passo 2) e detetor de duração baseado em regras (passo 3).
 Nenhum está ainda embarcado no firmware nem validado com dados reais — ver
 "Próximos passos" abaixo.
 
+**Atualização (2026-07-20): passos 1 e 3 já correm ao vivo no bridge** (não
+embarcados no firmware, mas já não são só scripts offline desta pasta) — ver
+`bridge/activity_inference.py`, que reutiliza `features.py` e
+`duration_detector.py` diretamente (import cruzado, sem duplicar lógica) para
+classificar o stream real do IMU e sinalizar durações anómalas, com o aviso
+"treinado só com dados sintéticos" sempre visível no dashboard. O modelo em
+si (`models/activity_classifier_rf.joblib`) continua exatamente o mesmo
+treinado sobre dados sintéticos — só passou a ser INVOCADO em produção, não
+foi revalidado com dados reais. Ver PROJECT_STATUS.md, "Pipeline de ML ligado
+ao stream real do bridge", para o detalhe completo (incluindo por que só o
+autoencoder tem um caminho de retreino sobre dados reais —
+`retrain_autoencoder_from_real_data.py` — e o classificador não, ainda).
+
 ## Porque não há dados reais ainda
 
 O firmware do wearable não tem classificador HAR embarcado (ver
@@ -54,6 +67,7 @@ ml/
   duration_detector.py            # detetor de duração baseado em regras + avaliação (passo 3)
   measure_rf_footprint.py         # footprint real (flash/RAM) do Random Forest via emlearn
   combined_pipeline_report.py     # relatório combinado: classificador + duração + autoencoder, blocos previstos (não ground truth)
+  retrain_autoencoder_from_real_data.py  # fine-tuning do autoencoder sobre dados reais do bridge (2026-07-20)
   requirements.txt
   data/
     synthetic_routine_dataset.csv        # gerado, NÃO versionado (ver .gitignore)

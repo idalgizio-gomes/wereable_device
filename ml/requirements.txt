@@ -9,3 +9,8 @@ tensorflow-cpu>=2.19.0  # DEP-004: piso subido por CVE-2025-55559
 # numpy, pandas, scikit-learn, xgboost, matplotlib, joblib, emlearn: sem
 # restrição de piso de propósito — fora do âmbito deste lote (DEP-005 limita-se
 # aos dois requirements do bridge) e sem CVE aplicável em SECURITY_STATUS.md
+
+# retrain_autoencoder_from_real_data.py (2026-07-20) importa storage_advanced.py
+# do bridge para ler dados reais — precisa também de bridge/requirements_db.txt
+# instalado (sqlalchemy em particular). Não duplicado aqui de propósito: é a
+# única peça deste ficheiro com essa dependência cruzada.

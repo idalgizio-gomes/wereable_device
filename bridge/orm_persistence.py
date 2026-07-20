@@ -36,6 +36,7 @@ Uso a partir de `ble_bridge.py` (todas as chamadas guardadas por
     self.orm.update_device_mac(addr)       # ao ligar (run_device_loop)
     self.orm.insert_sensor_record(record)  # por registo (_on_dump_data)
     self.orm.insert_emergency_alert(alert) # por alerta (_on_emergency_alert)
+    self.orm.insert_activity_window(block) # por bloco fechado (activity_inference.py)
     self.orm.audit(...)                    # acessos a dados de paciente
     self.orm.purge(days)                   # retenção periódica
 """
@@ -299,6 +300,43 @@ class OrmPersistence:
                 self._degrade("update_device_mac (lookup por MAC)", exc)
         except Exception as exc:  # noqa: BLE001
             self._degrade("update_device_mac", exc)
+
+    # ---- classificação de atividade (IMEDIATA, 2026-07-20) -----------------
+
+    def insert_activity_window(self, closed_block: dict) -> None:
+        """Escrita imediata (não em lote — blocos fecham a cada poucos
+        minutos, não a ~52/s como sensor_records) de um bloco de atividade
+        já FECHADO pelo classificador em tempo real (ver
+        activity_inference.py::_update_block). `activity_category` usa o
+        vocabulário em inglês do esquema (CheckConstraint em
+        storage_advanced.py), já traduzido pelo chamador via
+        CLASS_TO_DB_CATEGORY (closed_block["db_category"]).
+
+        NOTA: `is_anomaly`/`reason` (veredito do duration_detector) não têm
+        ainda uma coluna própria neste esquema — são transmitidos ao
+        dashboard em tempo real (kind "activity_duration_flag") mas não
+        persistidos aqui. Ficaria natural futuramente popular
+        `anomaly_detections` a partir daqui quando `is_anomaly` for True;
+        não feito nesta rotina (âmbito: ligar a classificação em si, não
+        todo o pipeline de alertas de rotina)."""
+        if self.disabled or self.session is None:
+            return
+        try:
+            row = sa.ActivityWindow(
+                device_id=self.device_id,
+                activity_date=datetime.fromtimestamp(
+                    closed_block["start_wall_clock_s"], tz=timezone.utc
+                ),
+                activity_category=closed_block["db_category"],
+                start_time=closed_block["start_time_minutes"],
+                end_time=closed_block["end_time_minutes"],
+                duration_minutes=round(closed_block["duration_min"]),
+                confidence=closed_block["confidence"],
+            )
+            self.session.add(row)
+            self.session.commit()
+        except Exception as exc:  # noqa: BLE001
+            self._degrade("insert_activity_window", exc)
 
     # ---- retenção ----------------------------------------------------------
 
