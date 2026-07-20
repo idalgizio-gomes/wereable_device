@@ -4882,3 +4882,39 @@ rotina que introduziu o bug de unidades, partilhavam a assunção errada e por i
 `ml/retrain_autoencoder_from_real_data.py` não tinha este bug porque foi escrito com a conversão
 `*1000` explícita desde o início (tratando `timestamp_utc` como segundos corretamente) — a
 inconsistência entre os dois ficheiros só ficou visível ao correr ambos contra o mesmo dado real.
+
+## Teste isolado do LoRa finalmente corrido e lido em série (2026-07-20)
+
+Pendente desde 2026-07-03 (ver "Plano de testes de hardware", item 5) — nunca se tinha chegado a
+compilar/enviar `test_lora_isolated` nem a ler o resultado em série. Com a placa disponível nesta
+rotina (ver secções acima), corrido agora: `pio run -e test_lora_isolated -t upload`, seguido de
+captura de série imediata (o reset do próprio upload já serve de gatilho — sem isso, uma tentativa
+anterior de ligar depois de o upload terminar chegou tarde de mais para o `while(!Serial...)` de 5s
+do teste e não capturou nada, mesmo com um reset manual a seguir).
+
+**Resultado dos 3 testes** (NSS candidato = pino `A3`, ver `src/test_lora_isolated.cpp`):
+- **TESTE 1** (estado em repouso): BUSY e DIO1 ambos LOW.
+- **TESTE 2** (leitura SPI em bruto, opcode GetStatus 0xC0): **byte 2 = 0xFF** — exatamente o padrão
+  que o próprio teste documenta como sinal forte de "não há nenhum chip a responder neste pino NSS"
+  (barramento MISO em floating).
+- **TESTE 3** (BUSY após timeout): LOW — mas à luz do TESTE 2, isto lê-se mais como o pino a ficar
+  parado num nível baixo por omissão do que como confirmação de um chip pronto a responder.
+
+**Interpretação, seguindo o critério que o próprio teste define (não uma opinião nova)**: o pino
+NSS candidato `A3` muito provavelmente **está errado** — reforça, com uma leitura SPI direta e sem
+depender do RadioLib, a mesma conclusão a que `Lora::begin()` já chegava indiretamente (falha
+sempre, `RADIOLIB_ERR_CHIP_NOT_FOUND`). Não é uma prova definitiva (só testado com hardware,
+poderia em teoria refletir também um problema de fiação/soldadura do módulo em si, não só do
+pinout), mas isola claramente **onde não está o problema** (não é a biblioteca RadioLib a
+interpretar mal uma resposta válida — não há resposta nenhuma).
+
+**Próximo passo, não feito nesta rotina**: testar outro pino candidato a NSS (precisa de revisitar
+o esquemático — ver "Descobertas do esquemático" acima — para propor um candidato concreto, não
+adivinhar), ou testar RadioLib 4.6.0 como pista alternativa já registada. Ambos ficam como trabalho
+futuro explícito, não decidido/tentado nesta execução.
+
+**Placa reposta com o firmware principal** logo a seguir (`pio run -e
+seeed-xiao-afruitnrf52-nrf52840-sense-plus -t upload`) — o teste isolado substitui
+temporariamente `main.cpp` no binário flashado (mesmo ambiente PlatformIO, binário diferente);
+confirmado via série que o firmware principal voltou a arrancar e a anunciar por BLE
+(`adv=1 connected=0`) antes de continuar para outro trabalho.
