@@ -35,27 +35,36 @@ risco residual descrito), **FECHADO**. Nenhuma correção estrutural
 (pairing/bonding real) foi aplicada nesta execução — ver "Decisão desta
 execução" no fim.
 
+> **Atualização (2026-07-20, Fase A)**: a frase acima ("Nenhuma correção
+> estrutural... foi aplicada") já não é verdade — ver secção "Fase A —
+> bonding/encriptação BLE implementada (2026-07-20)" no fim deste bloco,
+> que aplica exatamente essa correção estrutural (pairing/bonding real,
+> `SECMODE_ENC_NO_MITM`) a 6 das 7 characteristics sensíveis do wearable.
+
 ## Mapa de superfície GATT — tabela de characteristics
 
 Convenção de permissões: `OPEN` = Security Mode 1 Level 1, sem
 encriptação/autenticação nenhuma (Bluefruit `SECMODE_OPEN`);
-`NO_ACCESS` = operação não permitida a nenhum central. **Nenhuma
-characteristic deste dispositivo usa `SECMODE_ENC_NO_MITM` nem
-`SECMODE_ENC_WITH_MITM`** — confirmado por leitura direta de
-`Ble.cpp::begin()`, linha a linha.
+`ENC_NO_MITM` = Security Mode 1 Level 2, exige bonding + encriptação de
+link sem proteção MITM (Bluefruit `SECMODE_ENC_NO_MITM`);
+`NO_ACCESS` = operação não permitida a nenhum central. **6 das 7
+characteristics sensíveis usam `SECMODE_ENC_NO_MITM` desde 2026-07-20
+(Fase A) — só o Battery Service (0x2A19, classe stock `BLEBas`)
+continua `SECMODE_OPEN`, decisão documentada na secção "Fase A" no fim
+deste bloco.** A tabela abaixo já reflete o estado pós-Fase A.
 
 | Characteristic | UUID | Properties (GATT) | Permissão leitura/notify | Permissão escrita | Exige encriptação/pairing? | Dados sensíveis expostos |
 |---|---|---|---|---|---|---|
-| `aesKeyChar` | `abcd1234-...-abcdef123456` | WRITE | — (sem READ) | `OPEN` | **Não** | A própria chave AES do streaming — mitigado só pela lógica applicacional (só aceita a 1ª escrita, `Storage::hasAesKey()`), não pelo GATT |
-| `dumpCtrlChar` | `abcd1234-...-abcdef200001` | WRITE, WRITE_WO_RESP | — (sem READ) | `OPEN` | **Não** | Comandos de controlo, incl. `kDumpCtrlResetReadings` (0x04, destrutivo/irreversível) e `kDumpCtrlForceHr`/START/STOP |
-| `dumpDataChar` | `abcd1234-...-abcdef200002` | NOTIFY, INDICATE | `OPEN` | `NO_ACCESS` | **Não** (link não cifrado) | Payload cifrado AES-CTR desde 2026-07-07 (ver nota acima) — mas cabeçalho `rec_seq`/`nonce`/`frag_idx` vai sempre em claro (metadados de ritmo/volume, não o conteúdo clínico em si) |
-| `dumpStatusChar` | `abcd1234-...-abcdef200003` | NOTIFY, READ | `OPEN` | `NO_ACCESS` | **Não** | Estado do streaming + contagens (`sent_records`/`acked_records`) em claro — confirma que o dispositivo está a ser usado agora (metadado de presença/atividade) |
-| `emergencyAlertChar` | `abcd1234-...-abcdef200004` | NOTIFY, READ | `OPEN` | `NO_ACCESS` | **Não** | **Tipo de alerta (SOS/queda) + timestamp UTC em claro**, legível por `READ` direto a qualquer momento por qualquer central, sem sequer precisar de esperar por uma notificação — ver BLE-002 |
-| `currentTimeChar` (0x2A2B, padrão BT SIG) | `0x2A2B` | WRITE | — (sem READ) | `OPEN` | **Não** | Hora do sistema — mitigado parcialmente por **FW-001** (bloqueia escrita depois de `s_dataModeEnabled`), risco residual na janela de provisioning inicial |
+| `aesKeyChar` | `abcd1234-...-abcdef123456` | WRITE | — (sem READ) | `ENC_NO_MITM` | **Sim (bond+enc, sem MITM)** | A própria chave AES do streaming — mitigado pela lógica applicacional (só aceita a 1ª escrita, `Storage::hasAesKey()`) e, desde a Fase A, exige também bonding+encriptação ao nível do GATT |
+| `dumpCtrlChar` | `abcd1234-...-abcdef200001` | WRITE, WRITE_WO_RESP | — (sem READ) | `ENC_NO_MITM` | **Sim (bond+enc, sem MITM)** | Comandos de controlo, incl. `kDumpCtrlResetReadings` (0x04, destrutivo/irreversível) e `kDumpCtrlForceHr`/START/STOP |
+| `dumpDataChar` | `abcd1234-...-abcdef200002` | NOTIFY, INDICATE | `ENC_NO_MITM` | `NO_ACCESS` | **Sim (bond+enc, sem MITM)** | Payload cifrado AES-CTR desde 2026-07-07 (ver nota acima) — mas cabeçalho `rec_seq`/`nonce`/`frag_idx` vai sempre em claro (metadados de ritmo/volume, não o conteúdo clínico em si) |
+| `dumpStatusChar` | `abcd1234-...-abcdef200003` | NOTIFY, READ | `ENC_NO_MITM` | `NO_ACCESS` | **Sim (bond+enc, sem MITM)** | Estado do streaming + contagens (`sent_records`/`acked_records`) — confirma que o dispositivo está a ser usado agora (metadado de presença/atividade) |
+| `emergencyAlertChar` | `abcd1234-...-abcdef200004` | NOTIFY, READ | `ENC_NO_MITM` | `NO_ACCESS` | **Sim (bond+enc, sem MITM)** | **Tipo de alerta (SOS/queda) + timestamp UTC**, legível por `READ` a qualquer momento por qualquer central *já emparelhado/bonded* — deixou de ser legível anonimamente com a Fase A, mas ainda sem proteção MITM — ver BLE-002 |
+| `currentTimeChar` (0x2A2B, padrão BT SIG) | `0x2A2B` | WRITE | — (sem READ) | `ENC_NO_MITM` | **Sim (bond+enc, sem MITM)** | Hora do sistema — mitigado parcialmente por **FW-001** (bloqueia escrita depois de `s_dataModeEnabled`) e, desde a Fase A, exige também bonding+encriptação na janela de provisioning inicial |
 
 ## Riscos (BLE-XXX)
 
-### BLE-001 — Nenhuma characteristic exige pairing/bonding/encriptação de link (`SECMODE_OPEN` em tudo) — ABERTO, mesmo risco de FW-002
+### BLE-001 — Nenhuma characteristic exige pairing/bonding/encriptação de link (`SECMODE_OPEN` em tudo) — **MITIGADO por Fase A (2026-07-20)**, ver secção "Fase A" no fim deste bloco
 
 **Gravidade: alta.** Confirma e detalha, do ponto de vista de "Security
 Mode/Level" (âmbito específico desta rotina S04), o que
@@ -115,7 +124,7 @@ com o bridge, ver BLE-002 para a escolha do método):
 
 ---
 
-### BLE-002 — Alerta de emergência (SOS/queda) transmitido e legível em claro, sem qualquer autenticação — ABERTO, achado novo desta execução
+### BLE-002 — Alerta de emergência (SOS/queda) transmitido e legível em claro, sem qualquer autenticação — **MITIGADO por Fase A (2026-07-20)**, ver secção "Fase A" no fim deste bloco
 
 **Gravidade: crítica.** Este é o achado mais grave desta auditoria,
 distinto de FW-002 (que é sobre comandos/hijack, não sobre este canal
@@ -172,7 +181,7 @@ não decisão.
 
 ---
 
-### BLE-003 — Proteção MITM: nenhuma configurada; hardware permite Numeric Comparison/Passkey (ecrã OLED) — ABERTO, requisito de desenho
+### BLE-003 — Proteção MITM: nenhuma configurada; hardware permite Numeric Comparison/Passkey (ecrã OLED) — **ABERTO, depende da Fase B** (ecrã OLED ainda não montado) — ver secção "Fase A" no fim deste bloco para o que já foi feito
 
 **Gravidade: média-alta**, condicional ao desenho de BLE-001 avançar.
 
@@ -207,7 +216,7 @@ linkado pelo `platform-seeedboards`).
 
 ---
 
-### BLE-004 — Replay de comandos: sem proteção específica, mas redundante com BLE-001 (acesso já é livre) — ABERTO, nota para desenho futuro
+### BLE-004 — Replay de comandos: sem proteção específica, mas redundante com BLE-001 (acesso já é livre) — **MITIGADO indiretamente por Fase A (2026-07-20)**: o acesso deixou de ser livre, ver secção "Fase A" no fim deste bloco
 
 **Gravidade: média**, risco composto (não autónomo — depende de BLE-001
 ser corrigido primeiro para passar a ser relevante).
@@ -239,7 +248,7 @@ isolada.
 
 ---
 
-### BLE-005 — Privacy: endereço BLE provavelmente estático (não RPA) + nome de advertising identifica o dispositivo como "wearable" — ABERTO, a confirmar em hardware
+### BLE-005 — Privacy: endereço BLE provavelmente estático (não RPA) + nome de advertising identifica o dispositivo como "wearable" — **ABERTO, a confirmar em hardware**; RPA depende do mesmo IRK do bonding entretanto ativado pela Fase A, mas continua por implementar/testar — ver secção "Fase A" no fim deste bloco
 
 **Gravidade: média**, relevante em particular por este ser um
 dispositivo para pessoas com demência (risco de "wandering" —
@@ -302,7 +311,7 @@ pairing/bonding de BLE-001, não isoladamente.
 
 ---
 
-### BLE-006 — Whitelist/filtro de ligação: aceita ligação de qualquer central — ABERTO, inerente ao desenho atual (sem bonding)
+### BLE-006 — Whitelist/filtro de ligação: aceita ligação de qualquer central — **MITIGADO indiretamente por Fase A (2026-07-20)**: já há bonding, ver secção "Fase A" no fim deste bloco
 
 **Gravidade: baixa como item isolado** (é a mesma raiz de BLE-001, não
 um risco independente).
@@ -418,6 +427,60 @@ anonimamente) e BLE-001 juntos (a correção é a mesma — exigir
 ecrã OLED disponível), 3) BLE-005 (RPA, acoplado ao mesmo IRK do
 bonding), 4) BLE-004/BLE-006 (reforços que só passam a fazer sentido
 depois dos anteriores existirem).
+
+## Fase A — bonding/encriptação BLE implementada (2026-07-20)
+
+Implementa a correção estrutural que a secção anterior ("Decisão desta
+execução") tinha deixado como pendente. Âmbito: mover as 6
+characteristics sensíveis do wearableService/currentTimeService de
+`SECMODE_OPEN` para `SECMODE_ENC_NO_MITM` (bonding + encriptação de link,
+sem proteção MITM) — ver `src/Ble/Ble.cpp::begin()`, os 6
+`setPermission(...)` atualizados, e `Bluefruit.Security.setIOCaps(false,
+false, false)`/`setMITM(false)` adicionados explicitamente no início de
+`begin()`.
+
+**Correção de precisão técnica**: isto NÃO é LE Secure Connections
+(LESC/ECDH P-256), apesar de o SoftDevice suportar LESC em teoria
+(`_sec_param_default.lesc = LESC_SUPPORTED`). `NRF_CRYPTOCELL` não está
+definido para esta placa/build (confirmado por grep nos ficheiros de
+variante `Seeed_XIAO_nRF52840_Sense_Plus` e no `platformio.ini` do
+projeto), pelo que `lesc` fica efetivamente 0 em runtime — o pairing
+resultante é **Legacy Pairing / "Just Works"** (chave STK derivada via
+AES-CMAC), não LESC. Isto é suficiente para o objetivo da Fase A
+(bonding + encriptação de link contra um atacante passivo/oportunista),
+mas **não protege contra um atacante ativo durante o próprio pairing**
+(MITM na troca inicial) — daí BLE-003 continuar ABERTO.
+
+**Fora de âmbito, decisão documentada**: `batteryService` (classe stock
+`BLEBas` do Adafruit core) continua `SECMODE_OPEN` — nível de bateria
+0-100% é telemetria de baixa sensibilidade, e subclassar a classe stock só
+para isto seria desproporcional ao risco.
+
+**Lado do bridge (`bridge/ble_bridge.py`)**: o backend WinRT do bleak
+(confirmado por leitura do código-fonte do bleak 3.0.2 instalado) não
+empareia sozinho ao ligar nem no primeiro acesso GATT no Windows — por
+isso `run_device_loop()` chama agora `await self._ensure_paired(client)`
+explicitamente logo a seguir à ligação, antes de qualquer
+read/write/start_notify às characteristics protegidas. Tolerante a
+falhas (mesmo padrão de degradação graciosa do resto do bridge): uma
+falha de pairing não derruba a ligação, só impede o acesso às
+characteristics protegidas a partir daí (o bridge já regista e tolera
+isso nos try/except existentes de `start_notify`/`write_gatt_char`). Nota
+operacional: a primeira ligação a um dispositivo ainda não bonded pode
+envolver um diálogo/notificação de emparelhamento do próprio Windows,
+fora do controlo do processo Python — não assumir que corre sempre em
+silêncio. Coberto por `bridge/tests/test_ble_bridge_pairing.py` (novo,
+sem hardware real).
+
+**Estados atualizados por este trabalho**: BLE-001 e BLE-002 →
+**MITIGADO** (correção direta); BLE-004 e BLE-006 → **MITIGADO**
+indiretamente (dependiam da mesma raiz, acesso livre, que deixou de
+existir). **Continuam ABERTOS, dependentes da Fase B** (que precisa do
+ecrã OLED ainda não montado, para permitir Numeric Comparison em vez de
+Just Works): BLE-003 (proteção MITM) e BLE-005 (privacy/RPA — o endereço
+BLE e o IRK de privacidade são normalmente ativados junto com bonding
+"reforçado", mas isso ainda não foi implementado nem testado em hardware
+aqui).
 
 ---
 

@@ -1178,6 +1178,16 @@ static void aesKeyCallback(uint16_t conn_hdl, BLECharacteristic *chr,
 // (fase de provisioning continua sem autenticacao — ver SECURITY_STATUS.md,
 // FW-002, ligado a auditoria mais ampla de pairing/bonding prevista na
 // rotina S04).
+//
+// RESOLVIDO (Fase A de seguranca BLE, 2026-07-20, ver SECURITY_STATUS.md
+// BLE-001/BLE-004/BLE-006 e Ble::begin()): currentTimeChar passou de
+// SECMODE_OPEN para SECMODE_ENC_NO_MITM na escrita — a partir de agora e'
+// preciso bonding+encriptacao de link (Legacy Pairing/Just Works, sem
+// MITM) antes do SoftDevice sequer entregar esta escrita ao callback
+// abaixo, o que fecha tambem a janela de reescrita ANTES do primeiro sync
+// descrita acima (nao dependia de s_dataModeEnabled, era o unico caso sem
+// mitigacao nenhuma). Protecao contra MITM (Numeric Comparison via ecra
+// OLED) continua pendente da Fase B — ver BLE-003.
 static void timestampCallback(uint16_t conn_hdl, BLECharacteristic *chr,
                               uint8_t *data, uint16_t len) {
   (void)conn_hdl;
@@ -1342,14 +1352,32 @@ bool begin() {
   Bluefruit.Periph.setConnectCallback(periphConnectCallback);
   Bluefruit.Periph.setDisconnectCallback(periphDisconnectCallback);
 
+  // Fase A de seguranca BLE (2026-07-20, ver SECURITY_STATUS.md
+  // BLE-001/BLE-002/BLE-004/BLE-006): bond=1/mitm=0 ja sao os defaults da
+  // propria SDK (BLESecurity.cpp, _sec_param_default) e bastariam
+  // sozinhos para o que a Fase A pede, mas declara-se aqui de forma
+  // explicita para nao depender silenciosamente de defaults de uma
+  // biblioteca de terceiros. IO_CAPS=NONE + MITM=false -> pairing "Just
+  // Works" (Legacy Pairing, NAO LESC: NRF_CRYPTOCELL nao esta definido
+  // para esta placa/build, ver platformio.ini e variants/
+  // Seeed_XIAO_nRF52840_Sense_Plus). Protecao contra MITM (Numeric
+  // Comparison, exige o ecra OLED ainda nao montado) fica para a Fase B
+  // — ver BLE-003 em SECURITY_STATUS.md.
+  Bluefruit.Security.setIOCaps(false, false, false);
+  Bluefruit.Security.setMITM(false);
+
   wearableService.begin();
 
-  // Characteristic de escrita para a app enviar a chave AES. Permissao
-  // SECMODE_OPEN (sem exigir pairing/bonding BLE) porque a protecao
-  // real esta na logica: so aceita a primeira escrita (ver
-  // aesKeyCallback), guardando-a de imediato em flash.
+  // Characteristic de escrita para a app enviar a chave AES. Ate
+  // 2026-07-20 usava SECMODE_OPEN (sem exigir pairing/bonding BLE) e
+  // dependia so' da logica applicacional (so aceita a primeira escrita,
+  // ver aesKeyCallback) para se proteger — ver FW-002/BLE-001 em
+  // SECURITY_STATUS.md. RESOLVIDO (Fase A de seguranca BLE, 2026-07-20):
+  // agora exige SECMODE_ENC_NO_MITM (bonding + encriptacao de link antes
+  // do SoftDevice aceitar a escrita); a logica de "so aceita a 1a
+  // escrita" mantem-se como segunda camada, nao substituida por isto.
   aesKeyChar.setProperties(CHR_PROPS_WRITE);
-  aesKeyChar.setPermission(SECMODE_OPEN, SECMODE_OPEN);
+  aesKeyChar.setPermission(SECMODE_OPEN, SECMODE_ENC_NO_MITM);
   aesKeyChar.setMaxLen(AES_KEY_MAX_LEN);
   aesKeyChar.setWriteCallback(aesKeyCallback);
   aesKeyChar.begin();
@@ -1357,8 +1385,9 @@ bool begin() {
   // Characteristic de controlo (start/stop) do streaming; aceita
   // escrita com e sem resposta (WRITE_WO_RESP) para reduzir latencia
   // do lado da app ao pedir o inicio da transmissao.
+  // Fase A (2026-07-20): permissao de escrita passou a SECMODE_ENC_NO_MITM.
   dumpCtrlChar.setProperties(CHR_PROPS_WRITE | CHR_PROPS_WRITE_WO_RESP);
-  dumpCtrlChar.setPermission(SECMODE_OPEN, SECMODE_OPEN);
+  dumpCtrlChar.setPermission(SECMODE_OPEN, SECMODE_ENC_NO_MITM);
   dumpCtrlChar.setMaxLen(8);
   dumpCtrlChar.setWriteCallback(dumpCtrlCallback);
   dumpCtrlChar.begin();
@@ -1367,15 +1396,19 @@ bool begin() {
   // "empurra" os pacotes de dados para a app, que nunca escreve aqui
   // (por isso SECMODE_NO_ACCESS na escrita). Tamanho fixo porque todos
   // os pacotes DumpDataPacket tem o mesmo tamanho.
+  // Fase A (2026-07-20): permissao de leitura/notify passou a
+  // SECMODE_ENC_NO_MITM.
   dumpDataChar.setProperties(CHR_PROPS_NOTIFY | CHR_PROPS_INDICATE);
-  dumpDataChar.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
+  dumpDataChar.setPermission(SECMODE_ENC_NO_MITM, SECMODE_NO_ACCESS);
   dumpDataChar.setFixedLen(sizeof(DumpDataPacket));
   dumpDataChar.begin();
 
   // Characteristic de estado: pode ser lida sob pedido ou recebida via
   // notify sempre que o estado do streaming muda.
+  // Fase A (2026-07-20): permissao de leitura/notify passou a
+  // SECMODE_ENC_NO_MITM.
   dumpStatusChar.setProperties(CHR_PROPS_NOTIFY | CHR_PROPS_READ);
-  dumpStatusChar.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
+  dumpStatusChar.setPermission(SECMODE_ENC_NO_MITM, SECMODE_NO_ACCESS);
   dumpStatusChar.setFixedLen(sizeof(DumpStatusPacket));
   dumpStatusChar.begin();
 
@@ -1384,8 +1417,10 @@ bool begin() {
   // escreve aqui (app nunca escreve, daí SECMODE_NO_ACCESS), e o valor
   // fica disponivel por leitura mesmo que nao haja ligacao ativa no
   // momento exato do alerta (a app pode ler ao reconectar-se).
+  // Fase A (2026-07-20): permissao de leitura/notify passou a
+  // SECMODE_ENC_NO_MITM.
   emergencyAlertChar.setProperties(CHR_PROPS_NOTIFY | CHR_PROPS_READ);
-  emergencyAlertChar.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
+  emergencyAlertChar.setPermission(SECMODE_ENC_NO_MITM, SECMODE_NO_ACCESS);
   emergencyAlertChar.setFixedLen(sizeof(EmergencyAlertPacket));
   emergencyAlertChar.begin();
 
@@ -1407,7 +1442,7 @@ bool begin() {
   // aqui, embora neste projeto seja a app dedicada que o faz.
   currentTimeService.begin();
   currentTimeChar.setProperties(CHR_PROPS_WRITE);
-  currentTimeChar.setPermission(SECMODE_OPEN, SECMODE_OPEN);
+  currentTimeChar.setPermission(SECMODE_OPEN, SECMODE_ENC_NO_MITM);
   currentTimeChar.setMaxLen(10);
   currentTimeChar.setWriteCallback(timestampCallback);
   currentTimeChar.begin();

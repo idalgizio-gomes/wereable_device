@@ -4968,3 +4968,52 @@ o que esta própria rotina usou em todos os testes de hardware.
    sem um bridge ligado a consumir o ring buffer.
 3. **Bateria a 8%** (`[BATTERY] mv=3423 raw_adc=1558 percent=8`) — a placa precisa de carregar antes
    de mais sessões de teste prolongadas.
+
+## Fase A de segurança BLE — bonding/encriptação implementada (2026-07-20)
+
+Ver `SECURITY_STATUS.md`, secção "Fase A — bonding/encriptação BLE
+implementada (2026-07-20)", para o detalhe completo dos riscos
+BLE-001/002/003/004/005/006 afetados — aqui só o resumo de implementação
+para não duplicar.
+
+**`src/Ble/Ble.cpp`**: 6 characteristics (`aesKeyChar`, `dumpCtrlChar`,
+`dumpDataChar`, `dumpStatusChar`, `emergencyAlertChar`, `currentTimeChar`)
+passaram de `SECMODE_OPEN` para `SECMODE_ENC_NO_MITM` no lado
+efetivamente usado (leitura/notify ou escrita, conforme a characteristic).
+`Bluefruit.Security.setIOCaps(false, false, false)` e
+`Bluefruit.Security.setMITM(false)` adicionados explicitamente no início
+de `Ble::begin()` (antes redundantes com os defaults da SDK, agora
+declarados sem depender deles). `batteryService` (classe stock `BLEBas`)
+fica de fora deliberadamente — telemetria de baixo risco.
+
+**Correção sobre LESC vs. Legacy Pairing**: apesar de o SoftDevice/SDK
+suportarem LESC (ECDH P-256) em teoria, `NRF_CRYPTOCELL` não está
+definido para esta placa/build (confirmado nos ficheiros de variante
+`Seeed_XIAO_nRF52840_Sense_Plus` e no `platformio.ini`), pelo que o
+pairing resultante desta Fase A é **Legacy Pairing / "Just Works"**, não
+LESC — suficiente para bonding+encriptação básicos, mas sem autenticação
+do próprio pairing (daí a Fase B, com Numeric Comparison via ecrã OLED,
+continuar necessária para fechar BLE-003).
+
+**`bridge/ble_bridge.py`**: novo método `BleBridge._ensure_paired()`,
+chamado em `run_device_loop()` logo a seguir a `async with
+BleakClient(device) as client:`. Confirmado por leitura do código-fonte
+do bleak 3.0.2 instalado neste ambiente Windows que o backend WinRT não
+empareia sozinho (nem ao ligar, nem no primeiro acesso GATT — isso só é
+automático no backend CoreBluetooth/macOS) — por isso é preciso chamar
+`client.pair()` explicitamente. Tolerante a falhas, seguindo o padrão já
+usado no resto do bridge (`orm_persistence.py`/`notifications.py`/
+`activity_inference.py`): uma falha de pairing nunca derruba o resto da
+ligação, só fica sem acesso às characteristics protegidas a partir daí.
+Nota: a primeira ligação a um dispositivo ainda não bonded pode envolver
+um diálogo/notificação de emparelhamento do próprio Windows, fora do
+controlo do processo Python.
+
+**Testes**: `bridge/tests/test_ble_bridge_pairing.py` (novo) — cobre
+sucesso, falha (`BleakError`), backend sem `pair()` (`NotImplementedError`,
+caso CoreBluetooth) e erro genérico inesperado, todos com um
+`FakeBleClient` local, sem hardware nem o backend WinRT real.
+
+**Por fazer (Fase B, bloqueada por hardware)**: proteção MITM (Numeric
+Comparison, precisa do ecrã OLED ainda não montado) e RPA/privacy de
+endereço — ver BLE-003/BLE-005 em `SECURITY_STATUS.md`.

@@ -981,6 +981,45 @@ class BleBridge:
         except Exception as exc:  # noqa: BLE001 - notificacoes externas nunca podem derrubar o bridge
             print(f"[BRIDGE] erro ao acionar notificacoes de emergencia: {exc}")
 
+    async def _ensure_paired(self, client: BleakClient) -> None:
+        """Garante bonding/pairing BLE antes de aceder as characteristics
+        agora protegidas (Fase A de seguranca — ver SECURITY_STATUS.md
+        BLE-001/002/004/006 e Ble.cpp, setPermission(..., SECMODE_ENC_NO_MITM,
+        ...)).
+
+        Confirmado no backend WinRT do bleak (Windows, ver bleak/__init__.py
+        e bleak/backends/winrt/client.py instalados neste ambiente):
+        BleakClient NAO empareia sozinho ao ligar (pair=False por omissao)
+        nem no primeiro acesso GATT — um read/write a uma characteristic
+        ENC_NO_MITM sem pairing previo devolve GattCommunicationStatus.
+        ACCESS_DENIED e o bleak levanta BleakError, em vez de desencadear
+        pairing por si so' (isso so' e' automatico no backend CoreBluetooth/
+        macOS). Por isso e' preciso chamar client.pair() explicitamente aqui,
+        ANTES de qualquer read/write/start_notify as characteristics
+        protegidas (ver run_device_loop() logo a seguir a "async with
+        BleakClient(...)").
+
+        Na primeira ligacao a um dispositivo ainda nao bonded, este pair()
+        pode acionar o dialogo/notificacao de emparelhamento do proprio
+        Windows (fora do controlo deste processo Python) — nas ligacoes
+        seguintes device_information.pairing.is_paired ja e' True e o bleak
+        devolve de imediato, sem UI nenhuma.
+
+        Tolerante a falhas (mesmo padrao de _maybe_send_time acima e de
+        orm_persistence.py/notifications.py/activity_inference.py): se o
+        pairing falhar (ex.: utilizador recusou no Windows, timeout) ou nao
+        for suportado pelo backend em uso (ex.: NotImplementedError num
+        backend tipo CoreBluetooth), regista o erro e deixa o resto da
+        ligacao prosseguir — os reads/writes as characteristics protegidas
+        e' que vao falhar com Access Denied a partir daqui, nao o bridge
+        inteiro."""
+        try:
+            await client.pair()
+            print("[BRIDGE] pairing/bonding BLE confirmado")
+        except Exception as exc:  # noqa: BLE001 - pairing nunca pode derrubar o bridge
+            print(f"[BRIDGE] pairing BLE falhou ou nao suportado neste backend "
+                  f"(pode exigir confirmacao manual no Windows): {exc}")
+
     async def _maybe_send_time(self, client: BleakClient) -> None:
         """Se a characteristic Current Time existir e for escrevível
         (dispositivo ainda em provisioning, à espera de hora — ver
@@ -1026,6 +1065,14 @@ class BleBridge:
                     self.connected_device_name = DEVICE_NAME
                     self.current_client = client
                     await self.broadcast({"kind": "device_status", "connected": True})
+
+                    # Fase A de seguranca BLE (2026-07-20): pairing/bonding
+                    # tem de acontecer ANTES de qualquer read/write/
+                    # start_notify as characteristics agora
+                    # SECMODE_ENC_NO_MITM (ver _ensure_paired acima e
+                    # Ble.cpp::begin()) — por isso corre aqui, logo a
+                    # seguir a ligacao, antes do bloco de dual-write/audit.
+                    await self._ensure_paired(client)
 
                     # Dual-write (Lote C): regista o MAC real do dispositivo
                     # (device.address do bleak) e audita o INÍCIO da sessão
