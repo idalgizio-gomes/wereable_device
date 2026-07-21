@@ -891,6 +891,23 @@ acciona — qualquer pessoa com acesso à conta Utente/Família pode
 alterá-lo). Não decidido: que critérios tornam alguém um representante
 legítimo — isso é uma política clínica/legal do utilizador.
 
+**Atualização (2026-07-21, ITEM 4 do plano Fable 5 — parcialmente
+endereçado no lado do modelo/bridge)**: o modelo `ConsentRecord`
+(`bridge/storage_advanced.py`) foi estendido com os campos que faltavam
+para distinguir quem consentiu — `given_by` (`patient` | `representative`,
+NOT NULL, default `patient`, com `CheckConstraint` no estilo de
+`User.role`), `representative_relationship` (texto livre), `representative_name`
+e `legal_basis` (`consent` Art. 6(1)(a) | `vital_interest` Art. 6(1)(d),
+default `consent`). Migração Alembic nova
+`migrations/versions/b7c4f1a9e230_consent_representative_fields.py` (revises
+`09f7da2ef011`). Os nomes ficaram ligeiramente diferentes do esboço acima
+(`given_by`/`representative_name` em vez de `granted_by_user_id`/`capacity`)
+porque o `user_id` já existe na tabela e não há provisioning real de contas
+que lhe dê significado nesta fase. **Ainda em falta (a decisão de produto
+não muda)**: a UI de consentimento no dashboard que liga `setConsent()` a
+este registo e a verificação de legitimidade de quem acciona — fora do
+âmbito desta alteração, que é só modelo de dados + wiring no bridge.
+
 ---
 
 ### GDPR-002 — PII em `localStorage` sem cifra, sem TTL e (até esta execução) sem forma de apagar
@@ -967,6 +984,21 @@ dados de um paciente, não só a única escrita já coberta), e considerar
 que a aplicação do consentimento no lado do servidor (não só no
 browser) é pré-requisito para o interruptor ter efeito real de
 proteção, não só de interface.
+
+**Atualização (2026-07-21, ITEM 4 do plano Fable 5)**: `consent_records`
+deixou de estar totalmente desligada — `bridge/orm_persistence.py::_bootstrap()`
+passa a consultá-la no arranque. Sem um `ConsentRecord` válido de scope
+`sensor_data` (`granted=True`, não expirado), o bootstrap regista
+explicitamente a ausência em `audit_log` com a action `consent_missing`
+(`resource_type="patient"`, `details={"scope": "sensor_data"}`) em vez de
+a ignorar em silêncio — sem bloquear o arranque (degradação graciosa: o
+streaming BLE/`storage.py` nunca podem parar por isto). A parte de
+`audit_log` já tinha sido ligada aos acessos reais de dados de paciente
+(GDPR-003, 7 pontos em `ble_bridge.py`); este item fecha a lacuna
+específica de `consent_records` no lado do bridge. A **escrita** de um
+consentimento genuíno continua a depender da UI do dashboard (com o
+representante autenticado) — ainda por fazer. 3 testes novos em
+`bridge/tests/test_orm_persistence.py`; suite = 136 passed.
 
 ---
 
@@ -2026,3 +2058,48 @@ novas CVEs saírem — são as duas dependências de maior impacto potencial
 (PII em repouso; pipeline de treino); (4) quando o dashboard ganhar a
 primeira dependência npm real, iniciar auditoria JS nesta rotina.
 (segurança(deps): regista 5 advisories / propõe atualizações)
+
+## Comentário de `include/Ble/Ble.h` desatualizado sobre SECMODE corrigido (2026-07-21, plano Fable 5, item 5a)
+
+Achado de documentação (não de código): o comentário de topo de
+`include/Ble/Ble.h` (linhas 27-33) ainda dizia "as characteristics usam
+SECMODE_OPEN (sem pairing/bonding BLE nativo)" — desatualizado desde a
+Fase A de segurança BLE (2026-07-20, commit `9a4e3b0`, ver BLE-001/
+BLE-004/BLE-006 acima), que já tinha corrigido o comentário equivalente
+em `src/Ble/Ble.cpp` (linhas 1182-1190) mas deixado este por atualizar.
+Sem impacto em runtime — é só documentação — mas risco real de um
+leitor futuro (ou de outro agente) assumir SECMODE_OPEN a partir do `.h`
+e reintroduzir uma regressão de segurança por engano.
+
+Reescrito para confirmar que `aesKeyChar`/`dumpCtrlChar`/`currentTimeChar`
+usam `SECMODE_ENC_NO_MITM` (bonding + encriptação de link, Legacy
+Pairing/Just Works) desde a Fase A, mantendo explícito que a proteção
+contra MITM (Numeric Comparison via ecrã OLED) continua pendente da
+Fase B — ver BLE-003. Nenhuma mudança de código/comportamento, só o
+comentário.
+
+## `DataRetention.cleanup()` (ORM) ligado ao bridge em runtime (2026-07-21, plano Fable 5, item 3)
+
+Nota de conformidade RGPD (Art. 5.1.e, minimização/limitação da
+conservação) — não confundir com o GDPR-006 já registado acima (esse é
+sobre a JUSTIFICAÇÃO de `emergency_alerts` nunca ser apagado, que
+continua em aberto tal como estava). Esta nota é sobre um gap
+OPERACIONAL distinto: `DataRetention.cleanup()`
+(`bridge/storage_advanced.py`, políticas `RETENTION_POLICIES` para
+sensor_records/activity_windows/alerts/anomaly_detections/
+medication_adherence) estava implementado e testado mas **nunca era
+chamado em runtime** pelo bridge — só a partir do bloco de exemplo
+`if __name__ == "__main__":`. Ou seja, as 5 políticas de retenção
+documentadas nunca eram de facto aplicadas fora dos testes automáticos,
+o que na prática significava conservação indefinida dessas tabelas do
+ORM (dual-write), apesar das políticas estarem corretamente definidas em
+código.
+
+**Correção**: `bridge/orm_persistence.py` ganhou
+`OrmPersistence.run_retention_cleanup()` (chama `DataRetention.cleanup()`,
+mesmo padrão degradável dos outros métodos) e `bridge/ble_bridge.py`
+ganhou uma task periódica diária (`periodic_orm_retention_task()`,
+arrancada em `main()`) que a invoca. Ver detalhe técnico completo em
+`PROJECT_STATUS.md`, secção "Retenção ORM (GDPR-006) ligada ao bridge
+(2026-07-21, plano Fable 5, item 3)". `python -m pytest tests/ -q` — 133
+passed depois da alteração.

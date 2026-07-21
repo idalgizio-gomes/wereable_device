@@ -638,14 +638,16 @@ bool push(uint16_t type, const uint8_t *payload, uint16_t len, uint32_t timestam
   if (len > kPayloadSize) return false;
   if (len > 0 && payload == nullptr) return false;
 
-  // Aviso antecipado, único (2026-07-03): a 90% da capacidade, avisa UMA
-  // vez, ANTES de o buffer começar mesmo a substituir dados antigos
-  // (isso só acontece em prepareHeadSectorForWrite(), mais abaixo). Dá
-  // tempo a quem estiver a monitorizar (ver DumpStatusPacket::data_loss_flag
-  // em Ble.cpp) de exportar os dados antes de haver qualquer perda real.
+  // Aviso antecipado, único (2026-07-03): a kRingBufferNearFullThreshold
+  // (ver QspiRingBuffer.h — constante partilhada com Ble.cpp) da
+  // capacidade, avisa UMA vez, ANTES de o buffer começar mesmo a
+  // substituir dados antigos (isso só acontece em
+  // prepareHeadSectorForWrite(), mais abaixo). Dá tempo a quem estiver a
+  // monitorizar (ver DumpStatusPacket::data_loss_flag em Ble.cpp) de
+  // exportar os dados antes de haver qualquer perda real.
   static bool s_nearFullWarned = false;
   if (!s_nearFullWarned && s_meta.capacity_slots > 0 &&
-      (static_cast<float>(s_meta.count) / s_meta.capacity_slots) >= 0.90f) {
+      (static_cast<float>(s_meta.count) / s_meta.capacity_slots) >= kRingBufferNearFullThreshold) {
     s_nearFullWarned = true;
     Serial.println("[QSPIRB] AVISO: ring buffer a 90% da capacidade — exportar em breve antes de começar a substituir dados antigos");
   }

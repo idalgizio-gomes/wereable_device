@@ -136,8 +136,6 @@ constexpr uint32_t kImuRateHz = 52;
 constexpr uint32_t kWindowTargetRecords = (kImuRateHz * kGattDumpWindowMs) / 1000U; // 52
 constexpr uint32_t kDumpStatusEveryRecords = 128;
 constexpr uint32_t kGattDumpInterRecordMs = 0;
-constexpr uint32_t kGattDumpCoopEveryRecords = 16;
-constexpr uint32_t kGattDumpCoopDelayMs = 1;
 constexpr uint32_t kGattDumpWaitLogMs = 2000;
 constexpr uint32_t kGattDumpIdleLogMs = 5000;
 constexpr uint32_t kBleProvisionWaitLogMs = 5000;
@@ -256,8 +254,8 @@ struct __attribute__((packed)) DumpStatusPacket {
   // ring buffer (2026-07-03), para a app avisar o médico A TEMPO de
   // exportar os dados antes de começarem a ser substituídos (não só
   // depois de já ter acontecido):
-  //   0 = normal (< kNearFullThreshold da capacidade ocupada)
-  //   1 = quase cheio (>= kNearFullThreshold), mas ainda não perdeu nada
+  //   0 = normal (< QspiRingBuffer::kRingBufferNearFullThreshold da capacidade ocupada)
+  //   1 = quase cheio (>= QspiRingBuffer::kRingBufferNearFullThreshold), mas ainda não perdeu nada
   //   2 = já a substituir registos antigos (QspiRingBuffer::droppedByErase() > 0)
   // Reaproveita o byte já reservado em vez de crescer o pacote, para não
   // quebrar o formato de 16 bytes já usado pela app/bridge existente.
@@ -358,11 +356,12 @@ void publishDumpStatus(uint8_t state, uint8_t reason, uint32_t seq) {
   if (QspiRingBuffer::droppedByErase() > 0) {
     st.data_loss_flag = 2; // já a substituir dados
   } else {
-    // kNearFullThreshold: 90% da capacidade — dá margem para o médico/
-    // cuidador exportar os dados antes de qualquer perda real acontecer.
-    constexpr float kNearFullThreshold = 0.90f;
+    // kRingBufferNearFullThreshold (QspiRingBuffer.h): 90% da capacidade —
+    // dá margem para o médico/cuidador exportar os dados antes de
+    // qualquer perda real acontecer. Constante partilhada com o aviso
+    // equivalente em QspiRingBuffer.cpp — manter sincronizado.
     const uint32_t cap = QspiRingBuffer::capacity();
-    const bool nearFull = cap > 0 && (static_cast<float>(QspiRingBuffer::count()) / cap) >= kNearFullThreshold;
+    const bool nearFull = cap > 0 && (static_cast<float>(QspiRingBuffer::count()) / cap) >= QspiRingBuffer::kRingBufferNearFullThreshold;
     st.data_loss_flag = nearFull ? 1 : 0;
   }
   st.seq = seq;
@@ -1082,13 +1081,6 @@ void gattDumpTask(void *arg) {
         vTaskDelay(pdMS_TO_TICKS(kGattDumpInterRecordMs));
       } else if ((sentInWindow % 64U) == 0U) {
         vTaskDelay(0);
-
-      // else if ((sentInWindow % kGattDumpCoopEveryRecords) == 0U) {
-      //   if (kGattDumpCoopDelayMs > 0) {
-      //     vTaskDelay(pdMS_TO_TICKS(kGattDumpCoopDelayMs));
-      //   } else {
-      //     vTaskDelay(0);
-      //   }
       }
     }
 

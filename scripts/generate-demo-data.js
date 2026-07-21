@@ -201,9 +201,55 @@ function buildPacingTrend(rnd) {
 // direta de ml/synthetic_data.py::CLASS_PARAMS e do que já estava em
 // index.html — não são números novos inventados nesta tarefa.
 // ------------------------------------------------------------
+// CONTRADIÇÃO REAL corrigida (2026-07-21, reportada pelo utilizador): a
+// Isabel Costa (p3) tinha adherenceHistory sempre a 100%, incluindo no
+// mesmo dia em que o próprio anomalyLog dizia "dispositivo desligado/sem
+// sincronização há mais de 12h" — um dado gerado sem cruzar o outro. Esta
+// função identifica, a partir do anomalyLog de UM paciente, em que dias
+// (formato "dd/mm", mesmo formato de adherenceDays) houve uma anomalia de
+// desconexão do dispositivo — nesses dias não faz sentido nenhum
+// afirmar adesão com confiança (nem 100%, nem 0%: não há dados fiáveis).
+// Usada por TODOS os pacientes (não só a Isabel Costa) para que a mesma
+// contradição não volte a aparecer se um paciente novo/futuro tiver um
+// anomalyLog parecido.
+function deviceOffShortDays(anomalyLog) {
+  const days = new Set();
+  for (const entry of anomalyLog) {
+    if (!/desligado|sem sincroniza/i.test(entry.detail)) continue;
+    const [dd, mm] = entry.time.split(' ')[0].split('/'); // "dd/mm/yyyy hh:mm" -> "dd/mm"
+    days.add(`${dd}/${mm}`);
+  }
+  return days;
+}
+
+// Aplica deviceOffShortDays() a uma adherenceHistory já calculada: os dias
+// afetados passam a pct:null (em vez de um número inventado) e ganham
+// deviceOff:true, para o dashboard mostrar "sem dados" em vez de uma
+// percentagem confiante — ver TEMPLATES.medicacao em index.html.
+function withDeviceOffGaps(adherenceHistory, anomalyLog) {
+  const offDays = deviceOffShortDays(anomalyLog);
+  return adherenceHistory.map(entry =>
+    offDays.has(entry.day) ? { day: entry.day, pct: null, deviceOff: true } : entry
+  );
+}
+
 function buildPatientDynamic(rnd, dateStr) {
   const anomalyDays = lastNDaysFull(2, dateStr, 0); // [ontem, hoje] — data completa (com ano)
   const adherenceDays = lastNDays(6, dateStr, 1); // 6 dias terminando ontem
+
+  const p1AnomalyLog = [
+    { id: 'A-1042', type: 'Duração', detail: 'Higiene 46 min acima do limite (d_max × 3.0)', detector: 'Regra de duração', conf: '—', sev: 'serious', time: `${anomalyDays[1]} 07:22` },
+    { id: 'A-1041', type: 'Comportamental', detail: 'Substituição contextual: "Atividade" às 09:30 (era "Descanso")', detector: 'LSTM Autoencoder', conf: '0.91', sev: 'warning', time: `${anomalyDays[1]} 09:31` },
+    { id: 'A-1039', type: 'Duração', detail: 'Bloco de atividade truncado (25 min abaixo do mínimo)', detector: 'Regra de duração', conf: '—', sev: 'warning', time: `${anomalyDays[0]} 17:12` },
+    { id: 'A-1035', type: 'Fisiológica', detail: 'FC 92 bpm sustentada em repouso', detector: 'Limiar clínico', conf: '—', sev: 'critical', time: `${anomalyDays[0]} 21:04` },
+  ];
+  const p2AnomalyLog = [
+    { id: 'A-0982', type: 'Duração', detail: 'Sono 4h20min, abaixo de d_min × 0.30', detector: 'Regra de duração', conf: '—', sev: 'warning', time: `${anomalyDays[1]} 06:10` },
+    { id: 'A-0975', type: 'Fisiológica', detail: 'Bateria do dispositivo abaixo de 40%', detector: 'Diagnóstico do dispositivo', conf: '—', sev: 'warning', time: `${anomalyDays[0]} 22:40` },
+  ];
+  const p3AnomalyLog = [
+    { id: 'A-0810', type: 'Fisiológica', detail: 'Dispositivo desligado/sem sincronização há mais de 12h', detector: 'Diagnóstico do dispositivo', conf: '—', sev: 'serious', time: `${anomalyDays[0]} 09:15` },
+  ];
 
   return {
     p1: {
@@ -217,31 +263,34 @@ function buildPatientDynamic(rnd, dateStr) {
         { key: 'spo2-limite', sev: 'warning', title: 'SpO₂ no limite', desc: 'Leitura de 93% às 03:14 — uma amostra isolada, sem tendência de queda.', time: 'há 9h',
           plain: 'O nível de oxigénio no sangue teve uma leitura um pouco abaixo do intervalo normal (95–100%), mas foi só uma vez, sem se manter baixo nas leituras seguintes. Isto acontece com frequência por mau contacto do sensor durante o sono (ex.: mão fora da posição) e normalmente não é motivo de alarme quando é um valor isolado — mas se voltar a acontecer de forma repetida, vale a pena falar com o médico.', occurrences: 1 },
       ],
-      anomalyLog: [
-        { id: 'A-1042', type: 'Duração', detail: 'Higiene 46 min acima do limite (d_max × 3.0)', detector: 'Regra de duração', conf: '—', sev: 'serious', time: `${anomalyDays[1]} 07:22` },
-        { id: 'A-1041', type: 'Comportamental', detail: 'Substituição contextual: "Atividade" às 09:30 (era "Descanso")', detector: 'LSTM Autoencoder', conf: '0.91', sev: 'warning', time: `${anomalyDays[1]} 09:31` },
-        { id: 'A-1039', type: 'Duração', detail: 'Bloco de atividade truncado (25 min abaixo do mínimo)', detector: 'Regra de duração', conf: '—', sev: 'warning', time: `${anomalyDays[0]} 17:12` },
-        { id: 'A-1035', type: 'Fisiológica', detail: 'FC 92 bpm sustentada em repouso', detector: 'Limiar clínico', conf: '—', sev: 'critical', time: `${anomalyDays[0]} 21:04` },
-      ],
-      adherenceHistory: adherenceDays.map((day, i) => ({ day, pct: i === 2 ? 67 : 100 })),
+      anomalyLog: p1AnomalyLog,
+      adherenceHistory: withDeviceOffGaps(
+        adherenceDays.map((day, i) => ({ day, pct: i === 2 ? 67 : 100 })),
+        p1AnomalyLog
+      ),
     },
     p2: {
       alerts: [
         { key: 'sono-curto', sev: 'warning', title: 'Sono abaixo do habitual', desc: '4h20min de sono estimado esta noite (média das últimas 2 semanas: 6h50min).', time: 'há 3h',
           plain: 'A pessoa dormiu bastante menos do que é habitual para ela. Uma noite isolada mais curta não é necessariamente grave, mas se se repetir vale a pena perceber a causa (dor, desconforto, mudança de rotina).' },
       ],
-      anomalyLog: [
-        { id: 'A-0982', type: 'Duração', detail: 'Sono 4h20min, abaixo de d_min × 0.30', detector: 'Regra de duração', conf: '—', sev: 'warning', time: `${anomalyDays[1]} 06:10` },
-        { id: 'A-0975', type: 'Fisiológica', detail: 'Bateria do dispositivo abaixo de 40%', detector: 'Diagnóstico do dispositivo', conf: '—', sev: 'warning', time: `${anomalyDays[0]} 22:40` },
-      ],
-      adherenceHistory: adherenceDays.map((day, i) => ({ day, pct: (i === 1 || i === 4) ? 0 : 100 })),
+      anomalyLog: p2AnomalyLog,
+      adherenceHistory: withDeviceOffGaps(
+        adherenceDays.map((day, i) => ({ day, pct: (i === 1 || i === 4) ? 0 : 100 })),
+        p2AnomalyLog
+      ),
     },
     p3: {
       alerts: [],
-      anomalyLog: [
-        { id: 'A-0810', type: 'Fisiológica', detail: 'Dispositivo desligado/sem sincronização há mais de 12h', detector: 'Diagnóstico do dispositivo', conf: '—', sev: 'serious', time: `${anomalyDays[0]} 09:15` },
-      ],
-      adherenceHistory: adherenceDays.map((day) => ({ day, pct: 100 })),
+      anomalyLog: p3AnomalyLog,
+      // CONTRADIÇÃO REAL corrigida (2026-07-21, reportada pelo utilizador):
+      // esta linha dizia sempre pct:100 em todos os dias, incluindo o dia
+      // em que p3AnomalyLog acima regista o dispositivo desligado 12h+ —
+      // ver withDeviceOffGaps()/deviceOffShortDays() no topo do ficheiro.
+      adherenceHistory: withDeviceOffGaps(
+        adherenceDays.map((day) => ({ day, pct: 100 })),
+        p3AnomalyLog
+      ),
     },
   };
 }

@@ -1,6 +1,6 @@
 // web/dashboard/demo-data.js
 // GERADO AUTOMATICAMENTE por scripts/generate-demo-data.js — NAO EDITAR A MAO.
-// Gerado em: 2026-07-21T06:42:03.674Z
+// Gerado em: 2026-07-21T20:25:20.705Z
 // Seed do dia: "2026-07-21" (seed=624130035)
 // Nunca contem dados reais de pacientes — ver PROJECT_STATUS.md, "Regra de ouro".
 // Consumido por web/dashboard/index.html com fallback defensivo (ver as
@@ -2165,7 +2165,8 @@ const DEMO_PATIENT_DYNAMIC = {
       },
       {
         "day": "20/07",
-        "pct": 100
+        "pct": null,
+        "deviceOff": true
       }
     ]
   }

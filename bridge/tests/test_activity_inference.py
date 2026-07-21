@@ -110,19 +110,42 @@ class TestJanelaDeslizante:
 
 
 class TestFrequenciaCardiacaEmFalta:
-    def test_sem_nenhuma_leitura_de_fc_usa_placeholder_sem_rebentar(self):
+    def test_sem_nenhuma_leitura_de_fc_nao_classifica_com_valor_inventado(self):
+        # Corrigido 2026-07-21 (achado com hardware real, ver comentário em
+        # activity_inference.py): antes, esta janela era classificada sobre
+        # um placeholder de 70bpm inventado, o que enviesava a previsão para
+        # classes de repouso mesmo sem qualquer FC real. Agora fica por
+        # classificar em vez de arriscar uma classificação confiante sobre
+        # dados fabricados.
         inf = ai.ActivityInference()
         result, _ = _feed_still_window(inf, hr_every=None)  # nunca envia hr
-        assert result is not None  # não rebentou com NaN
+        assert result is None  # não rebenta, mas também não inventa FC
 
     def test_usa_ultimo_valor_conhecido_quando_janela_atual_nao_tem_fc(self):
         inf = ai.ActivityInference()
         # primeira janela com FC real...
+        result1, next_ts = _feed_still_window(inf, start_ts=0, hr_every=20, hr_value=72)
+        assert inf._last_hr == 72
+        # ...segunda janela sem nenhuma leitura nova de FC, mas ainda dentro
+        # de HR_STALE_AFTER_S — o último valor conhecido continua válido.
+        result2, _ = _feed_still_window(inf, start_ts=next_ts, hr_every=None)
+        assert inf._last_hr == 72  # não foi apagado só por a janela não trazer FC
+        assert result2 is not None  # ainda classifica, a FC de 72 continua fresca
+
+    def test_ultimo_valor_conhecido_expira_apos_hr_stale_after_s(self):
+        # Corrigido 2026-07-21 (achado ao vivo: FC parou de chegar a meio de
+        # um teste real, mas a classificação continuava confiante minutos
+        # depois usando a última FC real, já muito antiga). self._last_hr
+        # nunca expirava antes desta correção.
+        inf = ai.ActivityInference()
         _feed_still_window(inf, start_ts=0, hr_every=20, hr_value=72)
         assert inf._last_hr == 72
-        # ...segunda janela sem nenhuma leitura nova de FC.
-        _feed_still_window(inf, start_ts=ai.WINDOW_SECONDS + 1, hr_every=None)
-        assert inf._last_hr == 72  # não foi apagado só por a janela não trazer FC
+        # Janela seguinte, começando bem depois de HR_STALE_AFTER_S ter
+        # passado desde a última leitura real de FC — não deve reutilizar
+        # o valor antigo.
+        far_future_ts = ai.HR_STALE_AFTER_S + 3 * ai.WINDOW_SECONDS
+        result, _ = _feed_still_window(inf, start_ts=far_future_ts, hr_every=None)
+        assert result is None  # FC antiga demasiado velha para ser reutilizada
 
 
 class TestAgrupamentoDeBlocosEDeteccaoDeDuracao:

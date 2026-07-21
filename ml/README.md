@@ -465,8 +465,9 @@ razão pela qual o artigo de referência desenha um pipeline de 3 partes em
 vez de confiar tudo a um único modelo**: o classificador (passo 1) diz QUAL
 atividade está a decorrer, o autoencoder (este passo) deteta padrões
 CONTEXTUALMENTE atípicos, e o **detetor de duração baseado em regras**
-(passo 3, ainda por implementar) é especificamente para o que o autoencoder
-não vê — durações fora dos limites esperados. Os três são complementares,
+(passo 3, ver secção abaixo — implementado e ligado ao vivo desde
+2026-07-20 em `bridge/activity_inference.py`) é especificamente para o que
+o autoencoder não vê — durações fora dos limites esperados. Os três são complementares,
 não redundantes; este resultado é evidência concreta disso, não só teoria.
 
 ### Limitações honestas

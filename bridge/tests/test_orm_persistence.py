@@ -265,6 +265,107 @@ def test_get_history_generates_audit_log_entry(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# (d.2) consentimento GDPR-001/GDPR-003 no bootstrap
+# ---------------------------------------------------------------------------
+
+def test_bootstrap_without_consent_logs_consent_missing():
+    """Sem ConsentRecord válido, o bootstrap não bloqueia (orm ativo) mas
+    regista explicitamente a ausência em audit_log (não ignora em silêncio)."""
+    orm = orm_persistence.OrmPersistence()
+    assert not orm.disabled  # arranque nunca bloqueia por falta de consentimento
+
+    session = sa.get_db_session()
+    try:
+        audits = session.query(sa.AuditLog).filter_by(action="consent_missing").all()
+        assert len(audits) == 1
+        assert audits[0].resource_type == "patient"
+        assert audits[0].resource_id == orm.patient_id
+        assert audits[0].details == {"scope": "sensor_data"}
+    finally:
+        session.close()
+
+
+def test_bootstrap_with_valid_representative_consent_is_silent():
+    """Com um ConsentRecord válido de um representante legal (given_by=
+    'representative'), o bootstrap segue o fluxo normal sem consent_missing."""
+    # Pré-cria paciente + consentimento de representante ANTES do bootstrap.
+    session = sa.get_db_session()
+    try:
+        patient = sa.Patient(
+            uuid=orm_persistence.DEFAULT_PATIENT_UUID,
+            name="Paciente Local",
+            date_of_birth=orm_persistence.PLACEHOLDER_DOB,
+        )
+        session.add(patient)
+        session.commit()
+        session.refresh(patient)
+        user = sa.User(
+            uuid="rep-user-1", email="rep@example.com",
+            password_hash="x", role="family", name="Filha Cuidadora",
+        )
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+        session.add(sa.ConsentRecord(
+            patient_id=patient.id, user_id=user.id, scope="sensor_data",
+            granted=True, version="1.0", signed_at=datetime.utcnow(),
+            given_by="representative", representative_relationship="filha",
+            representative_name="Filha Cuidadora", legal_basis="consent",
+        ))
+        session.commit()
+    finally:
+        session.close()
+
+    orm = orm_persistence.OrmPersistence()
+    assert not orm.disabled
+
+    session = sa.get_db_session()
+    try:
+        assert session.query(sa.AuditLog).filter_by(action="consent_missing").count() == 0
+    finally:
+        session.close()
+
+
+def test_bootstrap_ignores_expired_consent_and_logs_missing():
+    """Um ConsentRecord já expirado (expires_at no passado) não conta como
+    válido — o bootstrap regista consent_missing na mesma."""
+    session = sa.get_db_session()
+    try:
+        patient = sa.Patient(
+            uuid=orm_persistence.DEFAULT_PATIENT_UUID,
+            name="Paciente Local",
+            date_of_birth=orm_persistence.PLACEHOLDER_DOB,
+        )
+        session.add(patient)
+        session.commit()
+        session.refresh(patient)
+        user = sa.User(
+            uuid="rep-user-2", email="rep2@example.com",
+            password_hash="x", role="family", name="Tutor",
+        )
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+        session.add(sa.ConsentRecord(
+            patient_id=patient.id, user_id=user.id, scope="sensor_data",
+            granted=True, version="1.0", signed_at=datetime.utcnow() - timedelta(days=400),
+            expires_at=datetime.utcnow() - timedelta(days=1),  # já expirado
+            given_by="representative", legal_basis="consent",
+        ))
+        session.commit()
+    finally:
+        session.close()
+
+    orm_persistence.OrmPersistence()
+
+    session = sa.get_db_session()
+    try:
+        assert session.query(sa.AuditLog).filter_by(action="consent_missing").count() == 1
+    finally:
+        session.close()
+
+
+# ---------------------------------------------------------------------------
 # (e) purge respeita os `days` configuráveis
 # ---------------------------------------------------------------------------
 

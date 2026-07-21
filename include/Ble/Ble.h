@@ -24,10 +24,16 @@
 //      advertising usado no "modo de dados", onde os sensores sao
 //      transmitidos continuamente para o telemovel via notify().
 //
-// Nota sobre seguranca: as characteristics usam SECMODE_OPEN (sem
-// pairing/bonding BLE nativo) — a seguranca dos dados sensiveis (por
-// exemplo a chave AES) é garantida pela logica da aplicacao (guardada
-// uma unica vez em flash) e nao pelo emparelhamento BLE em si.
+// Nota sobre seguranca: RESOLVIDO (Fase A de seguranca BLE, 2026-07-20,
+// commit 9a4e3b0, ver SECURITY_STATUS.md BLE-001/BLE-004/BLE-006) — as
+// characteristics de escrita (aesKeyChar, dumpCtrlChar, currentTimeChar)
+// passaram de SECMODE_OPEN para SECMODE_ENC_NO_MITM, exigindo bonding +
+// encriptacao de link (Legacy Pairing/Just Works, sem MITM) antes do
+// SoftDevice sequer entregar a escrita. A seguranca dos dados sensiveis
+// (por exemplo a chave AES) continua tambem garantida pela logica da
+// aplicacao (guardada uma unica vez em flash), agora como segunda camada
+// e nao a unica. Protecao contra MITM (Numeric Comparison via ecra OLED)
+// continua pendente da Fase B — ver BLE-003 em SECURITY_STATUS.md.
 // Desde 2026-07-07 o proprio conteudo dos registos do "modo de dados"
 // tambem vai cifrado (AES-CTR, ver encryptRecord() em Ble.cpp) — antes ia
 // em texto simples apesar de a chave AES ja ser trocada/guardada.

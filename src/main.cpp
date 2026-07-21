@@ -91,6 +91,7 @@
 // Isto NÃO simula o hardware do botão em si; é só um atalho de teste.
 // Voltar a pôr a 0 (ou apagar este bloco) assim que o botão for
 // resoldado/substituído.
+// *** NAO DESLIGAR ***: so' depois do botao fisico (BTN_PIN) estar reparado. Ver aviso impresso no boot, perto de Serial.begin().
 #define DEBUG_SERIAL_WAKE 1
 
 // ------------------------------------------------------------
@@ -113,6 +114,7 @@
 // instabilidade USB em si). Reposto a 1, como o próprio teste previa
 // fazer nesse caso, para recuperar a comodidade de arranque imediato sem
 // precisar do botão físico partido nem da janela apertada de WAKE.
+// *** NAO DESLIGAR ***: so' depois do botao fisico (BTN_PIN) estar reparado. Ver aviso impresso no boot, perto de Serial.begin().
 #define DEBUG_DISABLE_SLEEP 1
 
 // ------------------------------------------------------------
@@ -879,6 +881,12 @@ void setup() {
   digitalWrite(LED_BUILTIN, HIGH);   // apagado por defeito
 
   Serial.begin(115200);
+#if DEBUG_DISABLE_SLEEP
+  Serial.println("[BOOT] AVISO: DEBUG_DISABLE_SLEEP=1 -- sem poupanca de energia; so desligar depois do botao fisico (BTN_PIN) estar reparado (ver DEBUG_SERIAL_WAKE/DEBUG_DISABLE_SLEEP em main.cpp)");
+#endif
+#if DEBUG_SERIAL_WAKE
+  Serial.println("[BOOT] AVISO: DEBUG_SERIAL_WAKE=1 -- comando WAKE/SLEEP pela serie substitui o botao fisico (BTN_PIN); so desligar depois do botao estar reparado (ver DEBUG_SERIAL_WAKE/DEBUG_DISABLE_SLEEP em main.cpp)");
+#endif
   delay(100);
   Serial.println("Acordou do System OFF");
 
@@ -941,23 +949,6 @@ void setup() {
   Serial.println("Botao pressionado ao acordar...");
   if (!debugForcedWake && !waitForLongPress()) {
     Serial.println("Botão pressionado ao acordar...");
-
-    // Ramo morto (if (false)): código de arranque "reduzido" mantido
-    // aqui como referência histórica, mas nunca executado — não apagar
-    // sem confirmar que não é preciso para debug futuro.
-    if (false) {
-      Serial.println("Ligado após long press!");
-      waitRelease();
-      isRunning = true;
-      showReady();
-      initStorage();
-      initImu();
-      initPpg();
-      initBle();
-      initQspiRingBuffer();
-      showHourDateScreen();
-      return;
-    }
 
     Serial.println("Pressão curta -> voltar a dormir");
     goToSleep();

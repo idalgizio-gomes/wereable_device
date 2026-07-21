@@ -53,7 +53,7 @@ struct Metrics {
 bool begin();
 
 // Cria (se ainda nao existir) a task do FreeRTOS responsavel por:
-//   - medir SpO2 uma vez por minuto (ver SPO2_INTERVAL_MS no .cpp);
+//   - medir SpO2 a cada 30 segundos (ver SPO2_INTERVAL_MS no .cpp);
 //   - medir a frequencia cardiaca (HR) em continuo enquanto o IMU reportar
 //     "inactivity" (utilizador parado), poupando energia quando ha
 //     movimento, altura em que a leitura de HR seria pouco fiavel.

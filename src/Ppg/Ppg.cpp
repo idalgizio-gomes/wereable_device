@@ -39,7 +39,7 @@ TwoWire *g_ppgBus = nullptr;   // Barramento I2C onde o sensor foi encontrado (W
 const char *g_ppgBusName = "N/A"; // Nome do barramento, apenas para logs.
 
 // --- Parametros de temporizacao/configuracao da task ---
-constexpr uint32_t SPO2_INTERVAL_MS = 30000;        // Intervalo entre medicoes de SpO2 (30 s; comentario no .h diz "1/min" mas o valor real e' 30s).
+constexpr uint32_t SPO2_INTERVAL_MS = 30000;        // Intervalo entre medicoes de SpO2 (30 s).
 constexpr uint32_t HR_SAMPLE_INTERVAL_MS = 10;       // Intervalo minimo entre amostras sucessivas do pipeline de HR.
 constexpr uint32_t TASK_LOOP_DELAY_IDLE_MS = 200;    // Pausa da task quando nao ha streaming de HR ativo (poupa CPU/energia).
 constexpr uint32_t TASK_LOOP_DELAY_HR_MS = 2;        // Pausa da task quando o streaming de HR esta ativo (precisa de amostrar rapido, ~100 Hz).

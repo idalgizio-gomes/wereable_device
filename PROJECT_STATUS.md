@@ -100,14 +100,18 @@ de stack FreeRTOS, sobre as já reduzidas na 1ª ronda (que por sua vez já
 tinham poupado ~6656 bytes face aos valores originais). `imu_task` não foi
 tocada — já tem a menor margem relativa (~1.5x) das quatro, por isso fica
 como está.
-**Pendente de confirmação em hardware real**: `DEBUG_STACK_WATERMARKS`
-continua ativo em `main.cpp` — a próxima vez que o dispositivo estiver
-acessível por USB, confirmar que `free_words` de cada task se mantém
-confortavelmente acima de 0 com os novos tamanhos, incluindo durante os
-ramos mais pesados de cada task (ex.: medição de SpO2 completa em
-`ppg_task`, prints de HR/SpO2 válidos em `storage_task`). Esta rotina não
-tem acesso ao dispositivo físico, por isso não pôde validar isto
-diretamente — só a aritmética/margens de segurança acima.
+**Confirmado em hardware real em 2026-07-20** — ver secção "Stack
+watermarks reais capturados pela primeira vez em hardware (2026-07-20)"
+mais abaixo para os valores medidos e a decisão que habilitaram (não
+reduzir `imu_task`, única abaixo de 3x). (Nota histórica: `DEBUG_STACK_WATERMARKS`
+continuava ativo em `main.cpp` nesta altura — a próxima vez que o
+dispositivo estivesse acessível por USB, seria preciso confirmar que
+`free_words` de cada task se mantém confortavelmente acima de 0 com os
+novos tamanhos, incluindo durante os ramos mais pesados de cada task
+(ex.: medição de SpO2 completa em `ppg_task`, prints de HR/SpO2 válidos
+em `storage_task`). Esta rotina não tinha acesso ao dispositivo físico
+nessa altura, por isso não pôde validar isto diretamente — só a
+aritmética/margens de segurança acima.)
 
 ### Otimização de CPU/flash (2026-07-07, rotina diária) — leitura QSPI redundante eliminada do streaming BLE
 
@@ -3444,9 +3448,9 @@ commit `8d71b8f`) — e outra que adicionou o 1º endpoint de escrita à API
 REST (`bridge/api.py`, commit `aef3e08`). Resolvido com
 `git checkout main && git merge --ff-only origin/main` (fast-forward puro,
 sem perda de trabalho — o checkout local não tinha nenhum commit próprio
-não publicado). Revistas também as 4 pull requests abertas hoje por
-rotinas especializadas de segurança (S01-S03) e desenvolvimento de NFC
-(`#2`-`#5`, branches próprias, por rever/mergear pelo utilizador) — esta
+não publicado). Nota histórica: nesta altura (2026-07-08) existiam 4 pull
+requests abertas (#2-#5) por rever pelo utilizador — entretanto já não
+existem (confirmado pelo utilizador em 2026-07-21). Esta
 rotina cobre "código completo" (firmware/bridge/dashboard/ML) e evitou
 duplicar essas frentes já em curso.
 
@@ -4908,10 +4912,11 @@ poderia em teoria refletir também um problema de fiação/soldadura do módulo 
 pinout), mas isola claramente **onde não está o problema** (não é a biblioteca RadioLib a
 interpretar mal uma resposta válida — não há resposta nenhuma).
 
-**Próximo passo, não feito nesta rotina**: testar outro pino candidato a NSS (precisa de revisitar
-o esquemático — ver "Descobertas do esquemático" acima — para propor um candidato concreto, não
-adivinhar), ou testar RadioLib 4.6.0 como pista alternativa já registada. Ambos ficam como trabalho
-futuro explícito, não decidido/tentado nesta execução.
+**Atualização (2026-07-21)**: superado — esquemático revisto confirma que
+o pino NSS `A3` está correto; a pista real passou a ser o `NRST`/jumper
+`JP2` (fora do controlo de software, ver "Descobertas do esquemático real
+da placa" acima). Próximo passo real: verificar fisicamente a posição do
+jumper `JP2` e o estado do `NRST` do módulo LoRa.
 
 **Placa reposta com o firmware principal** logo a seguir (`pio run -e
 seeed-xiao-afruitnrf52-nrf52840-sense-plus -t upload`) — o teste isolado substitui
@@ -5017,3 +5022,436 @@ caso CoreBluetooth) e erro genérico inesperado, todos com um
 **Por fazer (Fase B, bloqueada por hardware)**: proteção MITM (Numeric
 Comparison, precisa do ecrã OLED ainda não montado) e RPA/privacy de
 endereço — ver BLE-003/BLE-005 em `SECURITY_STATUS.md`.
+
+## Painel "Atividade (IA)" já não fica preso numa classificação antiga ao cair o WebSocket (2026-07-21)
+
+Gap identificado na revisão de código desta sessão (item 8 do plano):
+`liveState.currentActivity` e `liveState.lastActivityDurationFlag` só eram
+preenchidos em `handleBridgeMessage()` e nunca limpos — `ws.onclose` já
+tratava `liveState.connected`, `updateDeviceStatusUI()` e
+`resetPendingCommandButtons()` (este último especificamente para não
+deixar botões presos em "a carregar" ao cair a ligação), mas deixava o
+painel de atividade a mostrar a última classificação recebida
+indefinidamente, sem qualquer aviso de que a informação estava
+desatualizada.
+
+**Correção em `web/dashboard/index.html`**, dentro do `ws.onclose`
+existente (`connectBridge()`), depois de `resetPendingCommandButtons()` e
+antes de `scheduleReconnect()`:
+```js
+liveState.currentActivity = null;
+liveState.lastActivityDurationFlag = null;
+renderLiveActivityPanel();
+```
+Reutiliza o caminho já existente em `renderLiveActivityPanel()` (mostra
+`resumo.liveActivityWaiting` quando `currentActivity` é `null`) — sem
+strings de tradução novas, sem relógio/contador de "última leitura há X"
+(opção mais simples, descartada deliberadamente por ora). `renderLiveActivityPanel`
+é function declaration (hoisted), por isso é seguro chamá-la a partir de
+`connectBridge()` apesar de estar definida mais abaixo no ficheiro.
+
+**Validação**: `node --check` ao `<script>` principal extraído de
+`index.html` (mesmo método do `.github/workflows/dashboard.yml`) e
+verificação de funções/ids duplicados — ambos OK depois da alteração.
+**Nota à parte, não relacionada com esta alteração**: a extração por
+`content.lastIndexOf('<script>')` usada nesse workflow já não isola
+corretamente o bloco de script nesta versão do ficheiro, porque passaram
+a existir ocorrências literais da string `<script>` dentro de comentários
+JS *depois* da tag de abertura real (linhas ~3013/3018, no comentário
+sobre o bug de TDZ corrigido em `computePersonalBaseline()` a
+2026-07-16, sem relação nenhuma com este item) — `lastIndexOf` acaba por
+apanhar uma dessas ocorrências em vez da tag real (linha 908), e a
+extração falha. Não
+corrigido aqui (fora do âmbito deste item); a validação acima foi feita
+com um extrator alternativo, delimitando pelas linhas que são
+exatamente `<script>`/`</script>` sozinhas na sua própria linha.
+
+## Aviso de boot reforçado para as flags de debug + limpeza de baixo risco no firmware (2026-07-21, plano Fable 5)
+
+Item 1 do plano: `DEBUG_SERIAL_WAKE` (linha 94) e `DEBUG_DISABLE_SLEEP`
+(linha 116) em `src/main.cpp` **mantidas a 1** — o botão físico
+(`BTN_PIN`) continua confirmado partido nesta placa; desligar qualquer
+uma delas agora tornaria o dispositivo impossível de acordar sem reflash
+(sleep real ao fim de ~8s de espera por long-press). Adicionado apenas um
+comentário `*** NAO DESLIGAR ***` bem visível junto a cada `#define`, e um
+`Serial.println()` de aviso logo a seguir a `Serial.begin(115200)` em
+`setup()`, dentro de `#if DEBUG_DISABLE_SLEEP` / `#if DEBUG_SERIAL_WAKE`,
+para o risco aparecer sempre no boot enquanto as flags estiverem ativas.
+Nenhuma lógica de wake/sleep foi alterada.
+
+Item 5 do plano — limpeza de baixo risco, 5 sub-tarefas independentes,
+sem recompilar/upload (validação de compilação fica para outro agente):
+
+- **a) `include/Ble/Ble.h`**: comentário sobre segurança BLE (linhas
+  27-33) estava desatualizado desde a Fase A (2026-07-20, commit
+  9a4e3b0) — dizia ainda "SECMODE_OPEN (sem pairing/bonding)". Reescrito
+  para refletir que as characteristics de escrita (`aesKeyChar`,
+  `dumpCtrlChar`, `currentTimeChar`) usam agora `SECMODE_ENC_NO_MITM`
+  (bonding + encriptação de link, Legacy Pairing/Just Works), mantendo a
+  nota de que a chave AES continua também protegida pela lógica da
+  aplicação (agora como segunda camada). Proteção MITM (Numeric
+  Comparison) continua explicitamente marcada como pendente da Fase B.
+- **b) `include/Ppg/Ppg.h`**: linha 56 dizia "medir SpO2 uma vez por
+  minuto"; o valor real é `SPO2_INTERVAL_MS = 30000` (30s, em
+  `src/Ppg/Ppg.cpp`). Corrigido para "a cada 30 segundos (ver
+  SPO2_INTERVAL_MS no .cpp)", e removida a nota "comentario no .h diz
+  '1/min'..." em `Ppg.cpp` linha 42, que deixou de fazer sentido.
+- **c) `src/main.cpp`**: removido o bloco `if (false) { ... }` (antigo
+  código de arranque "reduzido", nunca compilado para executar) dentro do
+  ramo de short-press em `setup()`. Fluxo confirmado inalterado: cai
+  sempre em `Serial.println("Pressão curta -> voltar a dormir");
+  goToSleep(); return;`.
+- **d) `src/Ble/Ble.cpp`**: removidas as constantes `kGattDumpCoopEveryRecords`/
+  `kGattDumpCoopDelayMs` e o bloco `// else if (...)` comentado que era o
+  único sítio a usá-las (confirmado por grep — sem outros usos reais no
+  ficheiro). Estrutura do `if/else if` de yield cooperativo em
+  `gattDumpTask` mantida intacta, só sem o ramo morto comentado.
+- **e) Constante "buffer 90% cheio" duplicada**: `kNearFullThreshold`
+  (0.90f) existia definida separadamente em `Ble.cpp::publishDumpStatus()`
+  e como valor literal `0.90f` em `QspiRingBuffer.cpp::push()`. Extraída
+  para `QspiRingBuffer::kRingBufferNearFullThreshold` (novo `constexpr
+  float` público em `include/QspiRingBuffer/QspiRingBuffer.h`, já incluído
+  por `Ble.cpp`), e os dois `.cpp` passaram a usar essa única constante.
+
+Nenhuma destas 5 sub-tarefas mexeu em lógica funcional — só comentários,
+remoção de código morto/constantes não usadas e desduplicação de uma
+constante. Não recompilado nem carregado para hardware nesta sessão.
+
+## Notificações de emergência deixam de bloquear o event loop do bridge (2026-07-21, plano Fable 5, item 2)
+
+Gap identificado na revisão de código desta sessão: `send_sms()` (Twilio)
+e `send_email()` (SendGrid), ambas em `bridge/notifications.py`, fazem
+chamadas de rede REALMENTE síncronas/bloqueantes (`client.messages.create(...)`
+/ `SendGridAPIClient(...).send(mail)`). Eram chamadas diretamente, sem
+`await`, a partir de `EscalationManager.notify_emergency()` e
+`_escalate_after_timeout()` — ambas invocadas no mesmo `asyncio` event loop
+que trata o streaming BLE e o WebSocket do dashboard
+(`ble_bridge.py::_dispatch_emergency_notifications`, agendada como task a
+partir de `_on_emergency_alert`). Uma Twilio/SendGrid lenta ou em timeout
+durante uma emergência real bloqueava esse loop inteiro — exatamente o
+cenário em que o dashboard mais precisa de continuar a responder.
+
+**Correção**: `EscalationManager.notify_emergency()` passou a `async def`;
+as 4 chamadas diretas a `send_sms`/`send_email` (duas em `notify_emergency`,
+duas em `_escalate_after_timeout`, que já era `async def`) passaram a
+`await asyncio.to_thread(send_sms, ...)` / `await asyncio.to_thread(send_email, ...)`.
+`send_sms`/`send_email` continuam exatamente como estavam — já engolem as
+suas próprias exceções e devolvem `bool` (degradação graciosa existente),
+por isso não foi preciso try/except adicional à volta do `await
+asyncio.to_thread(...)`. Em `bridge/ble_bridge.py`,
+`_dispatch_emergency_notifications` (já `async def`) passou a fazer `await
+self.escalation_manager.notify_emergency(...)` em vez de uma chamada
+síncrona.
+
+**Testes**: `bridge/tests/test_notifications.py` e
+`bridge/tests/test_ble_bridge_notifications.py` — os testes que chamavam
+`mgr.notify_emergency(...)` de forma síncrona passaram a métodos `async def`
+com `@pytest.mark.asyncio` e `await`, seguindo o padrão já usado nos outros
+testes async do módulo. `bridge/tests/test_ble_bridge_notifications.py` não
+precisou de alterações (já passava sempre por
+`_dispatch_emergency_notifications`, que já fazia `asyncio.run`/task).
+`python -m pytest tests/ -q` — 133 passed.
+
+## Retenção ORM (GDPR-006) ligada ao bridge (2026-07-21, plano Fable 5, item 3)
+
+Gap identificado na revisão de código desta sessão: `DataRetention.cleanup()`
+(`bridge/storage_advanced.py`, políticas em `RETENTION_POLICIES` —
+sensor_records 365d, activity_windows 1825d, alerts 2555d [soft delete],
+anomaly_detections 1825d, medication_adherence 1095d; emergency_alerts
+nunca é apagado de propósito, ver comentário no próprio ficheiro) nunca
+era chamado em runtime a partir do bridge — a única chamada existente era
+o exemplo de demonstração em `if __name__ == "__main__":`. O bridge já
+tinha uma retenção periódica (`BleBridge.periodic_retention_task()`), mas
+essa só cobre `SensorRecord` via `storage.py` (caminho "cru") + `orm.purge()`
+(mesma retenção configurável, só para `SensorRecord`) — as outras 4
+tabelas do ORM cobertas por `DataRetention.cleanup()` nunca eram
+processadas fora dos testes.
+
+**Correção**:
+- `bridge/orm_persistence.py`: novo método `async def
+  run_retention_cleanup(self, dry_run=False)` em `OrmPersistence` — mesmo
+  padrão degradável dos outros métodos (`if self.disabled or self.session
+  is None: return None`; chama `sa.DataRetention.cleanup(...)` dentro de
+  `try/except Exception as exc: self._degrade("run_retention_cleanup", exc)`).
+  Docstring do módulo (lista de chamadas a partir de `ble_bridge.py`)
+  atualizada com esta nova entrada.
+- `bridge/ble_bridge.py`: nova constante `ORM_RETENTION_INTERVAL_S = 86400`
+  (diário — as políticas são em anos, não faz sentido correr à cadência de
+  6h de `RETENTION_CHECK_INTERVAL_S`) e novo método
+  `async def periodic_orm_retention_task()`, mesmo padrão de
+  `periodic_retention_task` (loop `while True`, try/except amplo por
+  iteração para uma falha num ciclo não matar a task, log com `print()`
+  do resumo por tabela). Arrancada em `main()` junto da task irmã:
+  `asyncio.create_task(bridge.periodic_orm_retention_task())`.
+
+**Nota**: `orm.purge(days)` (retenção configurável do dashboard, só
+`SensorRecord`) e `orm.run_retention_cleanup()` (políticas fixas do ORM,
+5 tabelas) são complementares, não substitutos um do outro — ambos correm
+agora periodicamente.
+
+`python -m pytest tests/ -q` — 133 passed (nenhum teste novo dedicado a
+`run_retention_cleanup`/`periodic_orm_retention_task` nesta rotina; os
+testes existentes de `DataRetention.cleanup` em
+`bridge/tests/test_storage_advanced.py` continuam a cobrir a lógica de
+retenção em si).
+
+
+## GDPR-001/GDPR-003: modelo de consentimento por representante + wiring no bootstrap (2026-07-21, ITEM 4 do plano Fable 5)
+
+**Contexto legal do problema**: o público-alvo do CareWear (pessoas com
+demência) pode não poder consentir sozinho o tratamento dos seus dados.
+O modelo `ConsentRecord` (`bridge/storage_advanced.py`) já existia mas só
+registava SE houve consentimento, nunca QUEM o deu, nem a base legal RGPD.
+Além disso, o `consent_records` nunca era sequer consultado em runtime (ao
+contrário do `audit_log`, já ligado ao fluxo real — GDPR-003).
+
+**Modelo de dados (só campos, sem UI nova)** — `ConsentRecord` ganhou 4
+colunas, cada uma comentada no próprio modelo:
+- `given_by` (`patient` | `representative`, NOT NULL, default `patient`,
+  com `CheckConstraint` no estilo de `User.role`) — distingue o próprio
+  utente do representante legal/procurador.
+- `representative_relationship` (texto livre, nullable) — ex. "filho(a)",
+  "tutor(a)"; sem CheckConstraint rígido de propósito (é UX que ainda não
+  existe).
+- `representative_name` (nullable) — nome de quem assinou; guardado à
+  parte do `user_id` porque não há provisioning real de contas nesta fase.
+- `legal_basis` (NOT NULL, default `consent`) — `consent` (Art. 6(1)(a),
+  caso normal) ou `vital_interest` (Art. 6(1)(d), alerta de emergência/
+  queda em que aguardar consentimento atrasaria a resposta a risco de vida).
+
+Todas com `default=`/`server_default` para não rebentar linhas/fixtures
+existentes. Migração Alembic nova
+`migrations/versions/b7c4f1a9e230_consent_representative_fields.py`
+(revises `09f7da2ef011`, o head atual), no padrão `batch_alter_table` da
+migração inicial (SQLite não faz ALTER completo). NOTA: `alembic` não está
+instalado neste ambiente de execução — a migração foi validada por
+`py_compile` e segue exatamente o padrão da existente; os testes usam
+`Base.metadata.create_all`, não a migração.
+
+**Ponto de aplicação (wiring)** — `bridge/orm_persistence.py::_bootstrap()`
+passa a chamar `_ensure_consent()` depois de garantir o `Patient`: consulta
+um `ConsentRecord` válido de scope `sensor_data` (`granted=True` e, se
+`expires_at` estiver preenchido, ainda não expirado). Se existir, o fluxo
+segue igual. Se NÃO existir, NÃO bloqueia o arranque (padrão de degradação
+graciosa do resto do módulo — o streaming BLE/`storage.py` nunca podem
+parar por isto), mas regista a ausência explicitamente via
+`audit("consent_missing", resource_type="patient", resource_id=patient_id,
+details={"scope": "sensor_data"})` em vez de a ignorar em silêncio.
+
+**Decisão documentada — criação automática opcional NÃO implementada**: o
+plano sugeria criar um `ConsentRecord` inicial a partir de variáveis de
+ambiente `CAREWEAR_CONSENT_*` (opcional, não obrigatório). Ponderado e
+deliberadamente omitido: `ConsentRecord.user_id` é `NOT NULL` (FK para
+`users`) e o bootstrap local não tem um `user_id` real (sem provisioning de
+contas — ver `DEFAULT_PATIENT_UUID`); esse caminho ou falharia sempre a
+constraint (dead code que só degradava para o audit), ou obrigaria a
+inventar um utilizador placeholder, fora do âmbito. A criação real do
+consentimento fica para a UI de consentimento do dashboard (com o
+representante já autenticado a fornecer o `user_id`).
+
+**Fora de âmbito (explícito)**: NÃO há UI de consentimento nova no
+dashboard nesta alteração — é só modelo de dados + wiring no bridge. A UI
+(formulário de consentimento por representante, gestão/revogação) fica para
+depois.
+
+**Testes**: 3 novos em `bridge/tests/test_orm_persistence.py` —
+bootstrap sem consentimento regista `consent_missing`; bootstrap com
+consentimento de representante válido fica silencioso; consentimento
+expirado não conta como válido. `cd bridge && python -m pytest tests/ -q`
+= **136 passed** (eram 133). Ver `SECURITY_STATUS.md` para a nota RGPD.
+
+
+## CI: smoke test do LSTM Autoencoder adicionado ao ml-tests.yml (2026-07-21, ITEM 9 do plano Fable 5)
+
+**Gap confirmado**: `.github/workflows/ml-tests.yml` só instalava
+`numpy pandas scikit-learn xgboost pytest` e corria `pytest tests/ -v` a
+partir de `ml/` — nunca instalava TensorFlow. O próprio
+`ml/tests/test_train_smoke.py` já documentava a decisão no seu docstring
+("Deliberadamente NÃO cobre `train_lstm_autoencoder.py` nem
+`measure_rf_footprint.py` — precisam de TensorFlow/emlearn"), mas isso
+deixava `ml/train_lstm_autoencoder.py` (passo 2 do pipeline) sem nenhuma
+cobertura de CI.
+
+**Novo ficheiro** `ml/tests/test_lstm_autoencoder_smoke.py` — 3 testes,
+mesmo espírito de `test_train_smoke.py` (smoke test, não validação de
+métricas):
+- `build_autoencoder()` devolve um modelo Keras compilado com as shapes
+  de entrada/saída esperadas (`(None, SEQ_LEN, n_features)`) e `loss="mse"`.
+- `model.fit()` corre 1 epoch sobre subsequências sintéticas minúsculas
+  sem exceção e produz uma loss finita.
+- `reconstruction_error()` (usada na calibração do limiar de deteção e na
+  avaliação final do script real) devolve valores finitos e não-negativos
+  após esse epoch.
+
+Dataset sintético via `synthetic_sequences.py`, com
+`DAY_SESSION_MINUTES`/`NIGHT_SESSION_MINUTES` reduzidos por monkeypatch
+(alvo `synthetic_sequences.DAY_SESSION_MINUTES`, não
+`synthetic_data.DAY_SESSION_MINUTES` — o módulo importa essas constantes
+por valor, não como módulo, ao contrário do padrão usado em
+`test_train_smoke.py` para os scripts do passo 1; ver docstring do novo
+ficheiro de teste para o detalhe). `_build_segment_sequence()` gera sempre
+pelo menos um segmento por sessão mesmo com um alvo de minutos pequeno, o
+que já basta para exceder `SEQ_LEN` (12 janelas = 2 min) sem precisar de
+simular um dia inteiro (8640 janelas por sujeito por omissão).
+
+**NÃO cobre** `ml/retrain_autoencoder_from_real_data.py`: lê dados reais do
+bridge (`bridge/storage_advanced.py`, BD SQLite), sem função pura
+equivalente operável sobre dados sintéticos em memória — simular esse
+caminho testaria uma BD fake em vez do uso real do script (execução
+manual/local, nunca em GitHub Actions, segundo a própria docstring do
+script). Registado como limitação explícita no docstring do novo ficheiro
+de teste, não escondido.
+
+**`ml-tests.yml`**: adicionado `tensorflow-cpu` (mais leve que
+`tensorflow` completo, sem suporte GPU) à linha de instalação; comentário
+acima atualizado para refletir a cobertura nova, mantendo a nota de que
+`measure_rf_footprint.py` (emlearn, quantização/footprint real para o
+firmware) continua fora do CI por não ter um caminho de teste puro
+equivalente.
+
+**Corrido localmente** (Python 3.14 do ambiente por omissão não tem wheel
+de `tensorflow-cpu` — usado `py -3.12` numa venv à parte para validar,
+`ml-tests.yml` já fixa `python-version: "3.11"`, compatível):
+`python -m pytest tests/ -v` a partir de `ml/` = **32 passed, 1 failed**
+(era esse o estado antes desta alteração também) — os 3 testes novos
+passam; a falha é pré-existente e não relacionada
+(`test_retrain_autoencoder_from_real_data.py::...sem_importar_tensorflow`
+rebenta por faltar `sqlalchemy`, dependência que `ml-tests.yml` nunca
+instalou — já fora do âmbito deste item, não tocado). Tempo total
+observado (instalação + suite completa) ≈ 58s no ambiente local; o
+`tensorflow-cpu` sozinho é a maior fração desse tempo — aceitável face ao
+orçamento leve que o workflow tinha antes.
+
+## FC obsoleta continuava a ser usada indefinidamente na classificação de atividade (2026-07-21, achado com hardware real)
+
+Depois do plano dos 9 itens (workflow Fable 5) ter terminado, testes ao
+vivo com a placa realmente colocada no pulso expuseram dois problemas
+novos em `bridge/activity_inference.py`, nenhum coberto por esse plano:
+
+1. **Placeholder de FC inventado**: quando nunca tinha chegado nenhuma
+   leitura real de FC, `_classify_window()` alimentava o classificador com
+   um valor fabricado (`70.0`, "plausível de repouso"). Como a FC é uma
+   feature do modelo, isto enviesava a previsão para classes de baixa
+   atividade (Descanso/Dormir) mesmo sem qualquer sinal real — confirmado
+   ao vivo: utilizador com a placa no pulso o tempo todo, `measureSpo2()`
+   devolveu `hr=0` nessa janela (SpO2=97% válido no mesmo instante, dedo
+   confirmado — não era falta de contacto, foi a componente de FC do
+   próprio algoritmo Maxim a falhar), e a app mostrou "Dormir" com
+   confiança sobre essa FC inventada.
+2. **`_last_hr` nunca expirava**: mesmo depois de corrigir (1), o último
+   valor real de FC (`self._last_hr`) era reutilizado indefinidamente,
+   sem idade máxima — se a FC parasse de chegar (sensor solto, sinal
+   perdido), a classificação continuava confiante minutos/horas depois
+   sobre uma leitura já muito antiga.
+
+**Corrigido**: (1) uma janela sem nenhuma FC real (nem atual nem
+`_last_hr` ainda válido) deixa de ser classificada — mesmo tratamento já
+usado para janelas demasiado esparsas. (2) nova constante
+`HR_STALE_AFTER_S = 90` (3× o intervalo de medição de SpO2 do firmware) —
+acima dessa idade, `_last_hr` deixa de ser reutilizado. 2 testes novos em
+`bridge/tests/test_activity_inference.py` (13/13 a passar), incluindo um
+dedicado à expiração. Bridge reiniciado com a correção; validado ao vivo
+que a classificação volta a ficar sem resposta (em vez de "Dormir"
+inventado) quando a FC não chega.
+
+## "Dispositivo & firmware" passa a mostrar dados reais quando o wearable ligado é o reconhecido para o paciente (2026-07-21)
+
+Antes, esta vista mostrava sempre os valores de demonstração fixos de
+`PATIENTS[]` (bateria, MAC), mesmo com o bridge realmente ligado a um
+wearable real. Agora:
+
+- `ble_bridge.py` passa a incluir o MAC real (`connected_device_mac`) em
+  todas as mensagens `device_status` enviadas ao dashboard.
+- **Registo de dispositivo "geral"** (pedido do utilizador: "quero que
+  este wearable seja geral... dê para entrar em qualquer conta e seja
+  reconhecido"): novo `DEVICE_REGISTRY_KEY` em `localStorage`
+  (`registeredMacFor()`/`loadDeviceRegistry()`/`saveDeviceRegistry()`,
+  mesmo padrão de `MED_REGISTRY_KEY`). Assim que o wearable real se liga,
+  fica automaticamente associado à conta/paciente que estiver selecionado
+  nesse momento — não fica preso ao MAC de demonstração de um único
+  paciente fixo (o MAC A8:2F:11:9C:44:B7 da Isabel Costa, por exemplo,
+  deixa de ser o único "reconhecível" se o dispositivo real se ligar
+  enquanto ela estiver selecionada).
+- `TEMPLATES.dispositivo`: quando o MAC reconhecido bate certo com o
+  ligado, mostra bateria real (`liveState.batteryPercent`) e um badge
+  "Dados reais (ao vivo)". O ring buffer **continua a ser valor de
+  demonstração mesmo neste caso** — o bridge ainda não reenvia essa
+  contagem real por WebSocket — com uma nota honesta em vez de fingir um
+  dado que não existe.
+- `TEMPLATES.pacientes` (pedido do utilizador: "o estado do wearable do
+  paciente também deve de ser detetado na página médica"): a lista de
+  pacientes agora também reflete o estado ao vivo (pill "Ligado" +
+  "agora (ao vivo)" em vez do `status`/`lastSync` de demonstração) quando
+  o dispositivo real corresponde ao paciente.
+
+**Decisões por confirmar (não bloqueantes, ver conversa)**: (a) o MAC
+"reconhecido" fica mostrado mesmo fora de uma ligação ativa, não só
+durante-a-ligação; (b) mudar de paciente selecionado com o dispositivo
+real ligado reatribui-o silenciosamente ao novo paciente, sem pedir
+confirmação — aceitável para um protótipo com um único wearable físico,
+mas a rever se algum dia houver vários dispositivos reais em simultâneo.
+
+## Contradição de dados corrigida: Isabel Costa "100% de adesão" no mesmo dia em que o dispositivo esteve desligado 12h+ (2026-07-21, reportado pelo utilizador)
+
+`scripts/generate-demo-data.js` gerava `adherenceHistory` e `anomalyLog`
+de cada paciente de forma totalmente independente — nenhum dos dois
+verificava o outro. Para a Isabel Costa (p3), isto produzia uma
+contradição visível: o `anomalyLog` registava "Dispositivo desligado/sem
+sincronização há mais de 12h" num dia, mas `adherenceHistory` mostrava
+100% de adesão exatamente nesse mesmo dia — não é plausível afirmar
+adesão perfeita com confiança quando não havia dados fiáveis nesse dia.
+
+**Corrigido de forma geral, não só um remendo à Isabel Costa**: nova
+função `deviceOffShortDays()`/`withDeviceOffGaps()` em
+`generate-demo-data.js` — deteta, a partir do `anomalyLog` de QUALQUER
+paciente, em que dias houve uma anomalia de desconexão do dispositivo
+(`/desligado|sem sincroniza/i` no `detail`), e marca esses dias com
+`pct:null, deviceOff:true` em vez de um valor inventado. Aplicado aos 3
+pacientes (p1/p2 não tinham este problema porque as suas anomalias não
+são de desconexão, mas ficam protegidos se algum dia tiverem). O array
+estático `PATIENTS[]` em `index.html` (fallback antes de `demo-data.js`
+carregar) tinha a mesma contradição — corrigido também.
+`TEMPLATES.medicacao` atualizado para tratar `pct:null` como "sem dados"
+(nunca "0%"/"100%"), com uma nota explicativa, e `missedDays` passa a
+excluir explicitamente dias sem dados (antes, `null < 100` sendo `true`
+em JavaScript teria contado erradamente como "toma em falta").
+`demo-data.js` de hoje regenerado com a correção já aplicada.
+
+## UX do formulário de medicação corrigida: erros silenciosos e falta de confirmação visual (2026-07-21, reportado pelo utilizador)
+
+Mesma família de bug já corrigida uma vez antes (17 de julho, botão
+"Aplicar intervalo" que não fazia nada) — desta vez em dois sítios novos:
+
+1. **`addMedicationForPatient()`** fazia `if (!name || !times.length)
+   return;` sem nenhum aviso — tentar adicionar um medicamento com campos
+   em falta simplesmente não fazia nada, sem explicar o quê. Corrigido:
+   `showMedFormError()`/`clearMedFormError()` mostram exatamente qual
+   campo falta e como preencher, e focam o campo em causa.
+2. **Falta de confirmação visual** ao usar os botões de horário
+   recorrente/intervalo personalizado: `#newMedTimes` era preenchido
+   silenciosamente, sem nada a indicar que resultou — reportado como "não
+   percebi o funcionamento/seleção". Corrigido: `flashTimesFilled()`
+   realça brevemente o campo e mostra uma confirmação textual junto do
+   botão. Nova linha de ajuda (`medicacao.autoFillHint`) esclarece a
+   relação entre a hora de início + botões de intervalo e o campo
+   Horário. Todas as strings novas traduzidas nos 7 idiomas.
+
+## Bug de CI encontrado (não corrigido nesta sessão, registado para decisão futura): extração do `<script>` principal em `dashboard.yml` apanha o comentário errado
+
+Ao tentar validar as alterações desta sessão da mesma forma que o CI faz
+(`.github/workflows/dashboard.yml`), descobriu-se que
+`content.lastIndexOf('<script>')` — documentado no próprio ficheiro como
+"o padrão correto e testado" para evitar menções a "&lt;script&gt;" dentro
+de comentários — na verdade **também pode ser enganado por um
+comentário**: a linha ~3032 de `index.html` (dentro do próprio bloco de
+script real, não antes dele) contém o texto literal "`<script>`" a meio de
+uma frase explicativa. Como essa linha vem DEPOIS da tag de abertura real
+(linha 908) mas o `lastIndexOf` procura a última ocorrência em todo o
+ficheiro, o CI extrai e valida só um SUFIXO do script real (de ~3032 até
+ao fim), nunca as primeiras ~2100 linhas de funções — sem falhar, porque
+esse sufixo calha de ser sintaticamente válido por si só. Ou seja: o
+`node --check` do CI passa, mas nunca verificou de facto ~40% do script
+principal. Não corrigido nesta sessão (fora do âmbito pedido); validação
+manual desta sessão usou uma extração alternativa, ancorada na PRIMEIRA
+linha que é exatamente `<script>` (sem atributos), que evita este
+problema. Fica registado como item a corrigir no roteiro de CI.

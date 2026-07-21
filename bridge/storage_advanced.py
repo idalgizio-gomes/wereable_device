@@ -489,6 +489,31 @@ class ConsentRecord(Base):
     expires_at = Column(DateTime)
     notes = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # GDPR-001 — quem consentiu. O público-alvo tem demência e pode não
+    # poder consentir sozinho, por isso distingue-se o próprio utente
+    # ('patient') de um representante legal/procurador ('representative').
+    # CheckConstraint restringe os valores, no mesmo estilo de User.role.
+    given_by = Column(
+        String(20),
+        CheckConstraint("given_by IN ('patient', 'representative')"),
+        nullable=False, default="patient",
+    )
+    # Relação do representante com o utente (ex.: "filho(a)", "tutor(a)",
+    # "procurador(a)"). Só preenchido quando given_by == 'representative'.
+    # Texto livre de propósito (sem CheckConstraint rígido): a lista de
+    # relações possíveis é um problema de UX/UI que ainda não existe.
+    representative_relationship = Column(String(50))
+    # Nome do representante que assinou o consentimento. Guardado à parte
+    # de user_id porque nesta fase não há provisioning real de contas
+    # (ver DEFAULT_PATIENT_UUID/comentário em orm_persistence.py) — o
+    # user_id pode não corresponder a uma conta de utilizador real.
+    representative_name = Column(String(255))
+    # Base legal RGPD do tratamento. 'consent' (Art. 6(1)(a)) é o caso
+    # normal (o próprio ou o representante consentem). 'vital_interest'
+    # (Art. 6(1)(d)) cobre o alerta de emergência/queda em que aguardar
+    # consentimento explícito atrasaria a resposta a um risco de vida.
+    # Não introduzir mais valores sem um caso de uso concreto.
+    legal_basis = Column(String(50), nullable=False, default="consent")
 
     __table_args__ = (
         UniqueConstraint("patient_id", "scope", "version", name="uq_consent_patient_scope_version"),

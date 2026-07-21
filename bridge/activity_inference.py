@@ -52,6 +52,16 @@ WINDOW_MS = WINDOW_SECONDS * 1000
 # alimentar o classificador com um sinal demasiado esparso para ser fiável.
 MIN_SAMPLES_PER_WINDOW = 20
 
+# Acima desta idade (segundos, relógio do dispositivo), uma leitura de FC
+# guardada em _last_hr deixa de ser reutilizada — ver bug real corrigido em
+# _classify_window (2026-07-21). Em funcionamento normal, measureSpo2() do
+# firmware corre a cada SPO2_INTERVAL_MS=30s (ver ml/../src/Ppg/Ppg.cpp) e
+# devolve HR como subproduto sempre que há dedo/pulso; 90s (3x esse
+# intervalo) dá margem para uma medição falhada isolada sem reagir de
+# imediato a um único soluço, mas não deixa uma FC antiga a ser tratada
+# como atual minutos depois de o dispositivo ter deixado de medir.
+HR_STALE_AFTER_S = 90
+
 ACTIVITY_ML_DISCLAIMER = (
     "Classificador treinado apenas com dados sintéticos (ver ml/README.md) "
     "— não validado clinicamente. Não usar como diagnóstico."
@@ -92,6 +102,7 @@ class ActivityInference:
         self.load_error: Optional[str] = None
         self._current_block: Optional[dict] = None
         self._last_hr: Optional[float] = None
+        self._last_hr_ts: Optional[float] = None  # device ts (s) da última leitura real
         self._load_model()
 
     def _load_model(self) -> None:
@@ -123,6 +134,7 @@ class ActivityInference:
 
         if record["hr"] is not None:
             self._last_hr = record["hr"]
+            self._last_hr_ts = record["ts"]
 
         self._buffer.append(record)
         # BUG REAL corrigido (2026-07-20, apanhado em teste com hardware real):
@@ -147,20 +159,46 @@ class ActivityInference:
             return None
         return self._classify_window(window)
 
-    def _classify_window(self, window: list[dict]) -> dict:
+    def _classify_window(self, window: list[dict]) -> Optional[dict]:
         from features import extract_features  # ml/features.py
 
         hr_values = [r["hr"] for r in window if r["hr"] is not None]
         if not hr_values and self._last_hr is not None:
-            hr_values = [self._last_hr]
+            # BUG REAL corrigido (2026-07-21, achado com hardware real):
+            # este ramo usava self._last_hr indefinidamente, sem nunca
+            # expirar — se a FC parasse de chegar (pulso retirado, sensor
+            # solto, sinal perdido), o último valor real continuava a ser
+            # reutilizado para sempre, como se fosse uma leitura atual.
+            # Combinado com o classificador nunca comunicar "sem sinal",
+            # isto produzia classificações confiantes sobre uma pessoa que
+            # pode já nem ter o dispositivo vestido. Agora só se usa
+            # self._last_hr enquanto a idade dessa leitura (medida no
+            # relógio do próprio dispositivo, não no relógio de parede,
+            # para não repetir o bug de mistura de relógios já corrigido
+            # noutro sítio deste ficheiro) não ultrapassar HR_STALE_AFTER_S.
+            age_s = window[-1]["ts"] - self._last_hr_ts
+            if age_s <= HR_STALE_AFTER_S:
+                hr_values = [self._last_hr]
+            else:
+                return None
         elif not hr_values:
-            # Nunca chegou nenhuma leitura de FC ainda nesta sessão — sem
-            # isto np.mean/np.std de um array vazio devolveriam NaN e
-            # rebentariam o classificador. 70bpm é um valor de repouso
-            # plausível usado só como placeholder neutro, não uma leitura
-            # real; feature pouco informativa neste caso, mas não deve
-            # impedir a classificação pelos eixos de movimento.
-            hr_values = [70.0]
+            # BUG REAL corrigido (2026-07-21, achado com hardware real):
+            # quando nunca chegou nenhuma leitura de FC, este ramo
+            # alimentava o classificador com um valor inventado (70bpm,
+            # "plausível de repouso"). Isso introduz um viés real: a FC é
+            # uma feature do modelo, e um valor de repouso empurra
+            # sistematicamente a previsão para classes de baixa atividade
+            # (Descanso/Dormir) mesmo quando o movimento real não
+            # corresponde a isso. Confirmado ao vivo: utilizador com a
+            # placa no pulso o tempo todo, SpO2 válido (dedo/contacto
+            # confirmado pelo firmware), mas measureSpo2() devolveu hr=0
+            # (vHr=0 do algoritmo Maxim) nessa janela — e a app mostrava
+            # "Dormir" com confiança, calculada sobre uma FC 100%
+            # fabricada. Em vez de classificar sobre dados inventados,
+            # esta janela fica por classificar (mesmo tratamento que uma
+            # janela demasiado esparsa — ver add_sample) até chegar pelo
+            # menos uma leitura real de FC nesta sessão.
+            return None
 
         feat_window = {
             "accel_x": np.array([r["ax"] for r in window], dtype=float),

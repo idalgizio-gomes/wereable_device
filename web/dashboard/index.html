@@ -1020,6 +1020,7 @@ const I18N = {
     'pacientes.assignedToAccountSuffix': 'a esta conta', 'pacientes.adminFullAccessNote': '(conta administradora — acesso total)', 'pacientes.chooseViewingHint': 'escolhe qual estás a consultar',
     'pacientes.thPatient': 'Paciente', 'pacientes.thDevice': 'Dispositivo', 'pacientes.thLastSync': 'Última sincronização', 'pacientes.thStatus': 'Estado',
     'pacientes.thActiveAlerts': 'Alertas ativos', 'pacientes.statusConnected': 'Ligado', 'pacientes.statusUnstable': 'Instável', 'pacientes.statusDisconnected': 'Desligado',
+    'pacientes.lastSyncLiveNow': 'agora (ao vivo)',
     'pacientes.statusNoConsent': 'Sem consentimento', 'pacientes.activeAlertsSingular': 'ativo', 'pacientes.activeAlertsPlural': 'ativos', 'pacientes.statusNone': 'Nenhum',
     'pacientes.statusSelected': 'Selecionado', 'pacientes.selectPatientBtn': 'Selecionar', 'pacientes.noPatientsEmpty': 'Esta conta ainda não tem nenhum paciente atribuído.',
     'pacientes.seeListBelowEmpty': 'Vê a lista abaixo para te atribuíres a um paciente existente.',
@@ -1033,6 +1034,8 @@ const I18N = {
     'dispositivo.deviceStatusCardTitle': 'Estado do wearable —', 'dispositivo.batteryLabel': 'Bateria', 'dispositivo.ringBufferLabel': 'Ring buffer (flash QSPI)',
     'dispositivo.recordsUnit': 'registos', 'dispositivo.staticRamLabel': 'RAM estática (.data/.bss)', 'dispositivo.programFlashLabel': 'Flash de programa',
     'dispositivo.ramFlashSameNoteEmpty': 'RAM/Flash de programa são iguais em todos os wearables desta conta de propósito — é o mesmo firmware instalado em todos, esses valores vêm do binário compilado, não do dispositivo individual. Só a bateria e o ring buffer variam por paciente (uso real de cada dispositivo).',
+    'dispositivo.liveDataBadge': 'Dados reais (ao vivo)',
+    'dispositivo.ringBufferDemoNote': 'Ring buffer: valor de demonstração — leitura ao vivo ainda não está ligada ao dashboard.',
     'dispositivo.stackSlackCardTitle': 'Folga de stack por task (FreeRTOS)',
     'dispositivo.stackSlackCardSubtitle': 'igual para todos os dispositivos (mesmo firmware); pendente confirmação em hardware', 'dispositivo.thTask': 'Task', 'dispositivo.thReserved': 'Reservado',
     'dispositivo.thStatus': 'Estado', 'dispositivo.statusPendingConfirmation': 'por confirmar',
@@ -1113,6 +1116,12 @@ const I18N = {
     'medicacao.manageTitle': 'Gerir medicação (equipa clínica)', 'medicacao.manageSubtitle': 'Adicionar ou remover medicamentos prescritos a', 'medicacao.thTimes': 'Horários',
     'medicacao.medNamePlaceholder': 'Nome do medicamento (ex: Donepezilo)', 'medicacao.dosePlaceholder': 'Dose (ex: 5mg)',
     'medicacao.timesPlaceholder': 'Horários, separados por vírgula (ex: 08:00, 20:00)', 'medicacao.recurringFromLabel': 'Horário recorrente a partir de:', 'medicacao.every8hBtn': 'De 8 em 8h',
+    'medicacao.autoFillHint': 'Ou usa os botões abaixo para calcular o Horário automaticamente a partir de uma hora de início.',
+    'medicacao.errNameRequired': 'Falta o nome do medicamento — preenche o campo "Nome do medicamento" acima.',
+    'medicacao.errTimesRequired': 'Falta pelo menos uma hora de toma — escreve no campo "Horários" (ex: 08:00, 20:00) ou usa os botões abaixo para calcular automaticamente.',
+    'medicacao.errIntervalInvalid': 'Intervalo inválido — escreve um número entre 1 e 24 horas.',
+    'medicacao.timesFilledConfirm': 'Horário preenchido: {times}',
+    'medicacao.adherenceUnknownDeviceOff': 'Sem dados fiáveis de adesão — o dispositivo esteve desligado/sem sincronização este dia.',
     'medicacao.every12hBtn': 'De 12 em 12h', 'medicacao.every6hBtn': 'De 6 em 6h', 'medicacao.onceDailyBtn': '1x/dia', 'medicacao.customIntervalLabel': 'Ou de quantas em quantas horas:',
     'medicacao.intervalPlaceholder': 'ex: 3', 'medicacao.applyIntervalBtn': 'Aplicar intervalo',
     'medicacao.manageNote': 'Os botões acima só preenchem o campo "Horários" acima — revê antes de clicar em "Adicionar". Protótipo: guardado só neste browser (localStorage) — um sistema real ligaria isto a uma prescrição clínica com assinatura/validação, não um formulário livre.',
@@ -1315,6 +1324,7 @@ const I18N = {
     'pacientes.assignedToAccountSuffix': 'to this account', 'pacientes.adminFullAccessNote': '(administrator account — full access)',
     'pacientes.chooseViewingHint': 'choose which one you\'re viewing', 'pacientes.thPatient': 'Patient', 'pacientes.thDevice': 'Device', 'pacientes.thLastSync': 'Last sync',
     'pacientes.thStatus': 'Status', 'pacientes.thActiveAlerts': 'Active alerts', 'pacientes.statusConnected': 'Connected', 'pacientes.statusUnstable': 'Unstable',
+    'pacientes.lastSyncLiveNow': 'now (live)',
     'pacientes.statusDisconnected': 'Disconnected', 'pacientes.statusNoConsent': 'No consent', 'pacientes.activeAlertsSingular': 'active', 'pacientes.activeAlertsPlural': 'active',
     'pacientes.statusNone': 'None', 'pacientes.statusSelected': 'Selected', 'pacientes.selectPatientBtn': 'Select',
     'pacientes.noPatientsEmpty': 'This account does not yet have any patient assigned.', 'pacientes.seeListBelowEmpty': 'See the list below to assign yourself an existing patient.',
@@ -1328,6 +1338,8 @@ const I18N = {
     'dispositivo.deviceStatusCardTitle': 'Wearable status —', 'dispositivo.batteryLabel': 'Battery', 'dispositivo.ringBufferLabel': 'Ring buffer (QSPI flash)', 'dispositivo.recordsUnit': 'records',
     'dispositivo.staticRamLabel': 'Static RAM (.data/.bss)', 'dispositivo.programFlashLabel': 'Program flash',
     'dispositivo.ramFlashSameNoteEmpty': 'RAM/program flash are the same across all wearables on this account on purpose — it\'s the same firmware installed on all of them, these values come from the compiled binary, not from the individual device. Only battery and the ring buffer vary per patient (each device\'s actual usage).',
+    'dispositivo.liveDataBadge': 'Live data',
+    'dispositivo.ringBufferDemoNote': 'Ring buffer: demo value — live reading isn\'t wired to the dashboard yet.',
     'dispositivo.stackSlackCardTitle': 'Stack slack per task (FreeRTOS)', 'dispositivo.stackSlackCardSubtitle': 'same for all devices (same firmware); pending confirmation on hardware',
     'dispositivo.thTask': 'Task', 'dispositivo.thReserved': 'Reserved', 'dispositivo.thStatus': 'Status', 'dispositivo.statusPendingConfirmation': 'to confirm',
     'dispositivo.optimizationNoteEmpty': 'Values from the 2nd optimization round (see PROJECT_STATUS.md); still to be confirmed on real hardware with DEBUG_STACK_WATERMARKS.',
@@ -1384,6 +1396,12 @@ const I18N = {
     'medicacao.manageTitle': 'Manage medication (clinical team)', 'medicacao.manageSubtitle': 'Add or remove medications prescribed to', 'medicacao.thTimes': 'Times',
     'medicacao.medNamePlaceholder': 'Medication name (e.g. Donepezilo)', 'medicacao.dosePlaceholder': 'Dose (e.g. 5mg)', 'medicacao.timesPlaceholder': 'Times, comma-separated (e.g. 08:00, 20:00)',
     'medicacao.recurringFromLabel': 'Recurring schedule starting from:', 'medicacao.every8hBtn': 'Every 8h', 'medicacao.every12hBtn': 'Every 12h', 'medicacao.every6hBtn': 'Every 6h',
+    'medicacao.autoFillHint': 'Or use the buttons below to calculate the Times automatically from a start time.',
+    'medicacao.errNameRequired': 'Medication name is missing — fill in the "Medication name" field above.',
+    'medicacao.errTimesRequired': 'At least one dose time is missing — type it in the "Times" field (e.g. 08:00, 20:00) or use the buttons below to calculate it automatically.',
+    'medicacao.errIntervalInvalid': 'Invalid interval — enter a number between 1 and 24 hours.',
+    'medicacao.timesFilledConfirm': 'Times filled in: {times}',
+    'medicacao.adherenceUnknownDeviceOff': 'No reliable adherence data — the device was off/disconnected this day.',
     'medicacao.onceDailyBtn': 'Once/day', 'medicacao.customIntervalLabel': 'Or at what hourly interval:', 'medicacao.intervalPlaceholder': 'e.g. 3', 'medicacao.applyIntervalBtn': 'Apply interval',
     'medicacao.manageNote': 'The buttons above only fill in the "Times" field above — review before clicking "Add". Prototype: stored only in this browser (localStorage) — a real system would link this to a clinical prescription with signature/validation, not a free-form field.',
     'medicacao.historyTitle': 'Adherence — last 6 days',
@@ -1577,6 +1595,7 @@ const I18N = {
     'pacientes.monitoredCardTitle': '受监测患者', 'pacientes.assignedSingular': '位患者已分配', 'pacientes.assignedPlural': '位患者已分配', 'pacientes.assignedToAccountSuffix': '至此账户',
     'pacientes.adminFullAccessNote': '（管理员账户 — 完全访问权限）', 'pacientes.chooseViewingHint': '选择您正在查看的患者', 'pacientes.thPatient': '患者', 'pacientes.thDevice': '设备', 'pacientes.thLastSync': '上次同步',
     'pacientes.thStatus': '状态', 'pacientes.thActiveAlerts': '活跃警报', 'pacientes.statusConnected': '已连接', 'pacientes.statusUnstable': '不稳定', 'pacientes.statusDisconnected': '已断开',
+    'pacientes.lastSyncLiveNow': '现在（实时）',
     'pacientes.statusNoConsent': '未获同意', 'pacientes.activeAlertsSingular': '个活跃', 'pacientes.activeAlertsPlural': '个活跃', 'pacientes.statusNone': '无', 'pacientes.statusSelected': '已选择',
     'pacientes.selectPatientBtn': '选择', 'pacientes.noPatientsEmpty': '此账户尚未分配任何患者。', 'pacientes.seeListBelowEmpty': '请查看下方列表，为自己分配一名现有患者。',
     'pacientes.bleNoteEmpty': '选择患者会更改此账户显示的身份。<b>重要提示</b>：在此原型中，与可穿戴设备的实际蓝牙连接一次仍仅限于一个物理设备（附近并被网桥发现的设备）——在此选择不同的患者不会自动切换实际连接的可穿戴设备。', 'pacientes.otherPatientsCardTitle': '此机构的其他患者',
@@ -1586,6 +1605,8 @@ const I18N = {
     'dispositivo.deviceStatusCardTitle': '可穿戴设备状态 —', 'dispositivo.batteryLabel': '电池', 'dispositivo.ringBufferLabel': '环形缓冲区（QSPI 闪存）', 'dispositivo.recordsUnit': '条记录',
     'dispositivo.staticRamLabel': '静态 RAM (.data/.bss)', 'dispositivo.programFlashLabel': '程序闪存',
     'dispositivo.ramFlashSameNoteEmpty': '此账户下所有可穿戴设备的 RAM/程序闪存值相同，这是有意为之——所有设备安装的是同一固件，这些数值来自编译后的二进制文件，而非单个设备本身。只有电池和环形缓冲区因患者而异（各设备的实际使用情况）。',
+    'dispositivo.liveDataBadge': '实时数据',
+    'dispositivo.ringBufferDemoNote': '环形缓冲区：演示数值——实时读取尚未接入仪表板。',
     'dispositivo.stackSlackCardTitle': '每个任务的堆栈余量（FreeRTOS）', 'dispositivo.stackSlackCardSubtitle': '所有设备相同（相同固件）；待硬件确认', 'dispositivo.thTask': '任务', 'dispositivo.thReserved': '已保留',
     'dispositivo.thStatus': '状态', 'dispositivo.statusPendingConfirmation': '待确认', 'dispositivo.optimizationNoteEmpty': '第二轮优化的数值（参见 PROJECT_STATUS.md）；仍需在真实硬件上使用 DEBUG_STACK_WATERMARKS 确认。',
     // --- rotina ---
@@ -1626,6 +1647,12 @@ const I18N = {
     'medicacao.prototypeNote1': '原型："标记为已服用"仅保存在本浏览器（localStorage）中，按患者和日期分区——它不能替代真正的临床依从性记录，也不会向照护者设备发送提醒（推送/短信）。', 'medicacao.manageTitle': '管理药物（临床团队）',
     'medicacao.manageSubtitle': '添加或移除已开给以下患者的药物：', 'medicacao.thTimes': '时间安排', 'medicacao.medNamePlaceholder': '药物名称（例如 Donepezilo）', 'medicacao.dosePlaceholder': '剂量（例如 5mg）',
     'medicacao.timesPlaceholder': '时间，用逗号分隔（例如 08:00, 20:00）', 'medicacao.recurringFromLabel': '重复时间起始于：', 'medicacao.every8hBtn': '每 8 小时', 'medicacao.every12hBtn': '每 12 小时',
+    'medicacao.autoFillHint': '或使用下方按钮，根据起始时间自动计算服药时间。',
+    'medicacao.errNameRequired': '缺少药物名称——请填写上方的"药物名称"栏位。',
+    'medicacao.errTimesRequired': '至少缺少一个服药时间——请在"时间"栏位填写（例如 08:00, 20:00），或使用下方按钮自动计算。',
+    'medicacao.errIntervalInvalid': '间隔无效——请输入 1 到 24 小时之间的数字。',
+    'medicacao.timesFilledConfirm': '已填写时间：{times}',
+    'medicacao.adherenceUnknownDeviceOff': '无可靠的服药数据——该设备当天处于关闭/未同步状态。',
     'medicacao.every6hBtn': '每 6 小时', 'medicacao.onceDailyBtn': '每日 1 次', 'medicacao.customIntervalLabel': '或每隔多少小时：', 'medicacao.intervalPlaceholder': '例如 3', 'medicacao.applyIntervalBtn': '应用间隔',
     'medicacao.manageNote': '上方按钮只会填入上面的"时间"字段——点击"添加"前请先检查。原型：仅保存在本浏览器（localStorage）中——真实系统会将此关联到带签名/验证的临床处方，而非自由填写的表单。', 'medicacao.historyTitle': '依从性 — 最近 6 天',
     // --- perfil ---
@@ -1790,6 +1817,7 @@ const I18N = {
     'pacientes.assignedToAccountSuffix': 'a esta cuenta', 'pacientes.adminFullAccessNote': '(cuenta administradora — acceso total)', 'pacientes.chooseViewingHint': 'elige cuál estás consultando',
     'pacientes.thPatient': 'Paciente', 'pacientes.thDevice': 'Dispositivo', 'pacientes.thLastSync': 'Última sincronización', 'pacientes.thStatus': 'Estado',
     'pacientes.thActiveAlerts': 'Alertas activas', 'pacientes.statusConnected': 'Conectado', 'pacientes.statusUnstable': 'Inestable', 'pacientes.statusDisconnected': 'Desconectado',
+    'pacientes.lastSyncLiveNow': 'ahora (en vivo)',
     'pacientes.statusNoConsent': 'Sin consentimiento', 'pacientes.activeAlertsSingular': 'activo', 'pacientes.activeAlertsPlural': 'activos', 'pacientes.statusNone': 'Ninguno',
     'pacientes.statusSelected': 'Seleccionado', 'pacientes.selectPatientBtn': 'Seleccionar', 'pacientes.noPatientsEmpty': 'Esta cuenta aún no tiene ningún paciente asignado.',
     'pacientes.seeListBelowEmpty': 'Consulta la lista de abajo para asignarte un paciente existente.',
@@ -1803,6 +1831,8 @@ const I18N = {
     'dispositivo.deviceStatusCardTitle': 'Estado del wearable —', 'dispositivo.batteryLabel': 'Batería', 'dispositivo.ringBufferLabel': 'Búfer circular (flash QSPI)',
     'dispositivo.recordsUnit': 'registros', 'dispositivo.staticRamLabel': 'RAM estática (.data/.bss)', 'dispositivo.programFlashLabel': 'Flash de programa',
     'dispositivo.ramFlashSameNoteEmpty': 'La RAM/flash de programa son iguales en todos los wearables de esta cuenta a propósito — es el mismo firmware instalado en todos, esos valores provienen del binario compilado, no del dispositivo individual. Solo la batería y el búfer circular varían por paciente (uso real de cada dispositivo).',
+    'dispositivo.liveDataBadge': 'Datos reales (en vivo)',
+    'dispositivo.ringBufferDemoNote': 'Búfer circular: valor de demostración — la lectura en vivo aún no está conectada al panel.',
     'dispositivo.stackSlackCardTitle': 'Margen de pila por tarea (FreeRTOS)',
     'dispositivo.stackSlackCardSubtitle': 'igual para todos los dispositivos (mismo firmware); pendiente de confirmación en hardware', 'dispositivo.thTask': 'Tarea',
     'dispositivo.thReserved': 'Reservado', 'dispositivo.thStatus': 'Estado', 'dispositivo.statusPendingConfirmation': 'por confirmar',
@@ -1864,6 +1894,12 @@ const I18N = {
     'medicacao.manageTitle': 'Gestionar medicación (equipo clínico)', 'medicacao.manageSubtitle': 'Añadir o eliminar medicamentos prescritos a', 'medicacao.thTimes': 'Horarios',
     'medicacao.medNamePlaceholder': 'Nombre del medicamento (ej.: Donepezilo)', 'medicacao.dosePlaceholder': 'Dosis (ej.: 5mg)',
     'medicacao.timesPlaceholder': 'Horarios, separados por comas (ej.: 08:00, 20:00)', 'medicacao.recurringFromLabel': 'Horario recurrente a partir de:', 'medicacao.every8hBtn': 'Cada 8 h',
+    'medicacao.autoFillHint': 'O usa los botones de abajo para calcular el Horario automáticamente a partir de una hora de inicio.',
+    'medicacao.errNameRequired': 'Falta el nombre del medicamento — rellena el campo "Nombre del medicamento" arriba.',
+    'medicacao.errTimesRequired': 'Falta al menos una hora de toma — escríbela en el campo "Horarios" (ej.: 08:00, 20:00) o usa los botones de abajo para calcularla automáticamente.',
+    'medicacao.errIntervalInvalid': 'Intervalo no válido — escribe un número entre 1 y 24 horas.',
+    'medicacao.timesFilledConfirm': 'Horario rellenado: {times}',
+    'medicacao.adherenceUnknownDeviceOff': 'Sin datos fiables de adherencia — el dispositivo estuvo apagado/sin sincronizar ese día.',
     'medicacao.every12hBtn': 'Cada 12 h', 'medicacao.every6hBtn': 'Cada 6 h', 'medicacao.onceDailyBtn': '1 vez/día', 'medicacao.customIntervalLabel': 'O cada cuántas horas:',
     'medicacao.intervalPlaceholder': 'ej.: 3', 'medicacao.applyIntervalBtn': 'Aplicar intervalo',
     'medicacao.manageNote': 'Los botones de arriba solo rellenan el campo "Horarios" de arriba — revísalo antes de hacer clic en "Añadir". Prototipo: guardado solo en este navegador (localStorage) — un sistema real vincularía esto a una prescripción clínica con firma/validación, no un formulario libre.',
@@ -2067,6 +2103,7 @@ const I18N = {
     'pacientes.assignedToAccountSuffix': 'à ce compte', 'pacientes.adminFullAccessNote': '(compte administrateur — accès complet)', 'pacientes.chooseViewingHint': 'choisis lequel tu consultes',
     'pacientes.thPatient': 'Patient', 'pacientes.thDevice': 'Appareil', 'pacientes.thLastSync': 'Dernière synchronisation', 'pacientes.thStatus': 'État',
     'pacientes.thActiveAlerts': 'Alertes actives', 'pacientes.statusConnected': 'Connecté', 'pacientes.statusUnstable': 'Instable', 'pacientes.statusDisconnected': 'Déconnecté',
+    'pacientes.lastSyncLiveNow': 'maintenant (en direct)',
     'pacientes.statusNoConsent': 'Sans consentement', 'pacientes.activeAlertsSingular': 'actif', 'pacientes.activeAlertsPlural': 'actifs', 'pacientes.statusNone': 'Aucun',
     'pacientes.statusSelected': 'Sélectionné', 'pacientes.selectPatientBtn': 'Sélectionner', 'pacientes.noPatientsEmpty': 'Ce compte n\'a encore aucun patient attribué.',
     'pacientes.seeListBelowEmpty': 'Consulte la liste ci-dessous pour t\'attribuer un patient existant.',
@@ -2080,6 +2117,8 @@ const I18N = {
     'dispositivo.deviceStatusCardTitle': 'État du wearable —', 'dispositivo.batteryLabel': 'Batterie', 'dispositivo.ringBufferLabel': 'Tampon circulaire (flash QSPI)',
     'dispositivo.recordsUnit': 'enregistrements', 'dispositivo.staticRamLabel': 'RAM statique (.data/.bss)', 'dispositivo.programFlashLabel': 'Flash de programme',
     'dispositivo.ramFlashSameNoteEmpty': 'La RAM/flash de programme sont identiques sur tous les wearables de ce compte, volontairement — c\'est le même firmware installé sur tous, ces valeurs proviennent du binaire compilé, pas de l\'appareil individuel. Seules la batterie et le tampon circulaire varient selon le patient (usage réel de chaque appareil).',
+    'dispositivo.liveDataBadge': 'Données réelles (en direct)',
+    'dispositivo.ringBufferDemoNote': 'Tampon circulaire : valeur de démonstration — la lecture en direct n\'est pas encore connectée au tableau de bord.',
     'dispositivo.stackSlackCardTitle': 'Marge de pile par tâche (FreeRTOS)',
     'dispositivo.stackSlackCardSubtitle': 'identique pour tous les appareils (même firmware) ; en attente de confirmation sur le matériel', 'dispositivo.thTask': 'Tâche',
     'dispositivo.thReserved': 'Réservé', 'dispositivo.thStatus': 'État', 'dispositivo.statusPendingConfirmation': 'à confirmer',
@@ -2140,6 +2179,12 @@ const I18N = {
     'medicacao.medNamePlaceholder': 'Nom du médicament (ex. : Donepezilo)', 'medicacao.dosePlaceholder': 'Dose (ex. : 5mg)',
     'medicacao.timesPlaceholder': 'Horaires, séparés par des virgules (ex. : 08:00, 20:00)', 'medicacao.recurringFromLabel': 'Horaire récurrent à partir de :',
     'medicacao.every8hBtn': 'Toutes les 8 h', 'medicacao.every12hBtn': 'Toutes les 12 h', 'medicacao.every6hBtn': 'Toutes les 6 h', 'medicacao.onceDailyBtn': '1x/jour',
+    'medicacao.autoFillHint': "Ou utilise les boutons ci-dessous pour calculer les horaires automatiquement à partir d'une heure de début.",
+    'medicacao.errNameRequired': 'Le nom du médicament manque — remplis le champ « Nom du médicament » ci-dessus.',
+    'medicacao.errTimesRequired': 'Il manque au moins une heure de prise — indique-la dans le champ « Horaires » (ex. : 08:00, 20:00) ou utilise les boutons ci-dessous pour la calculer automatiquement.',
+    'medicacao.errIntervalInvalid': 'Intervalle invalide — indique un nombre entre 1 et 24 heures.',
+    'medicacao.timesFilledConfirm': 'Horaires remplis : {times}',
+    'medicacao.adherenceUnknownDeviceOff': "Pas de données fiables d'observance — l'appareil était éteint/déconnecté ce jour-là.",
     'medicacao.customIntervalLabel': 'Ou à quel intervalle horaire :', 'medicacao.intervalPlaceholder': 'ex. : 3', 'medicacao.applyIntervalBtn': 'Appliquer l\'intervalle',
     'medicacao.manageNote': 'Les boutons ci-dessus ne font que remplir le champ « Horaires » ci-dessus — vérifiez avant de cliquer sur « Ajouter ». Prototype : enregistré uniquement dans ce navigateur (localStorage) — un vrai système relierait cela à une prescription clinique avec signature/validation, et non à un formulaire libre.',
     'medicacao.historyTitle': 'Observance — 6 derniers jours',
@@ -2347,6 +2392,7 @@ const I18N = {
     'pacientes.assignedToAccountSuffix': 'diesem Konto', 'pacientes.adminFullAccessNote': '(Administratorkonto — Vollzugriff)', 'pacientes.chooseViewingHint': 'wähle, welchen du gerade ansiehst',
     'pacientes.thPatient': 'Patient', 'pacientes.thDevice': 'Gerät', 'pacientes.thLastSync': 'Letzte Synchronisierung', 'pacientes.thStatus': 'Status', 'pacientes.thActiveAlerts': 'Aktive Warnungen',
     'pacientes.statusConnected': 'Verbunden', 'pacientes.statusUnstable': 'Instabil', 'pacientes.statusDisconnected': 'Getrennt', 'pacientes.statusNoConsent': 'Keine Zustimmung',
+    'pacientes.lastSyncLiveNow': 'jetzt (live)',
     'pacientes.activeAlertsSingular': 'aktiv', 'pacientes.activeAlertsPlural': 'aktiv', 'pacientes.statusNone': 'Keine', 'pacientes.statusSelected': 'Ausgewählt',
     'pacientes.selectPatientBtn': 'Auswählen', 'pacientes.noPatientsEmpty': 'Diesem Konto ist noch kein Patient zugewiesen.',
     'pacientes.seeListBelowEmpty': 'Sieh dir die Liste unten an, um dir einen bestehenden Patienten zuzuweisen.',
@@ -2360,6 +2406,8 @@ const I18N = {
     'dispositivo.deviceStatusCardTitle': 'Wearable-Status —', 'dispositivo.batteryLabel': 'Akku', 'dispositivo.ringBufferLabel': 'Ringpuffer (QSPI-Flash)', 'dispositivo.recordsUnit': 'Datensätze',
     'dispositivo.staticRamLabel': 'Statischer RAM (.data/.bss)', 'dispositivo.programFlashLabel': 'Programm-Flash',
     'dispositivo.ramFlashSameNoteEmpty': 'RAM/Programm-Flash sind bei allen Wearables dieses Kontos absichtlich gleich — es ist dieselbe Firmware, die auf allen installiert ist; diese Werte stammen aus der kompilierten Binärdatei, nicht vom einzelnen Gerät. Nur Akku und Ringpuffer variieren je Patient (tatsächliche Nutzung jedes Geräts).',
+    'dispositivo.liveDataBadge': 'Echtzeitdaten',
+    'dispositivo.ringBufferDemoNote': 'Ringpuffer: Demowert — Live-Messwert ist noch nicht an das Dashboard angebunden.',
     'dispositivo.stackSlackCardTitle': 'Stack-Reserve pro Task (FreeRTOS)', 'dispositivo.stackSlackCardSubtitle': 'für alle Geräte gleich (gleiche Firmware); Bestätigung auf Hardware ausstehend',
     'dispositivo.thTask': 'Task', 'dispositivo.thReserved': 'Reserviert', 'dispositivo.thStatus': 'Status', 'dispositivo.statusPendingConfirmation': 'zu bestätigen',
     'dispositivo.optimizationNoteEmpty': 'Werte aus der 2. Optimierungsrunde (siehe PROJECT_STATUS.md); noch auf echter Hardware mit DEBUG_STACK_WATERMARKS zu bestätigen.',
@@ -2419,6 +2467,12 @@ const I18N = {
     'medicacao.manageTitle': 'Medikation verwalten (klinisches Team)', 'medicacao.manageSubtitle': 'Verordnete Medikamente hinzufügen oder entfernen für:', 'medicacao.thTimes': 'Uhrzeiten',
     'medicacao.medNamePlaceholder': 'Name des Medikaments (z. B. Donepezilo)', 'medicacao.dosePlaceholder': 'Dosis (z. B. 5mg)',
     'medicacao.timesPlaceholder': 'Uhrzeiten, durch Komma getrennt (z. B. 08:00, 20:00)', 'medicacao.recurringFromLabel': 'Wiederkehrende Uhrzeit ab:', 'medicacao.every8hBtn': 'Alle 8 Std.',
+    'medicacao.autoFillHint': 'Oder verwende die Schaltflächen unten, um die Uhrzeiten automatisch ab einer Startzeit zu berechnen.',
+    'medicacao.errNameRequired': 'Der Medikamentenname fehlt — fülle das Feld „Medikamentenname" oben aus.',
+    'medicacao.errTimesRequired': 'Mindestens eine Einnahmezeit fehlt — trage sie im Feld „Uhrzeiten" ein (z. B. 08:00, 20:00) oder verwende die Schaltflächen unten, um sie automatisch zu berechnen.',
+    'medicacao.errIntervalInvalid': 'Ungültiges Intervall — gib eine Zahl zwischen 1 und 24 Stunden ein.',
+    'medicacao.timesFilledConfirm': 'Uhrzeiten ausgefüllt: {times}',
+    'medicacao.adherenceUnknownDeviceOff': 'Keine zuverlässigen Einnahmedaten — das Gerät war an diesem Tag ausgeschaltet/nicht synchronisiert.',
     'medicacao.every12hBtn': 'Alle 12 Std.', 'medicacao.every6hBtn': 'Alle 6 Std.', 'medicacao.onceDailyBtn': '1x/Tag', 'medicacao.customIntervalLabel': 'Oder in welchem Stundenabstand:',
     'medicacao.intervalPlaceholder': 'z. B. 3', 'medicacao.applyIntervalBtn': 'Intervall anwenden',
     'medicacao.manageNote': 'Die Schaltflächen oben füllen nur das Feld „Uhrzeiten“ oben aus — prüfen Sie es, bevor Sie auf „Hinzufügen“ klicken. Prototyp: nur in diesem Browser gespeichert (localStorage) — ein echtes System würde dies mit einer klinischen Verordnung mit Signatur/Validierung verknüpfen, nicht mit einem freien Formular.',
@@ -2623,6 +2677,7 @@ const I18N = {
     'pacientes.assignedToAccountSuffix': 'a questo account', 'pacientes.adminFullAccessNote': '(account amministratore — accesso completo)',
     'pacientes.chooseViewingHint': 'scegli quale stai consultando', 'pacientes.thPatient': 'Paziente', 'pacientes.thDevice': 'Dispositivo', 'pacientes.thLastSync': 'Ultima sincronizzazione',
     'pacientes.thStatus': 'Stato', 'pacientes.thActiveAlerts': 'Avvisi attivi', 'pacientes.statusConnected': 'Connesso', 'pacientes.statusUnstable': 'Instabile',
+    'pacientes.lastSyncLiveNow': 'ora (in diretta)',
     'pacientes.statusDisconnected': 'Disconnesso', 'pacientes.statusNoConsent': 'Senza consenso', 'pacientes.activeAlertsSingular': 'attivo', 'pacientes.activeAlertsPlural': 'attivi',
     'pacientes.statusNone': 'Nessuno', 'pacientes.statusSelected': 'Selezionato', 'pacientes.selectPatientBtn': 'Seleziona',
     'pacientes.noPatientsEmpty': 'Questo account non ha ancora nessun paziente assegnato.', 'pacientes.seeListBelowEmpty': 'Consulta l\'elenco qui sotto per assegnarti un paziente esistente.',
@@ -2636,6 +2691,8 @@ const I18N = {
     'dispositivo.deviceStatusCardTitle': 'Stato del wearable —', 'dispositivo.batteryLabel': 'Batteria', 'dispositivo.ringBufferLabel': 'Buffer circolare (flash QSPI)',
     'dispositivo.recordsUnit': 'record', 'dispositivo.staticRamLabel': 'RAM statica (.data/.bss)', 'dispositivo.programFlashLabel': 'Flash del programma',
     'dispositivo.ramFlashSameNoteEmpty': 'RAM/Flash del programma sono uguali su tutti i wearable di questo account di proposito — è lo stesso firmware installato su tutti, questi valori provengono dal binario compilato, non dal singolo dispositivo. Solo la batteria e il buffer circolare variano per paziente (uso reale di ciascun dispositivo).',
+    'dispositivo.liveDataBadge': 'Dati reali (in diretta)',
+    'dispositivo.ringBufferDemoNote': 'Buffer circolare: valore dimostrativo — la lettura in diretta non è ancora collegata alla dashboard.',
     'dispositivo.stackSlackCardTitle': 'Margine di stack per task (FreeRTOS)',
     'dispositivo.stackSlackCardSubtitle': 'uguale per tutti i dispositivi (stesso firmware); in attesa di conferma su hardware', 'dispositivo.thTask': 'Task', 'dispositivo.thReserved': 'Riservato',
     'dispositivo.thStatus': 'Stato', 'dispositivo.statusPendingConfirmation': 'da confermare',
@@ -2696,6 +2753,12 @@ const I18N = {
     'medicacao.manageTitle': 'Gestire i farmaci (équipe clinica)', 'medicacao.manageSubtitle': 'Aggiungere o rimuovere i farmaci prescritti a', 'medicacao.thTimes': 'Orari',
     'medicacao.medNamePlaceholder': 'Nome del farmaco (es.: Donepezilo)', 'medicacao.dosePlaceholder': 'Dose (es.: 5mg)',
     'medicacao.timesPlaceholder': 'Orari, separati da virgola (es.: 08:00, 20:00)', 'medicacao.recurringFromLabel': 'Orario ricorrente a partire da:', 'medicacao.every8hBtn': 'Ogni 8 h',
+    'medicacao.autoFillHint': 'Oppure usa i pulsanti sotto per calcolare automaticamente gli orari a partire da un orario di inizio.',
+    'medicacao.errNameRequired': 'Manca il nome del farmaco — compila il campo "Nome del farmaco" sopra.',
+    'medicacao.errTimesRequired': 'Manca almeno un orario di assunzione — scrivilo nel campo "Orari" (es.: 08:00, 20:00) oppure usa i pulsanti sotto per calcolarlo automaticamente.',
+    'medicacao.errIntervalInvalid': 'Intervallo non valido — inserisci un numero tra 1 e 24 ore.',
+    'medicacao.timesFilledConfirm': 'Orari compilati: {times}',
+    'medicacao.adherenceUnknownDeviceOff': "Nessun dato affidabile sull'aderenza — il dispositivo era spento/non sincronizzato quel giorno.",
     'medicacao.every12hBtn': 'Ogni 12 h', 'medicacao.every6hBtn': 'Ogni 6 h', 'medicacao.onceDailyBtn': '1 volta/giorno', 'medicacao.customIntervalLabel': 'Oppure ogni quante ore:',
     'medicacao.intervalPlaceholder': 'es.: 3', 'medicacao.applyIntervalBtn': 'Applica intervallo',
     'medicacao.manageNote': 'I pulsanti qui sopra si limitano a compilare il campo "Orari" qui sopra — controlla prima di fare clic su "Aggiungi". Prototipo: salvato solo in questo browser (localStorage) — un sistema reale collegherebbe questo a una prescrizione clinica con firma/validazione, non a un modulo libero.',
@@ -3359,9 +3422,15 @@ const PATIENTS = [
     medications: [
       {id:'m1', name:'Quetiapina', dose:'25 mg', times:['21:00']},
     ],
+    // CONTRADIÇÃO REAL corrigida (2026-07-21, reportada pelo utilizador):
+      // '01/07' aqui e o anomalyLog acima ('01/07/2026 09:15', dispositivo
+      // desligado 12h+) eram a mesma data com pct:100 — mesmo bug do
+      // gerador (ver withDeviceOffGaps() em scripts/generate-demo-data.js),
+      // corrigido aqui também porque este array é o fallback usado antes
+      // de demo-data.js carregar.
     adherenceHistory: [
       {day:'27/06', pct:100}, {day:'28/06', pct:100}, {day:'29/06', pct:100},
-      {day:'30/06', pct:100}, {day:'01/07', pct:100}, {day:'02/07', pct:100},
+      {day:'30/06', pct:100}, {day:'01/07', pct:null, deviceOff:true}, {day:'02/07', pct:100},
     ],
   },
 ];
@@ -4115,6 +4184,35 @@ function patientMedications(patient){
   const base = patient.medications.filter(m => !reg.removedIds.includes(m.id));
   return [...base, ...reg.added];
 }
+
+// REGISTO DE DISPOSITIVO (2026-07-21, pedido do utilizador): "quero que
+// este wearable seja geral... dê para entrar em qualquer conta e seja
+// reconhecido". PATIENTS[].mac é um valor de demonstração fixo por conta;
+// este registo (localStorage, mesmo padrão de MED_REGISTRY_KEY) permite ao
+// ÚNICO wearable físico real usado nos testes ficar associado à conta que
+// estiver selecionada no momento em que ele se liga — em vez de só
+// reconhecer o paciente cujo mac de demonstração calhou de coincidir. Ver
+// handleBridgeMessage('device_status') para onde a associação é gravada, e
+// TEMPLATES.dispositivo para onde é lida.
+const DEVICE_REGISTRY_KEY = 'carewear_device_registry';
+function loadDeviceRegistry(){
+  try {
+    const raw = localStorage.getItem(DEVICE_REGISTRY_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* localStorage indisponível ou dados corrompidos - ignora */ }
+  return {};
+}
+function saveDeviceRegistry(map){
+  try { localStorage.setItem(DEVICE_REGISTRY_KEY, JSON.stringify(map)); }
+  catch (e) { /* quota excedida ou localStorage indisponível - fica só em memória */ }
+}
+// Devolve o MAC "reconhecido" para este paciente: o que foi registado por
+// uma ligação real anterior, se existir, senão o mac de demonstração fixo
+// do próprio PATIENTS[].
+function registeredMacFor(patientId, demoMac){
+  const reg = loadDeviceRegistry();
+  return reg[patientId] || demoMac;
+}
 /* ------------------------------------------------------------
    HORÁRIOS RECORRENTES (2026-07-15, pedido do utilizador)
    ------------------------------------------------------------
@@ -4126,6 +4224,33 @@ function patientMedications(patient){
    #newMedTimes — o utilizador pode sempre editar à mão antes de
    "Adicionar", o campo de texto continua a ser a fonte de verdade.
 ------------------------------------------------------------ */
+// FEEDBACK VISUAL (2026-07-21, reportado pelo utilizador: "não percebi o
+// funcionamento/seleção" ao usar os botões de horário recorrente): antes,
+// clicar preenchia #newMedTimes silenciosamente — sem nada a confirmar que
+// resultou, era fácil não notar (o campo fica visualmente igual a um campo
+// só preenchido à mão). Agora realça brevemente o campo e mostra uma
+// confirmação textual junto do botão de intervalo personalizado.
+function flashTimesFilled(times){
+  const timesEl = document.getElementById('newMedTimes');
+  const confirmEl = document.getElementById('newMedTimesConfirm');
+  if (timesEl){
+    const prevTransition = timesEl.style.transition;
+    const prevBg = timesEl.style.backgroundColor;
+    timesEl.style.transition = 'background-color 0.2s';
+    timesEl.style.backgroundColor = 'var(--status-good-bg)';
+    setTimeout(() => {
+      timesEl.style.backgroundColor = prevBg;
+      setTimeout(() => { timesEl.style.transition = prevTransition; }, 250);
+    }, 900);
+  }
+  if (confirmEl){
+    confirmEl.textContent = t('medicacao.timesFilledConfirm').replace('{times}', times);
+    confirmEl.style.display = '';
+    clearTimeout(confirmEl._hideTimer);
+    confirmEl._hideTimer = setTimeout(() => { confirmEl.style.display = 'none'; }, 4000);
+  }
+}
+
 function fillRecurringTimes(intervalHours){
   const startEl = document.getElementById('newMedStartTime');
   const timesEl = document.getElementById('newMedTimes');
@@ -4142,6 +4267,7 @@ function fillRecurringTimes(intervalHours){
     times.push(`${h}:${m}`);
   }
   timesEl.value = times.join(', ');
+  flashTimesFilled(timesEl.value);
 }
 
 // BUG CORRIGIDO (2026-07-17, reportado pelo utilizador): o botão
@@ -4153,8 +4279,27 @@ function fillRecurringTimesCustom(){
   const intervalEl = document.getElementById('newMedCustomInterval');
   if (!intervalEl) return;
   const interval = Number(intervalEl.value);
-  if (!Number.isFinite(interval) || interval < 1 || interval > 24) return;
+  if (!Number.isFinite(interval) || interval < 1 || interval > 24) {
+    showMedFormError(t('medicacao.errIntervalInvalid'));
+    return;
+  }
   fillRecurringTimes(interval);
+}
+
+// VALIDAÇÃO COM AVISO VISÍVEL (2026-07-21, reportado pelo utilizador):
+// antes, faltar o nome ou o horário fazia "Adicionar" não fazer nada,
+// sem qualquer explicação — o mesmo tipo de erro silencioso já corrigido
+// no botão de intervalo (ver comentário 2026-07-17 acima). Agora diz
+// exatamente o que falta e como preencher.
+function showMedFormError(msg){
+  const el = document.getElementById('newMedFormError');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.display = '';
+}
+function clearMedFormError(){
+  const el = document.getElementById('newMedFormError');
+  if (el) el.style.display = 'none';
 }
 
 function addMedicationForPatient(){
@@ -4163,8 +4308,18 @@ function addMedicationForPatient(){
   const timesEl = document.getElementById('newMedTimes');
   const name = nameEl.value.trim();
   const dose = doseEl.value.trim();
-  const times = timesEl.value.split(',').map(t => t.trim()).filter(Boolean);
-  if (!name || !times.length) return;
+  const times = timesEl.value.split(',').map(s => s.trim()).filter(Boolean);
+  if (!name) {
+    showMedFormError(t('medicacao.errNameRequired'));
+    nameEl.focus();
+    return;
+  }
+  if (!times.length) {
+    showMedFormError(t('medicacao.errTimesRequired'));
+    timesEl.focus();
+    return;
+  }
+  clearMedFormError();
   const reg = loadMedRegistry();
   reg[selectedPatientId] = reg[selectedPatientId] || { added: [], removedIds: [] };
   reg[selectedPatientId].added.push({ id: 'm' + Date.now(), name, dose, times });
@@ -5322,12 +5477,24 @@ TEMPLATES.pacientes = () => {
     <table class="data-table">
       <thead><tr><th>${t('pacientes.thPatient')}</th><th>${t('pacientes.thDevice')}</th><th>${t('pacientes.thLastSync')}</th><th>${t('pacientes.thStatus')}</th><th>${t('pacientes.thActiveAlerts')}</th><th></th></tr></thead>
       <tbody>
-        ${mine.map(p => `
+        ${mine.map(p => {
+          // Estado ao vivo (2026-07-21, pedido do utilizador: "o estado do
+          // wearable do paciente também deve de ser detetado na página
+          // médica") — mesmo mecanismo já usado em TEMPLATES.dispositivo
+          // (registeredMacFor/liveState.deviceMac): quando o dispositivo
+          // real ligado corresponde ao reconhecido para este paciente,
+          // mostra sempre "ligado" e "agora", em vez do status/lastSync de
+          // demonstração, que ficariam desatualizados face à ligação real.
+          const isLive = liveState.connected && liveState.deviceMac && registeredMacFor(p.id, p.mac) === liveState.deviceMac;
+          const statusPill = isLive
+            ? pillHtml('good', t('pacientes.statusConnected'))
+            : pillHtml(p.status==='good'?'good':p.status==='warn'?'warning':'critical', p.status==='good'?t('pacientes.statusConnected'):p.status==='warn'?t('pacientes.statusUnstable'):t('pacientes.statusDisconnected'));
+          return `
           <tr${p.id===selectedPatientId ? ' style="background:color-mix(in srgb, var(--accent) 10%, transparent);"' : ''}>
-            <td><b>${p.name}</b> · ${p.age} anos</td>
-            <td class="num">${p.deviceName} · ${p.mac}</td>
-            <td class="num">${p.lastSync}</td>
-            <td>${pillHtml(p.status==='good'?'good':p.status==='warn'?'warning':'critical', p.status==='good'?t('pacientes.statusConnected'):p.status==='warn'?t('pacientes.statusUnstable'):t('pacientes.statusDisconnected'))}</td>
+            <td><b>${p.name}</b> · ${p.age} anos${isLive ? ` ${pillHtml('good', t('dispositivo.liveDataBadge'))}` : ''}</td>
+            <td class="num">${p.deviceName} · ${registeredMacFor(p.id, p.mac)}</td>
+            <td class="num">${isLive ? t('pacientes.lastSyncLiveNow') : p.lastSync}</td>
+            <td>${statusPill}</td>
             <td>${(() => {
               // Bug corrigido: esta contagem ignorava o consentimento do
               // próprio paciente (loadConsent(p.id).shareAlerts) — o
@@ -5342,7 +5509,8 @@ TEMPLATES.pacientes = () => {
             <td>${p.id===selectedPatientId
               ? `<span class="empty-hint" style="padding:0;">${t('pacientes.statusSelected')}</span>`
               : `<button class="btn-secondary" onclick="selectPatient('${p.id}')">${t('pacientes.selectPatientBtn')}</button>`}</td>
-          </tr>`).join('')}
+          </tr>`;
+        }).join('')}
       </tbody>
     </table>
     ` : `<p class="empty-hint">${t('pacientes.noPatientsEmpty')} ${unassigned.length ? t('pacientes.seeListBelowEmpty') : ''}</p>`}
@@ -5377,6 +5545,22 @@ TEMPLATES.dispositivo = () => `
   ${(() => {
     const p = selectedPatient();
     const ringPct = ((p.ringBufferUsed / p.ringBufferTotal) * 100).toFixed(1);
+    // Dados reais (2026-07-21): quando o wearable realmente ligado por BLE
+    // (liveState.deviceMac, ver ble_bridge.py::connected_device_mac) é o
+    // reconhecido para o paciente selecionado — ver registeredMacFor():
+    // o mac de demonstração fixo (PATIENTS[].mac) só é usado enquanto
+    // nenhuma ligação real ainda associou este paciente a um dispositivo
+    // (handleBridgeMessage('device_status') grava essa associação assim
+    // que o wearable real se liga, para a conta que estiver selecionada
+    // nesse momento — "reconhecido em qualquer conta"). Mostra a bateria
+    // ao vivo em vez do valor de demonstração. O ring buffer continua a
+    // ser valor de demonstração mesmo neste caso — o bridge ainda não
+    // reenvia a contagem real (só a firmware a imprime em série, ver
+    // storageTask em main.cpp) — em vez de fingir um dado que não temos,
+    // mostra-se uma nota honesta (dispositivo.ringBufferDemoNote).
+    const recognizedMac = registeredMacFor(p.id, p.mac);
+    const isLive = liveState.connected && liveState.deviceMac && recognizedMac === liveState.deviceMac;
+    const batteryPct = isLive && liveState.batteryPercent != null ? liveState.batteryPercent : p.battery;
     // RAM/Flash/stack são propriedades do FIRMWARE instalado (o mesmo
     // binário em todos os wearables desta frota), não do dispositivo
     // físico individual — BUG CORRIGIDO (2026-07-03, reportado pelo
@@ -5388,15 +5572,16 @@ TEMPLATES.dispositivo = () => `
     return `
   <div class="grid-2b">
     <div class="card">
-      <div class="card-head"><div><h3>${t('dispositivo.deviceStatusCardTitle')} ${p.name}</h3><div class="card-sub">XIAO nRF52840 Sense Plus · firmware BLE_GATT_DUMP_V1 · ${p.mac}</div></div></div>
+      <div class="card-head"><div><h3>${t('dispositivo.deviceStatusCardTitle')} ${p.name}${isLive ? ` ${pillHtml('good', t('dispositivo.liveDataBadge'))}` : ''}</h3><div class="card-sub">XIAO nRF52840 Sense Plus · firmware BLE_GATT_DUMP_V1 · ${recognizedMac}</div></div></div>
       <div class="device-meter" style="gap:14px;">
         <div>
-          <div class="meter-row"><span>${t('dispositivo.batteryLabel')}</span><span class="tabular">${p.battery}%</span></div>
-          <div class="meter-track"><div class="meter-fill" style="width:${p.battery}%; background:${p.battery<15?'var(--status-critical)':p.battery<40?'var(--status-warning)':undefined}"></div></div>
+          <div class="meter-row"><span>${t('dispositivo.batteryLabel')}</span><span class="tabular">${batteryPct}%</span></div>
+          <div class="meter-track"><div class="meter-fill" style="width:${batteryPct}%; background:${batteryPct<15?'var(--status-critical)':batteryPct<40?'var(--status-warning)':undefined}"></div></div>
         </div>
         <div>
           <div class="meter-row"><span>${t('dispositivo.ringBufferLabel')}</span><span class="tabular">${p.ringBufferUsed.toLocaleString('pt-PT')} / ${p.ringBufferTotal.toLocaleString('pt-PT')} ${t('dispositivo.recordsUnit')}</span></div>
           <div class="meter-track"><div class="meter-fill" style="width:${ringPct}%; background:var(--link)"></div></div>
+          ${isLive ? `<p class="empty-hint">${t('dispositivo.ringBufferDemoNote')}</p>` : ''}
         </div>
         <div>
           <div class="meter-row"><span>${t('dispositivo.staticRamLabel')}</span><span class="tabular">17 056 / 237 568 bytes</span></div>
@@ -5537,7 +5722,13 @@ TEMPLATES.medicacao = () => {
   const isUtente = currentRole === 'utente';
   const meds = patientMedications(p);
   const todayPct = todayAdherencePct(p);
-  const missedDays = p.adherenceHistory.filter(d => d.pct < 100);
+  // CONTRADIÇÃO REAL corrigida (2026-07-21, reportada pelo utilizador): um
+  // dia com d.pct===null (ver withDeviceOffGaps() em generate-demo-data.js)
+  // significa "sem dados fiáveis" (dispositivo desligado nesse dia), não
+  // "toma em falta" — nunca deve entrar em missedDays nem ser tratado como
+  // 0%/100%. `d.pct < 100` sozinho incluiria null por engano (null < 100
+  // é true em JS, null coage para 0), por isso filtra explicitamente.
+  const missedDays = p.adherenceHistory.filter(d => d.pct != null && d.pct < 100);
 
   const doseRows = meds.flatMap(med => med.times.map(time => {
     const status = doseStatus(p.id, med.id, time);
@@ -5549,7 +5740,10 @@ TEMPLATES.medicacao = () => {
     return `<tr><td>${escapeHtml(med.name)}</td><td class="num">${escapeHtml(med.dose)}</td><td class="num">${time}</td><td>${pill}</td><td>${action}</td></tr>`;
   })).join('');
 
-  const historyRows = p.adherenceHistory.map(d => `
+  const historyRows = p.adherenceHistory.map(d => d.pct == null ? `
+    <div class="meter-row"><span>${d.day} <span class="sim-flag">simulado</span></span><span class="num">—</span></div>
+    <p class="empty-hint" style="margin:2px 0 8px;">${t('medicacao.adherenceUnknownDeviceOff')}</p>
+  ` : `
     <div class="meter-row"><span>${d.day} <span class="sim-flag">simulado</span></span><span class="num">${d.pct}%</span></div>
     <div class="meter-track"><div class="meter-fill" style="width:${d.pct}%; background:${d.pct < 80 ? 'var(--status-warning)' : 'var(--status-good)'}"></div></div>
   `).join('');
@@ -5616,6 +5810,8 @@ TEMPLATES.medicacao = () => {
       <input id="newMedTimes" type="text" placeholder="${t('medicacao.timesPlaceholder')}" style="flex:1;">
       <button class="btn-secondary" onclick="addMedicationForPatient()">${t('common.add')}</button>
     </div>
+    <p id="newMedFormError" class="empty-hint" style="display:none; color:var(--status-warning);"></p>
+    <p class="empty-hint">${t('medicacao.autoFillHint')}</p>
     <div class="note-form" style="margin-top:8px; align-items:center;">
       <span class="empty-hint" style="padding:0;">${t('medicacao.recurringFromLabel')}</span>
       <input id="newMedStartTime" type="time" value="08:00" style="max-width:110px;">
@@ -5628,6 +5824,7 @@ TEMPLATES.medicacao = () => {
       <span class="empty-hint" style="padding:0;">${t('medicacao.customIntervalLabel')}</span>
       <input id="newMedCustomInterval" type="number" min="1" max="24" step="1" placeholder="${t('medicacao.intervalPlaceholder')}" style="max-width:80px;">
       <button class="btn-secondary" onclick="fillRecurringTimesCustom()">${t('medicacao.applyIntervalBtn')}</button>
+      <span id="newMedTimesConfirm" class="empty-hint" style="display:none; color:var(--status-good); padding:0;"></span>
     </div>
     <p class="empty-hint">${t('medicacao.manageNote')}</p>
   </div>` : ''}
@@ -6459,6 +6656,12 @@ const liveState = {
   // "desligado porque o utilizador pediu" de "a tentar ligar/perdeu o
   // sinal", que usam a mesma liveState.connected=false.
   blePaused: false,
+  // MAC do wearable realmente ligado por BLE (ver device_status no bridge,
+  // ble_bridge.py::connected_device_mac), null enquanto não ligado. Usado
+  // por TEMPLATES.dispositivo para saber se o paciente selecionado
+  // (PATIENTS[].mac) é o mesmo dispositivo fisicamente ligado agora, e
+  // assim mostrar dados reais em vez dos de demonstração.
+  deviceMac: null,
   hr: null, spo2: null, steps: null, freefall: false, inactivity: false,
   // Índice 0-100 de "pacing"/curvas apertadas (ver Imu::detectPacing em
   // Imu.cpp), reencaminhado pelo bridge a partir de FullPlain.pacing_index.
@@ -6681,6 +6884,24 @@ function handleBridgeMessage(msg){
   if (msg.kind === 'device_status'){
     liveState.connected = !!msg.connected;
     liveState.blePaused = !!msg.paused;
+    // Canal sem autenticação — valida a forma antes de confiar (mesmo
+    // padrão de toFiniteNumber/escapeHtml/allowlist já usado neste
+    // ficheiro), nunca guarda msg.mac tal como vem.
+    liveState.deviceMac = (typeof msg.mac === 'string' && /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/.test(msg.mac))
+      ? msg.mac.toUpperCase() : null;
+    // "Reconhecer em qualquer conta" (2026-07-21): assim que o wearable
+    // real se liga, associa-o à conta atualmente selecionada (ver
+    // registeredMacFor/DEVICE_REGISTRY_KEY acima) — assim, mudar de
+    // paciente e voltar a ligar o mesmo dispositivo físico passa a ser
+    // reconhecido nessa conta também, em vez de ficar preso ao mac de
+    // demonstração de um único paciente fixo.
+    if (liveState.deviceMac && selectedPatientId) {
+      const reg = loadDeviceRegistry();
+      if (reg[selectedPatientId] !== liveState.deviceMac) {
+        reg[selectedPatientId] = liveState.deviceMac;
+        saveDeviceRegistry(reg);
+      }
+    }
     updateDeviceStatusUI();
     applyLiveVitals();
     return;
@@ -6801,6 +7022,13 @@ function connectBridge(){
     liveState.connected = false;
     updateDeviceStatusUI();
     resetPendingCommandButtons();
+    // Sem ligação ao bridge deixamos de poder confiar na última
+    // classificação de atividade recebida — limpa o painel para que
+    // volte a mostrar "a aguardar" em vez de ficar preso numa leitura
+    // antiga sem aviso (ver PROJECT_STATUS.md, item 8).
+    liveState.currentActivity = null;
+    liveState.lastActivityDurationFlag = null;
+    renderLiveActivityPanel();
     scheduleReconnect();
   };
   ws.onerror = () => { ws.close(); };

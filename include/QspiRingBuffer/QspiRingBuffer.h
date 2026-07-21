@@ -58,6 +58,13 @@ namespace QspiRingBuffer {
 // tamanho total de cada "slot" gravado na flash (ver SlotWire no .cpp).
 static constexpr uint16_t kPayloadSize = 44;
 
+// Limiar de "quase cheio" do ring buffer (fracao da capacidade ocupada,
+// 0.0-1.0). Constante partilhada entre QspiRingBuffer.cpp (aviso unico ao
+// atingir o limiar, ver s_meta.count/s_meta.capacity_slots no .cpp) e
+// Ble.cpp (publishDumpStatus(), que reporta o mesmo estado "quase cheio"
+// via BLE) — mantida aqui para as duas partes nunca desalinharem.
+static constexpr float kRingBufferNearFullThreshold = 0.90f;
+
 // Representacao "em memoria" (ja descodificada) de um registo lido do
 // ring buffer. E o que as funcoes peek()/pop() devolvem ao chamador.
 struct Record {

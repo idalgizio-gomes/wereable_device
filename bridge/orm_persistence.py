@@ -33,12 +33,19 @@ Uso a partir de `ble_bridge.py` (todas as chamadas guardadas por
 `if self.orm:` do lado do bridge):
 
     self.orm = OrmPersistence()            # no __init__ (try/except -> None)
+                                           #   o bootstrap verifica ainda o
+                                           #   consentimento (GDPR-001/003):
+                                           #   sem ConsentRecord válido de
+                                           #   scope 'sensor_data' regista
+                                           #   'consent_missing' em audit_log
+                                           #   sem bloquear o arranque.
     self.orm.update_device_mac(addr)       # ao ligar (run_device_loop)
     self.orm.insert_sensor_record(record)  # por registo (_on_dump_data)
     self.orm.insert_emergency_alert(alert) # por alerta (_on_emergency_alert)
     self.orm.insert_activity_window(block) # por bloco fechado (activity_inference.py)
     self.orm.audit(...)                    # acessos a dados de paciente
-    self.orm.purge(days)                   # retenção periódica
+    self.orm.purge(days)                   # retenção periódica (SensorRecord, configurável)
+    self.orm.run_retention_cleanup()       # retenção periódica (RETENTION_POLICIES fixas, GDPR-006)
 """
 
 from __future__ import annotations
@@ -68,6 +75,9 @@ DEFAULT_DEVICE_MAC = "00:00:00:00:00:00"
 # não conhece a data de nascimento real do utente — placeholder explícito
 # e documentado, a corrigir por quem fizer o provisioning/registo real.
 PLACEHOLDER_DOB = datetime(1940, 1, 1)
+# Scope mínimo de consentimento (GDPR-001/GDPR-003) que o bridge tem de ter
+# para sequer gravar dados de sensores. Verificado no _bootstrap.
+CONSENT_SCOPE = "sensor_data"
 
 
 class OrmPersistence:
@@ -137,6 +147,9 @@ class OrmPersistence:
             self.session.refresh(patient)
         self.patient_id = patient.id
 
+        # GDPR-001/GDPR-003 — ponto de aplicação real do consentimento.
+        self._ensure_consent()
+
         device = (
             self.session.query(sa.Device)
             .filter_by(uuid=DEFAULT_DEVICE_UUID)
@@ -152,6 +165,53 @@ class OrmPersistence:
             self.session.commit()
             self.session.refresh(device)
         self.device_id = device.id
+
+    def _ensure_consent(self) -> None:
+        """GDPR-001/GDPR-003 — ponto de aplicação do consentimento no
+        arranque. O scope mínimo para o bridge sequer gravar dados é
+        `sensor_data`. Se existir um ConsentRecord válido (granted=True e,
+        se `expires_at` estiver preenchido, ainda não expirado) segue o
+        fluxo normal, sem mudanças de comportamento. Se NÃO existir, NÃO
+        bloqueia o arranque (o streaming BLE/`storage.py` nunca podem parar
+        por causa disto — mesmo padrão degradável do resto do módulo), mas
+        regista a ausência explicitamente em audit_log em vez de a ignorar
+        em silêncio.
+
+        NOTA: a criação automática opcional de um ConsentRecord inicial a
+        partir de variáveis de ambiente (CAREWEAR_CONSENT_*) foi ponderada
+        e deliberadamente NÃO implementada nesta fase: `ConsentRecord`
+        exige `user_id NOT NULL` (FK para `users`) e o bootstrap local não
+        tem provisioning real de contas (ver DEFAULT_PATIENT_UUID acima) —
+        não há um `user_id` real para atribuir, e inventar um utilizador
+        placeholder está fora do âmbito deste item. O consentimento
+        propriamente dito passa a ser criado pela UI de consentimento do
+        dashboard (com o representante já autenticado), ainda por fazer."""
+        now = datetime.utcnow()
+        consent = (
+            self.session.query(sa.ConsentRecord)
+            .filter(
+                sa.ConsentRecord.patient_id == self.patient_id,
+                sa.ConsentRecord.scope == CONSENT_SCOPE,
+                sa.ConsentRecord.granted.is_(True),
+            )
+            .filter(
+                sa.or_(
+                    sa.ConsentRecord.expires_at.is_(None),
+                    sa.ConsentRecord.expires_at > now,
+                )
+            )
+            .first()
+        )
+        if consent is not None:
+            return  # consentimento válido — comportamento inalterado.
+
+        # Ausência de consentimento válido registada explicitamente.
+        self.audit(
+            "consent_missing",
+            resource_type="patient",
+            resource_id=self.patient_id,
+            details={"scope": CONSENT_SCOPE},
+        )
 
     def _flush(self) -> None:
         """Compromete o buffer de SensorRecord acumulado (add_all + commit).
@@ -356,3 +416,22 @@ class OrmPersistence:
             self.session.commit()
         except Exception as exc:  # noqa: BLE001
             self._degrade("purge", exc)
+
+    async def run_retention_cleanup(self, dry_run: bool = False) -> Optional[dict]:
+        """Aplica as políticas de retenção FIXAS de `DataRetention.cleanup`
+        (RETENTION_POLICIES em storage_advanced.py: sensor_records 365d,
+        activity_windows 1825d, alerts 2555d [soft delete], anomaly_detections
+        1825d, medication_adherence 1095d — emergency_alerts nunca é apagado
+        de propósito). Isto é DISTINTO de `purge(days)` acima, que só cobre
+        SensorRecord com a retenção CONFIGURÁVEL do dashboard (paridade com
+        storage.py); este método cobre as restantes 4 tabelas do ORM que
+        antes de existir este método nunca eram limpas em runtime (GDPR-006).
+        Devolve o dict de contagens por tabela ou None se o ORM estiver
+        desativado."""
+        if self.disabled or self.session is None:
+            return None
+        try:
+            return sa.DataRetention.cleanup(self.session, dry_run=dry_run)
+        except Exception as exc:  # noqa: BLE001
+            self._degrade("run_retention_cleanup", exc)
+            return None

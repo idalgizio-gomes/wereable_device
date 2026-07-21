@@ -104,7 +104,8 @@ class TestEscalationManager:
         emergency_contact = notifications.EmergencyContact(name="Vizinho", phone="+351944444444")
         return caregiver, emergency_contact
 
-    def test_notifica_todos_os_destinatarios_de_imediato(self, monkeypatch):
+    @pytest.mark.asyncio
+    async def test_notifica_todos_os_destinatarios_de_imediato(self, monkeypatch):
         monkeypatch.setenv("CAREWEAR_TWILIO_ACCOUNT_SID", "SIDxxx")
         monkeypatch.setenv("CAREWEAR_TWILIO_AUTH_TOKEN", "tokenxxx")
         monkeypatch.setenv("CAREWEAR_TWILIO_FROM_NUMBER", "+351911111111")
@@ -115,7 +116,7 @@ class TestEscalationManager:
         with patch("notifications.send_sms", return_value=True) as mock_sms, \
              patch("notifications.send_email", return_value=True) as mock_email:
             mgr = notifications.EscalationManager(escalation_timeout_minutes=0)  # 0 = sem escalonamento neste teste
-            mgr.notify_emergency("alert-1", "queda detetada", [caregiver], emergency_contact)
+            await mgr.notify_emergency("alert-1", "queda detetada", [caregiver], emergency_contact)
 
         # SMS: cuidador + contacto de emergência (2 chamadas)
         assert mock_sms.call_count == 2
@@ -133,7 +134,7 @@ class TestEscalationManager:
             mgr = notifications.EscalationManager(escalation_timeout_minutes=0)
             mgr.escalation_timeout_minutes = 0.001 / 60  # ~0.06ms em minutos, arredonda para baixo no sleep
             mgr._pending.clear()
-            mgr.notify_emergency(
+            await mgr.notify_emergency(
                 "alert-2", "SOS manual", [caregiver], emergency_contact,
                 caregiver_schedule=_schedule_covering_now(),
             )
@@ -146,7 +147,8 @@ class TestEscalationManager:
         assert numbers_called.count("+351944444444") == 2  # notificação inicial + escalonamento
         assert numbers_called.count("+351933333333") == 1  # só a notificação inicial
 
-    def test_nao_escala_se_cuidador_disponivel_fora_do_horario_declarado(self):
+    @pytest.mark.asyncio
+    async def test_nao_escala_se_cuidador_disponivel_fora_do_horario_declarado(self):
         """Fora do horário declarado de indisponibilidade, o utilizador
         decidiu explicitamente que só o cuidador pode agir -- o sistema
         NUNCA agenda escalonamento automático, mesmo com contacto de
@@ -154,19 +156,20 @@ class TestEscalationManager:
         caregiver, emergency_contact = self._contacts()
         with patch("notifications.send_sms", return_value=True):
             mgr = notifications.EscalationManager(escalation_timeout_minutes=10)
-            mgr.notify_emergency(
+            await mgr.notify_emergency(
                 "alert-2b", "SOS manual", [caregiver], emergency_contact,
                 caregiver_schedule=_schedule_not_covering_now(),
             )
         assert mgr.pending_count() == 0
 
-    def test_nao_escala_sem_horario_declarado(self):
+    @pytest.mark.asyncio
+    async def test_nao_escala_sem_horario_declarado(self):
         """Sem qualquer horário declarado pelo cuidador, comportamento
         conservador por omissão: nunca escala sozinho."""
         caregiver, emergency_contact = self._contacts()
         with patch("notifications.send_sms", return_value=True):
             mgr = notifications.EscalationManager(escalation_timeout_minutes=10)
-            mgr.notify_emergency("alert-2c", "SOS manual", [caregiver], emergency_contact)
+            await mgr.notify_emergency("alert-2c", "SOS manual", [caregiver], emergency_contact)
         assert mgr.pending_count() == 0
 
     @pytest.mark.asyncio
@@ -174,7 +177,7 @@ class TestEscalationManager:
         caregiver, emergency_contact = self._contacts()
         with patch("notifications.send_sms", return_value=True) as mock_sms:
             mgr = notifications.EscalationManager(escalation_timeout_minutes=1)
-            mgr.notify_emergency(
+            await mgr.notify_emergency(
                 "alert-3", "queda detetada", [caregiver], emergency_contact,
                 caregiver_schedule=_schedule_covering_now(),
             )
@@ -193,11 +196,12 @@ class TestEscalationManager:
         mgr = notifications.EscalationManager()
         assert mgr.acknowledge("inexistente") is False
 
-    def test_sem_contacto_de_emergencia_nao_agenda_escalonamento(self, monkeypatch):
+    @pytest.mark.asyncio
+    async def test_sem_contacto_de_emergencia_nao_agenda_escalonamento(self, monkeypatch):
         caregiver, _ = self._contacts()
         with patch("notifications.send_sms", return_value=True):
             mgr = notifications.EscalationManager(escalation_timeout_minutes=10)
-            mgr.notify_emergency(
+            await mgr.notify_emergency(
                 "alert-4", "queda detetada", [caregiver], emergency_contact=None,
                 caregiver_schedule=_schedule_covering_now(),
             )

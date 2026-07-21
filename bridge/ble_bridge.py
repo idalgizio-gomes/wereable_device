@@ -552,6 +552,7 @@ class BleBridge:
         self.ws_clients: set[websockets.ServerConnection] = set()
         self._pending_fragments: dict[int, dict] = {}
         self.connected_device_name: Optional[str] = None
+        self.connected_device_mac: Optional[str] = None
         self.last_record_ts: Optional[int] = None
         # *** LIMITE DE TAXA PARA O DASHBOARD ***: o IMU produz ate ~52
         # registos/seg, mas a interface web nao precisa de redesenhar a
@@ -658,6 +659,12 @@ class BleBridge:
     # e' so' para o ficheiro .db nao crescer sem limite num bridge deixado
     # a correr por muito tempo.
     RETENTION_CHECK_INTERVAL_S = 6 * 3600
+    # Intervalo da limpeza de retenção do ORM (GDPR-006, ver
+    # periodic_orm_retention_task/DataRetention.cleanup em
+    # storage_advanced.py) — políticas em ANOS, não faz sentido correr com
+    # a mesma cadência de RETENTION_CHECK_INTERVAL_S (6h); uma vez por dia
+    # chega e sobra.
+    ORM_RETENTION_INTERVAL_S = 86400
     # *** LIMITE DE TAXA PARA COMANDOS DE ESCRITA DO DASHBOARD ***
     # (2026-07-08, rotina de auditoria de segurança). O canal WebSocket nao
     # e' autenticado (ver docstring do modulo/handle_dashboard_command) —
@@ -707,6 +714,30 @@ class BleBridge:
             except Exception as exc:  # noqa: BLE001 - nunca deve derrubar o bridge
                 print(f"[BRIDGE] erro na limpeza de retencao: {exc}")
             await asyncio.sleep(self.RETENTION_CHECK_INTERVAL_S)
+
+    async def periodic_orm_retention_task(self) -> None:
+        """GDPR-006: aplica as políticas de retenção FIXAS do ORM
+        (`DataRetention.cleanup`, ver storage_advanced.py — sensor_records,
+        activity_windows, alerts, anomaly_detections, medication_adherence;
+        emergency_alerts nunca é apagado de propósito) uma vez no arranque e
+        depois a cada `ORM_RETENTION_INTERVAL_S`. Distinta de
+        `periodic_retention_task` acima: essa só cobre SensorRecord com a
+        retenção CONFIGURÁVEL do dashboard (storage.py + orm.purge); esta
+        cobre as restantes tabelas do ORM que, antes desta task existir,
+        nunca eram processadas em runtime (só no exemplo `__main__` de
+        storage_advanced.py). Mesmo padrão de try/except amplo por
+        iteração: uma falha num ciclo não pode matar a task para sempre."""
+        while True:
+            try:
+                if self.orm:
+                    result = await self.orm.run_retention_cleanup()
+                    if result:
+                        resumo = ", ".join(f"{k}={v}" for k, v in result.items() if v)
+                        if resumo:
+                            print(f"[BRIDGE] retencao ORM (GDPR-006): apagados/marcados {resumo}")
+            except Exception as exc:  # noqa: BLE001 - nunca deve derrubar o bridge
+                print(f"[BRIDGE] erro na limpeza de retencao ORM: {exc}")
+            await asyncio.sleep(self.ORM_RETENTION_INTERVAL_S)
 
     async def broadcast(self, payload: dict) -> None:
         if not self.ws_clients:
@@ -971,7 +1002,7 @@ class BleBridge:
         alert_id = f"{alert['alert_type']}-{alert['seq']}"
         summary = f"{alert['alert_name']} (seq={alert['seq']})"
         try:
-            self.escalation_manager.notify_emergency(
+            await self.escalation_manager.notify_emergency(
                 alert_id,
                 summary,
                 self.notify_caregivers,
@@ -1063,8 +1094,17 @@ class BleBridge:
             try:
                 async with BleakClient(device) as client:
                     self.connected_device_name = DEVICE_NAME
+                    self.connected_device_mac = str(device.address)
                     self.current_client = client
-                    await self.broadcast({"kind": "device_status", "connected": True})
+                    # "mac" (2026-07-21): permite ao dashboard confirmar que o
+                    # wearable realmente ligado é o mesmo registado para o
+                    # paciente selecionado (PATIENTS[].mac), antes de trocar
+                    # dados de demonstração por dados ao vivo na vista
+                    # "Dispositivo & firmware" — ver TEMPLATES.dispositivo.
+                    await self.broadcast({
+                        "kind": "device_status", "connected": True,
+                        "mac": self.connected_device_mac,
+                    })
 
                     # Fase A de seguranca BLE (2026-07-20): pairing/bonding
                     # tem de acontecer ANTES de qualquer read/write/
@@ -1137,6 +1177,7 @@ class BleBridge:
                 print(f"[BRIDGE] ligacao perdida/erro: {exc}")
 
             self.connected_device_name = None
+            self.connected_device_mac = None
             self.current_client = None
             # Dual-write (Lote C): garante que o buffer de sensores pendente
             # é comprometido ao fim da sessão (não fica perdido à espera do
@@ -1394,6 +1435,7 @@ class BleBridge:
         await ws.send(json.dumps({
             "kind": "device_status",
             "connected": self.connected_device_name is not None,
+            "mac": self.connected_device_mac,
         }))
         try:
             async for raw_message in ws:
@@ -1412,6 +1454,7 @@ async def main() -> None:
           + ("" if ssl_context else " (sem TLS — ver CAREWEAR_WS_TLS em ble_bridge.py)"))
     async with server:
         asyncio.create_task(bridge.periodic_retention_task())
+        asyncio.create_task(bridge.periodic_orm_retention_task())
         await bridge.run_device_loop()
 
 

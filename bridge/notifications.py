@@ -167,7 +167,7 @@ class EscalationManager:
         self.escalation_timeout_minutes = escalation_timeout_minutes
         self._pending: Dict[str, "asyncio.Task[None]"] = {}
 
-    def notify_emergency(
+    async def notify_emergency(
         self,
         alert_id: str,
         alert_summary: str,
@@ -182,16 +182,20 @@ class EscalationManager:
         tipicamente indisponível agora (ex.: no trabalho) — decisão do
         utilizador: fora dessa janela, só o cuidador pode agir, o sistema
         não escala sozinho. Sem horário declarado, nunca escala automático
-        (comportamento conservador por omissão)."""
+        (comportamento conservador por omissão).
+
+        `send_sms`/`send_email` são chamadas de rede síncronas/bloqueantes
+        (Twilio/SendGrid) — corridas em `asyncio.to_thread` para não
+        bloquear o event loop partilhado com BLE/WebSocket."""
         recipients = list(caregivers)
         if emergency_contact is not None:
             recipients.append(emergency_contact)
         message = f"[CareWear] Alerta de emergencia: {alert_summary}"
         for r in recipients:
             if r.phone:
-                send_sms(r.phone, message)
+                await asyncio.to_thread(send_sms, r.phone, message)
             if r.email:
-                send_email(r.email, "CareWear - Alerta de emergencia", message)
+                await asyncio.to_thread(send_email, r.email, "CareWear - Alerta de emergencia", message)
 
         should_escalate = (
             emergency_contact is not None
@@ -218,9 +222,9 @@ class EscalationManager:
             f"considera ligar ja para o 112."
         )
         if emergency_contact.phone:
-            send_sms(emergency_contact.phone, message)
+            await asyncio.to_thread(send_sms, emergency_contact.phone, message)
         if emergency_contact.email:
-            send_email(emergency_contact.email, "CareWear - Alerta de emergencia NAO confirmado", message)
+            await asyncio.to_thread(send_email, emergency_contact.email, "CareWear - Alerta de emergencia NAO confirmado", message)
         self._pending.pop(alert_id, None)
 
     def acknowledge(self, alert_id: str) -> bool:

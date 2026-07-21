@@ -17,16 +17,27 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
-      - name: Install dependencies (lightweight subset — sem TensorFlow/emlearn)
+      - name: Install dependencies (lightweight subset — sem emlearn)
         # ml/requirements.txt inclui TensorFlow/emlearn para o LSTM
-        # Autoencoder/footprint TinyML (pesados, minutos por execução,
-        # produzem artefactos versionados manualmente — ver
-        # PROJECT_STATUS.md, "ainda por fazer" desta secção, e
-        # ml/tests/test_train_smoke.py). scikit-learn/xgboost foram
-        # adicionados (2026-07-08) para o teste de fumo dos scripts de
-        # treino do classificador de atividades (test_train_smoke.py) —
-        # bem mais leves que TensorFlow, instalação em segundos.
-        run: pip install numpy pandas scikit-learn xgboost pytest
+        # Autoencoder/footprint TinyML. tensorflow-cpu foi adicionado
+        # (2026-07-21) para cobrir ml/tests/test_lstm_autoencoder_smoke.py
+        # — smoke test leve do LSTM Autoencoder (constrói a arquitetura via
+        # build_autoencoder() e corre 1 epoch de model.fit() sobre dados
+        # sintéticos minúsculos, sem guardar pesos em models/). tensorflow-cpu
+        # em vez de tensorflow (completo) evita puxar suporte GPU desnecessário
+        # no runner — mesmo assim adiciona ~dezenas de segundos à instalação
+        # face ao subconjunto anterior (medido: ~57s para todo o `pytest -v`,
+        # incluindo instalação prévia, num ambiente local equivalente — ver
+        # PROJECT_STATUS.md). measure_rf_footprint.py (emlearn) continua FORA
+        # do CI: é o passo de quantização/medição de footprint real para o
+        # firmware, mais pesado e sem uma função pura equivalente ao
+        # build_autoencoder()+fit() já coberto aqui — ver
+        # "Estudo de viabilidade TinyML" em PROJECT_STATUS.md. scikit-learn/
+        # xgboost foram adicionados (2026-07-08) para o teste de fumo dos
+        # scripts de treino do classificador de atividades
+        # (test_train_smoke.py) — bem mais leves que TensorFlow, instalação
+        # em segundos.
+        run: pip install numpy pandas scikit-learn xgboost tensorflow-cpu pytest
 
       - name: Run pytest (ml/tests)
         working-directory: ml
