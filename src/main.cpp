@@ -127,6 +127,23 @@
 // pode voltar a 0 e ser removida.
 #define DEBUG_STACK_WATERMARKS 1
 
+// ------------------------------------------------------------
+// *** DIAGNOSTICO TEMPORARIO — recalibracao forcada do IMU (2026-07-22) ***
+// Achado: a calibracao guardada em flash (/calib.bin) estava com valores
+// impossiveis para um sensor parado (offsets de giroscopio de ate -20 dps;
+// tipico real e < 2-3 dps) — foi certamente gravada com a placa em
+// movimento/orientacao errada durante a calibracao original. Isto tornava
+// detectInactivity() (Imu.cpp) permanentemente falso (norma do giroscopio
+// calibrado ficava a ~21 dps e o desvio do acelerometro a ~1.48g, muito
+// acima de qualquer limiar razoavel) — a causa real do streaming continuo
+// de FC nunca arrancar, nao os limiares que tinham sido ajustados antes.
+// Com esta flag a 1, apaga a calibracao guardada ANTES de Imu::begin(),
+// obrigando a uma calibracao nova no arranque (a placa tem de ficar
+// imovel, numa superficie plana, durante a mensagem "a calibrar - manter
+// parado"). Voltar a 0 depois de confirmar que os novos offsets sao
+// plausiveis (gyro perto de 0 dps, accel perto de 1g de magnitude).
+#define DEBUG_FORCE_IMU_RECALIBRATION 0
+
 // ============================================================
 // PINOS — mapeamento entre nomes com significado e os pinos físicos da placa
 // ============================================================
@@ -706,6 +723,12 @@ void initStorage() {
 // (calibra automaticamente se for a primeira vez) e arranca a task em
 // segundo plano que vai continuamente lendo amostras.
 void initImu() {
+#if DEBUG_FORCE_IMU_RECALIBRATION
+  // Ver DEBUG_FORCE_IMU_RECALIBRATION acima: apaga a calibracao antiga
+  // (com valores impossiveis) para obrigar a uma nova, com a placa parada.
+  Serial.println("[DEBUG] DEBUG_FORCE_IMU_RECALIBRATION=1 -> a apagar calibracao antiga");
+  Storage::clearCalibration();
+#endif
   if (!Imu::begin()) {
     uiMessage("IMU", "ERRO");
     delay(2000);

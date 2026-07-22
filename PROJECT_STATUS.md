@@ -5705,3 +5705,87 @@ destaque; correção simulada há 2h → volta à IA, com nota "correção
 antiga"), sem erros JS, sintaxe do script principal verificada
 (esprima/node --check via extração dedicada, ver nota sobre o bug do
 CI `dashboard.yml` acima).
+
+## 2026-07-22 (continuação) — causa real da FC contínua nunca arrancar: calibração do IMU corrompida
+
+**Contexto**: nas sessões anteriores, o streaming contínuo de FC "nunca"
+disparava com o utilizador parado, e as tentativas de correção foram todas
+sobre os limiares de `detectInactivity()` (`kAccelStillDeltaG` 0.08→0.12g,
+`kInactivitySamples` 156→104, ver secções anteriores). Isso ajudou, mas
+não resolveu — porque não era o problema real.
+
+**Diagnóstico**: com a placa fora do pulso (parada numa mesa), instrumentei
+temporariamente `Imu.cpp` para imprimir os valores CALIBRADOS (`cgx/cgy/cgz`,
+`accMag`) e o contador interno de `detectInactivity()`, em vez de confiar
+só nos valores raw já impressos. Resultado:
+
+- Norma do giroscópio calibrado: **~21 dps**, constante (limiar era 6.0 dps).
+- Desvio do acelerómetro calibrado face a 1g: **~1.48g**, constante
+  (limiar era 0.12g).
+- `inactivityCount` preso em 0 — nunca subia, portanto `inact` nunca
+  chegava a `1`, com a placa genuinamente imóvel.
+
+Ambos os valores estavam mais de 10x acima de qualquer limiar razoável —
+nenhum ajuste de threshold algum dia resolveria isto. Imprimi também os
+offsets de calibração carregados de `/calib.bin`: `gyro(dps) =
+-20.24, -10.08, -6.30`, `accel(g) = -0.49, 0.73, -1.33`. Um offset de
+zero-rate real de um giroscópio LSM6DS3 parado é tipicamente < 2-3 dps —
+offsets de -20/-10/-6 dps só se explicam por a calibração original ter
+sido gravada com a placa em MOVIMENTO (ou em rotação) durante a rotina
+`runCalibration()`, ou numa orientação completamente diferente da atual.
+Confirmei a matemática: subtrair esses offsets aos valores raw atuais
+(placa quieta, orientação normal) reproduz exatamente os ~21 dps e ~1.48g
+observados — não há dúvida sobre a causa.
+
+**Conclusão honesta**: esta calibração ficou gravada em flash (`/calib.bin`,
+cache "calibrar uma vez, reutilizar sempre") há algum tempo, provavelmente
+numa sessão de bancada em que a placa não esteve realmente parada durante a
+janela de calibração (2s de espera + ~2.5s de amostragem, exige imobilidade
+total). Uma vez gravada, ficou a envenenar silenciosamente TODA a deteção
+de inatividade em todos os arranques seguintes, incluindo os desta e da
+sessão anterior — os ajustes de limiar feitos antes eram inúteis para este
+sintoma porque a métrica de entrada já estava completamente errada, não
+apenas "no limite".
+
+**Lição desta sessão**: quando um limiar não resolve um problema mesmo após
+duas rondas de ajuste, o próximo passo correto é questionar os DADOS de
+entrada do limiar, não afinar o limiar outra vez — sintoma já visto nesta
+mesma investigação com o gate de amplitude de FC (a correção certa não era
+mexer no threshold isolado, era garantir que o valor medido correspondia à
+realidade). Uma calibração cacheada em flash é invisível ao ler o código-fonte;
+só apareceu ao imprimir os valores efetivamente usados em tempo de execução.
+
+**Correção aplicada**:
+- Nova função `Storage::clearCalibration()` (`Storage.cpp`/`Storage.h`) —
+  apaga `/calib.bin`, força nova calibração no arranque seguinte.
+- Flag de debug temporária `DEBUG_FORCE_IMU_RECALIBRATION` em `main.cpp`
+  (padrão já estabelecido no projeto) — usada uma única vez, a 1, para
+  apagar a calibração má e forçar recalibração com a placa efetivamente
+  parada (fora do pulso, em cima de uma superfície plana). Voltou a 0
+  depois de confirmado o resultado — a função `clearCalibration()` fica
+  no código (pode ser útil no futuro), a flag fica desligada.
+- Recalibração confirmada com sucesso: novos offsets dão giroscópio
+  calibrado ~0.04-0.13 dps e desvio de acelerómetro ~0.001-0.003g (antes:
+  ~21 dps e ~1.48g) — `inact=1` passou a disparar em poucos segundos com a
+  placa parada, tal como esperado. Firmware de produção reflashado com a
+  calibração nova já gravada em `/calib.bin` e a flag de debug a 0;
+  confirmado por captura de série que o boot seguinte carrega a
+  calibração nova (não força recalibração de novo) e a inatividade
+  continua a disparar normalmente.
+
+**Bónus**: com a inatividade finalmente a disparar, o streaming contínuo de
+FC arrancou sozinho durante o teste (sem depender do `force_reading`, que
+continua por investigar — ver secção anterior), produzindo uma captura raw
+`[HRRAW]` de referência com a placa fora do pulso. Não foi analisada em
+detalhe nesta sessão (por indicação do utilizador para parar após a
+calibração); fica guardada em
+`scratchpad/imu_recal_capture.txt` para uma futura calibração do gate de
+presença de dedo/pulso.
+
+**Ainda por fazer** (não resolvido nesta sessão, por indicação do
+utilizador para parar aqui): o bug do `force_reading` ser silenciosamente
+ignorado pelo firmware nalguns estados continua por investigar; a
+calibração do gate de presença real (hoje `fingerPresent = true` fixo em
+`processHrSample()`) continua por fazer, mas já não está bloqueada pelo
+`force_reading` — a captura de baseline sem pulso já é possível através do
+streaming contínuo normal, agora que a inatividade funciona.

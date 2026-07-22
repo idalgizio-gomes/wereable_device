@@ -70,6 +70,11 @@ namespace Storage {
   // Alias de loadCalibration(), com nome mais curto.
   bool cal_load(ImuCalibration &cal);
 
+  // Apaga a calibração guardada, se existir, forçando uma nova calibração
+  // completa no próximo ensureCalibrated() (ver DEBUG_FORCE_IMU_RECALIBRATION
+  // em main.cpp). Devolve true também quando já não havia ficheiro nenhum.
+  bool clearCalibration();
+
   // Chave AES
 
   // Guarda a chave AES (usada para cifrar/decifrar mensagens BLE) na

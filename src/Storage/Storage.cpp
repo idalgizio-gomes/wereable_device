@@ -72,6 +72,10 @@ bool hasCalibration() {
   return ok;
 }
 
+bool clearCalibration() {
+  return InternalFS.remove(PATH_CALIB) || !hasCalibration();
+}
+
 bool cal_save(const ImuCalibration &cal) {
   return saveCalibration(cal);
 }
