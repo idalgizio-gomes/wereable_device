@@ -124,6 +124,14 @@ class ActivityInference:
     def available(self) -> bool:
         return self._model is not None
 
+    def current_category(self) -> Optional[str]:
+        """Última classe (PT) em curso no bloco aberto, ou None se ainda
+        não houve nenhuma classificação nesta sessão de ligação — usado
+        pelo bridge para saber o que a IA achava no momento em que o
+        cuidador corrigiu manualmente (ver cmd "correct_activity" em
+        ble_bridge.py)."""
+        return self._current_block["cls"] if self._current_block else None
+
     def add_sample(self, record: dict) -> Optional[dict]:
         """Acumula um registo já descodificado (ver decode_full_plain em
         ble_bridge.py: ts, ax..gz, hr, ...). Devolve um dict de resultado

@@ -5455,3 +5455,81 @@ principal. Não corrigido nesta sessão (fora do âmbito pedido); validação
 manual desta sessão usou uma extração alternativa, ancorada na PRIMEIRA
 linha que é exatamente `<script>` (sem atributos), que evita este
 problema. Fica registado como item a corrigir no roteiro de CI.
+
+## Protocolo BLE estendido com `ring_count`: barra de progresso real da transferência (2026-07-21/22, pedido do utilizador)
+
+O aviso de "armazenamento cheio" já mostrava `sentRecords` (contagem
+cumulativa desta ligação), mas sem noção de "quanto falta" — o firmware
+não expunha o tamanho do ring buffer por BLE. `DumpStatusPacket` cresceu
+de 16 para 20 bytes (novo campo `ring_count`, via
+`QspiRingBuffer::count()`, reaproveitando a mesma leitura já usada para o
+cálculo de "quase cheio" em vez de adquirir o mutex duas vezes) — mesmo
+padrão de "bump" de formato já usado antes com `FullPlain`
+(`src/Ble/Ble.cpp`, `bridge/ble_bridge.py::_on_dump_status`). O dashboard
+calcula `sentRecords / (sentRecords + ringCount)` e mostra uma barra real
++ percentagem, mantendo o ring buffer da vista "Dispositivo & firmware"
+como valor de demonstração com aviso explícito (não confundir com
+`ringCount`, que É real). Compilado, flashado (`pio run ... -t upload`) e
+validado em hardware real: WS listener confirmou `ring_count` a decrescer
+entre mensagens, screenshot confirmou "6% concluído (32.658 por enviar)".
+
+## Contraste de texto corrigido em todos os campos de formulário (2026-07-21, reportado pelo utilizador com screenshot)
+
+Inputs/textareas/selects fora de `.field`/`.row-input`/`.note-form
+textarea` (ex.: os 3 campos de "Adicionar medicamento") não tinham
+`background`/`color` próprios — ficavam com o branco nativo do browser
+mas herdavam a cor de texto clara do tema, quase ilegível. Corrigido com
+uma regra global de baixa especificidade (nunca vence as mais específicas
+já corretas) usando `var(--bg-surface-2)`/`var(--text-primary)`/
+`var(--border)` — já corretas em ambos os temas por serem as mesmas
+variáveis usadas no resto do dashboard — mais o mesmo destaque de foco
+(`border-color:var(--accent)`) já usado nos campos que já estavam certos.
+Verificado com Playwright em claro e escuro, cores computadas conferem
+exatamente com o campo de referência do utilizador ("Notas do cuidador").
+
+## Botão para contradizer a classificação da IA (2026-07-22, pedido do utilizador)
+
+"Falta o botão para contradizer o que a ia acredita que o utente está a
+fazer". A classificação em tempo real (`kind: "activity_classification"`)
+não tinha forma de o cuidador discordar — mesmo quando visivelmente
+errada (ver secção "HR/classificação incorreta" mais acima).
+
+**Decisão de design**: a correção NUNCA substitui silenciosamente o que a
+IA disse — é mostrada como uma linha adicional ("✎ Corrigido pelo
+cuidador: {categoria} · {hora}") ao lado da classificação real, porque o
+classificador continua a correr a cada ~10s independentemente da
+correção, e escondê-lo seria enganador. Não realimenta o modelo (sem
+pipeline de retreino em tempo real) — é um registo de auditoria +
+indicação visual imediata, âmbito deliberadamente contido.
+
+**Implementação**: novo cmd `correct_activity` (`ble_bridge.py`,
+`handle_dashboard_command`) — allowlist fechada de 5 categorias
+(duplicada como `ACTIVITY_CORRECTION_CATEGORIES`, independente do import
+condicional de `activity_inference`, para a correção manual continuar
+disponível mesmo numa instalação mínima sem scikit-learn), sujeito ao
+mesmo rate limit de comandos de escrita (`_check_write_rate_limit`) já
+usado por `reset_readings`/`set_retention_days`. Persistido em nova
+tabela `activity_corrections` (`storage.py`, SQLite local — funciona
+mesmo com o dual-write ORM desativado, ver item pendente da migração
+Alembic abaixo) e auditado via `orm.audit()` quando o ORM está
+disponível. Novo `ActivityInference.current_category()` devolve a classe
+em curso no bloco aberto, para o bridge saber o que a IA achava no
+momento da correção. Difundido (`kind: "activity_correction"`) a TODOS
+os dashboards ligados, não só a quem corrigiu. Botão "Corrigir" só
+aparece na vista Resumo (utente/família — onde o painel de IA existe
+hoje) e só com bridge ligado.
+
+4 testes novos (`bridge/tests/test_activity_correction.py`, mesmo padrão
+de `test_ble_bridge_rate_limit.py`): correção válida persiste+difunde,
+categoria desconhecida rejeitada, categoria em falta rejeitada, rate
+limit aplica-se em loop apertado. 141/141 testes do bridge a passar.
+Validado end-to-end em hardware real via Playwright (classificação
+injetada + clique real no seletor + comando WS real ao bridge real +
+broadcast de volta), incluindo o caso que motivou a maior parte do tempo
+desta tarefa: **o bridge em background tinha ficado com código antigo em
+memória** (Python não recarrega módulos a quente) e, ao reiniciá-lo numa
+shell nova, perdeu `CAREWEAR_AES_KEY_HEX` (só estava definida na sessão
+de terminal original, não em `bridge/device_key.env` guardado em disco —
+esse ficheiro existe e foi usado para o reinício correto, sem nunca expor
+o valor da chave). Ambos os problemas foram corrigidos antes de declarar
+a funcionalidade validada.

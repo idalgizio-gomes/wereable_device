@@ -149,6 +149,15 @@ except ImportError as exc:
     print(f"[BRIDGE] AVISO: modulo activity_inference indisponivel ({exc}); classificacao de atividade desativada")
     activity_inference = None
 
+# Vocabulário das 5 categorias de atividade (PT), duplicado aqui em vez de
+# lido de activity_inference.CLASS_TO_DB_CATEGORY de propósito: o cuidador
+# tem de conseguir REGISTAR uma correção (cmd "correct_activity", ver
+# handle_dashboard_command) mesmo quando activity_inference não importou
+# (instalação mínima sem scikit-learn/pandas, ver try/except acima) — a
+# classificação automática pode estar desligada sem que a correção manual
+# também tenha de ficar.
+ACTIVITY_CORRECTION_CATEGORIES = ("Dormir", "Descanso", "Atividade", "Alimentação", "Higiene")
+
 # ============================================================
 # IDENTIFICADORES BLE — têm de corresponder exatamente aos definidos
 # em src/Ble/Ble.cpp. Se algum UUID mudar no firmware, tem de mudar aqui
@@ -1435,6 +1444,58 @@ class BleBridge:
                     details={"days": saved},
                     ip=_ws_remote_ip(ws),
                 )
+            return
+        if cmd == "correct_activity":
+            # Correção manual do cuidador/equipa clínica à classificação de
+            # atividade da IA (2026-07-22, pedido do utilizador: "falta o
+            # botão para contradizer o que a ia acredita que o utente está
+            # a fazer"). 'category' é validado por allowlist fechada (ver
+            # ACTIVITY_CORRECTION_CATEGORIES) — canal não autenticado, o
+            # mesmo padrão de validação de sempre neste método. Fica
+            # disponível mesmo com activity_inference/self.orm indisponível
+            # (ver comentário junto a ACTIVITY_CORRECTION_CATEGORIES).
+            wait_s = self._check_write_rate_limit(cmd)
+            if wait_s is not None:
+                await ws.send(json.dumps({
+                    "kind": "command_result", "cmd": cmd, "ok": False,
+                    "error": f"limite de taxa excedido, aguarde {wait_s:.1f}s",
+                }))
+                return
+            category = msg.get("category")
+            if category not in ACTIVITY_CORRECTION_CATEGORIES:
+                await ws.send(json.dumps({
+                    "kind": "command_result", "cmd": cmd, "ok": False,
+                    "error": "categoria desconhecida",
+                }))
+                return
+            original_category = (
+                self.activity_inference.current_category()
+                if self.activity_inference is not None else None
+            )
+            try:
+                storage.insert_activity_correction(self.db, original_category, category)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[BRIDGE] erro a gravar correcao de atividade: {exc}")
+                await ws.send(json.dumps({"kind": "command_result", "cmd": cmd, "ok": False, "error": str(exc)}))
+                return
+            print(f"[BRIDGE] atividade corrigida pelo dashboard: {original_category!r} -> {category!r}")
+            if self.orm:
+                self.orm.audit(
+                    action="activity.correct",
+                    resource_type="activity_classification",
+                    details={"original_category": original_category, "corrected_category": category},
+                    ip=_ws_remote_ip(ws),
+                )
+            # Difundido a TODOS os dashboards ligados (não só quem corrigiu)
+            # — todas as vistas ao vivo (Resumo, área médica) devem refletir
+            # a mesma correção, não só o browser que a fez.
+            asyncio.create_task(self.broadcast({
+                "kind": "activity_correction",
+                "category": category,
+                "original_category": original_category,
+                "corrected_at": time.time(),
+            }))
+            return
 
     async def ws_handler(self, ws: "websockets.ServerConnection") -> None:
         self.ws_clients.add(ws)

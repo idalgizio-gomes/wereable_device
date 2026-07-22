@@ -148,6 +148,24 @@ def init_db() -> sqlite3.Connection:
         )
         """
     )
+    # Correções manuais à classificação de atividade da IA (2026-07-22,
+    # pedido do utilizador: "falta o botão para contradizer o que a ia
+    # acredita que o utente está a fazer") — ver
+    # handle_dashboard_command()/cmd "correct_activity" em ble_bridge.py.
+    # Guardado nesta base local (não no ORM) de propósito: fica disponível
+    # mesmo quando o dual-write ORM está desativado (ver
+    # orm_persistence.py), e é um registo de auditoria simples, sem
+    # necessidade do esquema relacional completo do ORM.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS activity_corrections (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            received_at REAL NOT NULL,
+            original_category TEXT,
+            corrected_category TEXT NOT NULL
+        )
+        """
+    )
     # Índice pelo timestamp de receção — a consulta mais comum é "últimas
     # N horas", por isso o índice acelera exatamente essa operação.
     conn.execute(
@@ -263,6 +281,23 @@ def insert_emergency_alert(conn: sqlite3.Connection, alert: dict) -> None:
             alert["seq"],
             alert["timestamp_utc"],
         ),
+    )
+    conn.commit()
+
+
+def insert_activity_correction(
+    conn: sqlite3.Connection, original_category: Optional[str], corrected_category: str
+) -> None:
+    """Grava uma correção manual do cuidador/equipa clínica à classificação
+    de atividade da IA (ver cmd "correct_activity" em ble_bridge.py) —
+    histórico permanente, nunca purgado automaticamente (mesma política de
+    emergency_alerts: é auditoria, não telemetria de volume alto)."""
+    conn.execute(
+        """
+        INSERT INTO activity_corrections (received_at, original_category, corrected_category)
+        VALUES (?, ?, ?)
+        """,
+        (time.time(), original_category, corrected_category),
     )
     conn.commit()
 
