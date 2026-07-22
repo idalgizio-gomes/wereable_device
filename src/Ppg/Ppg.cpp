@@ -27,6 +27,20 @@
 // PPG externo ligado em D4/D5 => usar apenas o barramento Wire externo.
 #define PPG_USE_EXTERNAL_WIRE_ONLY 1
 
+// Captura de diagnostico do sinal PPG em bruto (raw/low/high/diff +
+// deteção), por série, durante os primeiros DEBUG_HR_RAW_CAPTURE_SAMPLES
+// de streaming de HR — usada em 2026-07-22 para confirmar (com captura
+// real em hardware) a hipótese já registada em PROJECT_STATUS.md ("HR —
+// detetor a contar ruído como batimentos extra", 2026-07-07) antes de
+// alterar o algoritmo, e para validar o limiar de amplitude mínima
+// resultante (kMinBeatPeakAmplitude, ver detectHeartbeat() abaixo).
+// Mantido desligado por omissão (0) — ativar só para uma nova
+// investigação pontual do sinal em bruto, nunca para deixar ligado em
+// produção (sem custo de flash/RAM quando desligado: os blocos #if ficam
+// completamente fora do binário).
+#define DEBUG_HR_RAW_CAPTURE 0
+#define DEBUG_HR_RAW_CAPTURE_SAMPLES 800  // ~8s a 100Hz, cobre varios ciclos cardiacos
+
 
 namespace {
 
@@ -76,6 +90,9 @@ volatile bool g_shutdownRequested = false;     // true depois de prepareForSyste
 volatile bool g_suspendForPowerCheck = false;  // true durante um long-press do botao de power em validacao: a task pausa temporariamente.
 volatile uint32_t g_manualHrDeadlineMs = 0;    // millis() ate quando um pedido requestManualHr() ainda esta ativo (0 = nenhum pedido pendente).
 volatile bool g_manualSpo2Requested = false;   // true depois de requestManualSpo2(): forca uma medicao de SpO2 na proxima iteracao da task, sem esperar por SPO2_INTERVAL_MS.
+#if DEBUG_HR_RAW_CAPTURE
+uint32_t g_hrRawCaptureCount = 0;       // Diagnostico temporario (ver DEBUG_HR_RAW_CAPTURE acima) - amostras ja impressas neste streaming.
+#endif
 
 // Formata a data/hora atual (vinda do modulo Clock) numa string, para usar
 // em mensagens de log. Se o relogio ainda nao estiver disponivel, escreve
@@ -169,6 +186,7 @@ struct HrFilterState {
   float derivPrev = 0;        // derivative
   float beatPrevDiff = 0;     // detectHeartbeat
   unsigned long beatLastMs = 0;      // detectHeartbeat (anti-rebote)
+  float beatPeakAbsHigh = 0;         // detectHeartbeat (gate de amplitude minima, ver kMinBeatPeakAmplitude)
   unsigned long bpmLastBeatTime = 0; // computeBPM
   float bpmValue = 0;                // computeBPM
   float smoothBuf[5] = {0, 0, 0, 0, 0}; // smoothBPM
@@ -184,6 +202,9 @@ HrFilterState g_hrFilter;
 // ver comentario de HrFilterState acima para a razao concreta.
 void resetHrFilterState() {
   g_hrFilter = HrFilterState{};
+#if DEBUG_HR_RAW_CAPTURE
+  g_hrRawCaptureCount = 0;
+#endif
 }
 
 // Reduz a corrente de todos os LEDs do sensor (vermelho/IR/verde) para
@@ -268,23 +289,42 @@ float derivative(float x) {
   return y;
 }
 
+// Amplitude minima (valor absoluto do sinal "high", pos-filtro passa-alto)
+// exigida num ciclo antes de aceitar um cruzamento por zero como batimento
+// real. Ver captura de sinal em bruto de 2026-07-22 (PROJECT_STATUS.md,
+// "HR — deteção de amplitude mínima"): sem este limiar, ruído de baixa
+// amplitude (tipicamente <20 nesta captura) e artefactos de movimento
+// produziam cruzamentos por zero a um ritmo de ~160-190 "bpm" implausível
+// em repouso — detectHeartbeat() não distinguia isso de um batimento real.
+// Valor de partida conservador (bem acima do ruído tipicamente observado),
+// não uma constante clinicamente validada — a afinar com mais capturas.
+constexpr float kMinBeatPeakAmplitude = 40.0f;
+
 // Deteta um batimento cardiaco quando a derivada do sinal passa de
-// positiva para negativa/zero (um pico foi ultrapassado). Inclui um
-// "anti-rebote" temporal: ignora deteccoes a menos de 300 ms da anterior,
-// o que corresponde a um limite fisiologico de 200 BPM (batimentos mais
-// rapidos do que isso sao tratados como ruido/artefacto, nao um batimento real).
-bool detectHeartbeat(float diff) {
+// positiva para negativa/zero (um pico foi ultrapassado) E a amplitude do
+// sinal "high" nesse ciclo atingiu kMinBeatPeakAmplitude (rejeita ruído de
+// baixa amplitude, ver constante acima). Inclui tambem um "anti-rebote"
+// temporal: ignora deteccoes a menos de 300 ms da anterior, o que
+// corresponde a um limite fisiologico de 200 BPM (batimentos mais rapidos
+// do que isso sao tratados como ruido/artefacto, nao um batimento real).
+bool detectHeartbeat(float diff, float high) {
   bool beatDetected = false;
+
+  const float absHigh = fabsf(high);
+  if (absHigh > g_hrFilter.beatPeakAbsHigh) {
+    g_hrFilter.beatPeakAbsHigh = absHigh;
+  }
 
   // Zero crossing POS -> NEG
   if (g_hrFilter.beatPrevDiff > 0 && diff <= 0) {
     unsigned long now = millis();
 
-    // Anti-rebote: ignora falsos picos < 300ms (200 BPM máx)
-    if (now - g_hrFilter.beatLastMs > 300) {
+    // Anti-rebote (< 300ms = 200 BPM max) + amplitude minima do ciclo.
+    if (now - g_hrFilter.beatLastMs > 300 && g_hrFilter.beatPeakAbsHigh >= kMinBeatPeakAmplitude) {
       beatDetected = true;
       g_hrFilter.beatLastMs = now;
     }
+    g_hrFilter.beatPeakAbsHigh = 0; // reinicia o pico para o proximo ciclo
   }
 
   g_hrFilter.beatPrevDiff = diff;
@@ -505,7 +545,25 @@ bool processHrSample(float &bpmOut, bool &validOut, bool &fingerPresent) {
   float low = lowPassFilter(raw);
   float high = highPassFilter(low);
   float diff = derivative(high);
-  bool beat = detectHeartbeat(diff);
+  bool beat = detectHeartbeat(diff, high);
+
+#if DEBUG_HR_RAW_CAPTURE
+  if (g_hrRawCaptureCount < DEBUG_HR_RAW_CAPTURE_SAMPLES) {
+    Serial.print(F("[HRRAW] t="));
+    Serial.print(millis());
+    Serial.print(F(" raw="));
+    Serial.print(raw);
+    Serial.print(F(" low="));
+    Serial.print(low, 3);
+    Serial.print(F(" high="));
+    Serial.print(high, 3);
+    Serial.print(F(" diff="));
+    Serial.print(diff, 3);
+    Serial.print(F(" beat="));
+    Serial.println(beat ? 1 : 0);
+    g_hrRawCaptureCount++;
+  }
+#endif
 
   if (!beat) {
     return false;

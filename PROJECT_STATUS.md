@@ -5560,3 +5560,81 @@ intacto (117427 linhas), bridge reiniciado sem o aviso de dual-write
 desativado, 141/141 testes a passar. Nenhuma alteração de código —
 correção puramente operacional na BD local deste ambiente; uma BD nova
 (`alembic upgrade head` a partir do zero) nunca teria este problema.
+
+## HR — deteção de amplitude mínima confirmada e corrigida em hardware real (2026-07-22)
+
+Retoma o item deixado em aberto em 2026-07-07 ("HR — detetor a contar
+ruído como batimentos extra", ver secção acima), desta vez seguindo à
+risca a instrução já registada nessa altura: **não corrigir o algoritmo
+às cegas sem captura real do sinal em bruto**.
+
+**Método**: instrumentação temporária em `Ppg.cpp`
+(`DEBUG_HR_RAW_CAPTURE`, agora desligada por omissão) a imprimir
+raw/low/high/diff/beat por série durante um streaming de HR real, com o
+utilizador a usar o wearable no pulso e a acionar "Medir agora" a partir
+do dashboard.
+
+**Confirmado com dados reais** (captura de 336 amostras, ~3.4s):
+- O sinal "high" (pós passa-alto) é dominado por ruído de baixa amplitude
+  (p10=-4.5, p50=17.7 — tipicamente dentro de ±20) com um único
+  artefacto de movimento sustentado a atingir >1000 numa janela de
+  ~340ms, não um padrão periódico repetido compatível com pulsação
+  cardíaca real.
+- `detectHeartbeat()` (só cruzamento por zero + anti-rebote de 300ms)
+  detetava 10 "batimentos" nesse intervalo, com gaps de 314-371ms entre
+  eles — implica 160-190 bpm sustidos, implausível em repouso e
+  precisamente o padrão já suspeitado em 2026-07-07 (preso perto do
+  limite superior do anti-rebote).
+
+**Corrigido**: `detectHeartbeat()` passa a receber também o sinal "high"
+e a exigir uma amplitude de pico mínima (`kMinBeatPeakAmplitude = 40.0`,
+tracking do `abs(high)` máximo desde o cruzamento anterior, reiniciado a
+cada ciclo) antes de aceitar um cruzamento como batimento real — rejeita
+o ruído de baixa amplitude que dominava o sinal. Valor de partida
+conservador (bem acima do ruído tipicamente observado nesta captura),
+não uma constante clinicamente validada.
+
+**Validado com uma segunda captura em hardware, já com a correção**:
+462 amostras (~4.6s), só 3 cruzamentos aceites (vs. 10 antes num
+intervalo mais curto) — os 2 que produziram BPM válido deram 40 e 86
+bpm, dentro/perto da gama fisiológica plausível, não mais os 160-190bpm
+sistemáticos. O terceiro (amplitude 938.8, quase certamente o mesmo tipo
+de artefacto de movimento visto na 1ª captura) foi naturalmente
+descartado pelo filtro de plausibilidade já existente em
+`processHrSample()` (dt vs. o batimento anterior fora de 300-2000ms),
+não pelo novo limiar — ou seja, **o limiar de amplitude resolve o ruído
+de baixa amplitude, mas não distingue um artefacto de movimento de
+grande amplitude de um batimento real**; isso continua por resolver.
+
+**Conclusão honesta, não só "corrigido"**: esta correção torna o
+detetor mais correto (deixa de fabricar valores sistematicamente
+implausíveis), mas não garante uma FC fiável e contínua — a amostra
+disponível não mostra nenhuma janela com um padrão periódico limpo de
+amplitude moderada-alta compatível com um pulso cardíaco real e
+consistente. É consistente com uma limitação conhecida de PPG no pulso
+(vs. ponta do dedo): sinal de perfusão mais fraco e mais sujeito a
+artefacto de movimento, não necessariamente resolúvel só por software.
+Próximo passo natural (não feito nesta sessão, âmbito já grande):
+capturas mais longas, em repouso real e sem movimento, para confirmar se
+alguma vez aparece um padrão periódico limpo com este sensor/posição —
+se nunca aparecer, o limite pode ser de posicionamento/hardware, não de
+algoritmo.
+
+**Lição desta sessão** (pedido explícito do utilizador de registar
+conclusões, não só "está corrigido"): a mesma falha de metodologia quase
+se repetiu — a tentação de "ler o código, ver o gap óbvio (sem gate de
+amplitude), corrigir" sem antes confirmar com dados reais. A instrução já
+registada em 2026-07-07 evitou isso de novo. Continua válida para
+qualquer investigação futura de sensores neste projeto: ler o código dá
+hipóteses, só hardware real confirma.
+
+Verificação: `pio run` (build-only, sem reflash desnecessário) com
+`DEBUG_HR_RAW_CAPTURE=0` — compila limpo, binário ligeiramente mais
+pequeno que com a captura ativa (confirma que o bloco `#if` sai por
+completo do binário quando desligado). A placa fica neste momento com o
+binário da 2ª captura (`DEBUG_HR_RAW_CAPTURE=1`, ainda a imprimir
+`[HRRAW]` por série) — inofensivo (só verbosidade extra), será
+substituído no próximo flash real; não valeu a pena outro ciclo de
+flash só por isto, dado o processo de upload ter falhado duas vezes
+nesta sessão por um problema de USB do lado do Windows (só resolvido com
+um reset físico da placa pelo utilizador).
