@@ -5638,3 +5638,70 @@ substituído no próximo flash real; não valeu a pena outro ciclo de
 flash só por isto, dado o processo de upload ter falhado duas vezes
 nesta sessão por um problema de USB do lado do Windows (só resolvido com
 um reset físico da placa pelo utilizador).
+
+## Limiar de inatividade do IMU afrouxado, 2ª ronda (2026-07-22)
+
+Continuação da mesma investigação de FC: o utilizador reportou que o
+streaming contínuo de FC (ativado quando `inactivity=true`) "nunca"
+arrancava com a placa no pulso. `kAccelStillDeltaG` (0.08g, já alargado
+uma vez em sessão anterior) e `kInactivitySamples` (156 = 3s) exigiam 3
+segundos SEGUIDOS quase perfeitamente parados — difícil de sustentar
+mesmo com o pulso "parado" mas vivo (micro-tremor normal). Alargado para
+0.12g / 104 amostras (2s). Build-only compilado com sucesso; validação
+em hardware fica para uma próxima sessão (ver bug novo abaixo, que
+bloqueou o teste em condições reais).
+
+## Bug novo encontrado, não corrigido: comando "Medir agora" às vezes silenciosamente ignorado pelo firmware (2026-07-22)
+
+Ao tentar capturar uma referência do sinal em bruto sem a placa no pulso
+(para calibrar um futuro gate de presença), o comando `force_reading`
+mostrava sucesso do lado do bridge (`[BRIDGE] comando do dashboard
+enviado: force_reading`, escrita GATT sem exceção), mas **o firmware
+nunca reagiu**: nenhum "[BLEG][DUMP] FORCE_HR+SPO2" no série, nenhuma
+amostra de FC, em 4 tentativas seguidas, mesmo após reiniciar o bridge e
+confirmar a ligação BLE ativa. A escrita chega à characteristic
+(`dumpCtrlChar`, `write_gatt_char(..., response=False)` sem exceção) mas
+o callback (`dumpCtrlCallback` em `Ble.cpp`) não parece produzir efeito
+— suspeita não confirmada: `s_dataModeEnabled` (guard no topo do
+callback) ficar `false` nalgum ponto sem `startBroadcast()` ser chamado
+de novo, possivelmente ligado aos múltiplos ciclos de reset/reflash desta
+sessão. **Não investigado mais a fundo nesta sessão** (decisão do
+utilizador: "Altera o dashboard e deixa o firmware para depois") — fica
+registado para retomar com mais instrumentação em `dumpCtrlCallback`
+(ex.: imprimir o valor de `s_dataModeEnabled` a cada write recebido,
+independentemente do cmd).
+
+## Dashboard: countdown do "Medir agora" já não se repete em modo de leitura contínua (2026-07-22, reportado pelo utilizador)
+
+"Na leitura contínua, não existe a necessidade de aparecer um
+countdown" — o botão de leitura contínua (`toggleContinuousHr()`)
+reenvia `force_reading` a cada ~14s e cada reenvio reiniciava o
+countdown de 15s do zero, dando a sensação de um countdown a "saltar"
+sem sentido. Corrigido: em modo contínuo mostra-se agora um indicador
+fixo ("Leitura contínua ativa — a atualizar automaticamente"); o
+countdown de segundo a segundo fica reservado só para o clique único em
+"Medir agora" (`onForceReadingClick()`).
+
+## Dashboard: correção do cuidador passa a sobrepor-se à classificação da IA (2026-07-22, pedido explícito do utilizador)
+
+"Não faz sentido algum ter um botão de correção se isso não servir para
+treinar a ia e a correção sobrepor-se ao que ela pensa." — desenho
+anterior (mesmo dia, sessão anterior) mostrava a correção só como nota
+ao lado da classificação da IA, nunca a substituindo, por receio de
+esconder o que o classificador "realmente" produzia. Revisto: enquanto a
+correção estiver "fresca" (`ACTIVITY_CORRECTION_OVERRIDE_S = 1800`, 30
+min), passa a ser ELA a linha principal do painel ("confirmado pelo
+cuidador"), com a classificação real da IA relegada a nota secundária
+("IA sugere agora: X (Y%)") — nunca escondida por completo, só
+reordenada por prioridade visual. Passada a janela de 30 min, a correção
+passa a aparecer marcada como antiga e a IA volta a ser a linha
+principal. **Não retreina o modelo** (não existe pipeline de retreino em
+tempo real) — a correção continua só a ser persistida em
+`bridge/storage.py::activity_corrections` para uma eventual reavaliação
+offline futura do classificador; isto é dito explicitamente ao
+utilizador para não prometer "aprendizagem" que não acontece de facto.
+Validado com Playwright (correção fresca → categoria corrigida em
+destaque; correção simulada há 2h → volta à IA, com nota "correção
+antiga"), sem erros JS, sintaxe do script principal verificada
+(esprima/node --check via extração dedicada, ver nota sobre o bug do
+CI `dashboard.yml` acima).

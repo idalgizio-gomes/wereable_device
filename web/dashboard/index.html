@@ -1044,6 +1044,8 @@ const I18N = {
     'resumo.liveActivityDisclaimer': 'Classificador treinado apenas com dados sintéticos — não validado clinicamente. Não usar como diagnóstico.',
     'resumo.liveActivityCorrectBtn': 'Corrigir', 'resumo.liveActivityCorrectedTo': 'Corrigido pelo cuidador: {cat}',
     'resumo.liveActivityCorrectionError': 'Não foi possível registar a correção: {error}',
+    'resumo.liveActivityConfirmedByCaregiver': 'confirmado pelo cuidador', 'resumo.liveActivityAiSaysNow': 'IA sugere agora: {cat} ({pct}%)',
+    'resumo.liveActivityCorrectionExpired': 'correção antiga, a IA voltou a ser mostrada',
     'resumo.routineTodayChartLabel': 'Rotina de hoje', 'resumo.routineAnomalyChartLabel': 'Simulação com anomalias',
     // --- pacientes ---
     'pacientes.monitoredCardTitle': 'Pacientes monitorizados', 'pacientes.assignedSingular': 'paciente atribuído', 'pacientes.assignedPlural': 'pacientes atribuídos',
@@ -1230,6 +1232,7 @@ const I18N = {
     'medrem.recExcellent': 'Excelente adesão: manter a rotina', 'medrem.recLowActivityScheduling': 'Sugestão: agendar medicação para períodos de menor atividade',
     // --- i18n gap 3 (continuous HR, export all, misc hints) ---
     'vitais.continuousHrHint': 'Reenvia o pedido de medição automaticamente enquanto ligado, até desligares', 'vitais.continuousHrStartBtn': 'Leitura contínua',
+    'vitais.continuousHrActiveHint': 'Leitura contínua ativa — a atualizar automaticamente.',
     'vitais.continuousHrStopBtn': 'A ler continuamente — parar', 'vitais.measuringHint': 'A medir…', 'vitais.secondsRemainingSuffix': 's restantes)',
     'vitais.measurementDoneHint': 'Leitura concluída — os valores devem estar atualizados.', 'vitais.noBridgeConnectionHint': 'Sem ligação ao bridge — liga o dispositivo primeiro.',
     'exportar.exportAllBtn': 'Exportar tudo (CSV)',
@@ -1352,6 +1355,8 @@ const I18N = {
     'resumo.liveActivityDisclaimer': 'Classifier trained only on synthetic data — not clinically validated. Do not use for diagnosis.',
     'resumo.liveActivityCorrectBtn': 'Correct', 'resumo.liveActivityCorrectedTo': 'Corrected by caregiver: {cat}',
     'resumo.liveActivityCorrectionError': 'Could not save the correction: {error}',
+    'resumo.liveActivityConfirmedByCaregiver': 'confirmed by caregiver', 'resumo.liveActivityAiSaysNow': 'AI now suggests: {cat} ({pct}%)',
+    'resumo.liveActivityCorrectionExpired': 'old correction, AI classification shown again',
     'resumo.routineTodayChartLabel': 'Today\'s routine', 'resumo.routineAnomalyChartLabel': 'Simulation with anomalies',
     // --- pacientes ---
     'pacientes.monitoredCardTitle': 'Monitored patients', 'pacientes.assignedSingular': 'patient assigned', 'pacientes.assignedPlural': 'patients assigned',
@@ -1512,6 +1517,7 @@ const I18N = {
     'medrem.recExcellent': 'Excellent adherence: keep up the routine', 'medrem.recLowActivityScheduling': 'Suggestion: schedule medication for lower-activity periods',
     // --- i18n gap 3 (continuous HR, export all, misc hints) ---
     'vitais.continuousHrHint': 'Automatically resends the measurement request while on, until you turn it off', 'vitais.continuousHrStartBtn': 'Continuous reading',
+    'vitais.continuousHrActiveHint': 'Continuous reading active — updating automatically.',
     'vitais.continuousHrStopBtn': 'Reading continuously — stop', 'vitais.measuringHint': 'Measuring…', 'vitais.secondsRemainingSuffix': 's remaining)',
     'vitais.measurementDoneHint': 'Reading complete — values should now be up to date.', 'vitais.noBridgeConnectionHint': 'Not connected to the bridge — connect the device first.',
     'exportar.exportAllBtn': 'Export everything (CSV)',
@@ -1628,6 +1634,8 @@ const I18N = {
     'resumo.liveActivityDisclaimer': '分类器仅使用合成数据训练 — 未经临床验证。请勿用于诊断。',
     'resumo.liveActivityCorrectBtn': '更正', 'resumo.liveActivityCorrectedTo': '照护者更正为：{cat}',
     'resumo.liveActivityCorrectionError': '无法保存更正：{error}',
+    'resumo.liveActivityConfirmedByCaregiver': '照护者已确认', 'resumo.liveActivityAiSaysNow': 'AI 现在建议：{cat}（{pct}%）',
+    'resumo.liveActivityCorrectionExpired': '更正已过期，重新显示 AI 分类',
     'resumo.routineTodayChartLabel': '今日常规', 'resumo.routineAnomalyChartLabel': '含异常的模拟',
     // --- pacientes ---
     'pacientes.monitoredCardTitle': '受监测患者', 'pacientes.assignedSingular': '位患者已分配', 'pacientes.assignedPlural': '位患者已分配', 'pacientes.assignedToAccountSuffix': '至此账户',
@@ -1744,6 +1752,7 @@ const I18N = {
     'medrem.recModerateMealTiming': '建议：饭后立即标记服药', 'medrem.recExcellent': '依从性极佳：保持当前习惯', 'medrem.recLowActivityScheduling': '建议：将服药时间安排在活动量较低的时段',
     // --- i18n gap 3 (continuous HR, export all, misc hints) ---
     'vitais.continuousHrHint': '开启后自动重复发送测量请求，直到关闭为止', 'vitais.continuousHrStartBtn': '持续读取', 'vitais.continuousHrStopBtn': '正在持续读取 — 停止', 'vitais.measuringHint': '正在测量……',
+    'vitais.continuousHrActiveHint': '持续读取已启用 — 正在自动更新。',
     'vitais.secondsRemainingSuffix': '秒)', 'vitais.measurementDoneHint': '读取完成 — 数值现已更新。', 'vitais.noBridgeConnectionHint': '未连接到网桥 — 请先连接设备。', 'exportar.exportAllBtn': '导出全部 (CSV)',
     'exportar.exportAllNote': '导出已到达网桥的所有数据（不限天数）— 不会加快设备上尚未传输数据的速度，只是将本地已保存的数据整合到一个文件中。', 'exportar.noBridgeConnectionHint': '未连接到网桥 — 目前无法导出。', 'exportar.bridgeUnreachableHint': '无法联系到网桥。',
     'exportar.generatingCsvHint': '正在生成 CSV……', 'exportar.csvFailedPrefix': '失败：', 'exportar.csvNoDataFallback': '无数据', 'exportar.csvDownloadedHint': 'CSV 已下载。',
@@ -1853,6 +1862,8 @@ const I18N = {
     'resumo.liveActivityDisclaimer': 'Clasificador entrenado solo con datos sintéticos — no validado clínicamente. No usar como diagnóstico.',
     'resumo.liveActivityCorrectBtn': 'Corregir', 'resumo.liveActivityCorrectedTo': 'Corregido por el cuidador: {cat}',
     'resumo.liveActivityCorrectionError': 'No se pudo guardar la corrección: {error}',
+    'resumo.liveActivityConfirmedByCaregiver': 'confirmado por el cuidador', 'resumo.liveActivityAiSaysNow': 'La IA ahora sugiere: {cat} ({pct}%)',
+    'resumo.liveActivityCorrectionExpired': 'corrección antigua, se muestra de nuevo la IA',
     'resumo.routineTodayChartLabel': 'Rutina de hoy', 'resumo.routineAnomalyChartLabel': 'Simulación con anomalías',
     // --- pacientes ---
     'pacientes.monitoredCardTitle': 'Pacientes monitorizados', 'pacientes.assignedSingular': 'paciente asignado', 'pacientes.assignedPlural': 'pacientes asignados',
@@ -2019,6 +2030,7 @@ const I18N = {
     'medrem.recExcellent': 'Excelente adherencia: mantener la rutina', 'medrem.recLowActivityScheduling': 'Sugerencia: programar la medicación para periodos de menor actividad',
     // --- i18n gap 3 (continuous HR, export all, misc hints) ---
     'vitais.continuousHrHint': 'Reenvía la solicitud de medición automáticamente mientras esté activado, hasta que lo apagues', 'vitais.continuousHrStartBtn': 'Lectura continua',
+    'vitais.continuousHrActiveHint': 'Lectura continua activa — actualizando automáticamente.',
     'vitais.continuousHrStopBtn': 'Leyendo continuamente — detener', 'vitais.measuringHint': 'Midiendo…', 'vitais.secondsRemainingSuffix': 's restantes)',
     'vitais.measurementDoneHint': 'Lectura completada — los valores deberían estar actualizados.', 'vitais.noBridgeConnectionHint': 'Sin conexión al bridge — conecta primero el dispositivo.',
     'exportar.exportAllBtn': 'Exportar todo (CSV)',
@@ -2142,6 +2154,8 @@ const I18N = {
     'resumo.liveActivityDisclaimer': 'Classificateur entraîné uniquement sur des données synthétiques — non validé cliniquement. Ne pas utiliser comme diagnostic.',
     'resumo.liveActivityCorrectBtn': 'Corriger', 'resumo.liveActivityCorrectedTo': 'Corrigé par l\'aidant : {cat}',
     'resumo.liveActivityCorrectionError': 'Impossible d\'enregistrer la correction : {error}',
+    'resumo.liveActivityConfirmedByCaregiver': 'confirmé par l\'aidant', 'resumo.liveActivityAiSaysNow': 'L\'IA suggère maintenant : {cat} ({pct} %)',
+    'resumo.liveActivityCorrectionExpired': 'correction ancienne, l\'IA est de nouveau affichée',
     'resumo.routineTodayChartLabel': 'Routine d\'aujourd\'hui', 'resumo.routineAnomalyChartLabel': 'Simulation avec anomalies',
     // --- pacientes ---
     'pacientes.monitoredCardTitle': 'Patients surveillés', 'pacientes.assignedSingular': 'patient attribué', 'pacientes.assignedPlural': 'patients attribués',
@@ -2313,6 +2327,7 @@ const I18N = {
     'medrem.recLowActivityScheduling': 'Suggestion : planifier le médicament pour les périodes de moindre activité',
     // --- i18n gap 3 (continuous HR, export all, misc hints) ---
     'vitais.continuousHrHint': 'Renvoie automatiquement la demande de mesure tant que activé, jusqu\'à ce que vous l\'éteigniez', 'vitais.continuousHrStartBtn': 'Lecture continue',
+    'vitais.continuousHrActiveHint': 'Lecture continue active — mise à jour automatique.',
     'vitais.continuousHrStopBtn': 'Lecture continue en cours — arrêter', 'vitais.measuringHint': 'Mesure en cours…', 'vitais.secondsRemainingSuffix': 's restantes)',
     'vitais.measurementDoneHint': 'Mesure terminée — les valeurs devraient être à jour.', 'vitais.noBridgeConnectionHint': 'Pas de connexion au bridge — connectez d\'abord l\'appareil.',
     'exportar.exportAllBtn': 'Tout exporter (CSV)',
@@ -2435,6 +2450,8 @@ const I18N = {
     'resumo.liveActivityDisclaimer': 'Klassifikator nur mit synthetischen Daten trainiert — klinisch nicht validiert. Nicht zur Diagnose verwenden.',
     'resumo.liveActivityCorrectBtn': 'Korrigieren', 'resumo.liveActivityCorrectedTo': 'Von der Pflegeperson korrigiert: {cat}',
     'resumo.liveActivityCorrectionError': 'Korrektur konnte nicht gespeichert werden: {error}',
+    'resumo.liveActivityConfirmedByCaregiver': 'von der Pflegeperson bestätigt', 'resumo.liveActivityAiSaysNow': 'KI schlägt jetzt vor: {cat} ({pct}%)',
+    'resumo.liveActivityCorrectionExpired': 'alte Korrektur, KI-Klassifikation wieder angezeigt',
     'resumo.routineTodayChartLabel': 'Heutige Routine', 'resumo.routineAnomalyChartLabel': 'Simulation mit Anomalien',
     // --- pacientes ---
     'pacientes.monitoredCardTitle': 'Überwachte Patienten', 'pacientes.assignedSingular': 'Patient zugewiesen', 'pacientes.assignedPlural': 'Patienten zugewiesen',
@@ -2601,6 +2618,7 @@ const I18N = {
     'medrem.recExcellent': 'Ausgezeichnete Therapietreue: Routine beibehalten', 'medrem.recLowActivityScheduling': 'Vorschlag: Medikamentenzeiten in Phasen geringerer Aktivität legen',
     // --- i18n gap 3 (continuous HR, export all, misc hints) ---
     'vitais.continuousHrHint': 'Sendet die Messanfrage automatisch erneut, solange aktiviert, bis du sie ausschaltest', 'vitais.continuousHrStartBtn': 'Kontinuierliche Messung',
+    'vitais.continuousHrActiveHint': 'Kontinuierliche Messung aktiv — wird automatisch aktualisiert.',
     'vitais.continuousHrStopBtn': 'Kontinuierliche Messung läuft — stoppen', 'vitais.measuringHint': 'Messung läuft…', 'vitais.secondsRemainingSuffix': 's verbleibend)',
     'vitais.measurementDoneHint': 'Messung abgeschlossen — Werte sollten jetzt aktuell sein.', 'vitais.noBridgeConnectionHint': 'Keine Verbindung zur Bridge — verbinde zuerst das Gerät.',
     'exportar.exportAllBtn': 'Alles exportieren (CSV)',
@@ -2723,6 +2741,8 @@ const I18N = {
     'resumo.liveActivityDisclaimer': 'Classificatore addestrato solo con dati sintetici — non validato clinicamente. Non utilizzare per la diagnosi.',
     'resumo.liveActivityCorrectBtn': 'Correggi', 'resumo.liveActivityCorrectedTo': 'Corretto dal caregiver: {cat}',
     'resumo.liveActivityCorrectionError': 'Impossibile salvare la correzione: {error}',
+    'resumo.liveActivityConfirmedByCaregiver': 'confermato dal caregiver', 'resumo.liveActivityAiSaysNow': 'L\'IA ora suggerisce: {cat} ({pct}%)',
+    'resumo.liveActivityCorrectionExpired': 'correzione obsoleta, mostrata di nuovo la classificazione IA',
     'resumo.routineTodayChartLabel': 'Routine di oggi', 'resumo.routineAnomalyChartLabel': 'Simulazione con anomalie',
     // --- pacientes ---
     'pacientes.monitoredCardTitle': 'Pazienti monitorati', 'pacientes.assignedSingular': 'paziente assegnato', 'pacientes.assignedPlural': 'pazienti assegnati',
@@ -2890,6 +2910,7 @@ const I18N = {
     'medrem.recExcellent': 'Aderenza eccellente: mantenere la routine', 'medrem.recLowActivityScheduling': 'Suggerimento: pianificare il farmaco nei periodi di minore attività',
     // --- i18n gap 3 (continuous HR, export all, misc hints) ---
     'vitais.continuousHrHint': 'Reinvia automaticamente la richiesta di misurazione finché attivo, finché non lo disattivi', 'vitais.continuousHrStartBtn': 'Lettura continua',
+    'vitais.continuousHrActiveHint': 'Lettura continua attiva — aggiornamento automatico.',
     'vitais.continuousHrStopBtn': 'Lettura continua in corso — ferma', 'vitais.measuringHint': 'Misurazione in corso…', 'vitais.secondsRemainingSuffix': 's rimanenti)',
     'vitais.measurementDoneHint': 'Lettura completata — i valori dovrebbero essere aggiornati.',
     'vitais.noBridgeConnectionHint': 'Nessuna connessione al bridge — collega prima il dispositivo.', 'exportar.exportAllBtn': 'Esporta tutto (CSV)',
@@ -6897,18 +6918,30 @@ function renderLiveActivityPanel(){
       : `<div class="activity-live-flag normal">✓ ${t('resumo.liveActivityDurationNormal', {cat: flagCatLabel, min: flag.durationMin})}</div>`;
   }
 
-  // Correção manual do cuidador (ver liveState.activityCorrection acima) —
-  // mostrada como linha adicional, nunca a substituir o que a IA disse
-  // (a IA continua a classificar de 10 em 10s independentemente da
-  // correção; esconder o valor real dela seria enganador).
-  let correctionHtml = '';
+  // Correção manual do cuidador (2026-07-22, revisto a pedido do
+  // utilizador: "não faz sentido ter um botão de correção se isso não
+  // servir para... a correção sobrepor-se ao que ela [a IA] pensa"). A
+  // correção passa a ser o valor PRINCIPAL mostrado (não só uma nota ao
+  // lado) enquanto estiver "fresca" (< ACTIVITY_CORRECTION_OVERRIDE_S) —
+  // a classificação em tempo real da IA continua visível, mas em segundo
+  // plano, para nunca esconder por completo o que o classificador está
+  // de facto a produzir (nem fingir que a correção "retreinou" o modelo —
+  // não há pipeline de retreino em tempo real; a correção fica guardada
+  // em bridge/storage.py::activity_corrections para uma eventual
+  // reavaliação/retreino futuro do classificador, isso sim).
   const corr = liveState.activityCorrection;
+  const correctionAgeS = corr && corr.correctedAtEpochS != null
+    ? (Date.now() / 1000) - corr.correctedAtEpochS : null;
+  const correctionActive = corr && correctionAgeS != null && correctionAgeS < ACTIVITY_CORRECTION_OVERRIDE_S;
+
+  let correctionHtml = '';
   if (corr){
-    const corrCatLabel = escapeHtml(corr.category);
     const timeLabel = corr.correctedAtEpochS != null
       ? new Date(corr.correctedAtEpochS * 1000).toLocaleTimeString(currentLang, {hour: '2-digit', minute: '2-digit'})
       : '';
-    correctionHtml = `<div class="activity-live-correction">✎ ${t('resumo.liveActivityCorrectedTo', {cat: corrCatLabel})}${timeLabel ? ` · ${timeLabel}` : ''}</div>`;
+    correctionHtml = correctionActive
+      ? `<div class="activity-live-correction ai-note">${t('resumo.liveActivityAiSaysNow', {cat: catLabel, pct})}</div>`
+      : `<div class="activity-live-correction">✎ ${t('resumo.liveActivityCorrectedTo', {cat: escapeHtml(corr.category)})}${timeLabel ? ` · ${timeLabel}` : ''} — ${t('resumo.liveActivityCorrectionExpired')}</div>`;
   }
 
   const pickerHtml = activityCorrectionPickerOpen ? `
@@ -6919,10 +6952,20 @@ function renderLiveActivityPanel(){
     </div>
   ` : '';
 
+  // Linha principal: se a correção está ativa, é ELA que aparece em
+  // destaque (categoria + "confirmado pelo cuidador"); a IA passa para a
+  // nota secundária acima (correctionHtml). Caso contrário, a IA volta a
+  // ser a linha principal, como sempre foi.
+  const mainCat = correctionActive ? escapeHtml(corr.category) : catLabel;
+  const mainColor = correctionActive ? categoryColorVar(corr.category) : categoryColorVar(a.category);
+  const mainSuffix = correctionActive
+    ? `<span class="conf">${t('resumo.liveActivityConfirmedByCaregiver')}</span>`
+    : `<span class="conf">${t('resumo.liveActivityConfidence', {pct})}</span>`;
+
   host.innerHTML = `
     <div class="activity-live-now">
-      <span class="cat" style="color:${categoryColorVar(a.category)}">${catLabel}</span>
-      <span class="conf">${t('resumo.liveActivityConfidence', {pct})}</span>
+      <span class="cat" style="color:${mainColor}">${mainCat}</span>
+      ${mainSuffix}
       ${liveState.connected ? `<button type="button" class="btn-link activity-correct-btn" onclick="toggleActivityCorrectionPicker()">${t('resumo.liveActivityCorrectBtn')}</button>` : ''}
     </div>
     ${correctionHtml}
@@ -6932,6 +6975,13 @@ function renderLiveActivityPanel(){
     <p class="activity-live-empty">${t('resumo.liveActivityDisclaimer')}</p>
   `;
 }
+
+// Quanto tempo uma correção do cuidador fica como valor PRINCIPAL exibido
+// (sobrepondo-se à classificação da IA) antes de ser considerada antiga
+// e o painel voltar a mostrar a IA em destaque — 30 min: suficiente para
+// uma verificação do cuidador continuar válida por um bocado, mas sem
+// ficar para sempre a apresentar como "atual" uma correção de horas atrás.
+const ACTIVITY_CORRECTION_OVERRIDE_S = 1800;
 
 // Vocabulário das 5 categorias (PT) usado pelo seletor de correção — o
 // mesmo conjunto fechado de ACTIVITY_CLASS_COLOR_VAR, como array (a ordem
@@ -7257,13 +7307,8 @@ function startForceReadingCountdown(){
   forceReadingIntervalId = setInterval(() => {
     remaining -= 1;
     if (remaining <= 0){
-      if (continuousHrIntervalId != null){
-        // Em modo contínuo, o próprio toggleContinuousHr() já vai reenviar
-        // o pedido a seguir — não mostrar "concluído" só para ser
-        // imediatamente substituído por "a medir" outra vez.
-        stopForceReadingCountdown();
-        return;
-      }
+      // Só chamado a partir de onForceReadingClick() (medição pontual) —
+      // o modo contínuo (toggleContinuousHr()) já não usa este countdown.
       finishForceReadingCountdown(t('vitais.measurementDoneHint'), false);
       return;
     }
@@ -7288,12 +7333,20 @@ function toggleContinuousHr(){
     if (hint){ hint.style.color = 'var(--status-warning)'; hint.textContent = t('vitais.noBridgeConnectionHint'); }
     return;
   }
+  // Em modo contínuo NÃO se repete o countdown de "Medir agora" a cada
+  // reenvio (~14 em 14s) — reportado pelo utilizador como sem sentido
+  // (2026-07-22): o countdown existe para uma medição pontual, não faz
+  // sentido reaparecer/reiniciar em loop enquanto o modo contínuo está
+  // ativo. Mostra-se um indicador fixo em vez disso; stopForceReadingCountdown()
+  // continua a existir para o caso de já haver um countdown de uma medição
+  // pontual anterior em curso quando o modo contínuo é ligado.
   const fire = () => {
     sendWsCommand('force_reading');
-    startForceReadingCountdown();
   };
   if (btn){ btn.className = 'btn-primary'; btn.setAttribute('aria-pressed', 'true'); btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg> ${t('vitais.continuousHrStopBtn')}`; }
   if (forceBtn) forceBtn.disabled = true;
+  stopForceReadingCountdown();
+  if (hint){ hint.style.color = 'var(--status-good)'; hint.textContent = t('vitais.continuousHrActiveHint'); }
   fire();
   continuousHrIntervalId = setInterval(fire, (FORCE_READING_SECONDS - 1) * 1000);
 }

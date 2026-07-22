@@ -235,12 +235,19 @@ static bool detectFreefall(float accMag) {
 // de monitorizacao de pessoas com demencia.
 static bool detectInactivity(float accMag, float gx, float gy, float gz) {
   constexpr float kGyroStillDps = 6.0f;
-  // *** CORRECAO DE ROBUSTEZ ***: 0.05g estava demasiado apertado para uso
-  // real (segurar a placa na mao introduz vibracao/tremor de poucas
-  // dezenas de mg, que facilmente ultrapassa este limiar). Alargado para
-  // 0.08g, ainda bem abaixo do que um movimento real produz.
-  constexpr float kAccelStillDeltaG = 0.08f;
-  constexpr uint16_t kInactivitySamples = 156; // 3 s @ 52 Hz
+  // *** CORRECAO DE ROBUSTEZ (2ª ronda, 2026-07-22) ***: mesmo a 0.08g
+  // (correcao anterior), o utilizador reportou em teste real que o
+  // streaming continuo de FC "nunca" arrancava com a placa no pulso —
+  // 3s SEGUIDOS sem nenhuma amostra acima de 0.08g de variacao e' dificil
+  // de sustentar mesmo parado, dado o micro-tremor normal de um pulso
+  // acordado. Alargado para 0.12g (ainda bem abaixo de um movimento
+  // deliberado) e a janela exigida reduzida de 3s para 2s
+  // (kInactivitySamples). O "contador com fuga" (kNoiseDecay) já cobre a
+  // rejeicao de movimento real sustentado; esta segunda ronda so' torna a
+  // deteccao mais tolerante ao ruido residual de um pulso "parado" mas
+  // vivo, nao muda a logica.
+  constexpr float kAccelStillDeltaG = 0.12f;
+  constexpr uint16_t kInactivitySamples = 104; // 2 s @ 52 Hz
   // *** CORRECAO DE ROBUSTEZ ***: a logica original reiniciava o contador
   // para 0 numa UNICA amostra fora do limiar — bastava uma amostra
   // ruidosa (das 156 seguidas exigidas) para nunca se atingir 3s de
