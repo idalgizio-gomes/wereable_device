@@ -263,6 +263,15 @@ struct __attribute__((packed)) DumpStatusPacket {
   uint32_t seq;
   uint32_t sent_records;
   uint32_t acked_records;
+  // "ring_count" (2026-07-21, pedido do utilizador: barra real de
+  // progresso da transferencia no dashboard): quantos registos continuam
+  // por enviar no ring buffer NESTE INSTANTE (QspiRingBuffer::count()).
+  // Sem bytes reservados livres para reaproveitar (ao contrario de
+  // data_loss_flag) — bump de formato de 16 para 20 bytes, exige
+  // atualizar em conjunto o static_assert abaixo e o parsing em
+  // bridge/ble_bridge.py (_on_dump_status/struct.unpack_from), mesmo
+  // padrao ja seguido quando FullPlain cresceu de 38 para 39 bytes.
+  uint32_t ring_count;
 };
 
 // Resultado de mapear um Record generico do ring buffer para o formato
@@ -286,7 +295,7 @@ struct __attribute__((packed)) EmergencyAlertPacket {
 
 static_assert(sizeof(FullPlain) == 39, "FullPlain v3 must have 39 bytes");
 static_assert(sizeof(DumpDataPacket) == 20, "DumpDataPacket must have 20 bytes");
-static_assert(sizeof(DumpStatusPacket) == 16, "DumpStatusPacket must have 16 bytes");
+static_assert(sizeof(DumpStatusPacket) == 20, "DumpStatusPacket must have 20 bytes");
 static_assert(sizeof(EmergencyAlertPacket) == 8, "EmergencyAlertPacket must have 8 bytes");
 
 // Flags "volatile" porque sao escritas dentro de callbacks BLE (que
@@ -353,6 +362,10 @@ void publishDumpStatus(uint8_t state, uint8_t reason, uint32_t seq) {
   st.type = kDumpStatusType;
   st.state = state;
   st.reason = reason;
+  // Uma só chamada a count(), reaproveitada abaixo tanto para o cálculo de
+  // "quase cheio" como para ring_count — evita adquirir o mutex do ring
+  // buffer duas vezes seguidas para o mesmo valor.
+  const uint32_t ringCountNow = QspiRingBuffer::count();
   if (QspiRingBuffer::droppedByErase() > 0) {
     st.data_loss_flag = 2; // já a substituir dados
   } else {
@@ -361,12 +374,13 @@ void publishDumpStatus(uint8_t state, uint8_t reason, uint32_t seq) {
     // qualquer perda real acontecer. Constante partilhada com o aviso
     // equivalente em QspiRingBuffer.cpp — manter sincronizado.
     const uint32_t cap = QspiRingBuffer::capacity();
-    const bool nearFull = cap > 0 && (static_cast<float>(QspiRingBuffer::count()) / cap) >= QspiRingBuffer::kRingBufferNearFullThreshold;
+    const bool nearFull = cap > 0 && (static_cast<float>(ringCountNow) / cap) >= QspiRingBuffer::kRingBufferNearFullThreshold;
     st.data_loss_flag = nearFull ? 1 : 0;
   }
   st.seq = seq;
   st.sent_records = s_dumpSentRecords;
   st.acked_records = s_dumpAckedRecords;
+  st.ring_count = ringCountNow;
 
   dumpStatusChar.write(reinterpret_cast<const uint8_t *>(&st), sizeof(st));
   if (Bluefruit.connected() > 0) {

@@ -922,21 +922,28 @@ class BleBridge:
 
     def _on_dump_status(self, _char: BleakGATTCharacteristic, data: bytearray) -> None:
         """Callback de notificação da characteristic dumpStatusChar
-        (DumpStatusPacket, 16 bytes): type, state, reason, data_loss_flag,
-        seq, sent_records, acked_records — ver Ble.cpp para o significado
-        de cada "reason". 'data_loss_flag' (2026-07-03): 0=normal,
-        1=ring buffer quase cheio (aviso antecipado, ainda sem perdas),
-        2=já a substituir registos antigos não consumidos.
+        (DumpStatusPacket, 20 bytes desde 2026-07-21 — antes 16, ver bump
+        de formato em Ble.cpp): type, state, reason, data_loss_flag,
+        seq, sent_records, acked_records, ring_count — ver Ble.cpp para o
+        significado de cada "reason". 'data_loss_flag' (2026-07-03):
+        0=normal, 1=ring buffer quase cheio (aviso antecipado, ainda sem
+        perdas), 2=já a substituir registos antigos não consumidos.
+        'ring_count' (2026-07-21): quantos registos continuam por enviar
+        no ring buffer NESTE INSTANTE — permite ao dashboard calcular uma
+        percentagem real de progresso da transferência (sent_records vs.
+        sent_records + ring_count), em vez de só uma contagem acumulada
+        sem noção de "quanto falta".
         """
-        if len(data) < 16:
+        if len(data) < 20:
             return
-        _type, state, reason, data_loss_flag, seq, sent, acked = struct.unpack_from(
-            "<BBBBIII", data, 0
+        _type, state, reason, data_loss_flag, seq, sent, acked, ring_count = struct.unpack_from(
+            "<BBBBIIII", data, 0
         )
         asyncio.create_task(self.broadcast({
             "kind": "status", "state": state, "reason": reason,
             "data_loss_flag": data_loss_flag,
             "seq": seq, "sent_records": sent, "acked_records": acked,
+            "ring_count": ring_count,
         }))
 
     def _on_battery_level(self, _char: BleakGATTCharacteristic, data: bytearray) -> None:

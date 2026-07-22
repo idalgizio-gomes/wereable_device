@@ -100,6 +100,28 @@
   ::selection{ background:var(--accent-dim); }
   :focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
   button, input, select{ font-family:inherit; font-size:inherit; color:inherit; }
+  /* CONTRASTE CORRIGIDO (2026-07-21, reportado pelo utilizador): inputs
+     soltos fora de .field/.row-input (ex.: os 3 campos do formulário de
+     "Adicionar medicamento", e outros .note-form) não tinham nenhum
+     fundo/cor próprios — ficavam com o branco nativo do browser mas a
+     cor de texto herdada do tema (clara, pensada para fundos escuros),
+     dando texto quase ilegível sobre fundo branco. Regra de baixa
+     especificidade (perde sempre para .field input/.row-input, que já
+     tinham fundo/cor corretos) só para apanhar os inputs que ainda não
+     tinham nenhum estilo. */
+  input[type="text"], input[type="number"], input[type="time"], input[type="date"],
+  input[type="email"], input[type="tel"], input[type="password"], input[type="search"],
+  textarea, select {
+    background:var(--bg-surface-2); color:var(--text-primary);
+    border:1px solid var(--border); border-radius:var(--radius-sm); padding:8px 10px;
+  }
+  /* Mesmo destaque ao focar já usado em .note-form textarea/.field input —
+     agora consistente em todos os campos, não só nesses dois sítios. */
+  input[type="text"]:focus, input[type="number"]:focus, input[type="time"]:focus, input[type="date"]:focus,
+  input[type="email"]:focus, input[type="tel"]:focus, input[type="password"]:focus, input[type="search"]:focus,
+  textarea:focus, select:focus {
+    border-color:var(--accent);
+  }
   h1,h2,h3,h4{ margin:0; text-wrap:balance; letter-spacing:-0.01em; }
   p{ margin:0; }
   a{ color:var(--link); }
@@ -1110,6 +1132,7 @@ const I18N = {
     'medicacao.analyticsHint': 'regista-se um dia de cada vez, só a partir de hoje, quando marcares alguma dose como tomada. Não é um histórico retroativo.',
     'medicacao.prototypeNote2': 'Protótipo: guardado só neste browser (localStorage), independente do cartão "Adesão — últimos 6 dias" abaixo (esse continua com dados de exemplo). Some se limpares os dados do browser ou mudares de dispositivo — não substitui o serviço de persistência real (ver PROJECT_STATUS.md, "Base de dados").',
     'medicacao.card1Subtitle': 'Lembretes de hoje e registo de adesão', 'medicacao.thMed': 'Medicamento', 'medicacao.thDose': 'Dose', 'medicacao.thTime': 'Hora', 'medicacao.thStatus': 'Estado',
+    'medicacao.thAction': 'Ação',
     'medicacao.noMedsEmpty': 'Sem medicação registada para este paciente.', 'medicacao.todayAdherencePrefix': 'Adesão de hoje:',
     'medicacao.todayAdherenceSuffix': 'das doses agendadas já confirmadas.',
     'medicacao.prototypeNote1': 'Protótipo: "Marcar como tomado" fica guardado só neste browser (localStorage), namespaced por paciente e dia — não substitui um registo clínico de adesão real nem envia lembretes (push/SMS) ao dispositivo do cuidador.',
@@ -1182,6 +1205,7 @@ const I18N = {
     'perfil.requiresApprovalNote': 'alterações a este campo exigem aprovação da equipa clínica',
     'topbar.storageFullWarning': 'O armazenamento do wearable está cheio — dados ainda não transferidos para o computador estão a ser substituídos agora. Mantém o bridge ligado: a transferência por Bluetooth já está a decorrer ao máximo possível.',
     'topbar.storageDrainProgressPrefix': '· já transferidos:', 'topbar.storageDrainProgressSuffix': ' registos',
+    'topbar.storageDrainPctSuffix': 'concluído', 'topbar.storageDrainRemainingSuffix': 'por enviar',
     'topbar.storageAlmostFullWarning': 'O armazenamento do wearable está quase cheio (≥90%) — mantém o bridge ligado para a transferência continuar antes de começar a substituir dados.',
     'resumo.movementStill': 'Parado', 'resumo.movementActive': 'Ativo', 'resumo.fallsRecentDetection': 'Deteção recente',
     'tendencia.realHistoryNotEnoughData': 'Ainda sem dados suficientes na base de dados local do bridge para estes dias.',
@@ -1390,6 +1414,7 @@ const I18N = {
     'medicacao.analyticsHint': 'it is recorded one day at a time, only from today onwards, when you mark a dose as taken. It is not a retroactive history.',
     'medicacao.prototypeNote2': 'Prototype: stored only in this browser (localStorage), independent of the "Adherence — last 6 days" card below (that one still uses sample data). It disappears if you clear the browser data or switch device — it does not replace the real persistence service (see PROJECT_STATUS.md, "Database").',
     'medicacao.card1Subtitle': 'Today\'s reminders and adherence log', 'medicacao.thMed': 'Medication', 'medicacao.thDose': 'Dose', 'medicacao.thTime': 'Time', 'medicacao.thStatus': 'Status',
+    'medicacao.thAction': 'Action',
     'medicacao.noMedsEmpty': 'No medication registered for this patient.', 'medicacao.todayAdherencePrefix': 'Today\'s adherence:',
     'medicacao.todayAdherenceSuffix': 'of the scheduled doses already confirmed.',
     'medicacao.prototypeNote1': 'Prototype: "Mark as taken" is stored only in this browser (localStorage), namespaced by patient and day — it does not replace a real clinical adherence record nor send reminders (push/SMS) to the caregiver\'s device.',
@@ -1460,6 +1485,7 @@ const I18N = {
     'perfil.requiresApprovalNote': 'changes to this field require approval from the clinical team',
     'topbar.storageFullWarning': "The wearable's storage is full — data not yet transferred to the computer is being overwritten now. Keep the bridge connected: the Bluetooth transfer is already running at full speed.",
     'topbar.storageDrainProgressPrefix': '· transferred so far:', 'topbar.storageDrainProgressSuffix': ' records',
+    'topbar.storageDrainPctSuffix': 'complete', 'topbar.storageDrainRemainingSuffix': 'remaining',
     'topbar.storageAlmostFullWarning': 'The wearable\'s storage is almost full (≥90%) — keep the bridge connected so the transfer can continue before data starts being overwritten.',
     'resumo.movementStill': 'Still', 'resumo.movementActive': 'Active', 'resumo.fallsRecentDetection': 'Recent detection',
     'tendencia.realHistoryNotEnoughData': 'Not enough data yet in the bridge\'s local database for these days.',
@@ -1643,6 +1669,7 @@ const I18N = {
     'medicacao.analyticsHint': '每次记录一天，仅从今天起，当你把某次剂量标记为已服用时记录。这不是回溯性历史记录。',
     'medicacao.prototypeNote2': '原型：仅保存在本浏览器（localStorage）中，独立于下方的"依从性 — 最近 6 天"卡片（那张卡片仍使用示例数据）。若清除浏览器数据或更换设备，它会消失——它不能替代真正的持久化服务（参见 PROJECT_STATUS.md，"数据库"）。',
     'medicacao.card1Subtitle': '今日提醒与依从性记录', 'medicacao.thMed': '药物', 'medicacao.thDose': '剂量', 'medicacao.thTime': '时间', 'medicacao.thStatus': '状态', 'medicacao.noMedsEmpty': '该患者未登记任何药物。',
+    'medicacao.thAction': '操作',
     'medicacao.todayAdherencePrefix': '今日依从性：', 'medicacao.todayAdherenceSuffix': '的已排定剂量已确认。',
     'medicacao.prototypeNote1': '原型："标记为已服用"仅保存在本浏览器（localStorage）中，按患者和日期分区——它不能替代真正的临床依从性记录，也不会向照护者设备发送提醒（推送/短信）。', 'medicacao.manageTitle': '管理药物（临床团队）',
     'medicacao.manageSubtitle': '添加或移除已开给以下患者的药物：', 'medicacao.thTimes': '时间安排', 'medicacao.medNamePlaceholder': '药物名称（例如 Donepezilo）', 'medicacao.dosePlaceholder': '剂量（例如 5mg）',
@@ -1693,6 +1720,7 @@ const I18N = {
     'rotina.pacingExplainHint': '指数越高＝方向急转弯次数比平时多——可能表示在家中游走（wandering），即使没有离开 GPS 覆盖范围。单一数值不必担心；若持续多日上升则值得留意。', 'medicacao.analyticsRealDataFlag': '来自此浏览器的真实数据',
     'perfil.currentValueLabel': '当前值：', 'perfil.pendingChangeLabel': '请求的更改（待批准）：', 'perfil.requiresApprovalNote': '更改此字段需要临床团队批准', 'topbar.storageFullWarning': '穿戴设备存储已满 — 尚未传输到电脑的数据正在被覆盖。请保持网桥连接：蓝牙传输已在全速进行中。',
     'topbar.storageDrainProgressPrefix': '· 已传输：', 'topbar.storageDrainProgressSuffix': ' 条记录',
+    'topbar.storageDrainPctSuffix': '已完成', 'topbar.storageDrainRemainingSuffix': '待发送',
     'topbar.storageAlmostFullWarning': '穿戴设备存储即将占满 (≥90%) — 请保持网桥连接，以便在数据开始被覆盖之前继续传输。',
     'resumo.movementStill': '静止', 'resumo.movementActive': '活跃', 'resumo.fallsRecentDetection': '最近检测到', 'tendencia.realHistoryNotEnoughData': '网桥本地数据库中这些天的数据尚不足。',
     'tendencia.realHistoryNotConnected': '未连接到网桥 — 连接设备以查看真实历史记录。', 'tendencia.realHistoryReadings': '次读数', 'tendencia.realHistoryNoReadings': '无读数', 'rotina.noteAuthorFamily': '家属',
@@ -1888,7 +1916,7 @@ const I18N = {
     'medicacao.analyticsHint': 'se registra un día a la vez, solo a partir de hoy, cuando marques alguna dosis como tomada. No es un historial retroactivo.',
     'medicacao.prototypeNote2': 'Prototipo: guardado solo en este navegador (localStorage), independiente de la tarjeta "Adherencia — últimos 6 días" de abajo (esa sigue con datos de ejemplo). Desaparece si borras los datos del navegador o cambias de dispositivo — no sustituye el servicio de persistencia real (ver PROJECT_STATUS.md, "Base de datos").',
     'medicacao.card1Subtitle': 'Recordatorios de hoy y registro de adherencia', 'medicacao.thMed': 'Medicamento', 'medicacao.thDose': 'Dosis', 'medicacao.thTime': 'Hora',
-    'medicacao.thStatus': 'Estado', 'medicacao.noMedsEmpty': 'Sin medicación registrada para este paciente.', 'medicacao.todayAdherencePrefix': 'Adherencia de hoy:',
+    'medicacao.thStatus': 'Estado', 'medicacao.thAction': 'Acción', 'medicacao.noMedsEmpty': 'Sin medicación registrada para este paciente.', 'medicacao.todayAdherencePrefix': 'Adherencia de hoy:',
     'medicacao.todayAdherenceSuffix': 'de las dosis programadas ya confirmadas.',
     'medicacao.prototypeNote1': 'Prototipo: "Marcar como tomado" se guarda solo en este navegador (localStorage), con espacio de nombres por paciente y día — no sustituye un registro clínico de adherencia real ni envía recordatorios (push/SMS) al dispositivo del cuidador.',
     'medicacao.manageTitle': 'Gestionar medicación (equipo clínico)', 'medicacao.manageSubtitle': 'Añadir o eliminar medicamentos prescritos a', 'medicacao.thTimes': 'Horarios',
@@ -1960,6 +1988,7 @@ const I18N = {
     'perfil.pendingChangeLabel': 'Cambio solicitado (pendiente de aprobación):', 'perfil.requiresApprovalNote': 'los cambios en este campo requieren aprobación del equipo clínico',
     'topbar.storageFullWarning': 'El almacenamiento del wearable está lleno — los datos aún no transferidos al ordenador se están sobrescribiendo ahora. Mantén el bridge conectado: la transferencia por Bluetooth ya está funcionando al máximo.',
     'topbar.storageDrainProgressPrefix': '· ya transferidos:', 'topbar.storageDrainProgressSuffix': ' registros',
+    'topbar.storageDrainPctSuffix': 'completado', 'topbar.storageDrainRemainingSuffix': 'por enviar',
     'topbar.storageAlmostFullWarning': 'El almacenamiento del wearable está casi lleno (≥90%) — mantén el bridge conectado para que la transferencia continúe antes de que empiecen a sobrescribirse los datos.',
     'resumo.movementStill': 'Quieto', 'resumo.movementActive': 'Activo', 'resumo.fallsRecentDetection': 'Detección reciente',
     'tendencia.realHistoryNotEnoughData': 'Aún no hay suficientes datos en la base de datos local del bridge para estos días.',
@@ -2172,6 +2201,7 @@ const I18N = {
     'medicacao.analyticsHint': 'il s\'enregistre un jour à la fois, uniquement à partir d\'aujourd\'hui, lorsque vous marquez une dose comme prise. Ce n\'est pas un historique rétroactif.',
     'medicacao.prototypeNote2': 'Prototype : enregistré uniquement dans ce navigateur (localStorage), indépendant de la carte « Observance — 6 derniers jours » ci-dessous (celle-ci utilise toujours des données d\'exemple). Il disparaît si vous effacez les données du navigateur ou changez d\'appareil — il ne remplace pas le véritable service de persistance (voir PROJECT_STATUS.md, « Base de données »).',
     'medicacao.card1Subtitle': 'Rappels du jour et journal d\'observance', 'medicacao.thMed': 'Médicament', 'medicacao.thDose': 'Dose', 'medicacao.thTime': 'Heure', 'medicacao.thStatus': 'État',
+    'medicacao.thAction': 'Action',
     'medicacao.noMedsEmpty': 'Aucun médicament enregistré pour ce patient.', 'medicacao.todayAdherencePrefix': 'Observance d\'aujourd\'hui :',
     'medicacao.todayAdherenceSuffix': 'des doses programmées déjà confirmées.',
     'medicacao.prototypeNote1': 'Prototype : « Marquer comme pris » n\'est enregistré que dans ce navigateur (localStorage), cloisonné par patient et par jour — il ne remplace pas un véritable dossier clinique d\'observance et n\'envoie pas de rappels (push/SMS) à l\'appareil de l\'aidant.',
@@ -2247,6 +2277,7 @@ const I18N = {
     'perfil.requiresApprovalNote': 'les modifications de ce champ nécessitent l\'approbation de l\'équipe clinique',
     'topbar.storageFullWarning': "Le stockage du wearable est plein — les données pas encore transférées vers l'ordinateur sont en train d'être écrasées. Gardez le bridge connecté : le transfert Bluetooth fonctionne déjà à plein régime.",
     'topbar.storageDrainProgressPrefix': '· déjà transférés :', 'topbar.storageDrainProgressSuffix': ' enregistrements',
+    'topbar.storageDrainPctSuffix': 'terminé', 'topbar.storageDrainRemainingSuffix': 'restants',
     'topbar.storageAlmostFullWarning': "Le stockage du wearable est presque plein (≥90 %) — gardez le bridge connecté pour que le transfert continue avant que les données ne commencent à être écrasées.",
     'resumo.movementStill': 'Immobile', 'resumo.movementActive': 'Actif',
     'resumo.fallsRecentDetection': 'Détection récente', 'tendencia.realHistoryNotEnoughData': 'Pas encore assez de données dans la base de données locale du bridge pour ces jours.',
@@ -2461,7 +2492,7 @@ const I18N = {
     'medicacao.analyticsHint': 'er wird Tag für Tag erfasst, erst ab heute, wenn Sie eine Dosis als eingenommen markieren. Es ist kein rückwirkender Verlauf.',
     'medicacao.prototypeNote2': 'Prototyp: nur in diesem Browser gespeichert (localStorage), unabhängig von der Karte „Einnahmetreue — letzte 6 Tage“ unten (diese verwendet weiterhin Beispieldaten). Er verschwindet, wenn Sie die Browserdaten löschen oder das Gerät wechseln — er ersetzt nicht den echten Persistenzdienst (siehe PROJECT_STATUS.md, „Datenbank“).',
     'medicacao.card1Subtitle': 'Heutige Erinnerungen und Einnahmetreue-Protokoll', 'medicacao.thMed': 'Medikament', 'medicacao.thDose': 'Dosis', 'medicacao.thTime': 'Uhrzeit',
-    'medicacao.thStatus': 'Status', 'medicacao.noMedsEmpty': 'Für diesen Patienten ist keine Medikation erfasst.', 'medicacao.todayAdherencePrefix': 'Einnahmetreue heute:',
+    'medicacao.thStatus': 'Status', 'medicacao.thAction': 'Aktion', 'medicacao.noMedsEmpty': 'Für diesen Patienten ist keine Medikation erfasst.', 'medicacao.todayAdherencePrefix': 'Einnahmetreue heute:',
     'medicacao.todayAdherenceSuffix': 'der geplanten Dosen bereits bestätigt.',
     'medicacao.prototypeNote1': 'Prototyp: „Als eingenommen markieren“ wird nur in diesem Browser gespeichert (localStorage), nach Patient und Tag getrennt — es ersetzt keine echte klinische Einnahmedokumentation und sendet keine Erinnerungen (Push/SMS) an das Gerät der Pflegeperson.',
     'medicacao.manageTitle': 'Medikation verwalten (klinisches Team)', 'medicacao.manageSubtitle': 'Verordnete Medikamente hinzufügen oder entfernen für:', 'medicacao.thTimes': 'Uhrzeiten',
@@ -2534,6 +2565,7 @@ const I18N = {
     'perfil.pendingChangeLabel': 'Angeforderte Änderung (Genehmigung ausstehend):', 'perfil.requiresApprovalNote': 'Änderungen an diesem Feld erfordern die Genehmigung des klinischen Teams',
     'topbar.storageFullWarning': 'Der Speicher des Wearables ist voll — noch nicht auf den Computer übertragene Daten werden gerade überschrieben. Halte die Bridge verbunden: die Bluetooth-Übertragung läuft bereits mit voller Geschwindigkeit.',
     'topbar.storageDrainProgressPrefix': '· bisher übertragen:', 'topbar.storageDrainProgressSuffix': ' Datensätze',
+    'topbar.storageDrainPctSuffix': 'abgeschlossen', 'topbar.storageDrainRemainingSuffix': 'verbleibend',
     'topbar.storageAlmostFullWarning': 'Der Speicher des Wearables ist fast voll (≥90 %) — halte die Bridge verbunden, damit die Übertragung weiterläuft, bevor Daten überschrieben werden.',
     'resumo.movementStill': 'Ruhig', 'resumo.movementActive': 'Aktiv', 'resumo.fallsRecentDetection': 'Kürzliche Erkennung',
     'tendencia.realHistoryNotEnoughData': 'Noch nicht genügend Daten in der lokalen Datenbank der Bridge für diese Tage.',
@@ -2747,6 +2779,7 @@ const I18N = {
     'medicacao.analyticsHint': 'si registra un giorno alla volta, solo a partire da oggi, quando segni una dose come assunta. Non è uno storico retroattivo.',
     'medicacao.prototypeNote2': 'Prototipo: salvato solo in questo browser (localStorage), indipendente dalla scheda "Aderenza — ultimi 6 giorni" qui sotto (quella usa ancora dati di esempio). Scompare se cancelli i dati del browser o cambi dispositivo — non sostituisce il servizio di persistenza reale (vedi PROJECT_STATUS.md, "Database").',
     'medicacao.card1Subtitle': 'Promemoria di oggi e registro dell\'aderenza', 'medicacao.thMed': 'Farmaco', 'medicacao.thDose': 'Dose', 'medicacao.thTime': 'Ora', 'medicacao.thStatus': 'Stato',
+    'medicacao.thAction': 'Azione',
     'medicacao.noMedsEmpty': 'Nessun farmaco registrato per questo paziente.', 'medicacao.todayAdherencePrefix': 'Aderenza di oggi:',
     'medicacao.todayAdherenceSuffix': 'delle dosi programmate già confermate.',
     'medicacao.prototypeNote1': 'Prototipo: "Segna come assunto" viene salvato solo in questo browser (localStorage), suddiviso per paziente e giorno — non sostituisce una vera cartella clinica di aderenza né invia promemoria (push/SMS) al dispositivo del caregiver.',
@@ -2819,6 +2852,7 @@ const I18N = {
     'perfil.pendingChangeLabel': 'Modifica richiesta (in attesa di approvazione):', 'perfil.requiresApprovalNote': 'le modifiche a questo campo richiedono l\'approvazione del team clinico',
     'topbar.storageFullWarning': 'La memoria del wearable è piena — i dati non ancora trasferiti al computer vengono sovrascritti ora. Mantieni il bridge connesso: il trasferimento Bluetooth è già alla massima velocità possibile.',
     'topbar.storageDrainProgressPrefix': '· già trasferiti:', 'topbar.storageDrainProgressSuffix': ' record',
+    'topbar.storageDrainPctSuffix': 'completato', 'topbar.storageDrainRemainingSuffix': 'da inviare',
     'topbar.storageAlmostFullWarning': 'La memoria del wearable è quasi piena (≥90%) — mantieni il bridge connesso affinché il trasferimento continui prima che i dati inizino a essere sovrascritti.',
     'resumo.movementStill': 'Fermo', 'resumo.movementActive': 'Attivo', 'resumo.fallsRecentDetection': 'Rilevamento recente',
     'tendencia.realHistoryNotEnoughData': 'Non ci sono ancora dati sufficienti nel database locale del bridge per questi giorni.',
@@ -5776,7 +5810,7 @@ TEMPLATES.medicacao = () => {
     <div class="card-head"><div><h3>${t('nav.medication')} — ${p.name} <span class="sim-flag">protótipo</span></h3><div class="card-sub">${t('medicacao.card1Subtitle')}</div></div></div>
     ${meds.length ? `
     <table class="data-table">
-      <thead><tr><th>${t('medicacao.thMed')}</th><th>${t('medicacao.thDose')}</th><th>${t('medicacao.thTime')}</th><th>${t('medicacao.thStatus')}</th><th></th></tr></thead>
+      <thead><tr><th>${t('medicacao.thMed')}</th><th>${t('medicacao.thDose')}</th><th>${t('medicacao.thTime')}</th><th>${t('medicacao.thStatus')}</th><th>${t('medicacao.thAction')}</th></tr></thead>
       <tbody>${doseRows}</tbody>
     </table>
     ` : `<p class="empty-hint">${t('medicacao.noMedsEmpty')}</p>`}
@@ -6676,12 +6710,15 @@ const liveState = {
   // o bridge (ver handleBridgeMessage() abaixo e Ble.cpp/ble_bridge.py).
   dataLossFlag: 0,
   // sentRecords (DumpStatusPacket::sent, via bridge): contagem cumulativa
-  // de registos já transferidos do wearable nesta sessão de ligação — não
-  // é "quantos faltam" (o firmware não expõe o tamanho do buffer em anel
-  // por BLE hoje, só via log série local), mas dá visibilidade de que a
-  // transferência está mesmo a avançar, em vez de um aviso vermelho
-  // parado sem indicação de progresso (pedido do utilizador).
+  // de registos já transferidos do wearable nesta sessão de ligação.
   sentRecords: null,
+  // ringCount (2026-07-21, DumpStatusPacket::ring_count via bridge — bump
+  // de formato de 16 para 20 bytes, ver Ble.cpp/ble_bridge.py): quantos
+  // registos continuam por enviar no ring buffer NESTE INSTANTE. Combinado
+  // com sentRecords dá uma percentagem real de progresso da transferência
+  // (sentRecords / (sentRecords + ringCount)) — antes desta correção não
+  // havia como saber "quanto falta", só a contagem acumulada enviada.
+  ringCount: null,
   // Nível de bateria (0-100, ver Battery Service BLE padrão 0x180F/0x2A19,
   // firmware a partir de 2026-07-19) — null até chegar a primeira leitura.
   // Ao contrário de hr/spo2, não se reinicia ao perder a ligação: é o
@@ -6723,20 +6760,27 @@ function renderStorageWarningBanner(){
   if (!flag) { el.style.display = 'none'; el.className = 'storage-warning-banner print-hide'; return; }
   el.className = `storage-warning-banner print-hide level-${flag}`;
   el.style.display = 'flex';
-  // Progresso ao vivo (pedido do utilizador): o firmware não expõe o
-  // tamanho do buffer em anel por BLE hoje (só em log série local), por
-  // isso não há como mostrar "faltam X registos" com precisão — mas
-  // sentRecords (contagem cumulativa desta ligação) já confirma
-  // visivelmente que a transferência está a avançar, em vez de um aviso
-  // parado sem qualquer sinal de progresso.
-  const progress = liveState.sentRecords != null
+  // Progresso ao vivo (2026-07-21): antes só existia sentRecords
+  // (contagem cumulativa desta ligação), sem noção de "quanto falta" — o
+  // firmware não expunha o tamanho do buffer em anel por BLE. Desde o
+  // bump de formato do DumpStatusPacket (16->20 bytes, ver Ble.cpp/
+  // ble_bridge.py), ring_count chega também, permitindo uma percentagem
+  // real: sentRecords / (sentRecords + ringCount).
+  const haveBoth = liveState.sentRecords != null && liveState.ringCount != null;
+  const totalKnown = haveBoth ? liveState.sentRecords + liveState.ringCount : null;
+  const pctDone = haveBoth && totalKnown > 0 ? Math.round((liveState.sentRecords / totalKnown) * 100) : null;
+  const progressText = liveState.sentRecords != null
     ? ` ${t('topbar.storageDrainProgressPrefix')} ${liveState.sentRecords.toLocaleString(currentLang)}${t('topbar.storageDrainProgressSuffix')}`
     : '';
+  const progressBar = pctDone != null ? `
+    <div class="meter-track" style="margin-top:6px;"><div class="meter-fill" style="width:${pctDone}%; background:var(--status-good)"></div></div>
+    <span class="tabular" style="font-size:12px;">${pctDone}% ${t('topbar.storageDrainPctSuffix')} (${liveState.ringCount.toLocaleString(currentLang)} ${t('topbar.storageDrainRemainingSuffix')})</span>
+  ` : '';
   el.innerHTML = flag === 2
     ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
-       <span>${t('topbar.storageFullWarning')}${progress}</span>`
+       <span>${t('topbar.storageFullWarning')}${progressText}${progressBar}</span>`
     : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
-       <span>${t('topbar.storageAlmostFullWarning')}${progress}</span>`;
+       <span>${t('topbar.storageAlmostFullWarning')}${progressText}${progressBar}</span>`;
 }
 
 // Atualiza a pastilha de estado do dispositivo na barra superior.
@@ -6913,6 +6957,7 @@ function handleBridgeMessage(msg){
   if (msg.kind === 'status'){
     liveState.dataLossFlag = toFiniteNumber(msg.data_loss_flag) || 0;
     liveState.sentRecords = toFiniteNumber(msg.sent_records);
+    liveState.ringCount = toFiniteNumber(msg.ring_count);
     renderStorageWarningBanner();
     return;
   }
