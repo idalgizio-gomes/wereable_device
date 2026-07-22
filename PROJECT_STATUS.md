@@ -5533,3 +5533,30 @@ de terminal original, não em `bridge/device_key.env` guardado em disco —
 esse ficheiro existe e foi usado para o reinício correto, sem nunca expor
 o valor da chave). Ambos os problemas foram corrigidos antes de declarar
 a funcionalidade validada.
+
+## Migração Alembic do consentimento aplicada à BD local de desenvolvimento (2026-07-22)
+
+Causa raiz de "dual-write ORM desativado" descoberta ao reiniciar o
+bridge nesta sessão (`sqlite3.OperationalError: no such column:
+consent_records.given_by`): **dois** problemas empilhados, não um só.
+
+1. `alembic` está em `requirements_db.txt` mas não estava instalado neste
+   ambiente (`pip show alembic` → not found) — ninguém conseguia ter
+   corrido `alembic upgrade head` mesmo que tentasse.
+2. `bridge/carewear.db` (BD local, 117427 registos de sensores reais) foi
+   criada em algum momento via `Base.metadata.create_all()` (não via
+   Alembic desde o início) — não tinha tabela `alembic_version`. O
+   esquema real já batia certo com a revisão `09f7da2ef011` (constraint
+   única de `medication_adherence` já presente), só faltava
+   `b7c4f1a9e230` (campos de representante/base legal).
+
+Corrigido: `pip install alembic`; backup do `.db` antes de qualquer
+alteração (fora do repo, `bridge/*.db` já está no `.gitignore`);
+`alembic stamp 09f7da2ef011` (marca o ponto real onde a BD já estava,
+sem tentar recriar tabelas existentes); `alembic upgrade head` (aplica só
+a migração em falta). Verificado: 4 colunas novas presentes em
+`consent_records` (tabela vazia, sem dados a perder), `sensor_records`
+intacto (117427 linhas), bridge reiniciado sem o aviso de dual-write
+desativado, 141/141 testes a passar. Nenhuma alteração de código —
+correção puramente operacional na BD local deste ambiente; uma BD nova
+(`alembic upgrade head` a partir do zero) nunca teria este problema.
