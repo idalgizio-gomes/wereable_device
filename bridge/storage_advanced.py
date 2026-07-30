@@ -475,6 +475,39 @@ class AuditLog(Base):
     )
 
 
+class Setting(Base):
+    """Par chave/valor de configuração global do bridge (2026-07-26,
+    migração — equivalente à tabela `settings` de storage.py). Hoje só
+    guarda `retention_days` (ver get_retention_days/set_retention_days
+    abaixo), mas fica pensada para outras opções futuras sem precisar de
+    nova tabela."""
+    __tablename__ = "settings"
+
+    key = Column(String(100), primary_key=True)
+    value = Column(String(255), nullable=False)
+
+
+class ActivityCorrection(Base):
+    """Correção manual do cuidador/equipa clínica à classificação de
+    atividade da IA (2026-07-26, migração — equivalente à tabela
+    `activity_corrections` de storage.py). Ligada a `device_id` (ao
+    contrário da versão original em storage.py, que não distinguia
+    dispositivo — irrelevante numa instalação de um só dispositivo, mas
+    correto agora que a fonte de verdade é o esquema multi-dispositivo do
+    ORM)."""
+    __tablename__ = "activity_corrections"
+
+    id = Column(Integer, primary_key=True)
+    device_id = Column(Integer, ForeignKey("devices.id"), nullable=False)
+    received_at = Column(DateTime, default=datetime.utcnow)
+    original_category = Column(String(50))
+    corrected_category = Column(String(50), nullable=False)
+
+    __table_args__ = (
+        Index("idx_activity_correction_device_received", "device_id", "received_at"),
+    )
+
+
 class ConsentRecord(Base):
     """Registro de consentimento GDPR/HIPAA."""
     __tablename__ = "consent_records"
@@ -625,6 +658,162 @@ class Analytics:
             }
 
         return result
+
+
+# ============================================================
+# LEITURA/ESCRITA DO CAMINHO DO DASHBOARD (2026-07-26, migração)
+# ============================================================
+#
+# Funções abaixo substituem storage.py como fonte única de leitura/escrita
+# usada por `ble_bridge.py` (get_history, get_daily_trend, export_csv,
+# retenção configurável, correções de atividade). Antes desta migração,
+# storage.py (SQLite cru) era o caminho primário e storage_advanced.py só
+# recebia uma cópia em segundo plano (dual-write, ver orm_persistence.py).
+# Os dicts devolvidos por get_records_since/export_records_csv usam
+# deliberadamente as MESMAS chaves que storage.py devolvia (ax/ay/az em vez
+# de accel_x/accel_y/accel_z, etc.) para o dashboard não precisar de
+# nenhuma alteração — só a fonte dos dados muda, o formato na rede não.
+
+DEFAULT_RETENTION_DAYS = 30
+MIN_RETENTION_DAYS = 1
+MAX_RETENTION_DAYS = 3650  # 10 anos
+RETENTION_DAYS_SETTING_KEY = "retention_days"
+
+
+def get_records_since(db: Session, device_id: int, hours: float) -> list[dict]:
+    """Devolve os registos de sensores das últimas `hours` horas para o
+    dispositivo indicado, mais antigos primeiro — equivalente a
+    storage.get_records_since(). Filtra por `received_at` (instante em que
+    o bridge recebeu o registo), não por `timestamp_utc` (relógio do
+    dispositivo, que pode estar dessincronizado) — mesmo critério que
+    storage.py já usava."""
+    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    rows = (
+        db.query(SensorRecord)
+        .filter(SensorRecord.device_id == device_id, SensorRecord.received_at >= cutoff)
+        .order_by(SensorRecord.received_at.asc())
+        .all()
+    )
+    return [_sensor_record_to_dict(r) for r in rows]
+
+
+def _sensor_record_to_dict(r: "SensorRecord") -> dict:
+    return {
+        "id": r.id,
+        "received_at": r.received_at.replace(tzinfo=timezone.utc).timestamp() if r.received_at else None,
+        "device_timestamp": r.timestamp_utc,
+        "ax": r.accel_x, "ay": r.accel_y, "az": r.accel_z,
+        "gx": r.gyro_x, "gy": r.gyro_y, "gz": r.gyro_z,
+        "steps": r.steps_count,
+        "freefall": int(bool(r.freefall_detected)),
+        "inactivity": int(bool(r.inactivity_detected)),
+        "spo2": r.spo2_percent,
+        "hr": r.heart_rate,
+    }
+
+
+def count_records(db: Session, device_id: int) -> int:
+    """Nº total de registos de sensores guardados para o dispositivo —
+    equivalente a storage.count_records()."""
+    return db.query(SensorRecord).filter(SensorRecord.device_id == device_id).count()
+
+
+def export_records_csv(db: Session, device_id: int, hours: float) -> str:
+    """Exporta os registos das últimas `hours` horas como texto CSV —
+    equivalente a storage.export_records_csv(), mesmas colunas."""
+    import csv
+    import io
+
+    records = get_records_since(db, device_id, hours)
+    buffer = io.StringIO()
+    fieldnames = [
+        "id", "received_at", "device_timestamp",
+        "ax", "ay", "az", "gx", "gy", "gz",
+        "steps", "freefall", "inactivity", "spo2", "hr",
+    ]
+    writer = csv.DictWriter(buffer, fieldnames=fieldnames)
+    writer.writeheader()
+    for record in records:
+        writer.writerow(record)
+    return buffer.getvalue()
+
+
+def get_daily_summary(db: Session, device_id: int, days: float = 7) -> list[dict]:
+    """Agrega os registos de sensores por dia civil (UTC) — equivalente a
+    storage.get_daily_summary(). Agregação feita em SQL (não em Python)
+    pela mesma razão documentada em storage.py: uma janela de vários dias
+    pode ter dezenas de milhares de registos (IMU a ~14-52/seg)."""
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    day_expr = func.date(SensorRecord.timestamp_utc, "unixepoch").label("day")
+    rows = (
+        db.query(
+            day_expr,
+            func.count().label("record_count"),
+            func.avg(SensorRecord.heart_rate).label("avg_hr"),
+            func.count(SensorRecord.heart_rate).label("hr_samples"),
+            func.min(SensorRecord.steps_count).label("min_steps"),
+            func.max(SensorRecord.steps_count).label("max_steps"),
+        )
+        .filter(SensorRecord.device_id == device_id, SensorRecord.received_at >= cutoff)
+        .group_by(day_expr)
+        .order_by(day_expr.asc())
+        .all()
+    )
+    return [
+        {
+            "day": r.day,
+            "record_count": r.record_count,
+            "avg_hr": r.avg_hr,
+            "hr_samples": r.hr_samples,
+            "min_steps": r.min_steps,
+            "max_steps": r.max_steps,
+        }
+        for r in rows
+    ]
+
+
+def get_retention_days(db: Session) -> float:
+    """Devolve a retenção atualmente configurada (dias), ou
+    DEFAULT_RETENTION_DAYS se nunca tiver sido alterada — equivalente a
+    storage.get_retention_days()."""
+    row = db.query(Setting).filter_by(key=RETENTION_DAYS_SETTING_KEY).first()
+    if row is None:
+        return DEFAULT_RETENTION_DAYS
+    try:
+        return float(row.value)
+    except (TypeError, ValueError):
+        return DEFAULT_RETENTION_DAYS
+
+
+def set_retention_days(db: Session, days) -> float:
+    """Atualiza a retenção configurada — equivalente a
+    storage.set_retention_days(). Lança ValueError se `days` estiver fora
+    dos limites de sanidade."""
+    days = float(days)
+    if not (MIN_RETENTION_DAYS <= days <= MAX_RETENTION_DAYS):
+        raise ValueError(
+            f"retenção tem de estar entre {MIN_RETENTION_DAYS} e {MAX_RETENTION_DAYS} dias"
+        )
+    row = db.query(Setting).filter_by(key=RETENTION_DAYS_SETTING_KEY).first()
+    if row is None:
+        db.add(Setting(key=RETENTION_DAYS_SETTING_KEY, value=str(days)))
+    else:
+        row.value = str(days)
+    db.commit()
+    return days
+
+
+def insert_activity_correction(
+    db: Session, device_id: int, original_category: Optional[str], corrected_category: str
+) -> None:
+    """Grava uma correção manual do cuidador/equipa clínica à classificação
+    de atividade da IA — equivalente a storage.insert_activity_correction()."""
+    db.add(ActivityCorrection(
+        device_id=device_id,
+        original_category=original_category,
+        corrected_category=corrected_category,
+    ))
+    db.commit()
 
 
 # ============================================================

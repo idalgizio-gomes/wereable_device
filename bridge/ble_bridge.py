@@ -114,18 +114,32 @@ from bleak import BleakClient, BleakScanner
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from Crypto.Cipher import AES
 
-import storage
-
 try:
-    # Dual-write transitório do Lote C (ver comentário em __init__ abaixo).
-    # sqlalchemy/argon2-cffi (arrastados por orm_persistence -> storage_advanced
-    # -> crypto_utils) só estão em requirements_db.txt, não no requirements.txt
-    # mínimo usado por start_carewear.bat — por isso este import nunca pode
-    # impedir `import ble_bridge` de suceder numa instalação mínima.
+    # storage_advanced.py (via este módulo) é, desde 2026-07-26, a ÚNICA
+    # base de dados do bridge — sqlalchemy/argon2-cffi passaram a estar em
+    # requirements.txt (deixaram de ser opcionais, ver requirements.txt).
+    # O try/except mantém-se por segurança (uma instalação desatualizada
+    # sem essas dependências não deve impedir `import ble_bridge` de
+    # suceder), mas agora significa "sem persistência nenhuma", não "sem
+    # dual-write" — ver aviso impresso abaixo e RuntimeError explícito nos
+    # comandos de leitura do dashboard (get_history/get_daily_trend/
+    # export_csv/set_retention_days) quando orm_persistence é None.
     import orm_persistence
 except ImportError as exc:
-    print(f"[BRIDGE] AVISO: modulo orm_persistence indisponivel ({exc}); dual-write desativado")
+    print(f"[BRIDGE] AVISO GRAVE: modulo orm_persistence indisponivel ({exc}); "
+          f"bridge vai correr SEM PERSISTENCIA NENHUMA (streaming ao vivo "
+          f"continua, mas historico/export/retencao do dashboard vao falhar). "
+          f"Instale as dependencias em requirements.txt.")
     orm_persistence = None
+
+# Valores de recurso para get_retention_days quando o proprio modulo
+# orm_persistence nao importou (caso extremo — sem ele nem sequer as
+# constantes DEFAULT/MIN/MAX_RETENTION_DAYS existem). Identicos aos
+# valores reais em storage_advanced.py; so' usados quando ha' zero
+# persistencia disponivel.
+_FALLBACK_DEFAULT_RETENTION_DAYS = 30
+_FALLBACK_MIN_RETENTION_DAYS = 1
+_FALLBACK_MAX_RETENTION_DAYS = 3650
 
 try:
     # Notificações externas de alertas de emergência (SMS/email + escalonamento,
@@ -577,23 +591,20 @@ class BleBridge:
         # dumpCtrlChar sem precisar de re-ligar. So e' valida enquanto
         # run_device_loop() estiver dentro do "async with BleakClient(...)".
         self.current_client: Optional[BleakClient] = None
-        # Ligação à base de dados local (SQLite, ver storage.py) — aberta
-        # uma única vez no arranque do bridge, reutilizada para todos os
-        # inserts/queries desta execução.
-        self.db = storage.init_db()
-        # Segundo destino de escrita (ORM, storage_advanced.py) do
-        # dual-write transitório do Lote C — ver orm_persistence.py. É
-        # SECUNDÁRIO: storage.py (self.db acima) continua a ser o caminho
-        # primário de TODAS as leituras do dashboard. Construído dentro de
-        # try/except porque uma falha aqui (BD ORM indisponível, esquema em
-        # migração, etc.) nunca deve impedir o bridge de arrancar nem de
-        # persistir via storage.py — degrada para None e continua.
+        # Persistência (storage_advanced.py via orm_persistence.py) — desde
+        # 2026-07-26 é a ÚNICA base de dados do bridge (storage.py foi
+        # removido). Construído dentro de try/except porque uma falha aqui
+        # (BD indisponível, esquema em migração, etc.) nunca deve impedir o
+        # streaming BLE ao vivo de arrancar — mas, ao contrário da fase de
+        # dual-write, agora significa mesmo "sem histórico/export/retenção"
+        # para esta execução, não "sem cópia secundária".
         self.orm = None
         if orm_persistence is not None:
             try:
                 self.orm = orm_persistence.OrmPersistence()
-            except Exception as exc:  # noqa: BLE001 - dual-write nunca derruba o arranque
-                print(f"[BRIDGE] AVISO: persistencia ORM (dual-write) indisponivel: {exc}")
+            except Exception as exc:  # noqa: BLE001 - persistencia nunca derruba o arranque do streaming
+                print(f"[BRIDGE] AVISO GRAVE: persistencia (storage_advanced.py) indisponivel: {exc}. "
+                      f"Streaming ao vivo continua; historico/export/retencao do dashboard vao falhar.")
                 self.orm = None
         # Chave AES para decifrar o "modo de dados" (ver
         # "CIFRA AES-CTR DO MODO DE DADOS" no cabeçalho deste ficheiro) —
@@ -664,9 +675,9 @@ class BleBridge:
 
     RECORD_BROADCAST_MIN_INTERVAL_S = 0.25  # no maximo ~4 atualizacoes/seg
     # Intervalo entre limpezas automaticas de sensor_records (ver
-    # storage.purge_old_sensor_records) - nao precisa de ser frequente,
-    # e' so' para o ficheiro .db nao crescer sem limite num bridge deixado
-    # a correr por muito tempo.
+    # OrmPersistence.purge em orm_persistence.py) - nao precisa de ser
+    # frequente, e' so' para a base de dados nao crescer sem limite num
+    # bridge deixado a correr por muito tempo.
     RETENTION_CHECK_INTERVAL_S = 6 * 3600
     # Intervalo da limpeza de retenção do ORM (GDPR-006, ver
     # periodic_orm_retention_task/DataRetention.cleanup em
@@ -700,26 +711,27 @@ class BleBridge:
     PENDING_FRAGMENT_TIMEOUT_S = 5.0
 
     async def periodic_retention_task(self) -> None:
-        """Aplica a politica de retencao (ver storage.py,
-        get_retention_days/set_retention_days) uma vez no arranque e
-        depois a cada RETENTION_CHECK_INTERVAL_S enquanto o bridge estiver
-        a correr. So' apaga sensor_records - o registo de emergencias
-        nunca e' apagado automaticamente. Le' o valor configurado a cada
-        ciclo (em vez de o guardar numa variavel) para uma alteracao feita
-        pelo dashboard a meio da execucao (ver handle_dashboard_command,
-        comando set_retention_days) ter efeito no proximo ciclo sem
-        precisar de reiniciar o bridge."""
+        """Aplica a politica de retencao configuravel (ver
+        storage_advanced.get_retention_days/set_retention_days, chamadas
+        via self.orm) uma vez no arranque e depois a cada
+        RETENTION_CHECK_INTERVAL_S enquanto o bridge estiver a correr. So'
+        apaga sensor_records - o registo de emergencias nunca e' apagado
+        automaticamente. Le' o valor configurado a cada ciclo (em vez de o
+        guardar numa variavel) para uma alteracao feita pelo dashboard a
+        meio da execucao (ver handle_dashboard_command, comando
+        set_retention_days) ter efeito no proximo ciclo sem precisar de
+        reiniciar o bridge. Sem self.orm (persistencia indisponivel), nao
+        ha nada para limpar - o ciclo so' regista isso uma vez por ronda."""
         while True:
             try:
-                days = storage.get_retention_days(self.db)
-                deleted = storage.purge_old_sensor_records(self.db, days=days)
-                if deleted:
-                    print(f"[BRIDGE] retencao: apagados {deleted} registos de sensores "
-                          f"com mais de {days} dias")
-                # Dual-write (Lote C): aplica a MESMA retenção configurável
-                # ao ORM (usa `days`, não os 365d fixos das RETENTION_POLICIES).
                 if self.orm:
-                    self.orm.purge(days)
+                    days = self.orm.get_retention_days()
+                    deleted = self.orm.purge(days)
+                    if deleted:
+                        print(f"[BRIDGE] retencao: apagados {deleted} registos de sensores "
+                              f"com mais de {days} dias")
+                else:
+                    print("[BRIDGE] retencao: persistencia indisponivel, nada a limpar")
             except Exception as exc:  # noqa: BLE001 - nunca deve derrubar o bridge
                 print(f"[BRIDGE] erro na limpeza de retencao: {exc}")
             await asyncio.sleep(self.RETENTION_CHECK_INTERVAL_S)
@@ -731,7 +743,7 @@ class BleBridge:
         emergency_alerts nunca é apagado de propósito) uma vez no arranque e
         depois a cada `ORM_RETENTION_INTERVAL_S`. Distinta de
         `periodic_retention_task` acima: essa só cobre SensorRecord com a
-        retenção CONFIGURÁVEL do dashboard (storage.py + orm.purge); esta
+        retenção CONFIGURÁVEL do dashboard (orm.purge); esta
         cobre as restantes tabelas do ORM que, antes desta task existir,
         nunca eram processadas em runtime (só no exemplo `__main__` de
         storage_advanced.py). Mesmo padrão de try/except amplo por
@@ -876,21 +888,14 @@ class BleBridge:
 
         self.last_record_ts = record["ts"]
 
-        # Persiste TODOS os registos na base de dados local (ver
-        # storage.py), independentemente do limite de taxa aplicado ao
+        # Persiste TODOS os registos na base de dados (storage_advanced.py,
+        # via self.orm), independentemente do limite de taxa aplicado ao
         # broadcast por WebSocket logo a seguir — o histórico real não
         # deve perder amostras só porque o browser não precisa de as ver
-        # todas em tempo real.
-        try:
-            storage.insert_record(self.db, record)
-        except Exception as exc:  # noqa: BLE001 - nao deve travar o streaming
-            print(f"[BRIDGE] erro a gravar registo na base de dados local: {exc}")
-
-        # Dual-write (Lote C): segundo destino de escrita no ORM. Vem DEPOIS
-        # de storage.insert_record de propósito — o caminho primário nunca
-        # espera pelo ORM. insert_sensor_record acumula em buffer e faz
+        # todas em tempo real. insert_sensor_record acumula em buffer e faz
         # flush em lote (não 1 commit/registo) e é tolerante a falha por
-        # dentro; não precisa de try/except aqui.
+        # dentro; sem self.orm (persistência indisponível), o registo
+        # segue para o dashboard ao vivo na mesma, só não fica guardado.
         if self.orm:
             self.orm.insert_sensor_record(record)
 
@@ -978,13 +983,10 @@ class BleBridge:
             return
         alert = decode_emergency_alert(bytes(data[:EMERGENCY_ALERT_STRUCT.size]))
         print(f"[BRIDGE] ALERTA DE EMERGENCIA recebido: {alert['alert_name']} (seq={alert['seq']})")
-        try:
-            storage.insert_emergency_alert(self.db, alert)
-        except Exception as exc:  # noqa: BLE001 - a gravacao nunca deve bloquear o alerta
-            print(f"[BRIDGE] erro a gravar alerta de emergencia na base de dados local: {exc}")
-        # Dual-write (Lote C): escrita imediata do alerta no ORM, com dedup
-        # por (device, seq) igual ao INSERT OR IGNORE do storage.py.
-        # Tolerante a falha por dentro; não bloqueia o alerta.
+        # Escrita imediata do alerta em storage_advanced.py (via self.orm),
+        # com dedup por (device, seq) — ver insert_emergency_alert() em
+        # orm_persistence.py. Tolerante a falha por dentro; não bloqueia o
+        # broadcast do alerta ao dashboard, que é o caminho crítico.
         if self.orm:
             self.orm.insert_emergency_alert(alert)
         asyncio.create_task(self.broadcast({"kind": "emergency_alert", **alert}))
@@ -1328,17 +1330,23 @@ class BleBridge:
             }))
             return
         if cmd == "get_history":
-            # Pedido de histórico real (ver storage.py) — "hours" é
-            # opcional, por omissão 24h. Responde só ao cliente que
-            # pediu, não a todos os ligados (ao contrário de broadcast()).
+            # Pedido de histórico real (ver storage_advanced.py, via
+            # self.orm) — "hours" é opcional, por omissão 24h. Responde só
+            # ao cliente que pediu, não a todos os ligados (ao contrário de
+            # broadcast()).
             hours = msg.get("hours", 24)
             try:
                 hours = float(hours)
             except (TypeError, ValueError):
                 hours = 24.0
+            if not self.orm:
+                await ws.send(json.dumps({
+                    "kind": "history", "records": [], "total_records": 0,
+                    "error": "persistencia indisponivel",
+                }))
+                return
             try:
-                records = storage.get_records_since(self.db, hours)
-                total = storage.count_records(self.db)
+                records, total = self.orm.get_history(hours)
             except Exception as exc:  # noqa: BLE001
                 print(f"[BRIDGE] erro a consultar historico: {exc}")
                 await ws.send(json.dumps({"kind": "history", "records": [], "total_records": 0, "error": str(exc)}))
@@ -1355,17 +1363,24 @@ class BleBridge:
                 )
             return
         if cmd == "get_daily_trend":
-            # Histórico REAL agregado por dia (ver storage.get_daily_summary)
-            # para a vista "Tendência semanal" do dashboard — leve o
-            # suficiente para não sobrecarregar o WebSocket/browser, ao
-            # contrário de "get_history" (registos em bruto).
+            # Histórico REAL agregado por dia (ver
+            # storage_advanced.get_daily_summary, via self.orm) para a
+            # vista "Tendência semanal" do dashboard — leve o suficiente
+            # para não sobrecarregar o WebSocket/browser, ao contrário de
+            # "get_history" (registos em bruto).
             days = msg.get("days", 7)
             try:
                 days = float(days)
             except (TypeError, ValueError):
                 days = 7.0
+            if not self.orm:
+                await ws.send(json.dumps({
+                    "kind": "daily_trend", "days_summary": [],
+                    "error": "persistencia indisponivel",
+                }))
+                return
             try:
-                summary = storage.get_daily_summary(self.db, days)
+                summary = self.orm.get_daily_trend(days)
             except Exception as exc:  # noqa: BLE001
                 print(f"[BRIDGE] erro a agregar tendencia diaria: {exc}")
                 await ws.send(json.dumps({"kind": "daily_trend", "days_summary": [], "error": str(exc)}))
@@ -1389,8 +1404,11 @@ class BleBridge:
                 hours = float(hours)
             except (TypeError, ValueError):
                 hours = 24.0
+            if not self.orm:
+                await ws.send(json.dumps({"kind": "csv_export", "csv": "", "error": "persistencia indisponivel"}))
+                return
             try:
-                csv_text = storage.export_records_csv(self.db, hours)
+                csv_text = self.orm.export_csv(hours)
             except Exception as exc:  # noqa: BLE001
                 print(f"[BRIDGE] erro a exportar CSV: {exc}")
                 await ws.send(json.dumps({"kind": "csv_export", "csv": "", "error": str(exc)}))
@@ -1405,16 +1423,21 @@ class BleBridge:
                 )
             return
         if cmd == "get_retention_days":
-            # Item pendente do backlog (PROJECT_STATUS.md, Prioridade 4):
-            # expor a retenção como opção configurável pelo utilizador em
-            # vez de constante fixa no código (ver storage.py).
-            days = storage.get_retention_days(self.db)
+            # Retenção configurável pelo utilizador (ver
+            # storage_advanced.get_retention_days, via self.orm) em vez de
+            # constante fixa no código.
+            if self.orm:
+                days = self.orm.get_retention_days()
+            elif orm_persistence is not None:
+                days = orm_persistence.DEFAULT_RETENTION_DAYS
+            else:
+                days = _FALLBACK_DEFAULT_RETENTION_DAYS
             await ws.send(json.dumps({
                 "kind": "retention_days",
                 "days": days,
-                "default_days": storage.DEFAULT_RETENTION_DAYS,
-                "min_days": storage.MIN_RETENTION_DAYS,
-                "max_days": storage.MAX_RETENTION_DAYS,
+                "default_days": orm_persistence.DEFAULT_RETENTION_DAYS if orm_persistence is not None else _FALLBACK_DEFAULT_RETENTION_DAYS,
+                "min_days": orm_persistence.MIN_RETENTION_DAYS if orm_persistence is not None else _FALLBACK_MIN_RETENTION_DAYS,
+                "max_days": orm_persistence.MAX_RETENTION_DAYS if orm_persistence is not None else _FALLBACK_MAX_RETENTION_DAYS,
             }))
             return
         if cmd == "set_retention_days":
@@ -1425,9 +1448,12 @@ class BleBridge:
                     "error": f"limite de taxa excedido, aguarde {wait_s:.1f}s",
                 }))
                 return
+            if not self.orm:
+                await ws.send(json.dumps({"kind": "retention_days_result", "ok": False, "error": "persistencia indisponivel"}))
+                return
             days = msg.get("days")
             try:
-                saved = storage.set_retention_days(self.db, days)
+                saved = self.orm.set_retention_days(days)
             except (TypeError, ValueError) as exc:
                 await ws.send(json.dumps({"kind": "retention_days_result", "ok": False, "error": str(exc)}))
                 return
@@ -1472,8 +1498,11 @@ class BleBridge:
                 self.activity_inference.current_category()
                 if self.activity_inference is not None else None
             )
+            if not self.orm:
+                await ws.send(json.dumps({"kind": "command_result", "cmd": cmd, "ok": False, "error": "persistencia indisponivel"}))
+                return
             try:
-                storage.insert_activity_correction(self.db, original_category, category)
+                self.orm.insert_activity_correction(original_category, category)
             except Exception as exc:  # noqa: BLE001
                 print(f"[BRIDGE] erro a gravar correcao de atividade: {exc}")
                 await ws.send(json.dumps({"kind": "command_result", "cmd": cmd, "ok": False, "error": str(exc)}))

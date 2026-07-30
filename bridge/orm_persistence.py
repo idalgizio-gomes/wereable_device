@@ -2,35 +2,37 @@
 """
 orm_persistence.py — Camada de ligação entre o bridge BLE e o ORM avançado.
 
-CONTEXTO (Lote C — dual-write transitório)
-------------------------------------------
-Até agora `ble_bridge.py` só persistia em `storage.py` (SQLite "cru", sem
-ORM). O esquema ORM completo de `storage_advanced.py` (pacientes,
-dispositivos, `sensor_records`, `emergency_alerts`, `audit_log`, retenção,
-cifra de campos sensíveis) existia mas NUNCA era escrito em runtime — só
-era exercitado por testes. Este módulo fecha essa lacuna sem trocar o
-caminho primário: `storage.py` continua a ser a fonte de verdade de TODAS
-as leituras do dashboard (get_history, get_daily_trend, export_csv,
-retenção). O ORM entra como SEGUNDO destino de escrita ("dual-write").
+CONTEXTO (migração 2026-07-26 — storage_advanced.py passa a ser a fonte única)
+-------------------------------------------------------------------------------
+Até 2026-07-25, `ble_bridge.py` persistia primariamente em `storage.py`
+(SQLite "cru", sem ORM) e este módulo era um SEGUNDO destino de escrita
+transitório ("dual-write", Lote C) — o esquema ORM completo de
+`storage_advanced.py` (pacientes, dispositivos, `sensor_records`,
+`emergency_alerts`, `audit_log`, retenção, cifra de campos sensíveis)
+existia mas nunca era lido em runtime pelo dashboard.
 
-Porquê dual-write e não substituição direta: a troca definitiva só deve
-acontecer depois de o dual-write ter corrido com hardware real, hoje
-bloqueado (placa indisponível, ver PROJECT_STATUS.md). Até lá, esta
-segunda escrita:
+Essa fase de transição terminou: `storage.py` foi removido, e este módulo
+é agora a ÚNICA camada de persistência do bridge — escrita E leitura
+(get_history, get_daily_trend, export_csv, retenção configurável,
+correções de atividade). Diferença prática para quem chama a partir de
+`ble_bridge.py`: os métodos de LEITURA abaixo (get_history/get_daily_trend/
+export_csv/get_retention_days/set_retention_days) já NÃO degradam em
+silêncio como os de escrita — se `self.orm` estiver desativado
+(`self.disabled`), lançam `RuntimeError` explícito, porque já não há
+nenhum `storage.py` a responder no lugar. Quem chama (ble_bridge.py) tem
+de apanhar isto e devolver um erro claro ao dashboard.
 
-  * NUNCA pode derrubar o streaming BLE nem o caminho `storage.py`. Ao
-    PRIMEIRO erro em qualquer método, avisa uma vez, marca `self.disabled`
-    e passa a ser um no-op — exatamente o mesmo padrão degradável dos
-    try/except já existentes em `_on_dump_data`/`_on_emergency_alert`.
-  * Não paga 1 commit por registo de sensor. `storage.py` já paga 1
-    commit/registo (em WAL) até ~52 registos/s; duplicar isso com o
-    overhead do ORM bloquearia o event loop. Por isso os `SensorRecord`
-    são acumulados num buffer e comprometidos EM LOTE (ver
-    `insert_sensor_record`). Alertas de emergência e auditoria são raros e
-    importantes, logo são escritos de imediato.
+Escrita continua tolerante a falha (mesmo padrão de sempre):
 
-Uso a partir de `ble_bridge.py` (todas as chamadas guardadas por
-`if self.orm:` do lado do bridge):
+  * NUNCA pode derrubar o streaming BLE. Ao PRIMEIRO erro em qualquer
+    método, avisa uma vez, marca `self.disabled` e passa a ser um no-op.
+  * `SensorRecord` são acumulados num buffer e comprometidos EM LOTE (ver
+    `insert_sensor_record`) — ao ritmo do IMU (~14-52 registos/seg), um
+    commit por registo bloquearia o event loop asyncio. Alertas de
+    emergência e auditoria são raros e importantes, logo escritos de
+    imediato.
+
+Uso a partir de `ble_bridge.py`:
 
     self.orm = OrmPersistence()            # no __init__ (try/except -> None)
                                            #   o bootstrap verifica ainda o
@@ -46,6 +48,12 @@ Uso a partir de `ble_bridge.py` (todas as chamadas guardadas por
     self.orm.audit(...)                    # acessos a dados de paciente
     self.orm.purge(days)                   # retenção periódica (SensorRecord, configurável)
     self.orm.run_retention_cleanup()       # retenção periódica (RETENTION_POLICIES fixas, GDPR-006)
+    self.orm.get_history(hours)            # leitura (cmd "get_history")
+    self.orm.get_daily_trend(days)         # leitura (cmd "get_daily_trend")
+    self.orm.export_csv(hours)             # leitura (cmd "export_csv")
+    self.orm.get_retention_days()          # leitura (cmd "get_retention_days")
+    self.orm.set_retention_days(days)      # escrita (cmd "set_retention_days")
+    self.orm.insert_activity_correction(orig, corrected)  # escrita (cmd "correct_activity")
 """
 
 from __future__ import annotations
@@ -400,22 +408,25 @@ class OrmPersistence:
 
     # ---- retenção ----------------------------------------------------------
 
-    def purge(self, days: float) -> None:
-        """Apaga SensorRecord com received_at < (agora - days), em paridade
-        com a retenção CONFIGURÁVEL do storage.py. NÃO usa os 365 dias
-        fixos de DataRetention.RETENTION_POLICIES — usa os `days` passados
-        (o mesmo valor efetivo que o bridge passa a storage.purge_old_...)."""
+    def purge(self, days: float) -> int:
+        """Apaga SensorRecord com received_at < (agora - days) — retenção
+        CONFIGURÁVEL (não os 365 dias fixos de
+        DataRetention.RETENTION_POLICIES). Devolve o nº de linhas apagadas
+        (0 se desativado ou erro), para quem chama poder registar/reportar
+        — mesmo contrato que storage.purge_old_sensor_records() tinha."""
         if self.disabled or self.session is None:
-            return
+            return 0
         try:
             from datetime import timedelta
             cutoff = datetime.utcnow() - timedelta(days=days)
-            self.session.query(sa.SensorRecord).filter(
+            deleted = self.session.query(sa.SensorRecord).filter(
                 sa.SensorRecord.received_at < cutoff
             ).delete(synchronize_session=False)
             self.session.commit()
+            return deleted
         except Exception as exc:  # noqa: BLE001
             self._degrade("purge", exc)
+            return 0
 
     async def run_retention_cleanup(self, dry_run: bool = False) -> Optional[dict]:
         """Aplica as políticas de retenção FIXAS de `DataRetention.cleanup`
@@ -435,3 +446,64 @@ class OrmPersistence:
         except Exception as exc:  # noqa: BLE001
             self._degrade("run_retention_cleanup", exc)
             return None
+
+    # ---- leitura do dashboard (2026-07-26 — storage_advanced.py é a fonte única) --
+    #
+    # Ao contrário dos métodos de escrita acima, estes NÃO engolem falhas em
+    # silêncio: sem storage.py como caminho alternativo, um erro aqui tem de
+    # chegar a quem chama (ble_bridge.py) para virar um erro explícito no
+    # dashboard, não uma lista vazia sem explicação.
+
+    def _require_enabled(self) -> None:
+        if self.disabled or self.session is None:
+            raise RuntimeError(
+                "persistencia ORM indisponivel (storage_advanced.py e a unica "
+                "base de dados do bridge desde 2026-07-26; ver aviso de "
+                "arranque para a causa raiz)"
+            )
+
+    def get_history(self, hours: float) -> tuple[list[dict], int]:
+        """Devolve (records, total_records) das últimas `hours` horas —
+        substitui storage.get_records_since() + storage.count_records()."""
+        self._require_enabled()
+        records = sa.get_records_since(self.session, self.device_id, hours)
+        total = sa.count_records(self.session, self.device_id)
+        return records, total
+
+    def get_daily_trend(self, days: float) -> list[dict]:
+        """Substitui storage.get_daily_summary()."""
+        self._require_enabled()
+        return sa.get_daily_summary(self.session, self.device_id, days)
+
+    def export_csv(self, hours: float) -> str:
+        """Substitui storage.export_records_csv()."""
+        self._require_enabled()
+        return sa.export_records_csv(self.session, self.device_id, hours)
+
+    def get_retention_days(self) -> float:
+        """Substitui storage.get_retention_days(). Ao contrário dos outros
+        métodos de leitura, não lança em caso de ORM desativado — devolve o
+        valor por omissão, porque um pedido de LEITURA da retenção
+        configurada não tem por onde falhar de forma útil ao utilizador
+        (não há nada para escrever/gravar aqui)."""
+        if self.disabled or self.session is None:
+            return sa.DEFAULT_RETENTION_DAYS
+        return sa.get_retention_days(self.session)
+
+    def set_retention_days(self, days) -> float:
+        """Substitui storage.set_retention_days()."""
+        self._require_enabled()
+        return sa.set_retention_days(self.session, days)
+
+    def insert_activity_correction(self, original_category: Optional[str], corrected_category: str) -> None:
+        """Substitui storage.insert_activity_correction()."""
+        self._require_enabled()
+        sa.insert_activity_correction(self.session, self.device_id, original_category, corrected_category)
+
+
+# Constantes de retenção re-exportadas para quem só importa orm_persistence
+# (ble_bridge.py) não precisar de importar storage_advanced diretamente só
+# por causa de 3 constantes.
+DEFAULT_RETENTION_DAYS = sa.DEFAULT_RETENTION_DAYS
+MIN_RETENTION_DAYS = sa.MIN_RETENTION_DAYS
+MAX_RETENTION_DAYS = sa.MAX_RETENTION_DAYS

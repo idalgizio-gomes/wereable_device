@@ -18,7 +18,6 @@ import asyncio
 import pytest
 
 import ble_bridge
-import storage
 
 
 class FakeBleClientPairOk:
@@ -52,8 +51,10 @@ class FakeBleClientPairNotImplemented:
 
 
 @pytest.fixture
-def bridge(tmp_path, monkeypatch):
-    monkeypatch.setattr(storage, "DB_PATH", tmp_path / "test_carewear_history.db")
+def bridge():
+    # Isolamento da BD já é feito globalmente por conftest.py
+    # (DATABASE_URL=sqlite:///:memory:, forçado antes do primeiro import
+    # de storage_advanced).
     return ble_bridge.BleBridge()
 
 
