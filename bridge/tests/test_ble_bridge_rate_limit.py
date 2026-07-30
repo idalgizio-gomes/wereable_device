@@ -15,7 +15,6 @@ import json
 import pytest
 
 import ble_bridge
-import storage
 
 
 class FakeWebSocket:
@@ -38,8 +37,10 @@ class FakeBleClient:
 
 
 @pytest.fixture
-def bridge(tmp_path, monkeypatch):
-    monkeypatch.setattr(storage, "DB_PATH", tmp_path / "test_carewear_history.db")
+def bridge():
+    # Isolamento da BD já é feito globalmente por conftest.py
+    # (DATABASE_URL=sqlite:///:memory:, forçado antes do primeiro import
+    # de storage_advanced).
     b = ble_bridge.BleBridge()
     b.current_client = FakeBleClient()
     return b
@@ -88,7 +89,7 @@ def test_set_retention_days_looped_calls_are_rate_limited(bridge):
     assert results[1]["ok"] is False
     assert "limite de taxa" in results[1]["error"]
     # O segundo pedido (bloqueado) não deve ter alterado o valor persistido.
-    assert storage.get_retention_days(bridge.db) == 10
+    assert bridge.orm.get_retention_days() == 10
 
 
 def test_rate_limit_resets_after_interval(bridge, monkeypatch):

@@ -225,15 +225,11 @@ def test_activity_window_disabled_orm_is_a_noop():
 # (d) auditoria GDPR-003 — get_history real via BleBridge gera audit_log
 # ---------------------------------------------------------------------------
 
-def test_get_history_generates_audit_log_entry(tmp_path, monkeypatch):
+def test_get_history_generates_audit_log_entry():
     import asyncio
     import json
 
-    import storage
     import ble_bridge
-
-    # Nunca tocar na carewear_history.db real — storage.py numa BD temporária.
-    monkeypatch.setattr(storage, "DB_PATH", tmp_path / "hist.db")
 
     class FakeWebSocket:
         def __init__(self):

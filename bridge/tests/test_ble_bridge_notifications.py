@@ -29,7 +29,6 @@ import pytest
 
 import ble_bridge
 import notifications
-import storage
 
 
 class FakeWebSocket:
@@ -58,8 +57,10 @@ def _emergency_alert_bytes(alert_type=1, seq=42, timestamp_utc=1_700_000_000):
 
 
 @pytest.fixture
-def bridge(tmp_path, monkeypatch):
-    monkeypatch.setattr(storage, "DB_PATH", tmp_path / "test_carewear_history.db")
+def bridge():
+    # Isolamento da BD já é feito globalmente por conftest.py
+    # (DATABASE_URL=sqlite:///:memory:, forçado antes do primeiro import
+    # de storage_advanced).
     b = ble_bridge.BleBridge()
     b.current_client = FakeBleClient()
     return b
