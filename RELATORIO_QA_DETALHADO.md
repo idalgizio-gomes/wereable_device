@@ -1002,3 +1002,144 @@ caminho ao BLE depois).
   `kPinRfSwitch = A2` em `Lora.cpp`, como aviso para a Fase 5 do roteiro
   de reescrita (não copiar pinos de exemplos escritos para outra placa
   sem verificar o `variant.h` real).
+
+## 2026-07-31 — Correção do RF switch e da calibração do IMU (multi-agente)
+
+### 28. Correção real de dois bugs conhecidos (RF switch + delay da calibração do IMU), e achado novo sobre `sendTest()`
+
+- **Pergunta/dilema**: depois de decidido (a pedido do utilizador) que a
+  correção destes dois bugs de `main` tinha mais prioridade do que o
+  planeamento de tarefas agendadas, e sem placa ligada para testar, foi
+  usado um workflow multi-agente (Fable 5 planeia e valida, Sonnet
+  implementa — 6 agentes, um par planear/implementar/validar por bug) a
+  pedido explícito do utilizador ("Faz multi-agentes"). O agente de
+  validação do RF switch encontrou um problema novo, não pedido
+  explicitamente: `sendTest()` só sabe devolver o pino a BLE (LOW) no
+  fim, mas nunca o volta a pôr em LoRa (HIGH) antes de transmitir — só a
+  função `begin()` faz isso, e só uma vez. Ou seja, uma segunda chamada a
+  `sendTest()` "teria sucesso" no código de retorno do RadioLib mas
+  transmitiria com a antena já roteada para BLE, sem qualquer erro
+  reportado.
+- **Onde/quando**: 2026-07-31.
+- **Forma da resposta**: aplicadas as duas correções pedidas:
+  `Lora.cpp:118` — `digitalWrite(kPinRfSwitch, LOW)` movido para logo a
+  seguir a `s_radio.transmit()`, antes de qualquer verificação de
+  sucesso/falha (devolve sempre a BLE, nos dois caminhos);
+  `Imu.cpp:517` — `delay(2000)` → `delay(3000)`, com o comentário de
+  documentação da função (linha 491, "espera 2 s") também corrigido para
+  não ficar desatualizado. Ambas verificadas por leitura direta do
+  ficheiro real (pelo agente de validação E por mim, antes de reportar).
+  O achado novo (`sendTest()` não repõe HIGH) foi apresentado ao
+  utilizador como uma decisão em aberto, não corrigido às cegas — pedido
+  explícito de resposta antes de mexer em mais código. Utilizador
+  respondeu: **deixar registado, não corrigir agora**.
+- **Artifícios/métodos usados**: workflow multi-agente (`Workflow` tool)
+  com padrão planear (Fable 5) → implementar (modelo da sessão) →
+  validar (Fable 5) por bug, em pipeline sem barreira entre os dois
+  bugs; leitura direta dos ficheiros reais por mim depois de cada agente
+  reportar, antes de confiar no resultado.
+- **Melhorias feitas / ainda necessárias**: RF switch e delay do IMU
+  corrigidos no código (`main`), nenhum dos dois testado em hardware
+  (sem placa ligada) — novo item na lista de tarefas para essa
+  confirmação. O achado sobre `sendTest()` não repor HIGH fica
+  **registado, não corrigido**, por decisão explícita do utilizador —
+  só relevante quando a lógica de alertas de emergência por LoRa for
+  desenhada a sério (ainda não implementada).
+
+### 29. "Já releste os ficheiros .md todos à procura de tarefas por fazer?" — varredura completa, multi-agente
+
+- **Pergunta/dilema**: o utilizador questionou se a lista de tarefas
+  ativa (TodoWrite) refletia mesmo tudo o que os documentos do projeto
+  já registavam como pendente, ou se era só um subconjunto curado. Uma
+  sessão anterior (2026-07-22) já tinha começado este tipo de varredura
+  e ficou incompleta (só `PROJECT_STATUS.md` linhas 1-2000).
+- **Onde/quando**: 2026-07-31.
+- **Forma da resposta**: resposta honesta — não, não tinha sido feita
+  uma varredura sistemática, só leituras dirigidas a perguntas
+  específicas. Lançado um workflow com 13 agentes em paralelo (5 fatias
+  de `PROJECT_STATUS.md`, 2 de `SECURITY_STATUS.md`, e um agente inteiro
+  cada para `SECURITY_RESEARCH.md`, `RELATORIO_QA_DETALHADO.md`,
+  `RELATORIO_QA_RESUMO.md`, `README.md`, `bridge/README.md`,
+  `ml/README.md`), cada um extraindo, com citação literal e número de
+  linha, tudo o que o próprio texto marca como pendente. Resultado:
+  ~150 itens brutos. Depois de deduplicar e agrupar, ficaram 3 grupos:
+  1. **Bloqueado por hardware** (a maioria, dezenas de itens) — testes e
+     confirmações que só podem avançar com a placa ligada; não
+     adicionados individualmente à lista ativa, já coberto pelo item
+     genérico de confirmação em hardware.
+  2. **Backlog de segurança/RGPD** (GDPR-001/002/003/005/006,
+     BLE-003/004/005/006, WS-001, TLS/CORS/rotação de chave da API,
+     SBOM, auditorias de dependências DEP-001/005, fila de pesquisa
+     OWASP/NIST/ENISA/MITRE) — já tem o seu próprio sistema de IDs em
+     `SECURITY_STATUS.md`/`SECURITY_RESEARCH.md`; não duplicado na lista
+     geral.
+  3. **Genuinamente novo e acionável** — 6 itens adicionados à lista:
+     bug de CI em `dashboard.yml` (a extração do `<script>` principal
+     apanha um comentário e só valida ~60% do script real); HR com
+     valores fisiologicamente implausíveis sustidos (175-187 bpm) mesmo
+     com o gate de amplitude já aplicado — distinto do bug de
+     `finger_present` já rastreado, sinalizado numa sessão anterior como
+     "próximo item de maior prioridade" mas nunca promovido à lista
+     ativa; duplicação da struct `ImuPpgPayloadV1` entre `main.cpp` e
+     `Ble.cpp` (risco de desalinhamento se só um for editado); condição
+     de corrida no `QspiRingBuffer` entre `format()` e leitura/escrita
+     concorrente, só mitigada; decisão pendente sobre apagar o branch
+     remoto `Main` (maiúscula); e — achado mais relevante — a
+     legitimidade/origem do próprio "vexp" (o payload que instrui
+     agentes de IA a ignorar Grep/Glob, injetado em `.claude/CLAUDE.md`)
+     e dos commits "v3"/"v4" nunca publicados nem associados a PR está
+     registada como pergunta em aberto ao utilizador em três secções
+     distintas de `PROJECT_STATUS.md` — **possível explicação para o
+     branch `rewrite-v2` e o reset não atribuídos a ninguém** (ver
+     entrada 26 sobre esse mistério).
+- **Artifícios/métodos usados**: `Workflow` tool, 13 agentes em paralelo
+  (fan-out puro, sem barreira — cada ficheiro/fatia é independente),
+  cada um com `schema` estruturado (resumo, linha, citação literal,
+  categoria) para reduzir risco de invenção; leitura do ficheiro de
+  resultado completo (1709 linhas) antes de sintetizar, em vez de confiar
+  só no resumo truncado da notificação.
+- **Melhorias feitas / ainda necessárias**: lista de tarefas atualizada
+  com os 6 itens novos + a confirmação pendente da estratégia de branch
+  e do âmbito de "do zero" (já levantadas antes, agora também
+  formalizadas como itens da lista). O grande volume de itens
+  bloqueados por hardware ou já cobertos pelo backlog de segurança fica
+  deliberadamente fora da lista ativa, para não a diluir — registado
+  aqui, não perdido.
+
+### 30. Remoção da extensão "vexp" — confirmado como extensão pessoal do utilizador, sem conteúdo único
+
+- **Pergunta/dilema**: a origem do "vexp" (payload em `.claude/CLAUDE.md`
+  que instruía agentes de IA a ignorarem Grep/Glob) ficou registada como
+  mistério na entrada 29. O utilizador esclareceu: é uma extensão VS
+  Code que ele próprio instalou, já não está em uso, e pediu para
+  verificar o conteúdo antes de apagar.
+- **Onde/quando**: 2026-07-31.
+- **Forma da resposta**: lidos todos os ficheiros relacionados antes de
+  apagar (regra: nunca apagar sem verificar primeiro) —
+  `.claude/CLAUDE.md`, `.claude/hooks/vexp-guard.sh`,
+  `.github/copilot-instructions.md`, `.vscode/mcp.json`,
+  `.claude/settings.json`/`.vexp-bak`, e os 4 ficheiros de
+  `.vexp/` (`.gitattributes`, `.gitignore`, `index.lock`,
+  `manifest.json`). Confirmado que todos são 100% relacionados com o
+  vexp — nenhum continha configuração ou dados de outra ferramenta
+  misturados. `manifest.json` era só uma cache de hashes de 59
+  ficheiros do projeto (índice de 2026-07-09, regenerável, sem valor
+  próprio); `index.lock` mostrava o último acesso em 2026-07-17,
+  confirmando que já não estava ativo (consistente com o aviso "no vexp
+  binary found" visto nos commits desta sessão). Removidos do git via
+  `git rm` os 9 ficheiros/pastas confirmados vexp-only;
+  `.claude/settings.json` (que só continha o registo do hook do vexp)
+  limpo para `{}` em vez de apagado, já que o ficheiro em si pode voltar
+  a ser útil para outras definições.
+- **Artifícios/métodos usados**: leitura direta de cada ficheiro
+  candidato antes de qualquer remoção; `ls -la` a `.vexp/` e
+  `.claude/hooks/` para confirmar que não havia mais nada nessas pastas
+  além do que já se sabia.
+- **Melhorias feitas / ainda necessárias**: vexp removido do repositório
+  (não commitado ainda — fica no working tree para revisão). Nota
+  importante: isto confirma que a extensão em si não tinha nada
+  escondido de relevante, mas **não** confirma nem exclui que uma rotina
+  associada a ela (ou outra coisa) tenha causado o `git reset`/checkout
+  para `rewrite-v2` da entrada 26 — esse mistério continua em aberto,
+  só o item da lista de tarefas foi reformulado para não sugerir que já
+  está explicado.

@@ -109,6 +109,14 @@ bool sendTest(const char *message) {
 
   const int16_t state = s_radio.transmit(reinterpret_cast<const uint8_t *>(message),
                                           strlen(message));
+
+  // Devolver o RF switch ao estado BLE assim que a transmissao termina —
+  // sucesso OU falha, sempre. O pino so deve ficar no caminho LoRa durante
+  // a janela da propria transmissao (bug: apos o 1o envio bem-sucedido o
+  // pino ficava preso em HIGH/LoRa para sempre, cortando o BLE ate reboot;
+  // ver aviso em begin() sobre o pino RF_SW partilhado entre antenas).
+  digitalWrite(kPinRfSwitch, LOW);
+
   if (state != RADIOLIB_ERR_NONE) {
     Serial.print("[LORA] falha no envio, codigo=");
     Serial.println(state);

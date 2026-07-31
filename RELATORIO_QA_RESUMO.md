@@ -343,3 +343,58 @@ Plus vs. `PIN_A2 = 16` numa Adafruit Feather nRF52840 Sense, comparando os
 `variant.h` instalados. Ligado ao uso real de `kPinRfSwitch = A2` em
 `Lora.cpp`, como aviso para a Fase 5 do roteiro de reescrita. Detalhe
 completo na entrada 27 do relatório detalhado.
+
+## 25. Correção real de dois bugs conhecidos (RF switch + delay da calibração do IMU), e achado novo sobre `sendTest()`
+
+Usado um workflow multi-agente (Fable 5 planeia/valida, Sonnet implementa,
+a pedido explícito do utilizador) para corrigir dois bugs de `main` sem
+placa ligada: `Lora.cpp` passou a devolver sempre o RF switch a BLE depois
+de qualquer transmissão LoRa (sucesso ou falha), e `Imu.cpp` passou a
+esperar `delay(3000)` (em vez de 2000) antes de calibrar. Ambas
+verificadas por leitura direta do ficheiro, pelo agente e por mim.
+Achado novo durante a validação: `sendTest()` só sabe pôr o switch em
+LoRa (HIGH) através de `begin()`, uma única vez — uma segunda chamada
+transmitiria "com sucesso" no código de retorno mas com a antena já
+roteada para BLE, sem erro reportado. Apresentado ao utilizador em vez
+de corrigido às cegas; decisão: **deixar registado, não corrigir agora**
+— só relevante quando a lógica de alertas de emergência por LoRa for
+desenhada a sério. Nenhuma das duas correções foi testada em hardware.
+Detalhe completo na entrada 28 do relatório detalhado.
+
+## 26. Varredura completa dos .md à procura de tarefas por fazer (multi-agente, 13 agentes)
+
+O utilizador questionou se a lista de tarefas ativa refletia mesmo tudo o
+que os documentos já registavam como pendente. Resposta honesta: não,
+só havia leituras dirigidas a perguntas específicas. Workflow com 13
+agentes em paralelo (todo o `PROJECT_STATUS.md` em 5 fatias,
+`SECURITY_STATUS.md` em 2, e os restantes `.md` inteiros) extraiu ~150
+itens pendentes citados no texto. Depois de deduplicar: a maioria é
+bloqueada por hardware (não adicionada individualmente) ou já faz parte
+do backlog de segurança/RGPD com o seu próprio sistema de IDs em
+`SECURITY_STATUS.md` (também não duplicado). Ficaram 6 itens
+genuinamente novos e acionáveis, adicionados à lista: bug de CI que só
+valida ~60% do `dashboard.yml`, HR com valores implausíveis sustidos
+(175-187 bpm, distinto do bug de `finger_present`), struct
+`ImuPpgPayloadV1` duplicada entre `main.cpp`/`Ble.cpp`, condição de
+corrida no `QspiRingBuffer` só mitigada, decisão sobre apagar o branch
+remoto `Main`, e — o achado mais relevante — a origem do "vexp" e de
+commits "v3"/"v4" nunca publicados está registada como pergunta em
+aberto ao utilizador, possível explicação para o branch `rewrite-v2` e
+o reset não atribuídos a ninguém (ver entrada 25). Detalhe completo na
+entrada 29 do relatório detalhado.
+
+## 27. Remoção da extensão "vexp" — confirmado como extensão pessoal do utilizador, sem conteúdo único
+
+O utilizador esclareceu que o "vexp" é uma extensão VS Code que ele
+próprio instalou, já sem uso, e pediu para verificar o conteúdo antes
+de apagar. Lidos todos os ficheiros relacionados
+(`.claude/CLAUDE.md`, hook, `copilot-instructions.md`, `mcp.json`,
+`settings.json`/`.vexp-bak`, e os 4 ficheiros de `.vexp/`) — confirmado
+que são 100% vexp, sem nada misturado de outra ferramenta;
+`manifest.json` era só uma cache de índice regenerável, `index.lock`
+confirmava inatividade desde 2026-07-17. Removidos do git (9
+ficheiros/pastas), `settings.json` limpo em vez de apagado. Isto
+esclarece a origem do payload em si, mas **não** confirma se alguma
+rotina ligada a ele causou o `git reset`/branch `rewrite-v2` da entrada
+25 — esse mistério continua em aberto. Detalhe completo na entrada 30
+do relatório detalhado.
