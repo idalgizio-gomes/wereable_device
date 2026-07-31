@@ -23,6 +23,15 @@
 
 #include <Arduino.h>
 
+// Identificador do "tipo" de registo gravado no QspiRingBuffer para uma
+// amostra ImuPpgPayloadV1 (ver QspiRingBuffer::push()/Record::type).
+// Estava duplicado de forma independente em main.cpp
+// (STORAGE_REC_TYPE_IMU_PPG_V1) e Ble.cpp (kRecTypeImuPpgV1) com o mesmo
+// valor 0x1001 — sem nada a impedir que um dos dois fosse alterado sem o
+// outro, o que faria Ble.cpp descartar silenciosamente todos os registos
+// (rec.type comparado contra um valor desalinhado, sem erro visível).
+constexpr uint16_t kImuPpgRecordTypeV1 = 0x1001;
+
 struct __attribute__((packed)) ImuPpgPayloadV1 {
   float ax;             // aceleracao no eixo X (g)
   float ay;             // aceleracao no eixo Y (g)

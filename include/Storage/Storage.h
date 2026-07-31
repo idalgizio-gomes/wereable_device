@@ -16,11 +16,6 @@
 // A ideia é dar ao resto da aplicação uma API simples (guardar/ler/verificar
 // existência) sem que o resto do código precise de saber como o LittleFS
 // funciona por dentro (ficheiros, caminhos, etc.).
-//
-// Existem funções com nomes "duplicados" (ex.: saveCalibration/cal_save)
-// porque partes diferentes do projeto podem chamar por nomes diferentes;
-// as versões curtas (cal_*, aes_*) são apenas "aliases" que chamam as
-// funções principais.
 // =============================================================================
 
 // Estrutura dos offsets de calibração do IMU
@@ -64,12 +59,6 @@ namespace Storage {
   // nova calibração ao utilizador.
   bool hasCalibration();
 
-  // Alias de saveCalibration(), com nome mais curto.
-  bool cal_save(const ImuCalibration &cal);
-
-  // Alias de loadCalibration(), com nome mais curto.
-  bool cal_load(ImuCalibration &cal);
-
   // Apaga a calibração guardada, se existir, forçando uma nova calibração
   // completa no próximo ensureCalibrated() (ver DEBUG_FORCE_IMU_RECALIBRATION
   // em main.cpp). Devolve true também quando já não havia ficheiro nenhum.
@@ -104,12 +93,6 @@ namespace Storage {
   // atingido); false só em caso de erro real a apagar o ficheiro.
   bool removeAesKey();
 
-  // Alias de saveAesKey(), com nome mais curto.
-  bool aes_save(const uint8_t *key, size_t len);
-
-  // Alias de loadAesKey(), com nome mais curto.
-  bool aes_load(uint8_t *buf, size_t bufLen, size_t &outLen);
-
   // Contador persistente para nonce/IV das mensagens BLE
 
   // Lê o valor atual do contador persistente para "counter".
@@ -126,11 +109,6 @@ namespace Storage {
 
   // Guarda o valor de "counter" na flash, substituindo o valor anterior.
   bool counter_save(uint64_t counter);
-
-  // Lê o contador atual, incrementa-o em 1, guarda o novo valor na flash
-  // e devolve-o em "counter". Usado para garantir que cada mensagem BLE
-  // cifrada usa um nonce/IV diferente do anterior (evita reutilização).
-  bool counter_inc(uint64_t &counter);
 
   // Apaga tudo (útil em testes / factory reset)
 

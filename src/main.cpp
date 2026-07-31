@@ -193,9 +193,9 @@ bool isRunning = false;
 // ============================================================
 namespace {
 
-// Identificador do "tipo" de registo gravado no ring buffer — permite, no
-// futuro, distinguir vários formatos de payload sem ambiguidade ao ler.
-constexpr uint16_t STORAGE_REC_TYPE_IMU_PPG_V1 = 0x1001;
+// Identificador do "tipo" de registo gravado no ring buffer: ver
+// kImuPpgRecordTypeV1 em include/ImuPpgPayload.h (única fonte de verdade,
+// partilhada com Ble.cpp).
 // Tamanho da pilha (stack) reservada para esta tarefa do FreeRTOS, em
 // "palavras" de 32 bits. Precisa de ser suficiente para as variáveis
 // locais e chamadas de função desta task, sem desperdiçar RAM.
@@ -228,7 +228,6 @@ static_assert(sizeof(ImuPpgPayloadV1) <= QspiRingBuffer::kPayloadSize,
               "ImuPpgPayloadV1 must fit ring payload");
 
 TaskHandle_t g_storageTaskHandle = nullptr;   // referência à task do FreeRTOS, para a poder gerir depois
-volatile bool g_storageTaskRunning = false;   // flag simples de estado (não é lida noutro sítio atualmente)
 
 // Converte um valor "long" (mais largo) para int16_t, cortando (saturando)
 // nos limites em vez de dar overflow silencioso. Usado para guardar
@@ -244,7 +243,6 @@ int16_t clampToI16(long v) {
 // dispositivo ser desligado.
 void storageTask(void *arg) {
   (void)arg;
-  g_storageTaskRunning = true;
 
   uint32_t lastImuTs = 0;
   uint32_t consumedSpo2Ts = 0;
@@ -324,7 +322,7 @@ void storageTask(void *arg) {
     if (nowUtc != 0) recTs = nowUtc;
 
     // Passo 3: gravar o registo no ring buffer da flash externa.
-    if (QspiRingBuffer::push(STORAGE_REC_TYPE_IMU_PPG_V1,
+    if (QspiRingBuffer::push(kImuPpgRecordTypeV1,
                              reinterpret_cast<const uint8_t *>(&payload),
                              sizeof(payload),
                              recTs)) {

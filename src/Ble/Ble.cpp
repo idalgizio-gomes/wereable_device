@@ -153,7 +153,6 @@ constexpr bool kGattDumpVerboseLogs = false;
 // testar uma negociacao de MTU maior.
 constexpr uint8_t kGattDumpChunkLen = 8;
 
-constexpr uint16_t kRecTypeImuPpgV1 = 0x1001;
 constexpr uint8_t kDumpCtrlStart = 0x01;
 constexpr uint8_t kDumpCtrlStop = 0x02;
 // Pede uma medicao de FC "forcada" (ver Ppg::requestManualHr): bytes[1..2]
@@ -538,7 +537,7 @@ bool encryptRecord(uint32_t nonce, const uint8_t *plain, uint8_t *cipher, size_t
 // de IMU+PPG usado pelo BLE. Rejeita registos de outro tipo ou com
 // tamanho insuficiente (protecao contra dados corrompidos/inesperados).
 bool mapRingRecordToFull(const QspiRingBuffer::Record &rec, FullMappedRecord &out) {
-  if (rec.type != kRecTypeImuPpgV1) {
+  if (rec.type != kImuPpgRecordTypeV1) {
     if (kGattDumpVerboseLogs) {
       Serial.print("[BLEG][DUMP][BUF] skip type=0x");
       Serial.println(rec.type, HEX);
@@ -645,9 +644,10 @@ bool peekImuPpgRecord(FullMappedRecord &out) {
 // Alocacao de nonces por LOTES (evita escrever na flash interna a cada
 // registo — ver o porque abaixo).
 // ------------------------------------------------------------------
-// Registos chegam ate ~52/seg (taxa do IMU). Chamar Storage::counter_inc()
-// (que faz remove()+write() a um ficheiro LittleFS na flash interna) uma
-// vez por registo faria ate ~52 escritas de flash por segundo enquanto o
+// Registos chegam ate ~52/seg (taxa do IMU). Ler+incrementar+gravar o
+// contador persistido (Storage::counter_load()+counter_save(), que fazem
+// remove()+write() a um ficheiro LittleFS na flash interna) uma vez por
+// registo faria ate ~52 escritas de flash por segundo enquanto o
 // streaming estiver ativo — isto e' um erro grave de desenho, nao so' de
 // desempenho: a flash interna do nRF52840 tem um numero finito de ciclos
 // de apagar/escrever por setor (tipicamente dezenas de milhares), e a
@@ -1581,8 +1581,11 @@ bool ensureTimeSync() {
 
   // Fecha ligacoes BLE do provisioning para libertar stack/roles
   // antes de entrar no modo de dados por GATT.
-  uint16_t handles[8] = {0};
-  const uint8_t connCount = Bluefruit.getConnectedHandles(handles, 8);
+  // Tamanho 2: Bluefruit.begin(2, 0) em main.cpp reserva no maximo 2
+  // ligacoes perifericas simultaneas — nunca pode haver mais handles do
+  // que isso a devolver.
+  uint16_t handles[2] = {0};
+  const uint8_t connCount = Bluefruit.getConnectedHandles(handles, 2);
   if (connCount > 0) {
     for (uint8_t i = 0; i < connCount; i++) {
       Bluefruit.disconnect(handles[i]);

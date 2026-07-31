@@ -458,3 +458,18 @@ esquemático já documentadas anteriormente, sem PDF novo para reler.
 Tentativa de remover 3 hooks locais residuais do vexp bloqueada duas
 vezes pelo classificador de permissões — deixada pendente para o
 utilizador. Detalhe completo na entrada 35 do relatório detalhado.
+
+## 33. Correção de um erro meu: "HR 175-187 bpm sustidos" já estava resolvido
+
+Ao investigar este item da lista sem hardware disponível, descobri que
+já tinha sido corrigido e validado com hardware real a 2026-07-22
+(gate de amplitude mínima `kMinBeatPeakAmplitude=40.0f`, segunda
+captura real confirmou valores plausíveis — 40 e 86 bpm — em vez do
+padrão sistemático anterior). A minha própria entrada de uma varredura
+anterior tinha registado este item como ainda em aberto "mesmo com o
+gate já aplicado", o que não é apoiado pelos dados reais — não há
+nenhuma captura ou registo desse padrão depois da correção em nenhum
+ficheiro do repositório. Item fechado; fica só um risco residual
+teórico (artefacto de movimento de grande amplitude) anotado para
+vigiar na próxima confirmação em hardware. Detalhe completo na entrada
+36 do relatório detalhado.

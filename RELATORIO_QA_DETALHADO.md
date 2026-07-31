@@ -1290,3 +1290,48 @@ caminho ao BLE depois).
   precisam de confirmação em hardware real (`force_reading` em
   particular só fica realmente resolvido depois de testado); os 3 hooks
   vexp residuais continuam por remover.
+
+### 36. Correção de um erro meu: "HR 175-187 bpm sustidos" já estava resolvido, não é um item pendente
+
+- **Pergunta/dilema**: ao tentar investigar por revisão de código (sem
+  hardware) o item da lista "HR com valores fisiologicamente
+  implausíveis sustidos (175-187 bpm)", a leitura completa de
+  `PROJECT_STATUS.md` revelou que este item já tinha sido corrigido E
+  validado com hardware real a 2026-07-22 — muito antes de eu (numa
+  varredura anterior, entrada 29) o ter registado como ainda em aberto.
+  A minha própria formulação nessa entrada 29 ("mesmo com o gate de
+  amplitude já aplicado") estava a sugerir que o sintoma persistia
+  depois da correção, o que não é apoiado pelos dados reais.
+- **Onde/quando**: 2026-07-31, ao investigar o item sem hardware
+  disponível.
+- **Forma da resposta**: linha do tempo real, confirmada por leitura
+  direta de `PROJECT_STATUS.md`: (1) 2026-07-07 — primeira captura em
+  hardware mostra 175-187 bpm sustidos, intervalos de 320-340ms entre
+  "batimentos", hipótese registada mas **não corrigida às cegas**
+  (instrução explícita do utilizador nessa altura: só corrigir depois
+  de confirmar com sinal em bruto real). (2) 2026-07-22 — capturado o
+  sinal em bruto real (`DEBUG_HR_RAW_CAPTURE`), confirmando ruído de
+  baixa amplitude a gerar cruzamentos por zero falsos; corrigido com
+  `kMinBeatPeakAmplitude=40.0f`. (3) Mesma sessão, **segunda captura já
+  com a correção**: de 10 "batimentos" falsos num intervalo curto para
+  3 cruzamentos aceites, com os 2 que produziram BPM válido a dar 40 e
+  86 bpm — plausíveis, não mais o padrão sistemático 160-190bpm. O
+  terceiro (artefacto de movimento de grande amplitude) foi rejeitado
+  pelo filtro de plausibilidade já existente (dt fora de 300-2000ms),
+  não pelo novo limiar de amplitude — por isso a própria sessão de
+  2026-07-22 já documentava honestamente que o limiar "não distingue um
+  artefacto de movimento de grande amplitude de um batimento real"
+  **como risco residual teórico em aberto**, não como uma recorrência
+  observada do sintoma original. Não encontrada, em nenhum ficheiro do
+  repositório, qualquer captura ou registo de 175-187bpm (ou range
+  próximo) depois de 2026-07-22 — todas as ocorrências desse número
+  remontam à mesma captura pré-correção de 2026-07-07.
+- **Artifícios/métodos usados**: `Grep` por "175-187", "implausív*" e
+  "bpm sustidos" em todo o repositório antes de concluir — não confiei
+  só na minha própria entrada anterior da lista de tarefas.
+- **Melhorias feitas / ainda necessárias**: item da lista de tarefas
+  fechado por já estar resolvido e validado; o risco residual teórico
+  (artefacto de movimento de grande amplitude coincidir com uma janela
+  de dt plausível) fica anotado, mas como algo a vigiar na próxima
+  confirmação em hardware, não como bug ativo. Correção registada aqui
+  para não repetir a mesma imprecisão numa futura varredura automática.

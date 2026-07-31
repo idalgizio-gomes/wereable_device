@@ -76,14 +76,6 @@ bool clearCalibration() {
   return InternalFS.remove(PATH_CALIB) || !hasCalibration();
 }
 
-bool cal_save(const ImuCalibration &cal) {
-  return saveCalibration(cal);
-}
-
-bool cal_load(ImuCalibration &cal) {
-  return loadCalibration(cal);
-}
-
 // ---------------- AES key ----------------
 
 bool saveAesKey(const uint8_t *key, size_t len) {
@@ -141,14 +133,6 @@ bool hasAesKey() {
   bool ok = f.size() >= AES_KEY_MIN_LEN && f.size() <= AES_KEY_MAX_LEN;
   f.close();
   return ok;
-}
-
-bool aes_save(const uint8_t *key, size_t len) {
-  return saveAesKey(key, len);
-}
-
-bool aes_load(uint8_t *buf, size_t bufLen, size_t &outLen) {
-  return loadAesKey(buf, bufLen, outLen);
 }
 
 // ---------------- Persistent counter ----------------
@@ -214,18 +198,6 @@ bool counter_load(uint64_t &counter, bool *corrupted) {
     return false;
   }
   counter = rec.counter;
-  return true;
-}
-
-bool counter_inc(uint64_t &counter) {
-  uint64_t cur = 0;
-  // Se ainda não existir contador guardado, counter_load() falha e
-  // deixa "cur" a 0 — nesse caso começamos a contar a partir de 1,
-  // por isso o resultado de counter_load() é ignorado aqui de propósito.
-  (void)counter_load(cur);
-  cur++;
-  if (!counter_save(cur)) return false;
-  counter = cur;
   return true;
 }
 
