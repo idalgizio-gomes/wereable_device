@@ -622,6 +622,19 @@ suportar, um endereço privado resolúvel (RPA) em vez do MAC público
 fixo — a confirmar se está ao alcance do SoftDevice S140 já em uso
 (`main.cpp`) sem reabrir o âmbito de outra rotina.
 
+> **Confirmado (2026-07-31)**: uma proposta de âmbito funcional "Medical
+> ID" (nome, condições, alergias, medicação, contacto de emergência
+> embutidos diretamente no NDEF) foi discutida numa sessão de
+> planeamento separada (2026-07-22) sem cruzar com este requisito —
+> um erro de processo, corrigido ao ser detetado. Apresentada à
+> utilizadora a escolha entre manter este requisito (dados de emergência
+> servidos por uma characteristic BLE nova, só depois do pairing
+> desencadeado pelo NFC) ou reverter `NFC-003` e aceitar o risco.
+> **Decisão: manter `NFC-003` tal como está escrito.** Ver
+> `PROJECT_STATUS.md`, secção "NFC" (2026-07-31) para o desenho
+> resultante (nova characteristic `emergencyProfileChar`, só de leitura,
+> pós-pairing).
+
 ### NFC-004 — Dados OOB (se vierem a existir) têm de ser efémeros e ligados à sessão
 
 **Gravidade: média-alta**, condicional a uma fase futura que ainda não
@@ -1084,6 +1097,48 @@ prazo definido (mesmo que muito longo).
 utilizador): documentar explicitamente a base legal/finalidade que
 justifica a retenção indefinida (ou substituir por um prazo finito,
 ainda que longo, com justificação escrita).
+
+**Justificação legal proposta (2026-07-31, a validar pela utilizadora —
+não pesquisa nova, os artigos abaixo são disposições estáveis e bem
+estabelecidas do RGPD, não precisam de verificação online)**: base
+legal dupla, não uma só:
+
+1. **Interesse vital do titular dos dados (Art. 6.1.d RGPD)** — o
+   público-alvo do CareWear são pessoas com demência, que podem não
+   poder consentir ou decidir por si em situação de emergência. O
+   histórico de alertas (quedas, SOS) não é um registo passivo — é
+   clinicamente relevante para deteção de padrões (ex.: "5 quedas nos
+   últimos 12 meses" muda uma decisão de cuidado continuado, ver
+   `Emergency.cpp`/deteção automática) que dependem de existir um
+   histórico, não só o alerta mais recente. Retenção "porque sim" seria
+   indefensável; retenção porque o histórico serve diretamente a
+   segurança contínua do titular é uma finalidade concreta e
+   documentável.
+2. **Estabelecimento, exercício ou defesa de direitos (Art. 17.3.e)** —
+   um alerta de emergência é, por natureza, o tipo de registo que pode
+   vir a ser relevante numa disputa sobre se um cuidador/clínico
+   respondeu adequadamente (ex.: alegação de negligência) — o próprio
+   registo é a prova de que o alerta existiu e de quando foi
+   confirmado/ignorado. Esta base justifica retenção além do período
+   "normal" de outros dados (`sensor_records`, etc.), precisamente
+   porque emergências são o caso onde essa prova importa mais.
+
+**Prazo — duas variantes, a escolher pela utilizadora**:
+- **(a) Indefinido** (mantém o comportamento atual) — só defensável se
+  as duas bases acima forem aceites como válidas para retenção sem
+  limite temporal; é a opção mais forte para o objetivo de segurança
+  contínua (nunca perde histórico), mas a mais exposta a escrutínio
+  RGPD se um titular pedir os dados apagados.
+- **(b) Prazo finito longo, com justificação escrita** — adotar os 10
+  anos já documentados como valor de referência em `DataRetention`
+  (`storage_advanced.py`) como limite explícito para `emergency_alerts`
+  também (hoje é só referência, `cleanup()` nunca o aplica a esta
+  tabela) — cumpre a mesma finalidade prática (histórico clínico útil,
+  janela de defesa legal razoável) com um limite mais defensável.
+
+**Estado**: proposta escrita, não implementada em código — falta a
+utilizadora confirmar a base legal e escolher entre (a)/(b) antes de
+qualquer alteração a `DataRetention`/`cleanup()`.
 
 ---
 

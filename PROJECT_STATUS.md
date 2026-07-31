@@ -5956,63 +5956,68 @@ possível (sessão sem placa e sem a utilizadora presente para validar
 algo security-relevante). Item mantido na lista de tarefas com nota
 explícita do bloqueio.
 
-## 2026-07-31 (continuação) — reconciliação do desenho de NFC: âmbito real substitui a proposta "tap-to-pair apenas"
+## 2026-07-31 (continuação) — NFC: correção de um erro meu (não cruzei com SECURITY_STATUS.md) — NFC-003 mantém-se, dados de emergência via BLE autenticado
 
-Ao preparar-me para desenhar o NFC (item da lista), encontrada uma
-contradição não resolvida entre dois registos deste ficheiro:
+A entrada original desta secção (mesma data, versão anterior) concluiu
+que o âmbito "Medical ID" definido pela utilizadora em 2026-07-22
+(dados clínicos embutidos no NDEF) substituía a proposta conservadora de
+2026-07-03. **Essa conclusão estava errada**: cruzei só duas notas de
+`PROJECT_STATUS.md`, sem nunca consultar `SECURITY_STATUS.md`, onde já
+existe um checklist de segurança formal e numerado (`NFC-001` a
+`NFC-009`, escrito por uma rotina de segurança dedicada em
+2026-07-08/10) — exatamente "a lista de tarefas" que a utilizadora tinha
+dado e que eu não tinha cruzado. `NFC-003` (gravidade **alta**) proíbe
+explicitamente qualquer PII/dado clínico no conteúdo NDEF; `NFC-007`
+confirma que este requisito veio da própria utilizadora ("reforça
+explicitamente o requisito do utilizador"). A minha conclusão de que o
+âmbito de 2026-07-22 "substituía" isto contradizia diretamente um
+requisito de segurança formal já existente — erro registado aqui em vez
+de corrigido em silêncio.
 
-- **2026-07-03** ("Descobertas do esquemático real" e "Pendências" da
-  Fase C, acima): proposta explicitamente marcada "a confirmar" de que
-  o conteúdo NDEF seria **só** o identificador/endereço BLE para
-  handover/tap-to-pair — "nunca dados clínicos ou PII".
-- **2026-07-22** (sessão de planeamento, fora deste ficheiro — só em
-  histórico de conversa): a utilizadora definiu explicitamente um
-  âmbito diferente e mais específico: **leitura passiva tipo "Medical
-  ID"** — um médico/rececionista aproxima um leitor NFC e recebe de
-  imediato identidade + condições/alergias/medicação relevantes em
-  emergência + contacto de emergência, precisamente para o caso de o
-  paciente (público-alvo com demência) não poder colaborar/consentir
-  no momento. Esta decisão veio DEPOIS da proposta de 2026-07-03 e
-  respondeu-lhe diretamente — não é um esquecimento, é uma substituição
-  deliberada de âmbito pela própria utilizadora.
+**Apresentado à utilizadora (2026-07-31) três opções**: manter
+`NFC-003` (dados de emergência atrás do BLE autenticado); reverter
+`NFC-003` e aceitar o risco (âmbito de 2026-07-22 tal como estava);
+reler o checklist completo antes de decidir. **Resposta: manter
+`NFC-003`.**
 
-**Reconciliação (não uma decisão nova minha — só a registar o que já
-foi decidido)**: o âmbito de 2026-07-22 é o vigente; a proposta de
-2026-07-03 fica marcada como substituída, não apagada (para não perder
-o histórico de porque é que a ideia inicial era mais conservadora).
+**Desenho final (substitui a versão anterior desta secção)**:
+- NFC continua confinado a iniciar/confirmar o handover/pairing BLE —
+  cumpre `NFC-002`/`NFC-003`/`NFC-007` à letra, nunca expõe PII a uma
+  leitura NFC não autenticada. Formato NDEF continua **NDEF Type 2
+  Tag**, conteúdo limitado ao identificador/endereço necessário ao
+  handover (ver `NFC-003`).
+- **Nova characteristic GATT de leitura de emergência** (nome a
+  definir, ex. `emergencyProfileChar`), só de leitura, servida depois de
+  pairing/bonding BLE completo (não precisa da chave de dono completa —
+  ver estado do bonding em `BLE-001`/Fase A). Devolve o mesmo
+  subconjunto curado antes pensado para o NDEF: nome, condições
+  (`PatientCondition`), alergias (`PatientAllergy`), medicação atual
+  (`Medication`), contacto de emergência
+  (`Patient.emergency_contact_*`) — mas só acessível depois do handover
+  NFC ter desencadeado o pairing BLE, nunca por leitura NFC direta.
+- Fluxo de emergência resultante: aproximar o leitor → NFC desencadeia
+  pairing BLE (com confirmação no dispositivo, `NFC-002`) → app lê
+  `emergencyProfileChar` já pela ligação BLE — acesso quase tão rápido
+  como o NDEF direto, sem nunca expor PII a uma leitura NFC não
+  autenticada.
+- Fonte de dados: os modelos já implementados nesta sessão
+  (`storage_advanced.py::PatientCondition/PatientAllergy`) e
+  `Medication`, já existente.
+- Diferencial face à concorrência (MyID Tag, TapMedID, etc., chips
+  NTAG passivos só com URL estático) mantém-se válido mesmo com este
+  desenho: o conteúdo da characteristic pode ser gerado dinamicamente
+  pelo firmware a partir dos dados já no dispositivo, atualizável a
+  qualquer momento pelo mesmo caminho BLE já autenticado, sem
+  reprogramar nada — só que agora entregue por BLE pós-pairing, não por
+  NDEF direto.
 
-**Desenho tal como ficou definido em 2026-07-22** (a implementação
-continua por fazer — sem lib NDEF pronta no core Adafruit atual, só
-`nrfx_nfct` de baixo nível):
-- Formato: **NDEF Type 2 Tag** (mais simples que Type 4 sobre
-  `nrfx_nfct`; suficiente para um registo de texto/URI, não precisa da
-  seleção de aplicação por AID do Type 4).
-- Conteúdo: nome, doenças crónicas/diagnósticos relevantes, medicação
-  atual (nomes/dosagens que mudem uma decisão de emergência, ex.:
-  anticoagulantes), alergias, telefone de contacto de emergência — **não**
-  a ficha clínica completa (essa continua só atrás do caminho
-  autenticado BLE/dashboard). Alimentado pelos mesmos
-  `patient_conditions`/`patient_allergies` implementados nesta sessão
-  (ver secção acima) e por `Medication`, já existente.
-- Diferencial face à concorrência (MyID Tag, TapMedID, etc., que usam
-  chips NTAG passivos e por isso só conseguem guardar um URL para um
-  perfil na cloud do fabricante): como o NFC aqui corre no próprio
-  nRF52840 (não um chip passivo à parte), o conteúdo pode ser gerado
-  dinamicamente pelo firmware a partir dos dados já no dispositivo —
-  dados embutidos (funcionam sem internet, ex. numa ambulância sem
-  sinal) mas atualizáveis a qualquer momento pelo mesmo caminho BLE
-  autenticado que já existe, sem reprogramar chip nenhum.
-- RGPD: superfície de exposição reduzida de propósito (subconjunto
-  curado, não tudo) precisamente por ser leitura sem autenticação —
-  fica para a FAQ (já com um placeholder pendente, ver `ajuda.faqQ`
-  acima) explicar com transparência ao utente/família o que fica
-  exposto a qualquer leitor.
+**Ainda por fazer, sem alteração nesta sessão**: implementação real de
+ambas as partes (NFC — NDEF mínimo de handover, ainda sem lib pronta no
+core Adafruit; e a nova `emergencyProfileChar` em `Ble.cpp`) — trabalho
+de tamanho considerável, fica desenhado, não implementado.
 
-**Ainda por fazer, sem alteração nesta sessão**: implementação real
-(escolha entre programar NFC-A/Type2Tag+NDEF diretamente sobre
-`nrfx_nfct`, ou importar as libs de NFC do nRF5 SDK da Nordic que o
-core Adafruit já usa por baixo, mas não expõe publicamente) — trabalho
-de tamanho considerável, não cabe nesta sessão sem hardware.
+Ver também `SECURITY_STATUS.md`, nota junto de `NFC-003`/`NFC-007`
+(2026-07-31) e `RELATORIO_QA_DETALHADO.md`, entrada sobre este erro.
 
 ## 2026-07-31 (continuação) — desenho: pipeline de retreino do classificador a partir das correções do cuidador
 

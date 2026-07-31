@@ -507,3 +507,17 @@ decidido; e desenho do retreino do classificador como script standalone
 fora do bridge, com o limiar de correções para a 1ª execução deixado
 como pergunta em aberto (proposta: 20). Detalhe completo na entrada 39
 do relatório detalhado.
+
+## 37. Erro meu corrigido: a "reconciliação do NFC" anterior estava errada
+
+A utilizadora apontou para `SECURITY_STATUS.md` — um checklist de
+segurança formal (`NFC-001` a `NFC-009`, `GDPR-001` a `GDPR-006`) que
+eu não tinha consultado ao "reconciliar" o âmbito do NFC. `NFC-003`
+proíbe PII/dados clínicos no NDEF; a minha conclusão anterior
+contradizia isto diretamente. Reconheci o erro, apresentei três opções
+à utilizadora, e a resposta foi manter `NFC-003` — dados de emergência
+passam a ser servidos por uma nova characteristic BLE, só depois do
+pairing desencadeado pelo NFC, nunca pelo NDEF diretamente. Também
+escrita a justificação legal do GDPR-006 (Art. 6.1.d + Art. 17.3.e do
+RGPD, duas variantes de prazo). Detalhe completo na entrada 40 do
+relatório detalhado.

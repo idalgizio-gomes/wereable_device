@@ -1419,3 +1419,42 @@ caminho ao BLE depois).
   decisão nova da utilizadora para ficar registada corretamente; o
   retreino em si (script + workflow) fica por implementar até
   confirmação do limiar (ou ordem para avançar já com a proposta).
+
+### 40. Erro meu corrigido: a "reconciliação do NFC" da entrada 39 estava errada — não cruzei com SECURITY_STATUS.md
+
+- **Pergunta/dilema**: a utilizadora perguntou "Trataste do nfc e
+  gdpr?" e depois "Eu tinha-te dado uma lista de tarefas onde estas as
+  duas estavam incluídas. O que se passou com ela?" — apontando para
+  `SECURITY_STATUS.md`, que tem um checklist de segurança formal e
+  numerado (`NFC-001` a `NFC-009`, `GDPR-001` a `GDPR-006`) que eu não
+  tinha consultado na entrada 39 anterior. `NFC-003` (gravidade alta)
+  proíbe PII/dados clínicos no NDEF; `NFC-007` confirma que o requisito
+  veio da própria utilizadora. A minha conclusão anterior — que o
+  âmbito "Medical ID" de 2026-07-22 "substituía" a proposta antiga —
+  contradizia isto diretamente, sem eu ter cruzado os dois documentos.
+- **Onde/quando**: 2026-07-31.
+- **Forma da resposta**: reconheci o erro explicitamente (não corrigi
+  em silêncio), expliquei o conflito real com citações diretas de
+  `NFC-003`/`NFC-007`, e apresentei à utilizadora três opções via
+  `AskUserQuestion` (manter `NFC-003` com dados de emergência atrás de
+  uma characteristic BLE nova pós-pairing; reverter `NFC-003` e aceitar
+  o risco; reler o checklist completo antes de decidir) — propondo a
+  primeira como recomendada, mas sem decidir por ela. Resposta: manter
+  `NFC-003`. Reescrevi a secção de `PROJECT_STATUS.md` (não apaguei,
+  substituí, com o erro explicado) e acrescentei uma nota em
+  `SECURITY_STATUS.md` junto de `NFC-003` confirmando a decisão.
+- **Artifícios/métodos usados**: `Grep`/`Read` diretos a
+  `SECURITY_STATUS.md` antes de escrever qualquer correção — a mesma
+  lição já registada nesta sessão (entrada 36, HR 175-187bpm): não
+  confiar em conclusões próprias anteriores sem verificar contra o
+  ficheiro real. Sessão em modo de planeamento (`plan mode`) para esta
+  correção — só leituras até o plano ser aprovado pela utilizadora.
+- **Melhorias feitas / ainda necessárias**: desenho corrigido registado
+  nos dois ficheiros; falta implementar a nova characteristic
+  `emergencyProfileChar` (código real, fora do âmbito desta correção).
+  Também escrita a justificação legal do GDPR-006 (duas bases RGPD —
+  Art. 6.1.d interesse vital, Art. 17.3.e defesa de direitos — com duas
+  variantes de prazo, indefinido vs. 10 anos), como pedido pela
+  utilizadora na mesma pergunta, esclarecendo que não era preciso
+  pesquisar na internet (são disposições estáveis do RGPD, faltava
+  posição fundamentada específica ao CareWear, não factos novos).
