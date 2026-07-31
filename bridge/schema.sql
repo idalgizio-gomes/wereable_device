@@ -44,6 +44,43 @@ CREATE TABLE IF NOT EXISTS patients (
     deleted_at TIMESTAMP
 );
 
+-- Doenças/diagnósticos e alergias do paciente — uma linha por entrada
+-- (um paciente pode ter várias; texto único agregado obrigaria a um
+-- formato tipo "vírgula a separar", frágil). Duas tabelas separadas,
+-- não uma tabela genérica de "achados de saúde": inspirado nos recursos
+-- `Condition`/`AllergyIntolerance` do HL7 FHIR, que também são recursos
+-- distintos — uma alergia precisa de poder ser listada isoladamente
+-- (ex.: caso de uso de emergência via NFC). display_text_encrypted segue
+-- o mesmo padrão de cifra de nif_encrypted/address_encrypted (dado de
+-- saúde, categoria especial RGPD); code_system/code são opcionais
+-- (ex.: "ICD-10"/"E11", "SNOMED-CT"/<código>), inspirados no
+-- CodeableConcept do FHIR, sem exigir integração com terminology server.
+CREATE TABLE IF NOT EXISTS patient_conditions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    uuid TEXT UNIQUE NOT NULL,
+    patient_id INTEGER NOT NULL,
+    display_text_encrypted TEXT NOT NULL,
+    code_system TEXT,
+    code TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP,
+    FOREIGN KEY (patient_id) REFERENCES patients (id)
+);
+
+CREATE TABLE IF NOT EXISTS patient_allergies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    uuid TEXT UNIQUE NOT NULL,
+    patient_id INTEGER NOT NULL,
+    display_text_encrypted TEXT NOT NULL,
+    code_system TEXT,
+    code TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP,
+    FOREIGN KEY (patient_id) REFERENCES patients (id)
+);
+
 CREATE TABLE IF NOT EXISTS devices (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     uuid TEXT UNIQUE NOT NULL,

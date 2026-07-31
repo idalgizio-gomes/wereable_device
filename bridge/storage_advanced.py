@@ -156,6 +156,8 @@ class Patient(Base):
     devices = relationship("Device", back_populates="patient")
     medications = relationship("Medication", back_populates="patient")
     thresholds = relationship("PersonalizedThreshold", back_populates="patient", uselist=False)
+    conditions = relationship("PatientCondition", back_populates="patient", cascade="all, delete-orphan")
+    allergies = relationship("PatientAllergy", back_populates="patient", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("idx_patient_uuid", "uuid"),
@@ -178,6 +180,80 @@ class Patient(Base):
     @address.setter
     def address(self, value: Optional[str]) -> None:
         self.address_encrypted = encrypt_field(value)
+
+
+class PatientCondition(Base):
+    """Doença/diagnóstico do paciente — uma linha por entrada (não texto livre agregado).
+
+    Inspirado no recurso `Condition` do HL7 FHIR: `display_text` é o que se vê
+    no dashboard (obrigatório), `code_system`/`code` são opcionais
+    (ex.: "ICD-10"/"E11" para diabetes tipo 2) para permitir cruzamento
+    automático mais tarde sem obrigar o cuidador a conhecer códigos clínicos
+    hoje. Ver PatientAllergy para o motivo de ser uma tabela separada.
+    """
+    __tablename__ = "patient_conditions"
+
+    id = Column(Integer, primary_key=True)
+    uuid = Column(String(36), unique=True, nullable=False)
+    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False)
+    # Cifrado com o mesmo padrão de nif_encrypted/address_encrypted — é dado
+    # de saúde, categoria especial RGPD.
+    display_text_encrypted = Column(String(512), nullable=False)
+    code_system = Column(String(50))  # ex.: "ICD-10", "SNOMED-CT"
+    code = Column(String(50))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    deleted_at = Column(DateTime)
+
+    patient = relationship("Patient", back_populates="conditions")
+
+    __table_args__ = (
+        Index("idx_patient_condition_patient_id", "patient_id"),
+    )
+
+    @property
+    def display_text(self) -> Optional[str]:
+        return decrypt_field(self.display_text_encrypted)
+
+    @display_text.setter
+    def display_text(self, value: Optional[str]) -> None:
+        self.display_text_encrypted = encrypt_field(value)
+
+
+class PatientAllergy(Base):
+    """Alergia do paciente — uma linha por entrada.
+
+    Tabela separada de PatientCondition (não uma só tabela genérica "achados
+    de saúde"): o FHIR trata `AllergyIntolerance` como recurso próprio porque
+    uma alergia é semanticamente distinta de um diagnóstico — no CareWear
+    isso importa em concreto para o caso de uso de emergência (NFC/dashboard
+    devem conseguir listar alergias isoladamente de condições crónicas).
+    """
+    __tablename__ = "patient_allergies"
+
+    id = Column(Integer, primary_key=True)
+    uuid = Column(String(36), unique=True, nullable=False)
+    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False)
+    display_text_encrypted = Column(String(512), nullable=False)
+    code_system = Column(String(50))  # ex.: "SNOMED-CT"
+    code = Column(String(50))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    deleted_at = Column(DateTime)
+
+    patient = relationship("Patient", back_populates="allergies")
+
+    __table_args__ = (
+        Index("idx_patient_allergy_patient_id", "patient_id"),
+    )
+
+    @property
+    def display_text(self) -> Optional[str]:
+        return decrypt_field(self.display_text_encrypted)
+
+    @display_text.setter
+    def display_text(self, value: Optional[str]) -> None:
+        self.display_text_encrypted = encrypt_field(value)
 
 
 class Device(Base):
