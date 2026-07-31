@@ -5789,3 +5789,60 @@ calibração do gate de presença real (hoje `fingerPresent = true` fixo em
 `processHrSample()`) continua por fazer, mas já não está bloqueada pelo
 `force_reading` — a captura de baseline sem pulso já é possível através do
 streaming contínuo normal, agora que a inatividade funciona.
+
+## 2026-07-26 — Migração real: storage_advanced.py passa a ser a única base de dados do bridge
+
+**Nota de transparência**: a secção original desta data foi escrita e
+ficou localmente por commitar; um `git reset`/`clean` de origem não
+confirmada apagou-a do disco a 2026-07-30, sem snapshot de recuperação
+disponível (ver `RELATORIO_QA_DETALHADO.md`, entrada 26 sobre a memória
+de disciplina de commits). O texto abaixo é uma **reconstrução fiel aos
+factos**, feita a partir das entradas 23-24 do `RELATORIO_QA_DETALHADO.md`
+(que sobreviveram, recuperadas por outra via) e dos commits reais — não é
+o texto original palavra por palavra.
+
+**Contexto**: pedido direto e sem ambiguidade do utilizador — "Quero que
+storage deixe de ser a minha base de dados principal e quero que passe a
+ser storage_advanced." Ao contrário de 2026-07-24 (só a decisão) e
+2026-07-25 (só o diagrama corrigido), desta vez a mudança foi feita no
+código a sério.
+
+**O que mudou** (4 ficheiros do bridge, dois commits):
+- `storage_advanced.py`: novos modelos `Setting` e `ActivityCorrection`
+  (com `device_id`), e funções `get_records_since`, `count_records`,
+  `get_daily_summary`, `export_records_csv`, `get_retention_days`/
+  `set_retention_days`, `insert_activity_correction` — com os MESMOS
+  nomes de campo que `storage.py` devolvia (`ax`/`ay`/`az`), para o
+  dashboard não precisar de nenhuma alteração.
+- `orm_persistence.py`: deixou de se descrever como "dual-write
+  transitório"; passou a expor leitura e escrita como fonte única. Os
+  métodos de leitura lançam `RuntimeError` explícito se a persistência
+  estiver desativada (antes degradava em silêncio, porque `storage.py`
+  respondia no lugar).
+- `ble_bridge.py`: removido `import storage` e `self.db =
+  storage.init_db()`; todos os comandos do dashboard e callbacks de
+  escrita migrados para `self.orm`.
+- `requirements.txt` (o mínimo, usado por `start_carewear.ps1/.bat`):
+  promovidas `sqlalchemy`/`argon2-cffi` de `requirements_db.txt`
+  (opcional) para obrigatórias — sem isto o lançador de um clique
+  arrancaria sem persistência nenhuma.
+
+**Erro cometido e corrigido durante a tarefa**: um `git commit` sem
+restringir ficheiros apanhou também remoções do vexp já staged de uma
+sessão anterior. Detetado de imediato, corrigido com
+`git reset --soft HEAD^` (commit ainda não tinha sido feito push) e
+recommitado só com os ficheiros certos.
+
+**Achado durante a migração**: `get_recent_emergency_alerts()` e
+`export_emergency_alerts_csv()`, definidas em `storage.py`, eram código
+morto — nunca chamadas em nenhum outro ficheiro do repositório (só
+documentadas em `SECURITY_STATUS.md`). Decisão: não migradas.
+
+**Resultado final**: `bridge/storage.py` removido do repositório; suite
+de testes completa a passar (141 passed); relatório técnico do módulo
+removido escrito antes da remoção
+(`Análise/11_Relatorio_Tecnico_Storage_Legado.html`, a pedido explícito
+do utilizador); diagramas 05 e 06 atualizados, incluindo a correção de
+uma ligação `storage_advanced.py → dashboard` que o diagrama 05
+desenhava como "planeada" mas nunca correspondeu à implementação real —
+o histórico continua a passar pelo `bridge` (mesmo canal WebSocket).

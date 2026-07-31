@@ -488,7 +488,7 @@ bool begin() {
 }
 
 // Rotina que efetivamente calcula os offsets de calibracao. Pede ao
-// utilizador (via display) para pousar o dispositivo parado, espera 2 s
+// utilizador (via display) para pousar o dispositivo parado, espera 3 s
 // para dar tempo a que isso aconteca, e depois le CAL_NUM_SAMPLES amostras
 // raw do sensor (uma a cada CAL_SAMPLE_DELAY_MS), acumulando a soma de
 // cada eixo. No fim, a media de cada eixo passa a ser o offset desse eixo:
@@ -514,7 +514,7 @@ static bool runCalibration(ImuCalibration &out) {
   Serial.flush();
 
   // Pequena espera para o utilizador pousar o dispositivo
-  delay(2000);
+  delay(3000);
 
   Serial.println("[IMU] start sample loop");
   Serial.flush();
