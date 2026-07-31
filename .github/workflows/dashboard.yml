@@ -27,20 +27,27 @@ jobs:
           node-version: "20"
 
       - name: Extrair e validar sintaxe do <script> principal (index.html)
-        # IMPORTANTE: usar a ÚLTIMA ocorrência literal de "<script>", não a
-        # primeira — o ficheiro tem várias menções a "<script>" dentro de
-        # comentários CSS/JS (texto explicativo), que um simples indexOf()
-        # apanha por engano (bug já encontrado e corrigido manualmente
-        # várias vezes ao longo do projeto). lastIndexOf() é o padrão
-        # correto e testado.
+        # IMPORTANTE (corrigido 2026-07-31): nem indexOf() nem lastIndexOf()
+        # em "<script>" são seguros — o ficheiro tem menções literais a
+        # "<script>" dentro de comentários/texto explicativo tanto ANTES
+        # como DEPOIS da tag de abertura real, e qualquer uma das duas
+        # funções pode apanhar a ocorrência errada (o bug do lastIndexOf foi
+        # descoberto em 2026-07-31: uma menção dentro de um comentário a meio
+        # do próprio bloco de script fazia o CI validar só ~60% do ficheiro,
+        # sem falhar, porque o sufixo restante calhava de ser sintaticamente
+        # válido por si só). Âncora robusta: a ÚNICA linha do ficheiro que é
+        # EXATAMENTE "<script>" (sem atributos, nada mais na linha) — nunca
+        # aparece assim dentro de um comentário/frase.
         run: |
           node -e "
           const fs = require('fs');
           const content = fs.readFileSync('web/dashboard/index.html', 'utf-8');
-          const start = content.lastIndexOf('<script>');
-          if (start === -1) { console.error('Nao encontrei <script> em index.html'); process.exit(1); }
+          const lineMatch = content.match(/^\s*<script>\s*$/m);
+          if (!lineMatch) { console.error('Nao encontrei uma linha exatamente <script> em index.html'); process.exit(1); }
+          const tagStart = lineMatch.index + lineMatch[0].indexOf('<script>');
+          const start = tagStart + '<script>'.length;
           const end = content.indexOf('</script>', start);
-          const js = content.slice(start + '<script>'.length, end);
+          const js = content.slice(start, end);
           fs.writeFileSync('/tmp/dashboard_inline.js', js);
           "
           node --check /tmp/dashboard_inline.js
@@ -56,9 +63,12 @@ jobs:
           node -e "
           const fs = require('fs');
           const content = fs.readFileSync('web/dashboard/index.html', 'utf-8');
-          const start = content.lastIndexOf('<script>');
+          const lineMatch = content.match(/^\s*<script>\s*$/m);
+          if (!lineMatch) { console.error('Nao encontrei uma linha exatamente <script> em index.html'); process.exit(1); }
+          const tagStart = lineMatch.index + lineMatch[0].indexOf('<script>');
+          const start = tagStart + '<script>'.length;
           const end = content.indexOf('</script>', start);
-          const js = content.slice(start + '<script>'.length, end);
+          const js = content.slice(start, end);
 
           const funcMatches = [...js.matchAll(/^function (\w+)/gm)].map(m => m[1]);
           const funcCounts = {};
