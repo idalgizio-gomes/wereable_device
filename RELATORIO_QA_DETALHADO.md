@@ -1458,3 +1458,56 @@ caminho ao BLE depois).
   utilizadora na mesma pergunta, esclarecendo que não era preciso
   pesquisar na internet (são disposições estáveis do RGPD, faltava
   posição fundamentada específica ao CareWear, não factos novos).
+
+### 41. GDPR-006 fechado com prazo de 8 anos (decisão da utilizadora) + arranque do `emergencyProfileChar` via workflow multi-agente
+
+- **Pergunta\dilema**: a entrada 40 tinha deixado o GDPR-006 com duas
+  variantes propostas (indefinido vs. 10 anos) à espera de decisão. A
+  utilizadora respondeu com um terceiro valor, não uma das duas opções
+  apresentadas — "o prazo pode ser de 8 anos" — e pediu para implementar
+  já, não só documentar. Ao mesmo tempo pediu para avançar com
+  `emergencyProfileChar` (desenhado na entrada 40, código nunca escrito)
+  e para esquecer o item pendente dos 3 git hooks residuais do vexp.
+- **Onde\quando**: 2026-07-31, mesma sessão da entrada 40.
+- **Forma da resposta**: GDPR-006 implementado de facto, não só
+  documentado: `EmergencyAlert` ganhou `deleted_at` (soft delete, padrão
+  de `Alert`), migração `c3e7a1f9b4d2` encadeada a seguir a `6181ca0ce076`,
+  `RETENTION_POLICIES["emergency_alerts"]` 3650→2920 dias,
+  `DataRetention.cleanup()` passou a processar a tabela de facto (antes
+  tinha um comentário explícito a dizer que nunca a tocava). Um teste
+  existente que validava o comportamento antigo (`test_emergency_alerts_are_never_purged`,
+  só verificava `count()==1`, o que continuaria a passar mesmo com soft
+  delete — teria ficado a validar a coisa errada silenciosamente) foi
+  corrigido para dois testes que verificam `deleted_at` de facto.
+  `emergencyProfileChar`: em vez de implementar sozinha, usado um
+  workflow multi-agente (`Workflow` tool, 4 agentes: Fable planeia →
+  Sonnet implementa firmware + Sonnet implementa bridge, em paralelo →
+  Fable valida o conjunto) — decisão tomada porque a feature atravessa
+  firmware C++ e bridge Python com um contrato partilhado (UUIDs BLE,
+  formato do payload) que beneficia de uma fase de planeamento dedicada
+  antes da implementação e de uma validação cruzada depois, o padrão já
+  usado nesta sessão para o bug do RF switch/IMU (entrada 28). Antes de
+  escrever os prompts dos agentes, fiz eu mesma a investigação de
+  arquitetura necessária (UUIDs BLE já usados, padrão de chunking
+  existente — só serve para notify(), não para read/write normais que já
+  têm long-read/write nativo do GATT — cifra AES-CTR só usada em
+  notificações de dump, não em escritas bridge→dispositivo, nomes exatos
+  dos campos ORM) para não delegar a parte de "perceber o problema", só a
+  de escrever o código já especificado.
+- **Artifícios/métodos usados**: leitura direta do código real antes de
+  escrever qualquer prompt de agente (`storage_advanced.py`, `Ble.cpp`,
+  `ble_bridge.py`, `orm_persistence.py`) — evitou propor um mecanismo de
+  chunking manual desnecessário para o read/write da nova characteristic
+  (o GATT já resolve isso nativamente para payloads até 512 bytes, ao
+  contrário do `kGattDumpChunkLen` que existe especificamente porque
+  notify() não pode usar long-read). `python -m alembic upgrade head` e
+  `python -m pytest bridge/tests/ -q` correram diretamente (não via
+  agente) para o GDPR-006, já que era um bloco de trabalho pequeno e
+  mecânico que eu já tinha todo o contexto para fazer sozinha.
+- **Melhorias feitas / ainda necessárias**: GDPR-006 fechado e verificado
+  (143 testes a passar). `emergencyProfileChar` — resultado do workflow
+  ainda pendente no momento desta entrada; a confirmar numa entrada
+  seguinte se o veredito final foi "PRONTO" ou "BLOQUEADO". Item dos git
+  hooks residuais do vexp removido da lista de tarefas a pedido explícito
+  da utilizadora ("esquece o vexp") — não é um esquecimento meu, é uma
+  decisão dela.

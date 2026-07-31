@@ -360,23 +360,41 @@ class TestDataRetention:
         assert result["medication_adherence"] == 1
         assert db.query(sa.MedicationAdherence).count() == 0
 
-    def test_emergency_alerts_are_never_purged(self, db):
-        """`emergency_alerts` está em RETENTION_POLICIES só como referência
-        documental (10 anos) -- `cleanup()` nunca a processa de facto,
-        histórico de segurança mantido para sempre."""
+    def test_emergency_alerts_soft_deleted_after_eight_years(self, db):
+        """GDPR-006 (decisão da utilizadora, 2026-07-31): 8 anos, soft
+        delete -- mesmo padrão de `alerts`, já não "nunca apagado"."""
         patient = _make_patient(db)
         device = _make_device(db, patient)
         old_emergency = sa.EmergencyAlert(
-            uuid="em-1", device_id=device.id, alert_type="sos_manual",
+            uuid="em-old", device_id=device.id, alert_type="sos_manual",
             timestamp_utc=0,
         )
         old_emergency.created_at = datetime.utcnow() - timedelta(days=9000)
         db.add(old_emergency)
         db.commit()
 
-        sa.DataRetention.cleanup(db, dry_run=False)
+        result = sa.DataRetention.cleanup(db, dry_run=False)
 
-        assert db.query(sa.EmergencyAlert).count() == 1
+        assert result["emergency_alerts"] == 1
+        reloaded = db.query(sa.EmergencyAlert).filter_by(uuid="em-old").one()
+        assert reloaded.deleted_at is not None
+
+    def test_emergency_alerts_within_eight_years_kept(self, db):
+        patient = _make_patient(db)
+        device = _make_device(db, patient)
+        recent_emergency = sa.EmergencyAlert(
+            uuid="em-recent", device_id=device.id, alert_type="fall_inactivity",
+            timestamp_utc=0,
+        )
+        recent_emergency.created_at = datetime.utcnow() - timedelta(days=365)
+        db.add(recent_emergency)
+        db.commit()
+
+        result = sa.DataRetention.cleanup(db, dry_run=False)
+
+        assert result["emergency_alerts"] == 0
+        reloaded = db.query(sa.EmergencyAlert).filter_by(uuid="em-recent").one()
+        assert reloaded.deleted_at is None
 
 
 class TestPatientSensitiveFields:

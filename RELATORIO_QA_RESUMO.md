@@ -521,3 +521,16 @@ pairing desencadeado pelo NFC, nunca pelo NDEF diretamente. Também
 escrita a justificação legal do GDPR-006 (Art. 6.1.d + Art. 17.3.e do
 RGPD, duas variantes de prazo). Detalhe completo na entrada 40 do
 relatório detalhado.
+
+## 38. GDPR-006 fechado com 8 anos (decisão da utilizadora) + `emergencyProfileChar` via workflow multi-agente
+
+A utilizadora escolheu 8 anos de retenção para `emergency_alerts` (nem
+indefinido, nem os 10 anos propostos) e pediu implementação real, não só
+documentação — feito: `deleted_at` novo em `EmergencyAlert`, migração,
+política atualizada, `DataRetention.cleanup()` a processar a tabela de
+facto, um teste desatualizado corrigido (143 testes a passar). Para
+`emergencyProfileChar` usei um workflow multi-agente (planear → implementar
+firmware+bridge em paralelo → validar), depois de eu mesma fazer a
+investigação de arquitetura necessária para não delegar a parte de
+perceber o problema. Detalhe completo na entrada 41 do relatório
+detalhado.

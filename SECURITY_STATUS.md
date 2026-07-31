@@ -1123,22 +1123,25 @@ legal dupla, não uma só:
    "normal" de outros dados (`sensor_records`, etc.), precisamente
    porque emergências são o caso onde essa prova importa mais.
 
-**Prazo — duas variantes, a escolher pela utilizadora**:
-- **(a) Indefinido** (mantém o comportamento atual) — só defensável se
-  as duas bases acima forem aceites como válidas para retenção sem
-  limite temporal; é a opção mais forte para o objetivo de segurança
-  contínua (nunca perde histórico), mas a mais exposta a escrutínio
-  RGPD se um titular pedir os dados apagados.
-- **(b) Prazo finito longo, com justificação escrita** — adotar os 10
-  anos já documentados como valor de referência em `DataRetention`
-  (`storage_advanced.py`) como limite explícito para `emergency_alerts`
-  também (hoje é só referência, `cleanup()` nunca o aplica a esta
-  tabela) — cumpre a mesma finalidade prática (histórico clínico útil,
-  janela de defesa legal razoável) com um limite mais defensável.
+**Decisão final (utilizadora, 2026-07-31)**: prazo finito de **8 anos**
+— nem indefinido (variante (a), descartada), nem os 10 anos que
+estavam documentados só como referência (variante (b) original,
+ajustada para baixo). As duas bases legais acima (Art. 6.1.d + Art.
+17.3.e) mantêm-se como justificação: 8 anos cobre confortavelmente
+tanto a deteção de padrões de segurança contínua (quedas/SOS ao longo
+de anos) como a janela de defesa legal em caso de disputa sobre
+resposta a um alerta.
 
-**Estado**: proposta escrita, não implementada em código — falta a
-utilizadora confirmar a base legal e escolher entre (a)/(b) antes de
-qualquer alteração a `DataRetention`/`cleanup()`.
+**Estado: FECHADO e implementado em código** (2026-07-31) —
+`EmergencyAlert` ganhou a coluna `deleted_at` (migração
+`c3e7a1f9b4d2_emergency_alerts_deleted_at`, encadeada a seguir a
+`6181ca0ce076`), `DataRetention.RETENTION_POLICIES["emergency_alerts"]`
+passou de `3650` (10 anos, nunca aplicado) para `2920` (8 anos), e
+`DataRetention.cleanup()` passou a processar `emergency_alerts` de
+facto (soft delete, mesmo padrão de `alerts`) em vez de o ignorar
+deliberadamente. `bridge/schema.sql` atualizado a condizer. Já corre
+automaticamente via `periodic_orm_retention_task()` (ver
+`PROJECT_STATUS.md`, "Retenção ORM (GDPR-006) ligada ao bridge").
 
 ---
 

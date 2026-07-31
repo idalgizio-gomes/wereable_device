@@ -6090,3 +6090,38 @@ decidir/construir):
 itens desta natureza) — script `ml/retrain_from_corrections.py` e o
 workflow do GitHub Actions ficam para quando a utilizadora confirmar o
 limiar (ou disser para avançar já com o valor proposto).
+
+## 2026-07-31 (continuação) — GDPR-006 fechado: retenção de `emergency_alerts` passa a 8 anos, implementado
+
+A utilizadora respondeu à pergunta em aberto (indefinido vs. 10 anos)
+com um valor próprio — **8 anos** — e pediu para implementar já, não só
+documentar. Alterações feitas:
+
+- `bridge/storage_advanced.py`: `EmergencyAlert` ganhou `deleted_at`
+  (soft delete, mesmo padrão de `Alert`); `RETENTION_POLICIES["emergency_alerts"]`
+  passou de `3650` (10 anos, nunca aplicado — comentário antigo dizia
+  explicitamente "nunca processado aqui de propósito") para `2920` (8
+  anos); `DataRetention.cleanup()` passou a processar `emergency_alerts`
+  de facto.
+- Migração `c3e7a1f9b4d2_emergency_alerts_deleted_at` (encadeada a
+  seguir a `6181ca0ce076`, a das `patient_conditions`/`patient_allergies`
+  desta mesma sessão) — aplicada com `alembic upgrade head`, sem
+  problemas.
+- `bridge/schema.sql` atualizado a condizer (coluna `deleted_at` na
+  tabela, seed de `data_retention_policies` corrigido para 2920 dias).
+- `SECURITY_STATUS.md`, GDPR-006: estado passou de "proposta escrita,
+  não implementada" para "FECHADO e implementado em código".
+- Um teste existente (`test_emergency_alerts_are_never_purged`) ficou
+  desatualizado por esta mudança — testava só `count() == 1` (que
+  continua a passar com soft delete, já que a linha não é removida da
+  tabela) mas o nome/docstring afirmava "nunca purgado", o que deixou
+  de ser verdade. Corrigido: dividido em dois testes
+  (`test_emergency_alerts_soft_deleted_after_eight_years` e
+  `test_emergency_alerts_within_eight_years_kept`), agora a verificar
+  `deleted_at` de facto, não só a contagem de linhas.
+- `python -m pytest bridge/tests/ -q` — 143 passed (141 anteriores + 2
+  testes novos, nenhuma regressão) depois da alteração.
+
+Já corre automaticamente via `periodic_orm_retention_task()` (task
+periódica já ligada ao bridge desde 2026-07-21) — não foi preciso
+nenhuma alteração ao mecanismo de agendamento, só à política em si.

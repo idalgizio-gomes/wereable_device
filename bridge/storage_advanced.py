@@ -451,6 +451,12 @@ class EmergencyAlert(Base):
     confirmation_blocked_until = Column(DateTime)
     notes = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # GDPR-006 (decisão da utilizadora, 2026-07-31): retenção de 8 anos,
+    # soft delete — ver DataRetention.RETENTION_POLICIES["emergency_alerts"]
+    # e SECURITY_STATUS.md. Antes desta coluna existir, a política estava
+    # só documentada, nunca aplicada (ver comentário histórico em
+    # DataRetention.cleanup()).
+    deleted_at = Column(DateTime)
 
     device = relationship("Device", back_populates="emergency_alerts")
 
@@ -903,7 +909,7 @@ class DataRetention:
         "sensor_records": 365,  # 1 ano
         "activity_windows": 1825,  # 5 anos
         "alerts": 2555,  # 7 anos
-        "emergency_alerts": 3650,  # 10 anos
+        "emergency_alerts": 2920,  # 8 anos (decisão da utilizadora, 2026-07-31 — GDPR-006)
         "anomaly_detections": 1825,  # 5 anos
         "medication_adherence": 1095,  # 3 anos
     }
@@ -961,9 +967,21 @@ class DataRetention:
             db.commit()
         results["medication_adherence"] = count
 
-        # emergency_alerts: presente em RETENTION_POLICIES só como referência
-        # documental (10 anos) -- nunca processado aqui de propósito, é
-        # histórico de segurança mantido para sempre (ver PROJECT_STATUS.md).
+        # EmergencyAlert (soft delete, mesmo padrão de Alert) — GDPR-006
+        # (decisão da utilizadora, 2026-07-31): 8 anos, já não "para sempre".
+        # Base em created_at (data de ingestão pelo bridge), não em
+        # timestamp_utc (hora do evento no firmware, inteiro epoch) — mesma
+        # base temporal usada por "alerts", suficientemente próxima da hora
+        # real do evento para uma janela de retenção de anos.
+        cutoff = cutoff_date - timedelta(days=DataRetention.RETENTION_POLICIES["emergency_alerts"])
+        query = db.query(EmergencyAlert).filter(
+            and_(EmergencyAlert.created_at < cutoff, EmergencyAlert.deleted_at.is_(None))
+        )
+        count = query.count()
+        if not dry_run:
+            query.update({"deleted_at": datetime.utcnow()})
+            db.commit()
+        results["emergency_alerts"] = count
 
         return results
 

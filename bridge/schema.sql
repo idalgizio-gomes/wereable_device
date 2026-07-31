@@ -254,6 +254,7 @@ CREATE TABLE IF NOT EXISTS emergency_alerts (
     confirmation_blocked_until TIMESTAMP,  -- TTL 5 min após 3 tentativas
     notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP,  -- GDPR-006: retencao de 8 anos, soft delete
     FOREIGN KEY (device_id) REFERENCES devices (id),
     FOREIGN KEY (response_user_id) REFERENCES users (id)
 );
@@ -366,7 +367,7 @@ VALUES
     ('sensor_records', 365, FALSE),  -- 1 ano de dados brutos, depois apaga
     ('activity_windows', 1825, FALSE),  -- 5 anos
     ('alerts', 2555, TRUE),  -- 7 anos, soft delete
-    ('emergency_alerts', 3650, TRUE),  -- 10 anos, soft delete
+    ('emergency_alerts', 2920, TRUE),  -- 8 anos, soft delete (GDPR-006, decisao 2026-07-31)
     ('anomaly_detections', 1825, FALSE),  -- 5 anos
     ('medication_adherence', 1095, FALSE)  -- 3 anos
 ON CONFLICT DO NOTHING;
