@@ -707,11 +707,17 @@ void ppgTask(void *arg) {
         float hrBpm = 0.0f;
         bool validHr = false;
         bool finger = false;
+        // processHrSample() devolve sempre fingerPresent=true (pipeline HR
+        // sem gate de IR, ver comentario na propria funcao) — nao e' um
+        // sinal real de presenca de dedo, por isso NAO se propaga para
+        // g_latest.finger_present aqui. Antes propagava-se, e como esta
+        // amostragem corre a cada HR_SAMPLE_INTERVAL_MS (~10ms) contra os
+        // SPO2_INTERVAL_MS (~30s) de measureSpo2(), o valor real medido por
+        // measureSpo2() ficava praticamente sempre sobrescrito por este
+        // "true" fixo. g_latest.finger_present so' e' atualizado por
+        // measureSpo2() (unico sitio com uma deteccao real via
+        // FINGER_THRESHOLD), mais acima neste ficheiro.
         const bool gotBeat = processHrSample(hrBpm, validHr, finger);
-
-        taskENTER_CRITICAL();
-        g_latest.finger_present = finger;
-        taskEXIT_CRITICAL();
 
         if (gotBeat && validHr) {
           const float hrRounded = roundf(hrBpm);

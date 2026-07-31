@@ -41,6 +41,7 @@
 #include "Ppg/Ppg.h"                   // Sensor ótico de frequência cardíaca / SpO2
 #include "Ble/Ble.h"                   // Serviço Bluetooth (emparelhamento, troca de chave, sincronização de hora)
 #include "QspiRingBuffer/QspiRingBuffer.h" // "Diário" circular de registos guardado na flash externa (QSPI)
+#include "ImuPpgPayload.h"              // Layout do registo IMU+PPG (partilhado com Ble.cpp)
 #include "Clock/Clock.h"               // Relógio interno (hora/data), sincronizado via BLE
 #include "Lora/Lora.h"                 // Rádio LoRa Wio-SX1262 (experimental — ver Lora.h)
 #include "Emergency/Emergency.h"       // Deteção de emergência: SOS manual + queda/inatividade (ver Emergency.h)
@@ -216,25 +217,8 @@ constexpr uint16_t STORAGE_TASK_STACK_WORDS = 768;
 // de voltar a verificar, para não gastar CPU/energia num ciclo apertado.
 constexpr uint32_t STORAGE_TASK_IDLE_MS = 5;
 
-// Estrutura "achatada" (packed = sem espaços de alinhamento entre campos)
-// que representa uma amostra combinada de IMU + PPG, tal como é gravada
-// no ring buffer. Tem de caber no espaço fixo de cada slot da flash
-// (ver kPayloadSize), por isso os campos são deliberadamente compactos
-// (ex.: SpO2/HR como inteiros pequenos em vez de float).
-struct __attribute__((packed)) ImuPpgPayloadV1 {
-  float ax;          // aceleração no eixo X (g)
-  float ay;          // aceleração no eixo Y (g)
-  float az;          // aceleração no eixo Z (g)
-  float gx;          // velocidade angular no eixo X (graus/s)
-  float gy;          // velocidade angular no eixo Y (graus/s)
-  float gz;          // velocidade angular no eixo Z (graus/s)
-  uint32_t steps;    // contagem acumulada de passos, calculada pelo módulo Imu
-  uint8_t ff;        // 1 se foi detetado um evento de queda livre (free-fall) nesta amostra
-  uint8_t inact;     // 1 se o dispositivo está atualmente considerado "inativo" (parado)
-  int16_t spo2;       // última leitura de saturação de oxigénio (%), 0 se não houver leitura nova
-  int16_t hr_x10;     // última frequência cardíaca em bpm (nota: apesar do nome "_x10", é gravado o valor arredondado em bpm, não x10)
-  uint8_t pacing_index; // índice 0-100 de "pacing"/curvas apertadas via giroscópio (ver Imu::Sample::pacing_index)
-};
+// Layout do registo IMU+PPG (ImuPpgPayloadV1): ver include/ImuPpgPayload.h —
+// partilhado com Ble.cpp, que lê de volta os mesmos bytes gravados aqui.
 
 // Verificação em tempo de compilação: garante que a estrutura acima cabe
 // no espaço reservado para cada registo do ring buffer. Se alguém
@@ -329,7 +313,7 @@ void storageTask(void *arg) {
     payload.ff = imu.freefall ? 1 : 0;
     payload.inact = imu.inactivity ? 1 : 0;
     payload.spo2 = spo2Out;
-    payload.hr_x10 = hrOutX10;
+    payload.hr = hrOutX10;
     payload.pacing_index = imu.pacing_index;
 
     // Preferir o relógio real (UTC, sincronizado por BLE) como timestamp
@@ -345,11 +329,11 @@ void storageTask(void *arg) {
                              sizeof(payload),
                              recTs)) {
       pushed++;
-      if (payload.spo2 != 0 || payload.hr_x10 != 0) {
+      if (payload.spo2 != 0 || payload.hr != 0) {
         Serial.print("[STOR] PPG reg spo2=");
         Serial.print(payload.spo2);
         Serial.print(" hr=" );
-        Serial.println(payload.hr_x10);
+        Serial.println(payload.hr);
       }
     } else {
       pushFail++;

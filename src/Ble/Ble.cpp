@@ -19,6 +19,7 @@
 #include "QspiRingBuffer/QspiRingBuffer.h"
 #include "Clock/Clock.h"
 #include "Ppg/Ppg.h"
+#include "ImuPpgPayload.h"
 
 #include <bluefruit.h>
 #include <rtos.h>
@@ -170,23 +171,9 @@ constexpr uint8_t kDumpCtrlResetReadings = 0x04;
 constexpr uint8_t kDumpDataType = 0xA1;
 constexpr uint8_t kDumpStatusType = 0xA2;
 
-// Layout binario (com "packed" para nao haver padding do compilador)
-// do payload de um registo IMU+PPG tal como esta guardado no ring
-// buffer QSPI (produzido por outro modulo, ex. sensores).
-struct __attribute__((packed)) ImuPpgPayloadV1 {
-  float ax;
-  float ay;
-  float az;
-  float gx;
-  float gy;
-  float gz;
-  uint32_t steps;
-  uint8_t ff;
-  uint8_t inact;
-  int16_t spo2;
-  int16_t hr;
-  uint8_t pacing_index;
-};
+// Layout do registo IMU+PPG (ImuPpgPayloadV1): ver include/ImuPpgPayload.h —
+// partilhado com main.cpp, que produz estes mesmos bytes ao gravar no ring
+// buffer QSPI.
 
 // Registo "completo" (com timestamp) tal como e' calculado internamente
 // (layout em memoria) antes de ser cifrado para transmissao — o nome
@@ -215,7 +202,7 @@ struct __attribute__((packed)) FullPlain {
   // registo de 38 para 39 bytes (nao havia bytes reservados livres para
   // reaproveitar, ao contrario do que aconteceu com data_loss_flag em
   // DumpStatusPacket): bump de formato, exige atualizar em conjunto
-  // ImuPpgPayloadV1 (aqui e em main.cpp), este FullPlain, os
+  // ImuPpgPayloadV1 (include/ImuPpgPayload.h), este FullPlain, os
   // static_assert abaixo e FULL_PLAIN_STRUCT em bridge/ble_bridge.py.
   uint8_t pacing_index;
 };
@@ -1237,7 +1224,26 @@ static void dumpCtrlCallback(uint16_t conn_hdl, BLECharacteristic *chr,
                              uint8_t *data, uint16_t len) {
   (void)chr;
   if (len < 1 || data == nullptr) return;
-  if (!s_dataModeEnabled) return;
+
+  // Instrumentacao (2026-07-31, investigacao de "force_reading" nao
+  // fiavel a partir do dashboard): antes desta linha, um write recebido
+  // fora da janela em que s_dataModeEnabled esta ativo era descartado
+  // aqui em baixo SEM nenhum log — do lado do dashboard/bridge parecia
+  // um comando "perdido" sem qualquer pista no serial do firmware sobre
+  // se sequer chegou. Log sempre (aceite ou nao) para permitir, com
+  // hardware, distinguir "o BLE nunca entregou o write" de "o write
+  // chegou mas foi descartado por s_dataModeEnabled=false".
+  Serial.print("[BLEG][DUMP] write recebido cmd=0x");
+  Serial.print(data[0], HEX);
+  Serial.print(" len=");
+  Serial.print(len);
+  Serial.print(" s_dataModeEnabled=");
+  Serial.println(s_dataModeEnabled ? "1" : "0");
+
+  if (!s_dataModeEnabled) {
+    Serial.println("[BLEG][DUMP] write descartado: modo de dados inativo");
+    return;
+  }
 
   const uint8_t cmd = data[0];
   if (cmd == kDumpCtrlStart) {
