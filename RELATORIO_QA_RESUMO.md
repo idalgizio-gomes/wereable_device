@@ -473,3 +473,37 @@ ficheiro do repositório. Item fechado; fica só um risco residual
 teórico (artefacto de movimento de grande amplitude) anotado para
 vigiar na próxima confirmação em hardware. Detalhe completo na entrada
 36 do relatório detalhado.
+
+## 34. Revisão de RAM/limpeza delegada a agente em background
+
+Tarefa de leitura ampla e independente do resto — delegada a um agente
+em background com instruções de nunca alterar código e confirmar
+"código morto" por grep ao repositório inteiro antes de reportar.
+Apliquei só os achados de alta confiança/baixo risco (constante mágica
+duplicada, buffer sobredimensionado, 5 funções mortas confirmadas em
+Storage.cpp), verificados com build real depois de cada remoção.
+Achados de confiança mais baixa ficaram só documentados, não aplicados.
+Detalhe completo na entrada 37 do relatório detalhado.
+
+## 35. "Ligar api.py ao dashboard" — parado por decisão de segurança, não implementado às cegas
+
+O dashboard é 100% file://+WebSocket; ligar api.py a sério exige CORS
+(inexistente hoje) e decidir onde guardar a API key no browser —
+decisões de segurança reais. Investigado a fundo e documentado o fork
+de decisão completo (CSP/CORS/onde guardar a chave, incluindo análise
+de porque `Origin: null` é aceitável neste caso mas ainda uma escolha a
+validar), sem implementar sem revisão da utilizadora. Detalhe completo
+na entrada 38 do relatório detalhado.
+
+## 36. FAQ da correção de atividade + reconciliação do NFC + desenho do retreino/cron
+
+Três itens finais: FAQ nova (7 idiomas) para a correção de atividade já
+implementada; reconciliação de um conflito real na documentação — o
+âmbito de NFC "Medical ID" que a utilizadora definiu em 2026-07-22
+nunca tinha chegado a `PROJECT_STATUS.md`, que ainda só tinha a
+proposta conservadora anterior ("nunca PII") marcada como provisória —
+corrigido, sem decidir nada novo, só registando o que já tinha sido
+decidido; e desenho do retreino do classificador como script standalone
+fora do bridge, com o limiar de correções para a 1ª execução deixado
+como pergunta em aberto (proposta: 20). Detalhe completo na entrada 39
+do relatório detalhado.

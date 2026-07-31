@@ -1335,3 +1335,87 @@ caminho ao BLE depois).
   de dt plausível) fica anotado, mas como algo a vigiar na próxima
   confirmação em hardware, não como bug ativo. Correção registada aqui
   para não repetir a mesma imprecisão numa futura varredura automática.
+
+### 37. Revisão de RAM/limpeza delegada a agente em background + aplicação seletiva dos achados
+
+- **Pergunta/dilema**: "rever RAM/limpeza de todo o firmware" é uma
+  tarefa de leitura ampla (4 ficheiros, ~4000 linhas) independente do
+  resto do trabalho em curso — candidata natural a correr em paralelo
+  em vez de sequencialmente.
+- **Onde/quando**: 2026-07-31.
+- **Forma da resposta**: delegado a um agente `general-purpose` em
+  background (via `Agent` tool), com instruções explícitas de não
+  alterar código, citar ficheiro:linha exato para cada achado, e
+  confirmar "código morto" por grep ao repositório inteiro (não só ao
+  ficheiro) antes de o reportar — para não inventar achados fracos.
+  Entregou 9 achados concretos + 2 notas explícitas de "verificado, não
+  é problema". Apliquei só os de alta confiança e baixo risco: constante
+  mágica `0x1001` duplicada (`kRecTypeImuPpgV1`/`STORAGE_REC_TYPE_IMU_PPG_V1`,
+  consolidada em `include/ImuPpgPayload.h`), `handles[8]`→`handles[2]`
+  (alinhado com `Bluefruit.begin(2, 0)`), `g_storageTaskRunning` morto,
+  e 5 funções mortas em `Storage.cpp`/`.h` (`cal_save`/`cal_load`/
+  `aes_save`/`aes_load`/`counter_inc`, confirmadas sem chamador real).
+  Não apliquei os de confiança/impacto mais baixos ou com trade-offs
+  não óbvios (`kImuRateHz` duplicado conceptualmente com `Imu.cpp`,
+  `s_dumpWindowImmediate` código morto mas talvez propositado,
+  `sent_records`/`acked_records` possivelmente um campo reservado do
+  formato de fio) — ficam só documentados, não implementados às cegas.
+- **Artifícios/métodos usados**: build real (`pio run`) depois de cada
+  remoção para confirmar que nada dependia do código removido — não
+  confiei só no grep do agente.
+- **Melhorias feitas / ainda necessárias**: RAM 18168→18160 bytes,
+  Flash reduzida ligeiramente; nenhuma alteração de comportamento
+  (confirmado por build limpo, sem placa para testar em runtime).
+
+### 38. "Ligar api.py ao dashboard": parado por decisão de arquitetura de segurança, não implementado às cegas
+
+- **Pergunta/dilema**: o dashboard é 100% `file://` + WebSocket; ligar
+  `api.py` a sério exige CORS (hoje inexistente em `api.py`) e decidir
+  onde guardar a API key no browser — decisões com implicações de
+  segurança reais, não só wiring de código.
+- **Onde/quando**: 2026-07-31.
+- **Forma da resposta**: investigado a fundo (CSP atual, modelo de
+  proveniência de chaves em `api_auth.py`, threat model de `Origin:
+  null` vindo de `file://`) e documentado o fork de decisão completo em
+  `PROJECT_STATUS.md`, incluindo uma análise concreta de porque `Origin:
+  null` é aceitável neste caso específico (autenticação por header
+  explícito, não cookies) mas ainda assim uma escolha a validar. Não
+  implementado.
+- **Artifícios/métodos usados**: leitura de `api_auth.py` completo,
+  `start_carewear.ps1` (confirma `file://`), CSP atual do dashboard.
+- **Melhorias feitas / ainda necessárias**: three-way decision (CSP/
+  CORS/onde guardar a chave) fica registada e pronta para implementar
+  assim que a utilizadora escolher entre as opções apresentadas.
+
+### 39. FAQ da correção de atividade + reconciliação do desenho de NFC + desenho do retreino/cron
+
+- **Pergunta/dilema**: três itens finais da lista — um mecânico (FAQ em
+  falta para uma funcionalidade já implementada há dias), um de
+  reconciliação de registo (dois documentos com posições diferentes
+  sobre o âmbito do NFC) e um de desenho (pipeline de retreino).
+- **Onde/quando**: 2026-07-31.
+- **Forma da resposta**: (1) FAQ — nova entrada `faqQ17`/`faqA17` sobre
+  a janela de 30min de correção do cuidador, nos 7 idiomas, verificada
+  por `node --check` ao script extraído (6879 linhas). (2) NFC —
+  encontrado que `PROJECT_STATUS.md` ainda só tinha a proposta
+  conservadora de 2026-07-03 ("nunca dados clínicos/PII", explicitamente
+  marcada "a confirmar"), enquanto a utilizadora já tinha definido um
+  âmbito bem mais específico e diferente numa sessão posterior
+  (2026-07-22, Medical ID com dados curados) — só existia no histórico
+  de conversa, nunca tinha chegado ao repositório. Reconciliado: o
+  âmbito de 2026-07-22 fica registado como o vigente, a proposta antiga
+  como substituída (não apagada). (3) Retreino — confirmado por leitura
+  de `ble_bridge.py` que as duas tasks periódicas de retenção já
+  existem e estão ligadas (o item "GDPR-006 por ligar" de um plano
+  antigo estava desatualizado); desenhado o retreino como script
+  standalone (`ml/retrain_from_corrections.py`, fora do processo do
+  bridge, gatilho por GitHub Actions semanal), com proposta de limiar
+  (20 correções) explicitamente marcada como pergunta em aberto, não
+  uma decisão meta.
+- **Artifícios/métodos usados**: grep dirigido a "GDPR-006"/"NDEF" em
+  todo o repositório antes de escrever qualquer coisa nova, para não
+  duplicar trabalho já feito nem contradizer o que já existia.
+- **Melhorias feitas / ainda necessárias**: nenhuma das três exigiu
+  decisão nova da utilizadora para ficar registada corretamente; o
+  retreino em si (script + workflow) fica por implementar até
+  confirmação do limiar (ou ordem para avançar já com a proposta).
