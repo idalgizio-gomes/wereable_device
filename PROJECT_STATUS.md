@@ -5910,3 +5910,48 @@ ver "Descobertas do esquemático real da placa" mais acima. Não havia
 esquemático novo para reler nesta sessão (o PDF partilhado numa sessão
 anterior não ficou gravado no repositório); esta resposta é uma síntese
 do que já estava documentado, não uma releitura nova.
+
+## 2026-07-31 (continuação) — "Ligar api.py ao dashboard": decisão de arquitetura em aberto, não implementada às cegas
+
+Ao investigar como ligar `api.py` (decisão já tomada: reutilizar, ver
+secção acima) a um consumidor real, descoberto que o dashboard é servido
+como ficheiro local (`file://`, aberto por `Start-Process $dashboardPath`
+em `start_carewear.ps1`), 100% orientado a WebSocket — a CSP atual
+(`connect-src ws://localhost:8765 wss://localhost:8765`) nem sequer
+permite um `fetch()` a `api.py` (porta 8766). `medicacao.adherenceHistory`
+hoje é ou dados de exemplo fixos, ou um protótipo só em `localStorage`
+("Prototype: 'Mark as taken' is stored only in this browser... does not
+replace a real clinical adherence record") — exatamente o que os
+endpoints reais de `api.py` (`GET .../medication-adherence`,
+`POST .../adherence`) resolveriam a sério.
+
+**Porque não avancei sozinho**: ligar isto a sério exige três decisões
+com implicações de segurança, não só código de wiring:
+1. **CSP**: acrescentar `http://localhost:8766`/`https://localhost:8766`
+   a `connect-src` — trivial, sem dilema.
+2. **CORS em `api.py`** (`CORSMiddleware`, hoje inexistente): a origem de
+   um `fetch()` feito a partir de `file://` é `null` (não um domínio).
+   Aceitar `Origin: null` é um padrão CORS reconhecidamente fraco em
+   geral (qualquer outra página `file://`/iframe sandboxed no mesmo PC
+   também tem origem `null`), mas neste caso concreto o risco real é
+   baixo: a autenticação é por `X-API-Key` explícito (não cookies/
+   credenciais ambientais), por isso uma página `null`-origin maliciosa
+   não consegue arrancar um pedido autenticado sem já conhecer a chave.
+   Alternativa mais limpa: servir o dashboard por um pequeno servidor
+   HTTP local (`python -m http.server` ou equivalente) em vez de
+   `file://`, o que permite restringir CORS a uma origem real — mas isto
+   muda a forma como `start_carewear.ps1`/`.bat` arrancam a aplicação.
+3. **Onde vive a API key no browser**: `api_auth.py` já tem o modelo
+   certo para isto (chave por-utilizador, gerada via CLI
+   `python api_auth.py create --email ... --label ...`, mostrada uma
+   única vez) — falta decidir a UX: um campo novo em "Definições" do
+   dashboard, guardado em `localStorage` (mesmo padrão de risco já
+   aceite para outros dados do protótipo), pedido uma vez por
+   cuidador/browser.
+
+**Estado**: nenhuma destas três alterações foi feita — ficam registadas
+aqui como decisão em aberto para quando a utilizadora quiser avançar,
+em vez de eu escolher uma configuração de CORS/credenciais sem revisão
+possível (sessão sem placa e sem a utilizadora presente para validar
+algo security-relevante). Item mantido na lista de tarefas com nota
+explícita do bloqueio.
