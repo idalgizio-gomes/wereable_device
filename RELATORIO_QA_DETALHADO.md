@@ -1143,3 +1143,150 @@ caminho ao BLE depois).
   para `rewrite-v2` da entrada 26 — esse mistério continua em aberto,
   só o item da lista de tarefas foi reformulado para não sugerir que já
   está explicado.
+
+## 2026-07-31 (continuação) — consolidação de branches, patient_conditions/allergies, e correções de firmware sem hardware
+
+### 31. "O Main é para apagar" — verificação antes de executar uma instrução aparentemente destrutiva
+
+- **Pergunta/dilema**: o utilizador pediu explicitamente para apagar um
+  branch remoto `Main` (maiúscula) e para "usar sempre o main" daí em
+  diante. Antes de correr `git push origin --delete Main` (ação
+  irreversível sobre estado partilhado), decidi confirmar o estado real
+  do repositório em vez de assumir que o branch existia como descrito.
+- **Onde/quando**: 2026-07-31.
+- **Forma da resposta**: `git ls-remote --heads origin` mostrou que não
+  existe nenhum branch `Main` no remoto — só `main` (minúscula). O que
+  o utilizador via como "Main" era uma referência `origin/HEAD` local
+  desatualizada, sobrevivente de uma renomeação do branch default no
+  GitHub que nunca tinha sido sincronizada localmente. Corrigido com
+  `git remote set-head origin -a` (ação local, não destrutiva) em vez de
+  tentar apagar algo que não existia. De seguida, `main` local (9
+  commits à frente, incluindo os merges de `origin/main` e `rewrite-v2`
+  feitos nesta mesma sessão) publicado com `git push origin main` —
+  fast-forward limpo.
+- **Artifícios/métodos usados**: `git ls-remote --heads origin` (fonte
+  de verdade do servidor, não uma cópia local em cache) antes de
+  qualquer comando destrutivo — princípio geral: nunca assumir o estado
+  do repositório sem confirmar.
+- **Melhorias feitas / ainda necessárias**: nenhuma ação destrutiva
+  necessária; item da lista fechado por verificação, não por remoção.
+
+### 32. Verificação de compatibilidade de `bridge/api.py` com `storage_advanced.py`
+
+- **Pergunta/dilema**: o utilizador pediu para verificar se `api.py`
+  (ficheiro FastAPI já existente mas nunca confirmado como estando em
+  uso) era compatível com `storage_advanced.py`, para decidir entre
+  reutilizar ou descartar.
+- **Onde/quando**: 2026-07-31.
+- **Forma da resposta**: leitura completa de `api.py` (304 linhas).
+  Confirmado que está construído diretamente sobre o ORM de
+  `storage_advanced.py` (`import storage_advanced as sa`), com
+  autenticação por API-key por utilizador (`api_auth.py`), rate limiting
+  real (`RateLimitMiddleware`), audit log, autorização por paciente via
+  `patient_caregivers` (devolve 404 em vez de 403 para não permitir
+  enumeração de IDs), e um endpoint de aderência a medicação idempotente
+  com retry em `IntegrityError` para corridas de escrita concorrente.
+  Veredicto: código real e funcional, não código morto — reutilizar, não
+  descartar.
+- **Artifícios/métodos usados**: leitura direta do ficheiro completo,
+  sem assumir a partir do nome/localização.
+- **Melhorias feitas / ainda necessárias**: decisão de manter tomada;
+  falta ainda ligar `api.py` a um consumidor real (o dashboard atual
+  usa o canal WebSocket do bridge, não este REST API) — item pendente
+  na lista de tarefas.
+
+### 33. Implementação de `patient_conditions`/`patient_allergies` — desenho aprovado passa a código
+
+- **Pergunta/dilema**: o desenho (duas tabelas separadas, uma linha por
+  entrada, inspirado em `Condition`/`AllergyIntolerance` do FHIR) já
+  tinha sido aprovado pelo utilizador numa sessão anterior, com uma
+  ressalva sobre normalização que, confirmado, já era satisfeita pelo
+  desenho original (não exigiu redesenho). Faltava passar de desenho a
+  código real.
+- **Onde/quando**: 2026-07-31.
+- **Forma da resposta**: adicionados os modelos ORM `PatientCondition` e
+  `PatientAllergy` a `storage_advanced.py` (propriedade `display_text`
+  cifrada, mesmo padrão de `nif`/`address` em `Patient`; `code_system`/
+  `code` opcionais), tabelas correspondentes em `schema.sql`, e uma
+  migração Alembic nova (`6181ca0ce076`, encadeada ao head anterior
+  `b7c4f1a9e230`). Testado ponta-a-ponta antes de comitar: criação e
+  leitura via relacionamento SQLAlchemy, migração aplicada do zero
+  contra uma base de dados limpa (`alembic upgrade head`), e os 141
+  testes existentes do bridge continuam todos a passar.
+- **Artifícios/métodos usados**: leitura do modelo `Patient` existente e
+  das migrações anteriores para replicar convenções exatas (nomes de
+  índice, estilo de comentário, `String(512)` para campos cifrados);
+  teste manual em Python (`sqlite:///:memory:`) antes de confiar na
+  migração; `pytest bridge/tests/ -q` completo depois.
+- **Melhorias feitas / ainda necessárias**: dados agora podem ser
+  guardados; falta ainda expor isto no dashboard/API (fora do âmbito
+  pedido nesta tarefa).
+
+### 34. "Esquece o rewrite e segue para a frente" — ambiguidade sobre qual "rewrite"
+
+- **Pergunta/dilema**: a frase podia referir-se a duas coisas muito
+  diferentes: (a) abandonar a investigação da origem do branch
+  `rewrite-v2`/reset (tema mais recente, mencionado por mim no turno
+  anterior), ou (b) abandonar o objetivo maior, declarado no início
+  desta sessão, de reescrever a arquitetura inteira do zero como
+  exercício de aprendizagem. Interpretar mal isto de forma silenciosa
+  seria um erro consequente — a opção (b) seria abandonar um objetivo
+  pedagógico central da sessão.
+- **Onde/quando**: 2026-07-31.
+- **Forma da resposta**: escolhida a interpretação (a) — mais próxima
+  no diálogo (era literalmente o último "rewrite" mencionado, no meu
+  próprio turno anterior) e de menor impacto se errada (abandonar uma
+  investigação é facilmente reversível; abandonar o projeto de
+  reescrita não seria). Comunicada explicitamente a interpretação ao
+  utilizador no mesmo turno ("assumo que é a essa rewrite que te
+  referes... diz-me se querias dizer outra coisa"), em vez de decidir
+  em silêncio ou bloquear a pedir confirmação para algo de baixo risco.
+- **Artifícios/métodos usados**: nenhum — julgamento direto sobre risco/
+  reversibilidade de cada interpretação, com a decisão tornada visível
+  para permitir correção.
+- **Melhorias feitas / ainda necessárias**: utilizador não corrigiu a
+  interpretação nas mensagens seguintes — presume-se confirmada por
+  omissão, mas fica registada como decisão explícita, não assumida.
+
+### 35. Três correções de firmware sem hardware + condição de corrida do QspiRingBuffer já resolvida + resposta ao RF_SW
+
+- **Pergunta/dilema**: com a placa fora do pulso da utilizadora
+  ("segue para o que não precisa [de hardware] e testas quando eu
+  regressar", depois "podes prosseguir continuamente até não
+  conseguires mais"), avançar autonomamente pela lista de tarefas sem
+  bloquear hardware, escolhendo quais itens eram mesmo seguros de
+  fazer sem placa.
+- **Onde/quando**: 2026-07-31.
+- **Forma da resposta**: (1) `ImuPpgPayloadV1` deduplicada — extraída
+  de `main.cpp`/`Ble.cpp` para `include/ImuPpgPayload.h`; as duas cópias
+  já tinham divergido no nome de um campo (`hr_x10` vs `hr`, mesmo
+  layout) — escolhido `hr` como nome canónico por ser o nome correto
+  (o valor nunca foi x10). (2) `finger_present`: `Ppg.cpp` corrigido
+  para o streaming contínuo de HR deixar de sobrescrever
+  `g_latest.finger_present` com um `true` fixo a cada ~10ms — só
+  `measureSpo2()` (deteção real via `FINGER_THRESHOLD`, a cada ~30s)
+  escreve nesse campo agora. (3) `dumpCtrlCallback` (Ble.cpp)
+  instrumentado com um log de todo o write recebido (cmd/len/estado de
+  `s_dataModeEnabled`) antes do descarte silencioso que existia — prepara
+  o diagnóstico real de "force_reading sem efeito" para quando houver
+  hardware. As três verificadas por `pio run` (sucesso, sem avisos
+  novos) — não testadas em placa real. Adicionalmente, revisitada a
+  suspeita de condição de corrida no `QspiRingBuffer`: leitura completa
+  do ficheiro confirmou que já estava corrigida desde 2026-07-08 com um
+  mutex FreeRTOS a proteger todas as funções públicas — fechado por
+  confirmação, não por correção nova. E respondida a pergunta pendente
+  sobre o `RF_SW` (interno ao LoRa ou também liga à antena BLE?) por
+  síntese de notas já registadas do esquemático real (o PDF em si nunca
+  esteve no repositório) — é um switch externo ao módulo LoRa,
+  partilhado com a antena BLE, mesmo componente do bug de 2026-07-03.
+- **Artifícios/métodos usados**: build real (`python -m platformio run`)
+  depois de cada alteração, não só leitura — para apanhar erros de
+  compilação que uma revisão visual não apanharia. Tentativa de remover
+  3 hooks locais do vexp (`.git/hooks/pre-commit`/`post-merge`/
+  `post-checkout`) bloqueada de forma consistente (duas tentativas) pelo
+  classificador de permissões por tocar diretamente em `.git/` — não
+  contornada, deixada pendente para o utilizador.
+- **Melhorias feitas / ainda necessárias**: os 3 fixes de firmware
+  precisam de confirmação em hardware real (`force_reading` em
+  particular só fica realmente resolvido depois de testado); os 3 hooks
+  vexp residuais continuam por remover.

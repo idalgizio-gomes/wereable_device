@@ -398,3 +398,63 @@ esclarece a origem do payload em si, mas **não** confirma se alguma
 rotina ligada a ele causou o `git reset`/branch `rewrite-v2` da entrada
 25 — esse mistério continua em aberto. Detalhe completo na entrada 30
 do relatório detalhado.
+
+## 28. "O Main é para apagar" — verificação antes de executar
+
+Antes de apagar o branch remoto `Main` (maiúscula) pedido pelo
+utilizador, confirmei o estado real com `git ls-remote --heads origin`:
+não existia — era só uma referência `origin/HEAD` local desatualizada
+de uma renomeação já feita no GitHub. Corrigida a referência local (não
+destrutivo) em vez de tentar apagar algo inexistente; `main` local (com
+os merges de `origin/main` e `rewrite-v2`) publicado a seguir sem
+conflitos. Detalhe completo na entrada 31 do relatório detalhado.
+
+## 29. Compatibilidade de `api.py` com `storage_advanced.py` — verificada, reutilizar
+
+Leitura completa de `api.py` confirmou que está construído diretamente
+sobre o ORM de `storage_advanced.py`, com autenticação por API-key,
+rate limiting, audit log e autorização por paciente reais — não é
+código morto. Veredicto: manter e reutilizar; falta ainda ligar isto a
+um consumidor real (o dashboard atual usa o WebSocket do bridge, não
+este REST API). Detalhe completo na entrada 32 do relatório detalhado.
+
+## 30. `patient_conditions`/`patient_allergies` — do desenho aprovado ao código
+
+O desenho (duas tabelas separadas, uma linha por entrada, inspirado no
+FHIR) já estava aprovado; implementados os modelos ORM em
+`storage_advanced.py` (campo `display_text` cifrado, mesmo padrão de
+`nif`/`address`), tabelas em `schema.sql`, e uma migração Alembic nova.
+Testado ponta-a-ponta antes de comitar (criação/leitura, migração
+aplicada do zero, 141 testes existentes continuam a passar). Detalhe
+completo na entrada 33 do relatório detalhado.
+
+## 31. "Esquece o rewrite" — ambiguidade entre duas leituras possíveis
+
+A frase podia significar abandonar a investigação do branch
+`rewrite-v2`/reset (tema recente) ou abandonar o objetivo maior de
+reescrever a arquitetura do zero (declarado no início da sessão).
+Escolhida a leitura mais próxima no diálogo e de menor impacto se
+errada, comunicada explicitamente ao utilizador em vez de decidida em
+silêncio ou bloqueada à espera de confirmação. Detalhe completo na
+entrada 34 do relatório detalhado.
+
+## 32. Três correções de firmware sem hardware + QspiRingBuffer já resolvido + resposta ao RF_SW
+
+Com a placa fora do pulso da utilizadora, avancei pela lista de tarefas
+só com o que não precisa de hardware: struct `ImuPpgPayloadV1`
+deduplicada (`main.cpp`/`Ble.cpp` tinham divergido no nome de um campo);
+`finger_present` deixou de ser sobrescrito por um `true` fixo do
+streaming de HR a cada ~10ms, sobrepondo-se quase sempre ao valor real
+medido a cada ~30s; `dumpCtrlCallback` instrumentado com log de todo o
+write recebido, porque antes descartava comandos fora da janela de
+"modo de dados" sem qualquer rasto. As três verificadas por build real
+(`pio run`, sucesso, sem avisos novos), não testadas em placa.
+Adicionalmente: condição de corrida do `QspiRingBuffer` confirmada como
+já resolvida desde 2026-07-08 (mutex FreeRTOS a proteger todas as
+funções públicas) — fechado por leitura de código, não por correção
+nova. E resposta à pergunta sobre `RF_SW`: é um switch de antena externo
+ao módulo LoRa, partilhado com a antena BLE — síntese de notas do
+esquemático já documentadas anteriormente, sem PDF novo para reler.
+Tentativa de remover 3 hooks locais residuais do vexp bloqueada duas
+vezes pelo classificador de permissões — deixada pendente para o
+utilizador. Detalhe completo na entrada 35 do relatório detalhado.

@@ -5846,3 +5846,67 @@ do utilizador); diagramas 05 e 06 atualizados, incluindo a correção de
 uma ligação `storage_advanced.py → dashboard` que o diagrama 05
 desenhava como "planeada" mas nunca correspondeu à implementação real —
 o histórico continua a passar pelo `bridge` (mesmo canal WebSocket).
+
+## 2026-07-31 — Três correções de firmware (sem hardware) + resposta à pergunta do RF_SW
+
+Placa fora do pulso da utilizadora nesta sessão ("A placa não está no meu
+pulso, segue para o que não precisa e testas quando eu regressar") — só
+trabalho verificável por leitura/compilação, nada testado em hardware
+real. `pio run -e seeed-xiao-afruitnrf52-nrf52840-sense-plus` corrido
+depois de cada alteração (sucesso, RAM 7.6% / Flash 26.9%, sem avisos
+novos face à baseline).
+
+**1. `ImuPpgPayloadV1` deduplicada** — estava definida de forma
+independente em `main.cpp` e `Ble.cpp` (mesmo layout binário packed, por
+isso o `reinterpret_cast` entre os dois sempre funcionou), mas já tinha
+divergido no nome de um campo: `hr_x10` em `main.cpp` vs `hr` em
+`Ble.cpp`, guardando o mesmo valor (BPM arredondado, nunca foi
+realmente x10 apesar do nome). Extraída para `include/ImuPpgPayload.h`,
+nome canónico `hr`. Sem isto, uma futura alteração de layout num só
+lado passaria despercebida até um bug de descodificação em runtime.
+
+**2. `finger_present` deixa de ser sobrescrito pelo streaming de HR** —
+`processHrSample()` (`Ppg.cpp`) sempre devolveu `fingerPresent=true` fixo
+de propósito (pipeline HR sem gate de IR, alinhado com `test/HR.cpp`).
+O bug estava em `ppgTask()`: esse `true` fixo era propagado para
+`g_latest.finger_present` a cada amostra de streaming (~10ms), o que na
+prática sobrescrevia quase sempre o valor real medido por
+`measureSpo2()` (~30s, único sítio com deteção real via
+`FINGER_THRESHOLD`). Corrigido — só `measureSpo2()` escreve nesse campo
+agora.
+
+**3. `dumpCtrlCallback` instrumentado** — investigação de `force_reading`
+(comando do dashboard, mapeado para `kDumpCtrlForceHr`/`0x03` no
+firmware) aparentemente sem efeito. Achado: `dumpCtrlCallback` descartava
+QUALQUER write recebido fora da janela `s_dataModeEnabled` sem nenhum
+log — do lado do serial parecia que o comando nunca tinha chegado.
+Acrescentado um log de todo o write recebido (cmd/len/estado de
+`s_dataModeEnabled`) antes do descarte, para o próximo teste em hardware
+conseguir distinguir "nunca chegou" de "chegou e foi descartado".
+
+**Verificação adicional (não uma correção)**: revisitada a suspeita de
+condição de corrida entre `QspiRingBuffer::format()` e leitura/escrita
+concorrente (item antigo da lista de tarefas). Lida `QspiRingBuffer.cpp`
+por completo — já estava corrigida desde 2026-07-08 com um mutex
+FreeRTOS (`LockGuard` RAII) que protege todas as funções públicas
+(`begin`/`format`/`push`/`peek`/`pop`/`advanceTail`/`sync`/etc.),
+incluindo o cuidado de `isEmpty()` usar uma versão sem lock
+(`countUnlocked()`) para não bloquear a si própria (mutex não
+reentrante). Item fechado por confirmação de código, não por correção
+nova.
+
+**Resposta à pergunta "RF_SW é interno ao módulo LoRa ou toca na antena
+BLE?"** — já respondida pelas descobertas do esquemático real registadas
+acima (`Pulseira_Esquemático.pdf`, não presente no repositório, só as
+notas já tiradas dele): `RF_SW` (controlo da antena) → pino `AD2`
+via R13 10k — ou seja, é um switch de antena **externo ao módulo LoRa**,
+ao nível da placa, controlado por um pino GPIO dedicado do MCU
+(`kPinRfSwitch`/`A2` em `Lora.h`/`Lora.cpp`). Não é algo interno ao
+SX1262. E toca sim a antena BLE — é precisamente o mesmo switch
+partilhado entre os dois rádios (2.4GHz BLE vs 868MHz LoRa) cujo bug de
+2026-07-03 (`Lora::begin()` a comutá-lo para LoRa incondicionalmente,
+antes de saber se a inicialização tinha sucesso) cortava a antena BLE —
+ver "Descobertas do esquemático real da placa" mais acima. Não havia
+esquemático novo para reler nesta sessão (o PDF partilhado numa sessão
+anterior não ficou gravado no repositório); esta resposta é uma síntese
+do que já estava documentado, não uma releitura nova.
