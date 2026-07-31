@@ -5955,3 +5955,133 @@ em vez de eu escolher uma configuração de CORS/credenciais sem revisão
 possível (sessão sem placa e sem a utilizadora presente para validar
 algo security-relevante). Item mantido na lista de tarefas com nota
 explícita do bloqueio.
+
+## 2026-07-31 (continuação) — reconciliação do desenho de NFC: âmbito real substitui a proposta "tap-to-pair apenas"
+
+Ao preparar-me para desenhar o NFC (item da lista), encontrada uma
+contradição não resolvida entre dois registos deste ficheiro:
+
+- **2026-07-03** ("Descobertas do esquemático real" e "Pendências" da
+  Fase C, acima): proposta explicitamente marcada "a confirmar" de que
+  o conteúdo NDEF seria **só** o identificador/endereço BLE para
+  handover/tap-to-pair — "nunca dados clínicos ou PII".
+- **2026-07-22** (sessão de planeamento, fora deste ficheiro — só em
+  histórico de conversa): a utilizadora definiu explicitamente um
+  âmbito diferente e mais específico: **leitura passiva tipo "Medical
+  ID"** — um médico/rececionista aproxima um leitor NFC e recebe de
+  imediato identidade + condições/alergias/medicação relevantes em
+  emergência + contacto de emergência, precisamente para o caso de o
+  paciente (público-alvo com demência) não poder colaborar/consentir
+  no momento. Esta decisão veio DEPOIS da proposta de 2026-07-03 e
+  respondeu-lhe diretamente — não é um esquecimento, é uma substituição
+  deliberada de âmbito pela própria utilizadora.
+
+**Reconciliação (não uma decisão nova minha — só a registar o que já
+foi decidido)**: o âmbito de 2026-07-22 é o vigente; a proposta de
+2026-07-03 fica marcada como substituída, não apagada (para não perder
+o histórico de porque é que a ideia inicial era mais conservadora).
+
+**Desenho tal como ficou definido em 2026-07-22** (a implementação
+continua por fazer — sem lib NDEF pronta no core Adafruit atual, só
+`nrfx_nfct` de baixo nível):
+- Formato: **NDEF Type 2 Tag** (mais simples que Type 4 sobre
+  `nrfx_nfct`; suficiente para um registo de texto/URI, não precisa da
+  seleção de aplicação por AID do Type 4).
+- Conteúdo: nome, doenças crónicas/diagnósticos relevantes, medicação
+  atual (nomes/dosagens que mudem uma decisão de emergência, ex.:
+  anticoagulantes), alergias, telefone de contacto de emergência — **não**
+  a ficha clínica completa (essa continua só atrás do caminho
+  autenticado BLE/dashboard). Alimentado pelos mesmos
+  `patient_conditions`/`patient_allergies` implementados nesta sessão
+  (ver secção acima) e por `Medication`, já existente.
+- Diferencial face à concorrência (MyID Tag, TapMedID, etc., que usam
+  chips NTAG passivos e por isso só conseguem guardar um URL para um
+  perfil na cloud do fabricante): como o NFC aqui corre no próprio
+  nRF52840 (não um chip passivo à parte), o conteúdo pode ser gerado
+  dinamicamente pelo firmware a partir dos dados já no dispositivo —
+  dados embutidos (funcionam sem internet, ex. numa ambulância sem
+  sinal) mas atualizáveis a qualquer momento pelo mesmo caminho BLE
+  autenticado que já existe, sem reprogramar chip nenhum.
+- RGPD: superfície de exposição reduzida de propósito (subconjunto
+  curado, não tudo) precisamente por ser leitura sem autenticação —
+  fica para a FAQ (já com um placeholder pendente, ver `ajuda.faqQ`
+  acima) explicar com transparência ao utente/família o que fica
+  exposto a qualquer leitor.
+
+**Ainda por fazer, sem alteração nesta sessão**: implementação real
+(escolha entre programar NFC-A/Type2Tag+NDEF diretamente sobre
+`nrfx_nfct`, ou importar as libs de NFC do nRF5 SDK da Nordic que o
+core Adafruit já usa por baixo, mas não expõe publicamente) — trabalho
+de tamanho considerável, não cabe nesta sessão sem hardware.
+
+## 2026-07-31 (continuação) — desenho: pipeline de retreino do classificador a partir das correções do cuidador
+
+Item da lista de tarefas ("desenhar pipeline de retreino") sobreposto
+com "planeamento de tarefas programadas do bridge (cron)" — é a mesma
+peça de trabalho: a única tarefa periódica que ainda não existe no
+projeto é esta. Confirmado por leitura de `bridge/ble_bridge.py` que as
+outras duas já estão implementadas e ligadas (não é preciso desenhar
+nada novo aqui):
+- `periodic_retention_task` — retenção configurável de `sensor_records`
+  (dashboard controla `retention_days`), já registada.
+- `periodic_orm_retention_task` — GDPR-006, políticas de retenção FIXAS
+  do ORM para as restantes tabelas (`activity_windows`, `alerts`,
+  `anomaly_detections`, `medication_adherence`; `emergency_alerts`
+  nunca apagado) — **já implementada e ligada** (`asyncio.create_task`
+  em `ble_bridge.py`, linha ~1554). O item "GDPR-006: ligar
+  `DataRetention.cleanup()`" do roteiro de fundo (herdado de
+  2026-07-21) está desatualizado — pode ser marcado como feito.
+
+**Desenho proposto para o retreino** (não implementado — é o que falta
+decidir/construir):
+
+1. **Não corre dentro do bridge (processo sempre ligado a BLE/WS)**.
+   Ao contrário das duas tasks de retenção acima (leves, só queries de
+   BD), treinar um modelo é pesado (CPU, minutos, não milissegundos) —
+   misturar isso com a task que serve leituras em tempo real arrisca
+   atrasos que já causaram desconexões BLE no passado (mesmo motivo já
+   documentado para não escrever na flash a cada registo, ver
+   `Ble.cpp`/alocação de nonces em lote). Proposta: script standalone
+   novo em `ml/` (mesmo padrão de `train_activity_classifier.py`), ex.
+   `ml/retrain_from_corrections.py`, invocado por fora do bridge.
+2. **Gatilho**: seguir o precedente já existente no projeto — a rotina
+   cloud diária (GitHub Actions, gera `demo-data.js` às 05:00 UTC) já
+   prova que agendamento externo funciona bem aqui. Proposta: um
+   segundo workflow agendado (ou o mesmo, numa etapa adicional) que
+   corre `ml/retrain_from_corrections.py` periodicamente (ex.: semanal,
+   não diário — corrigir atividade não é uma ação de alta frequência,
+   treinar com poucos exemplos novos desde a última vez desperdiça
+   CPU sem ganho real).
+3. **Lógica do script**: ler `activity_corrections`
+   (`storage_advanced.py`) desde a última execução com sucesso (guardar
+   o timestamp/id da última correção processada, ex. numa linha da
+   tabela `Setting`, já existente); se o número de correções novas
+   acumuladas for `< LIMIAR`, termina sem treinar (log simples, sem
+   erro); caso contrário, junta as correções como labels reais aos
+   dados sintéticos existentes (`data/synthetic_routine_dataset.csv`) —
+   ou treina só com dados reais quando já houver massa crítica própria,
+   a decidir mais tarde — e produz um modelo novo.
+4. **Segurança do deployment do modelo (não sobrescrever às cegas)**:
+   nunca substituir o modelo em produção sem avaliação prévia — guardar
+   o modelo novo com um nome versionado (ex.:
+   `activity_classifier_YYYYMMDD.pkl`), avaliar contra um conjunto de
+   validação fixo (held-out, não usado no treino), e só promover a
+   "modelo ativo" (symlink ou ficheiro de config apontado pelo bridge)
+   se a métrica de validação não piorar face ao modelo atual — mesmo
+   espírito do `dashboard.yml` (nunca publicar algo não verificado).
+5. **Pergunta em aberto, para a utilizadora decidir** (já identificada
+   antes, ainda sem resposta): a partir de quantas correções acumuladas
+   faz sentido correr isto pela primeira vez (`LIMIAR` acima)? Proposta
+   de valor de partida, com razão: **20 correções** — pouco a menos que
+   isso e o retreino corre o risco de overfitting a um punhado de
+   exemplos (o dataset sintético já tem uma dimensão muito maior);
+   número redondo fácil de ajustar depois de ver o ritmo real de
+   correções. Não implementado à espera desta confirmação (mudar o
+   número depois de o script já escrito é trivial — não bloqueia
+   começar a escrever o script em si, só a data da primeira execução
+   real).
+
+**Não implementado nesta sessão** (design apenas, como pedido para os
+itens desta natureza) — script `ml/retrain_from_corrections.py` e o
+workflow do GitHub Actions ficam para quando a utilizadora confirmar o
+limiar (ou disser para avançar já com o valor proposto).
