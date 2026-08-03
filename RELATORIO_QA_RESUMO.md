@@ -534,3 +534,14 @@ firmware+bridge em paralelo → validar), depois de eu mesma fazer a
 investigação de arquitetura necessária para não delegar a parte de
 perceber o problema. Detalhe completo na entrada 41 do relatório
 detalhado.
+
+## 39. `emergencyProfileChar` concluído — PRONTO, 1 bug real apanhado nos testes
+
+Workflow da entrada 38 terminou: firmware compila (RAM 7.7%/Flash 27.0%),
+bridge passa 149/149 testes, validação independente releu o código e
+voltou a correr build+testes ela própria (não confiou nos relatórios) e
+confirmou zero PII a passar por NFC. Um bug real foi apanhado e corrigido
+pelo próprio agente durante os testes: a flag de truncagem `"trunc"` era
+somada ao payload depois do corte por tamanho, podendo empurrá-lo de
+volta acima dos 512 bytes. Detalhe completo na entrada 42 do relatório
+detalhado.

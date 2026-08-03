@@ -634,6 +634,20 @@ fixo — a confirmar se está ao alcance do SoftDevice S140 já em uso
 > `PROJECT_STATUS.md`, secção "NFC" (2026-07-31) para o desenho
 > resultante (nova characteristic `emergencyProfileChar`, só de leitura,
 > pós-pairing).
+>
+> **Implementado (2026-08-03)**: `emergencyProfileChar` (UUID
+> `...200006`, `CHR_PROPS_READ`, `SECMODE_ENC_NO_MITM`) e a sua
+> companheira de escrita `emergencyProfileWriteChar` (UUID `...200005`,
+> `CHR_PROPS_WRITE|WRITE_WO_RESP`, mesmo nível de permissão) via workflow
+> multi-agente (spec + firmware + bridge em paralelo + validação
+> independente). Confirmado por leitura direta do código, não só pelos
+> relatórios dos agentes: nenhum ficheiro de `src/Nfc/`/`include/Nfc/` foi
+> tocado, `Nfc.cpp`/`Nfc.h` não referenciam "emergenc"/"profile"/"patient",
+> e nenhum log (`Serial.print`/`print`) em qualquer dos ficheiros alterados
+> imprime PII — só `len`/`patient_id` (inteiros). `NFC-003` continua
+> cumprido à letra: o perfil nunca passa pelo NDEF, só pela characteristic
+> BLE pós-bonding. Firmware compila (RAM 7.7%, Flash 27.0%), bridge passa
+> 149/149 testes (141 pré-existentes + 8 novos).
 
 ### NFC-004 — Dados OOB (se vierem a existir) têm de ser efémeros e ligados à sessão
 

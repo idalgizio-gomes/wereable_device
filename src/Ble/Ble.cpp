@@ -60,6 +60,19 @@ static BLECharacteristic dumpStatusChar ("abcd1234-5678-1234-5678-abcdef200003")
 // misturar semanticas (estado do streaming vs. um evento critico raro) e
 // para nao ter de alterar o formato ja fixo do DumpStatusPacket existente.
 static BLECharacteristic emergencyAlertChar("abcd1234-5678-1234-5678-abcdef200004");
+// emergencyProfileWriteChar/emergencyProfileChar: par de characteristics
+// para o perfil de emergencia (JSON) do paciente — o bridge escreve o
+// payload (dados que ja tem via ORM) em emergencyProfileWriteChar, o
+// dispositivo guarda-o em flash (ver Storage::saveEmergencyProfile) e
+// espelha-o em emergencyProfileChar, que fica disponivel por leitura
+// (ex.: por uma app no telemovel, sem depender do bridge) mesmo antes de
+// qualquer escrita nova, porque begin() pre-carrega o que ja estiver
+// persistido. Par de characteristics em vez de uma so' (leitura+escrita
+// na mesma) porque write() e' invocado pelo dispositivo para espelhar o
+// valor (ver emergencyProfileWriteCallback), e nao faz sentido a app
+// poder escrever diretamente no valor "servido" sem passar por Storage.
+static BLECharacteristic emergencyProfileWriteChar("abcd1234-5678-1234-5678-abcdef200005");
+static BLECharacteristic emergencyProfileChar     ("abcd1234-5678-1234-5678-abcdef200006");
 // batteryService: servico PADRAO do Bluetooth SIG "Battery Service"
 // (UUID16 0x180F, characteristic "Battery Level" 0x2A19), atraves da
 // classe BLEBas ja fornecida pela biblioteca Bluefruit (ver
@@ -1309,6 +1322,31 @@ static void dumpCtrlCallback(uint16_t conn_hdl, BLECharacteristic *chr,
   }
 }
 
+// Chamado quando o bridge escreve na characteristic emergencyProfileWriteChar
+// (JSON do perfil de emergencia do paciente, montado pelo bridge a partir do
+// ORM — ver build_emergency_profile_payload() em storage_advanced.py). Sem
+// nenhuma camada de cifra AES-CTR propria (igual a dumpCtrlCallback/
+// aesKeyCallback): protegido so pela encriptacao de link BLE (bonding),
+// nao pelo encryptRecord() usado no caminho device->bridge de dumpDataChar.
+// Guarda em flash e espelha de imediato em emergencyProfileChar, para que
+// uma leitura subsequente (app no telemovel, ou o proprio bridge numa
+// ligacao futura) veja logo o valor mais recente sem depender de reiniciar
+// o dispositivo.
+static void emergencyProfileWriteCallback(uint16_t conn_hdl, BLECharacteristic *chr,
+                                           uint8_t *data, uint16_t len) {
+  (void)conn_hdl;
+  (void)chr;
+
+  if (!Storage::saveEmergencyProfile(data, len)) {
+    Serial.println("[BLE] failed to save emergency profile");
+    return;
+  }
+
+  emergencyProfileChar.write(data, len);
+  Serial.print("[BLE] emergency profile received and stored, len=");
+  Serial.println(len);
+}
+
 // Chamado pela stack Bluefruit sempre que um central (telemovel) se
 // liga ao dispositivo. Se estivermos em modo de dados, o streaming
 // arranca automaticamente ao ligar (nao é preciso a app enviar o
@@ -1435,6 +1473,41 @@ bool begin() {
   emergencyAlertChar.setPermission(SECMODE_ENC_NO_MITM, SECMODE_NO_ACCESS);
   emergencyAlertChar.setFixedLen(sizeof(EmergencyAlertPacket));
   emergencyAlertChar.begin();
+
+  // Characteristic de escrita para o bridge enviar o perfil de emergencia
+  // (JSON, tamanho variavel por paciente). Mesmo nivel de protecao que
+  // dumpCtrlChar: so encriptacao de link BLE, sem cifra AES-CTR propria
+  // (ver emergencyProfileWriteCallback).
+  emergencyProfileWriteChar.setProperties(CHR_PROPS_WRITE | CHR_PROPS_WRITE_WO_RESP);
+  emergencyProfileWriteChar.setPermission(SECMODE_OPEN, SECMODE_ENC_NO_MITM);
+  emergencyProfileWriteChar.setMaxLen(EMERGENCY_PROFILE_MAX_LEN);
+  emergencyProfileWriteChar.setWriteCallback(emergencyProfileWriteCallback);
+  emergencyProfileWriteChar.begin();
+
+  // Characteristic de leitura do perfil de emergencia. Sem setFixedLen():
+  // o comportamento por omissao de qualquer BLECharacteristic ja e
+  // variavel (vlen=1), o mesmo padrao usado por aesKeyChar/dumpCtrlChar —
+  // setFixedLen(N) e o que optaria por tamanho fixo, o que nao serve aqui
+  // porque o JSON varia de paciente para paciente.
+  emergencyProfileChar.setProperties(CHR_PROPS_READ);
+  emergencyProfileChar.setPermission(SECMODE_ENC_NO_MITM, SECMODE_NO_ACCESS);
+  emergencyProfileChar.setMaxLen(EMERGENCY_PROFILE_MAX_LEN);
+  emergencyProfileChar.begin();
+
+  // Pre-carrega o valor local com o que ja estiver persistido em flash (ou
+  // "{}" vazio se ainda nao houver nenhum), para ficar disponivel por
+  // leitura logo no arranque, sem depender de uma escrita nova do bridge
+  // nesta ligacao — mesmo padrao que dumpStatusChar/emergencyAlertChar
+  // usam para popular o valor local antes do primeiro evento.
+  {
+    uint8_t profBuf[EMERGENCY_PROFILE_MAX_LEN];
+    size_t profLen = 0;
+    if (Storage::hasEmergencyProfile() && Storage::loadEmergencyProfile(profBuf, sizeof(profBuf), profLen)) {
+      emergencyProfileChar.write(profBuf, profLen);
+    } else {
+      emergencyProfileChar.write(reinterpret_cast<const uint8_t *>("{}"), 2);
+    }
+  }
 
   // Servico padrao "Battery Service" (0x180F/0x2A19) — ver comentario
   // junto da declaracao de batteryService, acima. begin() aqui cria o

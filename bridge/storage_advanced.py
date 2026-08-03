@@ -12,6 +12,7 @@ Refatoração do storage.py original com:
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -984,6 +985,150 @@ class DataRetention:
         results["emergency_alerts"] = count
 
         return results
+
+
+# ============================================================
+# PERFIL DE EMERGÊNCIA (emergencyProfileChar, ver src/Ble/Ble.cpp) —
+# subconjunto curado de dados de saúde do paciente, servido pelo firmware
+# por leitura BLE só depois de pairing/bonding (ver PROJECT_STATUS.md,
+# 2026-07-31, "Nova characteristic GATT de leitura de emergência"). Função
+# pura (só lê `db`, nunca escreve nada) para ser fácil de testar isolada —
+# quem grava o resultado no dispositivo é `ble_bridge.py`.
+# ============================================================
+
+# Tem de bater certo com EMERGENCY_PROFILE_MAX_LEN em
+# include/Storage/Storage.h (teto do SoftDevice para um atributo GATT de
+# tamanho variável, BLE_GATTS_VAR_ATTR_LEN_MAX) — é o orçamento de bytes
+# usado pela política de corte abaixo.
+EMERGENCY_PROFILE_MAX_LEN = 512
+
+
+def build_emergency_profile_payload(db: Session, patient_id: int) -> bytes:
+    """Constrói o JSON (UTF-8, <= EMERGENCY_PROFILE_MAX_LEN bytes) escrito
+    em emergencyProfileWriteChar e depois servido por leitura em
+    emergencyProfileChar.
+
+    Chaves: "name" (Patient.name), "ec" (contacto de emergência —
+    Patient.emergency_contact_*, omitido se nenhum dos três campos estiver
+    preenchido), "cond"/"alrg" (PatientCondition/PatientAllergy ativos —
+    `.display_text` já vem decifrado pela property do modelo), "med"
+    (Medication ativa: não soft-deletada e sem end_date já passado).
+    Chaves de listas vazias são omitidas (poupa bytes, e é o que o
+    dashboard/app já vai assumir ao verificar "cond" in perfil).
+
+    Se o JSON completo exceder EMERGENCY_PROFILE_MAX_LEN bytes (paciente
+    com muitas condições/alergias/medicações — não há precedente disto no
+    codebase, política nova), corta-se itens do FIM de "cond", depois
+    "med", depois "alrg" — por esta ordem porque alergias são a informação
+    mais crítica em emergência (risco real de reação a algo administrado
+    pelo socorrista), por isso são a última coisa a perder — até caber, e
+    marca-se "trunc": true para o dashboard/app poder avisar que a lista
+    pode estar incompleta. Nome e contacto de emergência NUNCA são
+    cortados, mesmo que o payload continue a exceder o limite depois de
+    esvaziar as três listas (caso extremo, só possível com um nome/
+    contacto muito longos) — quem escreve isto por BLE (ble_bridge.py)
+    fica sujeito aos limites físicos do protocolo nesse cenário.
+    """
+    patient = (
+        db.query(Patient)
+        .filter(Patient.id == patient_id, Patient.deleted_at.is_(None))
+        .first()
+    )
+    if patient is None:
+        raise ValueError(f"paciente {patient_id} nao encontrado (ou soft-deleted)")
+
+    payload: dict = {"name": patient.name}
+
+    ec = {}
+    if patient.emergency_contact_name:
+        ec["name"] = patient.emergency_contact_name
+    if patient.emergency_contact_phone:
+        ec["phone"] = patient.emergency_contact_phone
+    if patient.emergency_contact_relation:
+        ec["relation"] = patient.emergency_contact_relation
+    if ec:
+        payload["ec"] = ec
+
+    conditions = (
+        db.query(PatientCondition)
+        .filter(PatientCondition.patient_id == patient_id, PatientCondition.deleted_at.is_(None))
+        .order_by(PatientCondition.id)
+        .all()
+    )
+    if conditions:
+        payload["cond"] = [c.display_text for c in conditions]
+
+    allergies = (
+        db.query(PatientAllergy)
+        .filter(PatientAllergy.patient_id == patient_id, PatientAllergy.deleted_at.is_(None))
+        .order_by(PatientAllergy.id)
+        .all()
+    )
+    if allergies:
+        payload["alrg"] = [a.display_text for a in allergies]
+
+    # Medicação "atual": não soft-deletada e ainda não terminada (end_date
+    # NULL = sem data de fim prevista, ou end_date no futuro/agora).
+    # datetime.utcnow() (naive), não datetime.now(timezone.utc) — mesmo
+    # precedente do resto deste ficheiro (ver Analytics.
+    # medication_adherence_summary/get_records_since acima): só é preciso
+    # a variante "aware" quando se chama .timestamp() a seguir para
+    # comparar contra uma coluna inteira de epoch, o que não é o caso aqui
+    # (Medication.end_date é DateTime nativo).
+    now = datetime.utcnow()
+    medications = (
+        db.query(Medication)
+        .filter(
+            Medication.patient_id == patient_id,
+            Medication.deleted_at.is_(None),
+            or_(Medication.end_date.is_(None), Medication.end_date >= now),
+        )
+        .order_by(Medication.id)
+        .all()
+    )
+    if medications:
+        payload["med"] = [
+            {"name": m.name, "dosage": m.dosage, "frequency": m.frequency}
+            for m in medications
+        ]
+
+    def _dump(p: dict) -> bytes:
+        # separators sem espaço + ensure_ascii=False: minimiza bytes (o
+        # orçamento é apertado) e mantém acentuação em UTF-8 real em vez de
+        # escapes \uXXXX (que gastariam 6 bytes por carácter acentuado em
+        # vez de 2).
+        return json.dumps(p, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+    data = _dump(payload)
+    if len(data) > EMERGENCY_PROFILE_MAX_LEN:
+        # "trunc": true e' adicionado ANTES do loop de corte (nao depois),
+        # de proposito: e' preciso contar os bytes do proprio marcador no
+        # orcamento enquanto se decide quantos itens cortar, senao o loop
+        # podia parar exatamente no limite e a flag acrescentada a seguir
+        # empurrava o payload de volta para cima de EMERGENCY_PROFILE_MAX_LEN
+        # (bug real, apanhado por
+        # tests/test_storage_advanced.py::TestBuildEmergencyProfilePayload::
+        # test_payload_never_exceeds_max_len_and_sets_trunc_flag).
+        payload["trunc"] = True
+        data = _dump(payload)
+        for key in ("cond", "med", "alrg"):
+            while key in payload and payload[key] and len(data) > EMERGENCY_PROFILE_MAX_LEN:
+                payload[key].pop()
+                if not payload[key]:
+                    del payload[key]
+                data = _dump(payload)
+            if len(data) <= EMERGENCY_PROFILE_MAX_LEN:
+                break
+        print(f"[STORAGE] AVISO: perfil de emergencia do paciente {patient_id} excedia "
+              f"{EMERGENCY_PROFILE_MAX_LEN} bytes -- itens de condicoes/alergias/medicacao "
+              f"foram cortados (nome/contacto de emergencia nunca sao cortados)")
+        if len(data) > EMERGENCY_PROFILE_MAX_LEN:
+            print(f"[STORAGE] AVISO GRAVE: perfil de emergencia do paciente {patient_id} "
+                  f"excede {EMERGENCY_PROFILE_MAX_LEN} bytes mesmo so' com nome+contacto de "
+                  f"emergencia -- nao ha mais nada que se possa cortar sem violar a regra de "
+                  f"nunca cortar nome/contacto")
+
+    return data
 
 
 # ============================================================

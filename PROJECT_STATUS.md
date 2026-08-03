@@ -6125,3 +6125,71 @@ documentar. Alterações feitas:
 Já corre automaticamente via `periodic_orm_retention_task()` (task
 periódica já ligada ao bridge desde 2026-07-21) — não foi preciso
 nenhuma alteração ao mecanismo de agendamento, só à política em si.
+
+## 2026-08-03 — `emergencyProfileChar` implementado (firmware + bridge), via workflow multi-agente
+
+Retomado o workflow desenhado em 2026-07-31 (interrompido entre sessões,
+sem registo de conclusão — resumido a partir do `runId` guardado, que
+reaproveita os passos já concluídos em cache). 4 agentes, 3 fases:
+
+1. **Spec** (`fable`): validou o desenho proposto linha a linha contra o
+   código real (não assumiu nada do plano anterior). Encontrou 1 erro de
+   API no desenho original (`setFixedLen(false)` não existe — o
+   comportamento variável já é o default de `BLECharacteristic`, basta
+   nunca chamar `setFixedLen()` e só usar `setMaxLen(512)`) e confirmou
+   que 512 bytes é `BLE_GATTS_VAR_ATTR_LEN_MAX` do próprio SoftDevice
+   (não um número escolhido à mão).
+2. **Implement** (2 agentes `sonnet` em paralelo — firmware e bridge):
+   - Firmware (`src/Storage/Storage.cpp`, `src/Ble/Ble.cpp`):
+     `saveEmergencyProfile`/`loadEmergencyProfile`/`hasEmergencyProfile`
+     (mirror de `saveAesKey`/`loadAesKey`/`hasAesKey`); duas
+     characteristics novas — `emergencyProfileWriteChar` (UUID
+     `...200005`, escrita, sem cifra própria, só encriptação de link BLE)
+     e `emergencyProfileChar` (UUID `...200006`, só leitura,
+     `SECMODE_ENC_NO_MITM`, pré-carregada da flash no `begin()`). Build:
+     RAM 7.7% (18336/237568), Flash 27.0% (219020/811008), compilou à
+     primeira.
+   - Bridge (`bridge/storage_advanced.py`,`bridge/ble_bridge.py`):
+     `build_emergency_profile_payload(db, patient_id)` monta o JSON
+     (`name`, `ec` contacto de emergência, `cond`/`alrg`/`med` — só
+     registos ativos, `deleted_at IS NULL`) e corta itens (ordem:
+     `cond`→`med`→`alrg`, alergias protegidas até ao fim por serem a
+     info mais crítica numa emergência) se exceder 512 bytes, marcando
+     `"trunc": true`. Enviado por `ble_bridge.py` logo a seguir ao
+     pairing, antes das subscrições de `notify`, com `response=True`
+     (obrigatório — é o único modo com Long Write no protocolo ATT).
+     Bug real apanhado pelos testes: a flag `trunc` estava a ser
+     acrescentada **depois** do loop de corte, o que podia empurrar o
+     payload de volta acima de 512 bytes; corrigido para orçamentar a
+     flag **antes** de decidir quantos itens cortar.
+3. **Validate** (`fable`): releu o código (não os relatórios dos outros
+   agentes), voltou a correr `clean build` (mesmos números) e
+   `pytest bridge/tests/ -q` (149 passed — 141 + 8 novos), confirmou
+   UUIDs idênticos dos dois lados, modelo de permissões consistente, e
+   que nenhum ficheiro de `Nfc.cpp`/`Nfc.h` foi tocado nem nenhum log
+   imprime PII. Veredito: **PRONTO**, nada para corrigir.
+
+**Decisões de design tomadas pelo agente de bridge, sem precedente no
+codebase para copiar** (a especificação não as fixava — registo
+explícito, não escondido):
+- Nomes exatos das chaves JSON (`name`/`ec`/`cond`/`alrg`/`med`) e a
+  estrutura interna de `ec` — só os identificadores `cond`/`alrg`/`med`
+  em si vinham da spec.
+- Ordem de corte `cond`→`med`→`alrg` — justificação clínica (risco de
+  reação a algo administrado no local é mais grave que perder uma
+  condição crónica de fundo), não pedida explicitamente.
+- Paciente inexistente levanta `ValueError` (cai no `try/except` já
+  existente em `ble_bridge.py`, nunca derruba a ligação).
+- `Patient.deleted_at.is_(None)` também aplicado à query do próprio
+  paciente (não só às tabelas relacionadas) — segue a instrução geral
+  de filtrar soft-delete onde a coluna existir.
+- Logging por `print("[STORAGE] ...")` — módulo não tinha padrão de
+  logging fora do `__main__`, seguido o prefixo `[BRIDGE]` já usado por
+  analogia.
+
+Ficheiros alterados: `bridge/ble_bridge.py`, `bridge/storage_advanced.py`,
+`bridge/tests/test_storage_advanced.py`, `include/Storage/Storage.h`,
+`src/Ble/Ble.cpp`, `src/Storage/Storage.cpp` (473 inserções, 7 remoções).
+Ver `SECURITY_STATUS.md`, nota de 2026-08-03 junto de `NFC-003`, para a
+confirmação de que isto cumpre a decisão de nunca expor dados clínicos
+via NDEF.

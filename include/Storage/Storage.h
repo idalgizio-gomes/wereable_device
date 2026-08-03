@@ -11,7 +11,9 @@
 // dispositivo precisa de manter mesmo depois de desligar/reiniciar:
 //   - calibração do IMU (giroscópio + acelerómetro);
 //   - a chave AES usada para cifrar/decifrar as comunicações BLE;
-//   - um contador persistente usado como nonce/IV nas mensagens BLE.
+//   - um contador persistente usado como nonce/IV nas mensagens BLE;
+//   - o perfil de emergência (JSON) do paciente, recebido do bridge e
+//     servido por leitura via BLE (ver emergencyProfileChar em Ble.cpp).
 //
 // A ideia é dar ao resto da aplicação uma API simples (guardar/ler/verificar
 // existência) sem que o resto do código precise de saber como o LittleFS
@@ -33,6 +35,13 @@ struct ImuCalibration {
 // intervalo é considerado inválido e é recusado.
 #define AES_KEY_MIN_LEN 16
 #define AES_KEY_MAX_LEN 32
+
+// Tamanho maximo (em bytes) aceite para o perfil de emergencia (JSON).
+// 512 = BLE_GATTS_VAR_ATTR_LEN_MAX do SoftDevice, o teto fisico de
+// qualquer atributo GATT de tamanho variavel (ver emergencyProfileChar
+// em Ble.cpp) — nao faz sentido guardar em flash mais do que o que
+// alguma vez sera possivel ler de volta por BLE.
+#define EMERGENCY_PROFILE_MAX_LEN 512
 
 namespace Storage {
 
@@ -110,11 +119,31 @@ namespace Storage {
   // Guarda o valor de "counter" na flash, substituindo o valor anterior.
   bool counter_save(uint64_t counter);
 
+  // Perfil de emergência (JSON)
+
+  // Guarda o perfil de emergência (payload JSON vindo do bridge) na
+  // flash, substituindo qualquer perfil anterior. "len" tem de ser no
+  // máximo EMERGENCY_PROFILE_MAX_LEN, caso contrário é recusado —
+  // mesmo teto que emergencyProfileChar aceita servir por leitura BLE.
+  bool saveEmergencyProfile(const uint8_t *data, size_t len);
+
+  // Lê o perfil de emergência guardado para "buf" (que tem capacidade
+  // "bufLen"). O comprimento efetivo lido é devolvido em "outLen".
+  // Devolve false se não existir perfil guardado, se o ficheiro exceder
+  // EMERGENCY_PROFILE_MAX_LEN, ou se "buf" for demasiado pequeno.
+  bool loadEmergencyProfile(uint8_t *buf, size_t bufLen, size_t &outLen);
+
+  // Verifica se existe um perfil de emergência guardado, sem o carregar
+  // para memória. Ao contrário de hasCalibration()/hasAesKey(), não há
+  // um tamanho fixo esperado (o JSON varia de paciente para paciente) —
+  // só confirma que o ficheiro existe e abre.
+  bool hasEmergencyProfile();
+
   // Apaga tudo (útil em testes / factory reset)
 
   // Remove da flash todos os ficheiros geridos por este módulo
-  // (calibração, chave AES e contador). Usado em testes ou num
-  // "factory reset" do dispositivo.
+  // (calibração, chave AES, contador e perfil de emergência). Usado em
+  // testes ou num "factory reset" do dispositivo.
   // Devolve true se pelo menos um dos ficheiros existia e foi removido.
   bool clearAll();
 

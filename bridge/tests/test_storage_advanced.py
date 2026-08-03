@@ -22,6 +22,7 @@ adicionalmente:
    `medication_adherence` nunca eram purgados apesar de a documentação
    já afirmar que o eram.
 """
+import json
 from datetime import datetime, timedelta
 
 import pytest
@@ -453,3 +454,126 @@ class TestPatientSensitiveFields:
         assert patient.address is None
         assert patient.nif_encrypted is None
         assert patient.address_encrypted is None
+
+
+class TestBuildEmergencyProfilePayload:
+    """`build_emergency_profile_payload` alimenta emergencyProfileWriteChar
+    (ver src/Ble/Ble.cpp / bridge/ble_bridge.py) -- funcao pura (só lê `db`),
+    por isso testável isoladamente aqui, sem nenhum I/O BLE."""
+
+    def test_full_profile_includes_all_sections(self, db):
+        patient = _make_patient(db, uuid="pat-emerg-1", name="Maria Silva")
+        patient.emergency_contact_name = "Joao Silva"
+        patient.emergency_contact_phone = "912345678"
+        patient.emergency_contact_relation = "filho"
+        db.commit()
+
+        cond = sa.PatientCondition(uuid="cond-1", patient_id=patient.id)
+        cond.display_text = "Diabetes tipo 2"
+        db.add(cond)
+
+        alrg = sa.PatientAllergy(uuid="alrg-1", patient_id=patient.id)
+        alrg.display_text = "Penicilina"
+        db.add(alrg)
+
+        med = sa.Medication(
+            uuid="med-1", patient_id=patient.id, name="Donepezilo",
+            dosage="5mg", frequency="1x/dia", start_date=datetime.utcnow(),
+        )
+        db.add(med)
+        db.commit()
+
+        raw = sa.build_emergency_profile_payload(db, patient.id)
+        assert isinstance(raw, bytes)
+        payload = json.loads(raw)
+
+        assert payload["name"] == "Maria Silva"
+        assert payload["ec"] == {"name": "Joao Silva", "phone": "912345678", "relation": "filho"}
+        assert payload["cond"] == ["Diabetes tipo 2"]
+        assert payload["alrg"] == ["Penicilina"]
+        assert payload["med"] == [{"name": "Donepezilo", "dosage": "5mg", "frequency": "1x/dia"}]
+        assert "trunc" not in payload
+
+    def test_minimal_profile_has_no_ec_key(self, db):
+        """Paciente sem condições/alergias/medicação/contacto de emergência
+        -- payload mínimo, sem a chave "ec" (nem "cond"/"alrg"/"med")."""
+        patient = _make_patient(db, uuid="pat-emerg-2", name="Jose Costa")
+        raw = sa.build_emergency_profile_payload(db, patient.id)
+        payload = json.loads(raw)
+
+        assert payload == {"name": "Jose Costa"}
+        assert "ec" not in payload
+
+    def test_partial_emergency_contact_only_includes_filled_fields(self, db):
+        patient = _make_patient(db, uuid="pat-emerg-3")
+        patient.emergency_contact_name = "Ana Pereira"
+        # phone/relation ficam None de proposito.
+        db.commit()
+
+        payload = json.loads(sa.build_emergency_profile_payload(db, patient.id))
+        assert payload["ec"] == {"name": "Ana Pereira"}
+
+    def test_soft_deleted_condition_and_allergy_excluded(self, db):
+        patient = _make_patient(db, uuid="pat-emerg-4")
+        cond = sa.PatientCondition(uuid="cond-del", patient_id=patient.id)
+        cond.display_text = "Condicao apagada"
+        cond.deleted_at = datetime.utcnow()
+        alrg = sa.PatientAllergy(uuid="alrg-del", patient_id=patient.id)
+        alrg.display_text = "Alergia apagada"
+        alrg.deleted_at = datetime.utcnow()
+        db.add_all([cond, alrg])
+        db.commit()
+
+        payload = json.loads(sa.build_emergency_profile_payload(db, patient.id))
+        assert "cond" not in payload
+        assert "alrg" not in payload
+
+    def test_expired_medication_excluded_but_ongoing_and_future_end_included(self, db):
+        patient = _make_patient(db, uuid="pat-emerg-5")
+        expired = sa.Medication(
+            uuid="med-expired", patient_id=patient.id, name="Antibiotico",
+            dosage="500mg", frequency="8/8h",
+            start_date=datetime.utcnow() - timedelta(days=20),
+            end_date=datetime.utcnow() - timedelta(days=5),
+        )
+        ongoing = sa.Medication(
+            uuid="med-ongoing", patient_id=patient.id, name="Donepezilo",
+            dosage="5mg", frequency="1x/dia",
+            start_date=datetime.utcnow() - timedelta(days=100),
+        )
+        future_end = sa.Medication(
+            uuid="med-future", patient_id=patient.id, name="Memantina",
+            dosage="10mg", frequency="1x/dia",
+            start_date=datetime.utcnow(), end_date=datetime.utcnow() + timedelta(days=30),
+        )
+        deleted = sa.Medication(
+            uuid="med-deleted", patient_id=patient.id, name="Apagado",
+            dosage="1mg", frequency="1x/dia", start_date=datetime.utcnow(),
+            deleted_at=datetime.utcnow(),
+        )
+        db.add_all([expired, ongoing, future_end, deleted])
+        db.commit()
+
+        payload = json.loads(sa.build_emergency_profile_payload(db, patient.id))
+        med_names = {m["name"] for m in payload["med"]}
+        assert med_names == {"Donepezilo", "Memantina"}
+
+    def test_payload_never_exceeds_max_len_and_sets_trunc_flag(self, db):
+        patient = _make_patient(db, uuid="pat-emerg-6")
+        for i in range(60):
+            c = sa.PatientCondition(uuid=f"cond-{i}", patient_id=patient.id)
+            c.display_text = f"Condicao numero {i} com texto longo o suficiente para ocupar espaco no payload"
+            db.add(c)
+        db.commit()
+
+        raw = sa.build_emergency_profile_payload(db, patient.id)
+        assert len(raw) <= sa.EMERGENCY_PROFILE_MAX_LEN
+
+        payload = json.loads(raw)
+        assert payload.get("trunc") is True
+        # Nome nunca e' cortado, mesmo quando o resto do payload e'.
+        assert payload["name"] == patient.name
+
+    def test_unknown_patient_raises_value_error(self, db):
+        with pytest.raises(ValueError):
+            sa.build_emergency_profile_payload(db, patient_id=999999)

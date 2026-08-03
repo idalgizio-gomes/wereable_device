@@ -2,8 +2,9 @@
 // Storage.cpp
 // -----------------------------------------------------------------------------
 // Implementação do módulo Storage (ver Storage.h para a documentação da API
-// pública). Aqui os dados (calibração do IMU, chave AES, contador BLE) são
-// guardados como ficheiros binários simples dentro do LittleFS, um sistema
+// pública). Aqui os dados (calibração do IMU, chave AES, contador BLE,
+// perfil de emergência) são guardados como ficheiros binários simples
+// dentro do LittleFS, um sistema
 // de ficheiros que corre sobre a flash interna do nRF52840. Cada "tipo" de
 // dado tem o seu próprio ficheiro, identificado por um caminho fixo.
 // =============================================================================
@@ -18,6 +19,7 @@ using namespace Adafruit_LittleFS_Namespace;
 static const char *PATH_CALIB = "/calib.bin";
 static const char *PATH_AES   = "/aes.bin";
 static const char *PATH_COUNT = "/counter.bin";
+static const char *PATH_EMERG = "/emerg.bin";
 
 namespace Storage {
 
@@ -201,17 +203,67 @@ bool counter_load(uint64_t &counter, bool *corrupted) {
   return true;
 }
 
+// ---------------- Emergency profile (JSON) ----------------
+
+bool saveEmergencyProfile(const uint8_t *data, size_t len) {
+  // Recusa gravar payloads acima do teto que emergencyProfileChar
+  // consegue depois servir por leitura BLE (ver EMERGENCY_PROFILE_MAX_LEN).
+  if (len > EMERGENCY_PROFILE_MAX_LEN) return false;
+  InternalFS.remove(PATH_EMERG);
+  File f(InternalFS);
+  if (!f.open(PATH_EMERG, FILE_O_WRITE)) {
+    Serial.println("[Storage] failed to open emerg for write");
+    return false;
+  }
+  size_t n = f.write(data, len);
+  f.close();
+  return n == len;
+}
+
+bool loadEmergencyProfile(uint8_t *buf, size_t bufLen, size_t &outLen) {
+  outLen = 0;
+  File f(InternalFS);
+  if (!f.open(PATH_EMERG, FILE_O_READ)) return false;
+  size_t sz = f.size();
+  // Protege contra um ficheiro maior do que o que alguma vez poderia ter
+  // sido gravado por saveEmergencyProfile() (corrupção/versão antiga).
+  if (sz > EMERGENCY_PROFILE_MAX_LEN) {
+    f.close();
+    return false;
+  }
+  // Protege contra overflow: não escreve mais bytes do que o buffer do
+  // chamador consegue receber.
+  if (sz > bufLen) {
+    f.close();
+    return false;
+  }
+  outLen = f.read(buf, sz);
+  f.close();
+  return outLen == sz;
+}
+
+bool hasEmergencyProfile() {
+  File f(InternalFS);
+  if (!f.open(PATH_EMERG, FILE_O_READ)) return false;
+  // Ao contrário de hasCalibration()/hasAesKey(), não há um tamanho fixo
+  // esperado (o JSON varia de paciente para paciente) — basta confirmar
+  // que o ficheiro abre.
+  f.close();
+  return true;
+}
+
 // ---------------- Utility ----------------
 
 bool clearAll() {
-  // Tenta remover os três ficheiros; cada remove() devolve true só se o
+  // Tenta remover os quatro ficheiros; cada remove() devolve true só se o
   // ficheiro existia e foi apagado. Usa-se "||" (não "&&") porque é
   // normal que nem todos os ficheiros existam (ex.: sem calibração
   // ainda feita) — o objetivo é reportar se pelo menos algo foi limpo.
   bool a = InternalFS.remove(PATH_CALIB);
   bool b = InternalFS.remove(PATH_AES);
   bool c = InternalFS.remove(PATH_COUNT);
-  return a || b || c;
+  bool d = InternalFS.remove(PATH_EMERG);
+  return a || b || c || d;
 }
 
 // ---------------- Validation ----------------

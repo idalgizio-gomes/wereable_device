@@ -125,12 +125,19 @@ try:
     # comandos de leitura do dashboard (get_history/get_daily_trend/
     # export_csv/set_retention_days) quando orm_persistence é None.
     import orm_persistence
+    # storage_advanced (aqui "sa", mesmo alias usado por orm_persistence.py)
+    # e' uma dependencia transitiva de orm_persistence — se o import acima
+    # teve sucesso, este tambem tem; importado a parte so' porque
+    # build_emergency_profile_payload() e' chamado diretamente daqui (ver
+    # gatilho em run_device_loop), nao so' através de self.orm.
+    import storage_advanced as sa
 except ImportError as exc:
     print(f"[BRIDGE] AVISO GRAVE: modulo orm_persistence indisponivel ({exc}); "
           f"bridge vai correr SEM PERSISTENCIA NENHUMA (streaming ao vivo "
           f"continua, mas historico/export/retencao do dashboard vao falhar). "
           f"Instale as dependencias em requirements.txt.")
     orm_persistence = None
+    sa = None
 
 # Valores de recurso para get_retention_days quando o proprio modulo
 # orm_persistence nao importou (caso extremo — sem ele nem sequer as
@@ -184,6 +191,7 @@ UUID_DUMP_CTRL = "abcd1234-5678-1234-5678-abcdef200001"
 UUID_DUMP_DATA = "abcd1234-5678-1234-5678-abcdef200002"
 UUID_DUMP_STATUS = "abcd1234-5678-1234-5678-abcdef200003"
 UUID_EMERGENCY_ALERT = "abcd1234-5678-1234-5678-abcdef200004"
+UUID_EMERGENCY_PROFILE_WRITE = "abcd1234-5678-1234-5678-abcdef200005"
 # Battery Level (0x2A19) — Battery Service padrão do Bluetooth SIG (0x180F),
 # publicada pelo firmware via Ble::updateBatteryLevel()/BLEBas (ver
 # Battery.h/Ble.cpp, 2026-07-19). UUID padrão, não um dos "abcd1234..."
@@ -1150,6 +1158,41 @@ class BleBridge:
                         )
 
                     await self._maybe_send_time(client)
+
+                    # Perfil de emergencia (emergencyProfileChar, ver
+                    # PROJECT_STATUS.md 2026-07-31): envia o subconjunto
+                    # curado de dados de saude (nome, condicoes, alergias,
+                    # medicacao atual, contacto de emergencia) para o
+                    # firmware guardar/servir por leitura BLE apos pairing.
+                    # Feito logo a seguir a ligacao/pairing, ANTES das
+                    # subscricoes de notify abaixo — o perfil deve estar
+                    # disponivel assim que a ligacao estabiliza, sem
+                    # depender do streaming de sensores ter arrancado.
+                    # response=True (nao False, ao contrario de
+                    # dumpCtrlChar): e' o unico modo com Long Write
+                    # (Prepare/Execute Write) no protocolo ATT, necessario
+                    # porque o payload pode exceder o MTU. Guard extra
+                    # (disabled/session/patient_id) segue o padrao universal
+                    # de orm_persistence.py — evita gerar uma excecao
+                    # "normal" a cada ligacao quando a persistencia esta
+                    # degradada, apesar de estar dentro do try de qualquer
+                    # forma.
+                    if (
+                        self.orm
+                        and not self.orm.disabled
+                        and self.orm.session is not None
+                        and self.orm.patient_id is not None
+                    ):
+                        try:
+                            profile_payload = sa.build_emergency_profile_payload(
+                                self.orm.session, self.orm.patient_id
+                            )
+                            await client.write_gatt_char(
+                                UUID_EMERGENCY_PROFILE_WRITE, profile_payload, response=True
+                            )
+                            print(f"[BRIDGE] perfil de emergencia enviado ({len(profile_payload)} bytes)")
+                        except Exception as exc:  # noqa: BLE001 - nao bloqueia o resto da ligacao
+                            print(f"[BRIDGE] nao foi possivel enviar emergencyProfileWriteChar: {exc}")
 
                     # Subscreve notificacoes de dados e de estado.
                     await client.start_notify(UUID_DUMP_DATA, self._on_dump_data)

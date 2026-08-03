@@ -1511,3 +1511,48 @@ caminho ao BLE depois).
   hooks residuais do vexp removido da lista de tarefas a pedido explícito
   da utilizadora ("esquece o vexp") — não é um esquecimento meu, é uma
   decisão dela.
+
+### 42. `emergencyProfileChar` concluído — veredito PRONTO, 1 bug real apanhado pelos próprios testes gerados
+
+- **Pergunta\dilema**: o workflow da entrada 41 tinha ficado sem registo
+  de conclusão entre sessões (retomado via `resumeFromRunId`, que
+  reaproveita em cache os passos já concluídos e só corre de novo o que
+  falta) — não se sabia se o resultado final era "PRONTO" ou
+  "BLOQUEADO", nem se havia algo por corrigir.
+- **Onde\quando**: 2026-08-03, notificação de conclusão do workflow
+  retomado da entrada 41.
+- **Forma da resposta**: veredito final **PRONTO**, sem nada por
+  corrigir. Firmware: `saveEmergencyProfile`/`loadEmergencyProfile`/
+  `hasEmergencyProfile` (mirror de `saveAesKey`/etc.), duas
+  characteristics novas (`emergencyProfileWriteChar` UUID `...200005`,
+  `emergencyProfileChar` UUID `...200006`), build limpo (RAM 7.7%, Flash
+  27.0%). Bridge: `build_emergency_profile_payload()` monta o JSON
+  curado (nome, contacto de emergência, condições/alergias/medicação
+  ativas) com política de corte por tamanho (512 bytes, ordem
+  cond→med→alrg, alergias protegidas por serem a info mais crítica numa
+  emergência) e é enviado pelo `ble_bridge.py` logo após o pairing.
+  Antes de reportar concluído, eu própria conferi o `git diff` dos 6
+  ficheiros alterados linha a linha (não só os resumos dos agentes) —
+  bateu certo com o que cada agente reportou.
+- **Artifícios/métodos usados**: cadeia de 4 agentes com papéis
+  distintos e uma validação final que **não confiou nos relatórios dos
+  outros três** — releu o código diretamente e voltou a correr o build
+  e os testes ela própria (não só repetiu os números reportados). Foi
+  essa validação independente que confirmou não haver nenhum caminho
+  para PII via NFC (grep a `Nfc.cpp`/`Nfc.h` por "emergenc"/"profile"/
+  "patient" — nada encontrado) e que os logs em ambos os lados só
+  imprimem `len`/`patient_id`, nunca os dados clínicos em si.
+- **Melhorias feitas / ainda necessárias**: um bug real foi encontrado e
+  corrigido pelo próprio agente de bridge durante a escrita dos testes —
+  a flag `"trunc": true` estava a ser acrescentada ao payload **depois**
+  do loop de corte por tamanho, o que podia empurrar o JSON de volta
+  acima dos 512 bytes (o loop parava exatamente no limite sem contar os
+  bytes da própria flag). Corrigido movendo a flag para antes do loop,
+  com o teste de regressão a ficar no ficheiro. Decisões de design sem
+  precedente no codebase, tomadas pelo agente de bridge e sinalizadas
+  explicitamente (não escondidas): nomes exatos das chaves JSON, ordem
+  de corte das listas, `ValueError` para paciente inexistente, filtro de
+  soft-delete também aplicado a `Patient`, e uso de `print()` para avisos
+  (sem padrão de logging estabelecido no módulo para copiar). Nada ainda
+  pendente nesta feature — falta só o teste em hardware real (a
+  utilizadora tem a placa no pulso), fora do alcance de qualquer agente.
