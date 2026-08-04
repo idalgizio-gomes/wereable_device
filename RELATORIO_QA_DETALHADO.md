@@ -1556,3 +1556,53 @@ caminho ao BLE depois).
   (sem padrão de logging estabelecido no módulo para copiar). Nada ainda
   pendente nesta feature — falta só o teste em hardware real (a
   utilizadora tem a placa no pulso), fora do alcance de qualquer agente.
+
+### 43. Workflow de revisão PRISMA dupla esgotou o limite de sessão 3 vezes — pivô para composição direta
+
+- **Pergunta\dilema**: a utilizadora pediu pesquisa exaustiva (200+
+  conteúdos), multilingue, com metodologia PRISMA (ScR e depois também
+  "clássica"), confirmou que os 4 PDFs fornecidos são a linhagem
+  académica direta do projeto (não trabalho relacionado externo) e pediu
+  citation-chasing sobre as referências desses PDFs. O desenho escolhido
+  — workflow multi-agente com dupla revisão independente de IA + agente
+  de desempate — esgotou o limite de sessão 3 vezes seguidas, sempre nas
+  mesmas duas fases caras (ler 4 PDFs de 80 páginas; verificar até 341
+  referências por pesquisa web real). Entre a 2ª e a 3ª tentativa, filtrei
+  a lista de referências por palavras-chave de relevância antes do
+  citation-chasing (341→~211) para poupar agentes sem perder cobertura no
+  foco da revisão — mesmo assim voltou a esgotar. Depois da 3ª
+  interrupção a utilizadora avisou "estou a ficar sem tokens"; parei o
+  workflow e propus 3 opções (escrever eu mesma, parar, tentar reduzir
+  ainda mais) — escolheu a 1ª.
+- **Onde\quando**: 2026-08-03/04, mesma sessão longa.
+- **Forma da resposta**: parei definitivamente o workflow (`TaskStop`) e
+  extraí os resultados já em cache diretamente do `journal.jsonl` da
+  execução (evita reprocessar nada) — 34 documentos extraídos dos 4 PDFs
+  2Ai/IPCA (com referências completas), 68 decisões da fila "Rever" do
+  pipeline local, 234 referências únicas verificadas por pesquisa real
+  (89 confirmadas demência+wearable), e 40 itens novos das frentes web
+  comercial/investigadores. Cruzei isto com o pipeline de literatura
+  Python já existente da própria utilizadora (`estado_da_arte.csv`,
+  `gap_report.md`, `leitura_prioritaria.md` — 253 artigos já
+  classificados, um achado valioso em si mesmo que eu não conhecia até
+  explorar a pasta que a utilizadora indicou) e escrevi os dois
+  relatórios finais eu mesma (`PRISMA_SCR_SCOPING_REVIEW.md`,
+  `PRISMA_SYSTEMATIC_REVIEW.md`), sem gastar mais tokens em agentes.
+- **Artifícios/métodos usados**: em vez de reler o `journal.jsonl` bruto
+  (muito grande), escrevi um pequeno script Python que carrega só a
+  última ocorrência de cada agente em cache (por chave de conteúdo),
+  classifica por forma do resultado (`papers`/`items`/`decisions`/
+  `verified`) e grava ficheiros JSON reduzidos só com os campos
+  necessários para escrever o relatório — reduziu de ~268KB para ~171KB
+  o que precisei de ler para ter tudo o que precisava.
+- **Melhorias feitas / ainda necessárias**: os dois relatórios estão
+  completos e entregues, mas com uma limitação real e assinalada
+  explicitamente em ambos: a triagem foi feita por mim sozinha, não pela
+  dupla revisão independente + desempate que estava desenhada
+  originalmente — mitigado pela revisão humana final de 3 pessoas
+  (utilizadora + 2 colegas), que é precisamente o próximo passo. A tabela
+  comparativa da revisão clássica (33 estudos + CareWear) foi montada por
+  julgamento direto meu sobre os dados já verificados, não por uma
+  segunda passagem de verificação independente — vale a pena a
+  utilizadora confirmar pelo menos as inclusões/exclusões mais duvidosas
+  antes de usar o documento na dissertação.

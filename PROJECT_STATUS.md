@@ -6193,3 +6193,41 @@ Ficheiros alterados: `bridge/ble_bridge.py`, `bridge/storage_advanced.py`,
 Ver `SECURITY_STATUS.md`, nota de 2026-08-03 junto de `NFC-003`, para a
 confirmação de que isto cumpre a decisão de nunca expor dados clínicos
 via NDEF.
+
+## 2026-08-04 — Revisão de literatura dupla (PRISMA-ScR + PRISMA 2020) entregue
+
+A utilizadora pediu uma revisão de literatura comparando o CareWear ao
+estado da arte, exaustiva (200+ conteúdos), multilingue, usando
+metodologia PRISMA, e confirmou que os 4 PDFs fornecidos (grupo 2Ai/IPCA)
+não são "trabalho relacionado" mas sim a linhagem académica direta do
+projeto — pedindo citation-chasing sobre as referências desses PDFs.
+Pediu depois ambas as variantes (PRISMA-ScR e PRISMA 2020 "clássica"),
+confirmando os critérios de elegibilidade propostos, avisando que 3
+pessoas (ela + 2 colegas) vão rever o resultado, e mais tarde pedindo
+para desvalorizar produtos comerciais a favor de fontes académicas.
+
+Entregues dois relatórios novos no repositório:
+- `PRISMA_SCR_SCOPING_REVIEW.md` — mapeamento amplo (critérios PCC),
+  diagrama de fluxo, panorama temático e internacional multilingue,
+  secção dedicada à linhagem 2Ai/IPCA, lacunas.
+- `PRISMA_SYSTEMATIC_REVIEW.md` — revisão estrita (critérios PICO
+  adaptados), tabela comparativa de 33 estudos incluídos + CareWear
+  (estilo "Table 1"), síntese narrativa sem meta-análise formal
+  (justificado: heterogeneidade, maioria artigos de sistema de braço
+  único).
+
+**Processo real (relevante para o relatório de QA)**: o desenho original
+usava um workflow multi-agente com dupla revisão independente por IA +
+desempate. Essa fase **nunca chegou a concluir** — o workflow esgotou o
+limite de sessão 3 vezes seguidas (extração de 4 PDFs de 80 páginas +
+verificação de até 341 referências por pesquisa web real são as fases
+mais caras). Após a 3ª interrupção a utilizadora avisou estar também com
+pouco orçamento de tokens; parei o workflow definitivamente e escrevi os
+dois relatórios eu mesma, diretamente, a partir dos dados já reais e já
+em cache (extração completa dos 34 documentos 2Ai/IPCA, 89 referências
+verificadas como demência+wearable, 44 itens web com eixo demência, e o
+pipeline Python pré-existente da própria utilizadora — 253 artigos já
+classificados, que se revelou um achado importante em si mesmo). Isto é
+uma limitação real e explicitamente assinalada em ambos os relatórios:
+revisor único, não dupla revisão independente com resolução de
+desacordo — mitigada pela revisão humana final de 3 pessoas.
