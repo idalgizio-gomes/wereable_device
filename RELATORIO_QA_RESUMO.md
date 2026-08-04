@@ -545,3 +545,22 @@ pelo próprio agente durante os testes: a flag de truncagem `"trunc"` era
 somada ao payload depois do corte por tamanho, podendo empurrá-lo de
 volta acima dos 512 bytes. Detalhe completo na entrada 42 do relatório
 detalhado.
+
+## 40. Revisão de literatura dupla (PRISMA-ScR + PRISMA 2020) entregue após 3 falhas de limite de sessão
+
+O workflow multi-agente desenhado para a revisão de literatura (dupla
+revisão independente de IA + desempate, citation-chasing sobre os 4 PDFs
+2Ai/IPCA) esgotou o limite de sessão 3 vezes seguidas nas fases mais
+caras (extração de PDFs de 80 páginas, verificação de até 341
+referências por pesquisa real) — mesmo depois de eu filtrar as
+referências por palavra-chave para poupar agentes. Quando a utilizadora
+avisou que também estava com pouco orçamento de tokens, parei o workflow
+definitivamente e escrevi os dois relatórios finais eu mesma, a partir
+dos dados já reais em cache (34 documentos 2Ai/IPCA extraídos, 89
+referências verificadas demência+wearable, 44 itens web, e o pipeline
+Python de literatura já existente da própria utilizadora — 253 artigos
+já classificados, um achado que só descobri ao explorar a pasta que ela
+indicou). Entregues: `PRISMA_SCR_SCOPING_REVIEW.md` e
+`PRISMA_SYSTEMATIC_REVIEW.md`, com a limitação de revisor único
+explicitamente assinalada em ambos. Detalhe completo na entrada 43 do
+relatório detalhado.
