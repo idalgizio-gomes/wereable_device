@@ -67,6 +67,20 @@ ACTIVITY_ML_DISCLAIMER = (
     "— não validado clinicamente. Não usar como diagnóstico."
 )
 
+# "Indicador de incerteza" (2026-08-05, funcionalidade derivada da revisão
+# PRISMA). `confidence` (proba[pred_idx], top-1) sozinho esconde uma
+# distinção importante: 0.42 vs. um runner-up a 0.40 é uma decisão "à
+# justa" entre 2 classes; 0.42 vs. um runner-up a 0.05 é uma decisão clara
+# apesar do mesmo top-1 baixo (as restantes 3 classes é que ficaram cada
+# uma com um bocadinho). A MARGEM entre a 1ª e a 2ª classe mais provável
+# distingue os dois casos — vocabulário de "incerteza por margem", comum
+# em active learning/uncertainty sampling.
+# Limiar heurístico, não calibrado contra dados reais (o classificador em
+# si também não está — ver ACTIVITY_ML_DISCLAIMER acima): abaixo desta
+# margem, a decisão entre a classe prevista e a runner-up é assinalada
+# como "incerta" para o dashboard não a apresentar com falsa segurança.
+UNCERTAINTY_MARGIN_THRESHOLD = 0.15
+
 # Aproximação de "sessão dia/noite" por hora do relógio local do bridge —
 # ml/synthetic_data.py define sessões por duração (16h dia + 8h noite), não
 # por hora real do dia; isto é a nossa melhor aproximação ao mundo real, não
@@ -227,6 +241,15 @@ class ActivityInference:
         cls = self._classes[pred_idx]
         confidence = float(proba[pred_idx])
 
+        # Ver UNCERTAINTY_MARGIN_THRESHOLD acima — 2ª classe mais provável
+        # e a margem até ela, não só o top-1.
+        sorted_idx = np.argsort(proba)[::-1]
+        runner_up_idx = int(sorted_idx[1]) if len(sorted_idx) > 1 else None
+        runner_up_category = self._classes[runner_up_idx] if runner_up_idx is not None else None
+        runner_up_confidence = float(proba[runner_up_idx]) if runner_up_idx is not None else 0.0
+        confidence_margin = confidence - runner_up_confidence
+        is_uncertain = confidence_margin < UNCERTAINTY_MARGIN_THRESHOLD
+
         now = time.time()  # relógio real do bridge — ver storage.py (record["ts"]
         # é um contador relativo do dispositivo, não sincronizado a epoch real;
         # usado aqui só para medir a DURAÇÃO do bloco, nunca como hora absoluta)
@@ -240,6 +263,10 @@ class ActivityInference:
             "category": cls,
             "db_category": CLASS_TO_DB_CATEGORY[cls],
             "confidence": confidence,
+            "runner_up_category": runner_up_category,
+            "runner_up_confidence": runner_up_confidence,
+            "confidence_margin": confidence_margin,
+            "is_uncertain": is_uncertain,
             "session": session,
             "window_start_ts": window[0]["ts"],
             "window_end_ts": window[-1]["ts"],

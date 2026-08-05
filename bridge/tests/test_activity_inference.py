@@ -25,6 +25,7 @@ Cobre:
 """
 import time
 
+import numpy as np
 import pytest
 
 import activity_inference as ai
@@ -200,6 +201,82 @@ class TestAgrupamentoDeBlocosEDeteccaoDeDuracao:
         )
         assert closed["is_anomaly"] == expected_anomaly
         assert closed["reason"] == expected_reason
+
+
+class TestIndicadorDeIncerteza:
+    """'Indicador de incerteza' (2026-08-05) — runner_up_category/
+    runner_up_confidence/confidence_margin/is_uncertain, derivados da
+    distribuição de probabilidade completa (predict_proba), não só do
+    top-1 (confidence)."""
+
+    def _fake_model(self, inf, proba_by_idx: dict, pred_idx: int):
+        class _FakePredict:
+            def predict(self, x):
+                return np.array([pred_idx])
+
+            def predict_proba(self, x):
+                proba = np.zeros(len(inf._classes))
+                for idx, p in proba_by_idx.items():
+                    proba[idx] = p
+                return np.array([proba])
+
+        return _FakePredict()
+
+    def test_confident_prediction_is_not_uncertain(self):
+        inf = ai.ActivityInference()
+        cls_a, cls_b = inf._classes[0], inf._classes[1]
+        idx_a, idx_b = 0, 1
+        inf._model = self._fake_model(inf, {idx_a: 0.9, idx_b: 0.1}, idx_a)
+
+        result, _ = _feed_still_window(inf)
+
+        assert result["category"] == cls_a
+        assert result["runner_up_category"] == cls_b
+        assert result["runner_up_confidence"] == pytest.approx(0.1)
+        assert result["confidence_margin"] == pytest.approx(0.8)
+        assert result["is_uncertain"] is False
+
+    def test_close_call_between_top_two_is_uncertain(self):
+        inf = ai.ActivityInference()
+        idx_a, idx_b = 0, 1
+        inf._model = self._fake_model(inf, {idx_a: 0.42, idx_b: 0.40}, idx_a)
+
+        result, _ = _feed_still_window(inf)
+
+        assert result["confidence"] == pytest.approx(0.42)
+        assert result["runner_up_confidence"] == pytest.approx(0.40)
+        assert result["confidence_margin"] == pytest.approx(0.02)
+        assert result["is_uncertain"] is True
+
+    def test_margin_exactly_at_threshold_is_not_flagged_uncertain(self):
+        """UNCERTAINTY_MARGIN_THRESHOLD é um limiar estrito (margin <
+        threshold), não <=  — a margem exatamente no limiar ainda conta
+        como suficientemente clara."""
+        inf = ai.ActivityInference()
+        idx_a, idx_b = 0, 1
+        top1 = 0.5
+        runner_up = top1 - ai.UNCERTAINTY_MARGIN_THRESHOLD
+        inf._model = self._fake_model(inf, {idx_a: top1, idx_b: runner_up}, idx_a)
+
+        result, _ = _feed_still_window(inf)
+
+        assert result["confidence_margin"] == pytest.approx(ai.UNCERTAINTY_MARGIN_THRESHOLD)
+        assert result["is_uncertain"] is False
+
+    def test_low_top1_but_clear_margin_is_not_uncertain(self):
+        """Top-1 baixo (0.3) mas as restantes classes muito abaixo — é uma
+        decisão clara apesar da confidence nominal baixa; distingue-se de
+        um verdadeiro empate só pela margem, não pelo valor de confidence
+        sozinho (motivação do próprio indicador, ver docstring do módulo)."""
+        inf = ai.ActivityInference()
+        idx_a, idx_b = 0, 1
+        inf._model = self._fake_model(inf, {idx_a: 0.3, idx_b: 0.05}, idx_a)
+
+        result, _ = _feed_still_window(inf)
+
+        assert result["confidence"] == pytest.approx(0.3)
+        assert result["confidence_margin"] == pytest.approx(0.25)
+        assert result["is_uncertain"] is False
 
 
 class TestMapeamentoDeClasses:

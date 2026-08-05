@@ -486,6 +486,10 @@
   .activity-live-flag{ display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:var(--radius-sm); font-size:12.5px; margin-top:8px; }
   .activity-live-flag.anomaly{ background:var(--status-warning-bg); color:var(--status-warning); border:1px solid var(--status-warning); }
   .activity-live-flag.normal{ background:var(--bg-surface-2); color:var(--text-secondary); border:1px solid var(--border); }
+  /* "indicador de incerteza" (2026-08-05) — nem "problema" (não é uma
+     anomalia) nem "normal" (a decisão é mesmo pouco clara); tom neutro
+     próprio, distinto dos dois estados acima. */
+  .activity-live-flag.uncertain{ background:var(--bg-surface-2); color:var(--accent); border:1px dashed var(--accent); }
   /* "explicação de alerta" (2026-08-05) — o "porquê" em texto secundário,
      logo abaixo do veredito colorido acima, sem competir com ele. */
   .activity-live-flag-reason{ font-size:11.5px; color:var(--text-secondary); margin-top:2px; padding:0 10px; }
@@ -1047,6 +1051,8 @@ const I18N = {
     'resumo.liveActivityWaiting': 'A aguardar a primeira classificação…', 'resumo.liveActivityConfidence': 'confiança {pct}%',
     'resumo.liveActivityDurationAnomaly': '{cat} durou {min} min — fora do esperado para esta hora do dia',
     'resumo.liveActivityDurationNormal': '{cat} durou {min} min — dentro do esperado',
+    'resumo.liveActivityUncertainIcon': '◐',
+    'resumo.liveActivityUncertain': 'decisão pouco clara — quase tão provável que fosse "{cat}" ({pct}%)',
     'resumo.liveActivityDisclaimer': 'Classificador treinado apenas com dados sintéticos — não validado clinicamente. Não usar como diagnóstico.',
     'resumo.liveActivityCorrectBtn': 'Corrigir', 'resumo.liveActivityCorrectedTo': 'Corrigido pelo cuidador: {cat}',
     'resumo.liveActivityCorrectionError': 'Não foi possível registar a correção: {error}',
@@ -6957,6 +6963,17 @@ function renderLiveActivityPanel(){
   const catLabel = escapeHtml(a.category);
   const pct = Math.round(a.confidence * 100);
 
+  // "indicador de incerteza" (2026-08-05) — só aparece quando o bridge o
+  // envia (a.isUncertain vem de is_uncertain, ver
+  // UNCERTAINTY_MARGIN_THRESHOLD em bridge/activity_inference.py) e há uma
+  // 2ª classe conhecida para nomear. Compatível com um bridge mais antigo
+  // que ainda não envie estes campos (a.isUncertain fica undefined/false).
+  let uncertaintyHtml = '';
+  if (a.isUncertain && a.runnerUpCategory){
+    const runnerUpPct = a.runnerUpConfidence != null ? Math.round(a.runnerUpConfidence * 100) : null;
+    uncertaintyHtml = `<div class="activity-live-flag uncertain">${t('resumo.liveActivityUncertainIcon')} ${t('resumo.liveActivityUncertain', {cat: escapeHtml(a.runnerUpCategory), pct: runnerUpPct})}</div>`;
+  }
+
   let flagHtml = '';
   const flag = liveState.lastActivityDurationFlag;
   if (flag){
@@ -7023,6 +7040,7 @@ function renderLiveActivityPanel(){
       ${liveState.connected ? `<button type="button" class="btn-link activity-correct-btn" onclick="toggleActivityCorrectionPicker()">${t('resumo.liveActivityCorrectBtn')}</button>` : ''}
     </div>
     ${correctionHtml}
+    ${uncertaintyHtml}
     ${pickerHtml}
     <p id="activityCorrectionStatus" class="activity-live-flag anomaly" style="display:none;"></p>
     ${flagHtml}
@@ -7158,7 +7176,19 @@ function handleBridgeMessage(msg){
     // outra coisa vinda do WebSocket é ignorada em vez de aceite às cegas.
     const conf = toFiniteNumber(msg.confidence);
     if (Object.prototype.hasOwnProperty.call(ACTIVITY_CLASS_COLOR_VAR, msg.category) && conf != null){
-      liveState.currentActivity = { category: msg.category, confidence: conf };
+      // "indicador de incerteza" (2026-08-05) — 2ª classe mais provável e
+      // a margem até ela (ver UNCERTAINTY_MARGIN_THRESHOLD em
+      // bridge/activity_inference.py). runner_up_category valida contra o
+      // mesmo enum fechado que 'category'; os restantes são só números/bool.
+      const runnerUpCat = Object.prototype.hasOwnProperty.call(ACTIVITY_CLASS_COLOR_VAR, msg.runner_up_category)
+        ? msg.runner_up_category : null;
+      liveState.currentActivity = {
+        category: msg.category, confidence: conf,
+        runnerUpCategory: runnerUpCat,
+        runnerUpConfidence: toFiniteNumber(msg.runner_up_confidence),
+        confidenceMargin: toFiniteNumber(msg.confidence_margin),
+        isUncertain: !!msg.is_uncertain,
+      };
       renderLiveActivityPanel();
     }
     return;
