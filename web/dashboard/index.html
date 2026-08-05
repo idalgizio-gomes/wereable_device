@@ -591,6 +591,19 @@
   .modal-status.ok{ color:var(--status-good); }
   .modal-status.err{ color:var(--status-critical); }
 
+  /* Timeline correlacionada por episódio (2026-08-05) — precisa de mais
+     largura que os modais de confirmação (tabela de sinais vitais/blocos
+     de atividade), por isso um modificador em vez de alargar .modal-box
+     para todos os modais existentes. */
+  .modal-box-wide{ max-width:640px; text-align:left; max-height:82vh; overflow-y:auto; }
+  .modal-box-wide h3{ text-align:center; }
+  .episode-timeline-section{ margin-top:16px; }
+  .episode-timeline-section h4{ font-size:13px; font-weight:700; margin-bottom:8px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:.03em; }
+  .episode-timeline-row{ display:flex; align-items:center; gap:10px; padding:6px 0; font-size:13px; border-bottom:1px solid var(--border); }
+  .episode-timeline-row:last-child{ border-bottom:none; }
+  .episode-timeline-row .et-time{ font-variant-numeric:tabular-nums; color:var(--text-secondary); min-width:64px; }
+  .episode-timeline-row .et-badge{ font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px; white-space:nowrap; }
+
   /* Exportação de resumo clínico em PDF — ver exportClinicalPdf() no
      <script>. Usa window.print() (sem bibliotecas externas) escondendo a
      navegação e mostrando só o cartão de resumo clínico, marcado com a
@@ -936,6 +949,24 @@
   </div>
 </div>
 
+<!-- Timeline correlacionada por episódio (2026-08-05) — ver
+     openEpisodeTimelineModal()/renderEpisodeTimeline() no <script>. Reúne,
+     à volta de UM alerta de emergência real, os sinais vitais/blocos de
+     atividade/outros alertas próximos guardados pelo bridge
+     (bridge/storage_advanced.py::build_episode_timeline). Só disponível
+     para alertas reais (com sequence_number vindo do dispositivo), nunca
+     para as entradas de demonstração. -->
+<div class="modal-overlay" id="episodeTimelineOverlay" style="display:none;">
+  <div class="modal-box modal-box-wide">
+    <h3 id="episodeTimelineTitle" data-i18n="episodio.title">Linha do tempo do episódio</h3>
+    <p class="empty-hint" data-i18n="episodio.subtitle" style="margin:0 0 8px;">Sinais vitais, atividade classificada e outros alertas nos minutos à volta deste alerta — reunidos a partir da base de dados do bridge, sem inventar nenhuma correlação estatística.</p>
+    <div id="episodeTimelineBody"></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeEpisodeTimelineModal()" data-i18n="common.close">Fechar</button>
+    </div>
+  </div>
+</div>
+
 <!-- Dados de demonstração regenerados diariamente (cron GitHub Actions,
      ver .github/workflows/demo-data.yml e scripts/generate-demo-data.js) —
      define as consts DEMO_* consumidas mais abaixo, com fallback defensivo
@@ -1122,6 +1153,13 @@ const I18N = {
     'emergencias.statusResolved': 'Resolvido', 'emergencias.cancelAlertBtn': 'Cancelar alerta…', 'emergencias.deleteConfirmPrefix': 'Apagar este registo de emergência',
     'emergencias.deleteConfirmSuffix': '? Esta ação não pode ser desfeita.', 'emergencias.deleteBtn': 'Apagar', 'emergencias.listEmpty': 'Sem eventos de emergência registados para este paciente.',
     'emergencias.cancelInfoText': 'Cancelar um alerta ativo exige confirmação reforçada (palavra-passe + código de verificação) — pensado para o caso de o wearable ficar sem resposta a meio de um falso positivo, sem abrir uma forma fácil de silenciar uma emergência real por engano.',
+    // --- timeline correlacionada por episódio (2026-08-05) ---
+    'episodio.viewBtn': 'Ver linha do tempo', 'episodio.title': 'Linha do tempo do episódio',
+    'episodio.subtitle': 'Sinais vitais, atividade classificada e outros alertas nos minutos à volta deste alerta — reunidos a partir da base de dados do bridge, sem inventar nenhuma correlação estatística.',
+    'episodio.noBridgeConnectionHint': 'Sem ligação ao bridge — não é possível consultar a timeline agora.',
+    'episodio.loadingHint': 'A carregar…', 'episodio.errorPrefix': 'Falhou:', 'episodio.unknownError': 'erro desconhecido',
+    'episodio.emptyHint': 'Sem dados registados nesta janela de tempo (dispositivo sem sensores ligados no período, ou sem outros alertas por perto).',
+    'episodio.centeredOnPrefix': 'Centrado em', 'episodio.badgeVital': 'Vital', 'episodio.badgeActivity': 'Atividade', 'episodio.badgeAlert': 'Alerta',
     // --- alertData / anomalyType / anomalyDetector / anomalyDetail / emergencyType / emergencyNote / emergencyLive / alertRow ---
     'alertData.hrAlta.title': 'Frequência cardíaca elevada', 'alertData.hrAlta.desc': '92 bpm sustentados durante 6 min em repouso (referência: 58–78 bpm).',
     'alertData.hrAlta.plain': 'O coração esteve a bater mais depressa do que o normal para uma pessoa em repouso, e manteve-se assim durante vários minutos seguidos (não foi só um pico rápido). Pode acontecer por esforço recente, dor, ansiedade, febre ou desidratação — mas também pode não ter causa aparente. Vale a pena verificar como a pessoa está agora e, se se mantiver ou vier acompanhado de outros sintomas, contactar o médico.', 'alertData.hrAlta.time': 'há 6 min',
@@ -4153,6 +4191,87 @@ function closeEmergencyCancelModal(){
   document.getElementById('emergencyCancelOverlay').style.display = 'none';
   emergencyCancelState = null;
 }
+
+/* ------------------------------------------------------------
+   TIMELINE CORRELACIONADA POR EPISÓDIO (2026-08-05)
+   ------------------------------------------------------------
+   Pede ao bridge (cmd "get_episode_timeline") os sinais vitais/blocos de
+   atividade/outros alertas à volta de UM alerta de emergência real (só
+   disponível para entradas com liveSeq — as de demonstração não têm
+   sequence_number nenhum na base de dados do bridge para pesquisar).
+------------------------------------------------------------- */
+function openEpisodeTimelineModal(sequenceNumber){
+  const body = document.getElementById('episodeTimelineBody');
+  document.getElementById('episodeTimelineOverlay').style.display = 'flex';
+  if (!bridgeWs || bridgeWs.readyState !== WebSocket.OPEN){
+    body.innerHTML = `<p class="empty-hint">${t('episodio.noBridgeConnectionHint')}</p>`;
+    return;
+  }
+  body.innerHTML = `<p class="empty-hint">${t('episodio.loadingHint')}</p>`;
+  sendWsCommandWithArgs('get_episode_timeline', { sequence_number: sequenceNumber, window_minutes: 30 });
+}
+
+function closeEpisodeTimelineModal(){
+  document.getElementById('episodeTimelineOverlay').style.display = 'none';
+}
+
+function handleEpisodeTimelineResult(msg){
+  const body = document.getElementById('episodeTimelineBody');
+  if (!body || document.getElementById('episodeTimelineOverlay').style.display === 'none') return;
+  if (!msg.timeline){
+    body.innerHTML = `<p class="empty-hint">${t('episodio.errorPrefix')} ${escapeHtml(msg.error || t('episodio.unknownError'))}.</p>`;
+    return;
+  }
+  renderEpisodeTimeline(msg.timeline, body);
+}
+
+// Junta sensor_summary + activity_blocks + nearby_emergency_alerts numa
+// única lista ordenada no tempo, cada item com um "tipo" e um rótulo —
+// mais fácil de ler numa timeline única do que 3 secções separadas.
+function renderEpisodeTimeline(timeline, body){
+  const centerLabel = new Date(timeline.center_ts * 1000).toLocaleString(currentLang, {
+    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+  const fmtTime = ts => new Date(ts * 1000).toLocaleTimeString(currentLang, { hour: '2-digit', minute: '2-digit' });
+
+  const items = [];
+  (timeline.sensor_summary || []).forEach(p => {
+    const parts = [];
+    if (p.hr != null) parts.push(`${p.hr} bpm`);
+    if (p.spo2 != null) parts.push(`SpO₂ ${p.spo2}%`);
+    if (parts.length) items.push({ ts: p.ts, kind: 'vital', label: parts.join(' · ') });
+  });
+  (timeline.activity_blocks || []).forEach(b => {
+    items.push({
+      ts: b.start_ts_approx, kind: 'activity',
+      label: `${escapeHtml(b.category)} (${Math.round(b.duration_minutes || 0)} min)`,
+    });
+  });
+  (timeline.nearby_emergency_alerts || []).forEach(a => {
+    items.push({ ts: a.timestamp_utc, kind: 'alert', label: escapeHtml(a.alert_type) });
+  });
+  items.sort((a, b) => a.ts - b.ts);
+
+  const badgeStyle = {
+    vital: 'background:var(--bg-surface-2); color:var(--text-secondary);',
+    activity: 'background:color-mix(in srgb, var(--accent) 18%, transparent); color:var(--accent);',
+    alert: 'background:var(--status-critical-bg); color:var(--status-critical);',
+  };
+  const badgeLabel = { vital: t('episodio.badgeVital'), activity: t('episodio.badgeActivity'), alert: t('episodio.badgeAlert') };
+
+  const listHtml = items.length ? items.map(it => `
+    <div class="episode-timeline-row">
+      <span class="et-time">${fmtTime(it.ts)}</span>
+      <span class="et-badge" style="${badgeStyle[it.kind]}">${badgeLabel[it.kind]}</span>
+      <span>${it.label}</span>
+    </div>
+  `).join('') : `<p class="empty-hint">${t('episodio.emptyHint')}</p>`;
+
+  body.innerHTML = `
+    <p class="empty-hint" style="margin:0 0 10px;">${t('episodio.centeredOnPrefix')} <b>${centerLabel}</b> (±${timeline.window_minutes} min)</p>
+    <div class="episode-timeline-section">${listHtml}</div>
+  `;
+}
 function confirmEmergencyCancel(){
   const status = document.getElementById('emergencyCancelStatus');
   if (!emergencyCancelState) return;
@@ -5855,8 +5974,9 @@ TEMPLATES.emergencias = () => {
             <td>${e.live ? pillHtml('critical',t('emergencias.sourceLive')) : pillHtml('neutral',t('emergencias.sourceDemo'))}</td>
             <td>${pillHtml(e.status==='ativo'?'critical':e.status==='cancelado'?'neutral':'good', e.status==='ativo'?t('emergencias.statusActive'):e.status==='cancelado'?t('emergencias.statusCancelled'):t('emergencias.statusResolved'))}</td>
             <td>${emergencyNoteText(e) || '—'}</td>
-            <td style="display:flex; gap:6px;">
+            <td style="display:flex; gap:6px; flex-wrap:wrap;">
               ${e.status==='ativo' ? `<button class="btn-danger" onclick="openEmergencyCancelModal('${e.id}')">${t('emergencias.cancelAlertBtn')}</button>` : ''}
+              ${e.liveSeq != null ? `<button class="btn-secondary" onclick="openEpisodeTimelineModal(${e.liveSeq})">${t('episodio.viewBtn')}</button>` : ''}
               ${!isUtente && e.status!=='ativo' ? `<button class="btn-secondary" onclick="if(confirm('${t('emergencias.deleteConfirmPrefix')} (${e.id})${t('emergencias.deleteConfirmSuffix')}')) deleteEmergencyRecord('${e.id}')">${t('emergencias.deleteBtn')}</button>` : ''}
             </td>
           </tr>
@@ -7294,6 +7414,10 @@ function handleBridgeMessage(msg){
   }
   if (msg.kind === 'thresholds_result'){
     handleThresholdsSaveResult(msg);
+    return;
+  }
+  if (msg.kind === 'episode_timeline'){
+    handleEpisodeTimelineResult(msg);
     return;
   }
   if (msg.kind === 'vital_alert'){
