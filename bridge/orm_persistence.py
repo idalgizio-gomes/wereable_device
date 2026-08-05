@@ -57,6 +57,8 @@ Uso a partir de `ble_bridge.py`:
     self.orm.get_consent_status()          # leitura (cmd "get_consent_status")
     self.orm.set_consent(scope, granted)   # escrita (cmd "set_consent", 2026-08-05)
     self.orm.check_consent(scope)          # usado internamente (ex.: export_csv)
+    self.orm.get_thresholds()              # leitura (cmd "get_thresholds", 2026-08-05)
+    self.orm.set_thresholds(**fields)      # escrita (cmd "set_thresholds", 2026-08-05)
 """
 
 from __future__ import annotations
@@ -304,6 +306,38 @@ class OrmPersistence:
         para o dashboard mostrar (comando 'get_consent_status')."""
         self._require_enabled()
         return sa.get_consent_status(self.session, self.patient_id)
+
+    # ---- baseline comportamental personalizada (2026-08-05) ---------------
+
+    def get_thresholds(self) -> dict:
+        """Limiares personalizados do paciente (ou DEFAULT_THRESHOLDS se
+        ainda não definidos). Ao contrário da maioria das leituras deste
+        módulo, NÃO lança quando o ORM está desativado — devolve os
+        valores por omissão, para a avaliação de sinais vitais em tempo
+        real (ver ble_bridge.py::_on_dump_data) nunca ficar sem limiar
+        nenhum só por uma falha de infraestrutura não relacionada."""
+        if self.disabled or self.session is None:
+            return dict(sa.DEFAULT_THRESHOLDS, is_default=True, updated_at=None)
+        try:
+            return sa.get_thresholds(self.session, self.patient_id)
+        except Exception as exc:  # noqa: BLE001
+            self._degrade("get_thresholds", exc)
+            return dict(sa.DEFAULT_THRESHOLDS, is_default=True, updated_at=None)
+
+    def set_thresholds(self, **fields) -> dict:
+        """Grava uma alteração PARCIAL aos limiares (comando
+        'set_thresholds' do dashboard). Como set_consent, não degrada em
+        silêncio — lança RuntimeError/ValueError explícitos (ver
+        _require_enabled/sa.set_thresholds)."""
+        self._require_enabled()
+        result = sa.set_thresholds(self.session, self.patient_id, **fields)
+        self.audit(
+            "thresholds_changed",
+            resource_type="patient",
+            resource_id=self.patient_id,
+            details=fields,
+        )
+        return result
 
     def _flush(self) -> None:
         """Compromete o buffer de SensorRecord acumulado (add_all + commit).

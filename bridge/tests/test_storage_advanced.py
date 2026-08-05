@@ -577,3 +577,70 @@ class TestBuildEmergencyProfilePayload:
     def test_unknown_patient_raises_value_error(self, db):
         with pytest.raises(ValueError):
             sa.build_emergency_profile_payload(db, patient_id=999999)
+
+
+class TestBaselineComportamentalPersonalizada:
+    """'Baseline comportamental personalizada' (2026-08-05) —
+    get_thresholds/set_thresholds sobre PersonalizedThreshold, que existia
+    no esquema desde a migração inicial sem nenhuma lógica a lê-lo/
+    escrevê-lo (ver vital_alerts.py para a avaliação em tempo real)."""
+
+    def test_get_thresholds_without_row_returns_defaults(self, db):
+        patient = _make_patient(db, uuid="pat-thr-1")
+        result = sa.get_thresholds(db, patient.id)
+        assert result["is_default"] is True
+        assert result["updated_at"] is None
+        for field, default in sa.DEFAULT_THRESHOLDS.items():
+            assert result[field] == default
+
+    def test_set_thresholds_creates_row_and_persists_partial_update(self, db):
+        patient = _make_patient(db, uuid="pat-thr-2")
+        result = sa.set_thresholds(db, patient.id, heart_rate_max=110)
+        assert result["is_default"] is False
+        assert result["heart_rate_max"] == 110
+        # Campos não passados continuam a usar o valor por omissão (a
+        # linha existe mas o campo em si é NULL).
+        assert result["heart_rate_min"] == sa.DEFAULT_THRESHOLDS["heart_rate_min"]
+        assert result["updated_at"] is not None
+
+        row = db.query(sa.PersonalizedThreshold).filter_by(patient_id=patient.id).first()
+        assert row is not None
+        assert row.heart_rate_max == 110
+        assert row.heart_rate_min is None  # NULL, não o default (fallback é só de leitura)
+
+    def test_set_thresholds_second_call_updates_same_row(self, db):
+        patient = _make_patient(db, uuid="pat-thr-3")
+        sa.set_thresholds(db, patient.id, spo2_min=90)
+        sa.set_thresholds(db, patient.id, spo2_min=88)
+
+        assert db.query(sa.PersonalizedThreshold).filter_by(patient_id=patient.id).count() == 1
+        result = sa.get_thresholds(db, patient.id)
+        assert result["spo2_min"] == 88
+
+    def test_set_thresholds_rejects_unknown_field(self, db):
+        patient = _make_patient(db, uuid="pat-thr-4")
+        with pytest.raises(ValueError):
+            sa.set_thresholds(db, patient.id, campo_inventado=1)
+
+    def test_set_thresholds_rejects_value_out_of_sanity_bounds(self, db):
+        patient = _make_patient(db, uuid="pat-thr-5")
+        with pytest.raises(ValueError):
+            sa.set_thresholds(db, patient.id, heart_rate_max=5)  # abaixo de THRESHOLD_BOUNDS
+
+    def test_set_thresholds_rejects_min_greater_or_equal_than_max_same_call(self, db):
+        patient = _make_patient(db, uuid="pat-thr-6")
+        with pytest.raises(ValueError):
+            sa.set_thresholds(db, patient.id, heart_rate_min=100, heart_rate_max=90)
+
+    def test_set_thresholds_rejects_min_above_previously_saved_max(self, db):
+        """Mudar só heart_rate_min para acima de um heart_rate_max já
+        gravado tem de ser rejeitado — não só quando os dois vêm juntos
+        na mesma chamada (ver comentário em set_thresholds)."""
+        patient = _make_patient(db, uuid="pat-thr-7")
+        sa.set_thresholds(db, patient.id, heart_rate_max=70)
+        with pytest.raises(ValueError):
+            sa.set_thresholds(db, patient.id, heart_rate_min=80)
+
+        # A rejeição não deixou o valor inválido gravado.
+        result = sa.get_thresholds(db, patient.id)
+        assert result["heart_rate_min"] == sa.DEFAULT_THRESHOLDS["heart_rate_min"]

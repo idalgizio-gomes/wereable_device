@@ -1259,6 +1259,15 @@ const I18N = {
     'vitais.continuousHrActiveHint': 'Leitura contínua ativa — a atualizar automaticamente.',
     'vitais.continuousHrStopBtn': 'A ler continuamente — parar', 'vitais.measuringHint': 'A medir…', 'vitais.secondsRemainingSuffix': 's restantes)',
     'vitais.measurementDoneHint': 'Leitura concluída — os valores devem estar atualizados.', 'vitais.noBridgeConnectionHint': 'Sem ligação ao bridge — liga o dispositivo primeiro.',
+    // --- baseline comportamental personalizada (2026-08-05) ---
+    'vitais.baselineTitle': 'Baseline personalizada',
+    'vitais.baselineSubtitle': 'Limiares de frequência cardíaca e SpO₂ específicos deste paciente — sais fora do intervalo gera um alerta em tempo real, explicado por baixo dos valores acima',
+    'vitais.hrMinLabel': 'FC mínima (bpm)', 'vitais.hrMaxLabel': 'FC máxima (bpm)', 'vitais.spo2MinLabel': 'SpO₂ mínima (%)',
+    'vitais.baselineNoteEmpty': 'Valores por omissão genéricos (não uma recomendação clínica validada) até seres tu a defini-los — ver storage_advanced.py::DEFAULT_THRESHOLDS. heart_rate_min tem de ser menor que heart_rate_max.',
+    'vitais.baselineIsDefaultHint': 'Ainda a usar os valores por omissão — não personalizados para este paciente.',
+    'vitais.baselineInvalidHint': 'Introduz 3 números válidos.',
+    'vitais.baselineSavedHint': 'Baseline guardada.',
+    'vitais.baselineSaveFailedPrefix': 'Falhou:', 'vitais.baselineUnknownError': 'erro desconhecido',
     'exportar.exportAllBtn': 'Exportar tudo (CSV)',
     'exportar.exportAllNote': 'Exporta tudo o que já chegou ao bridge (sem limite de dias) — não acelera a transferência do que ainda está no dispositivo, só reúne num único ficheiro o que já está guardado localmente.',
     'exportar.noBridgeConnectionHint': 'Sem ligação ao bridge — não é possível exportar agora.', 'exportar.bridgeUnreachableHint': 'Não foi possível contactar o bridge.',
@@ -5303,14 +5312,39 @@ TEMPLATES.vitais = () => `
     ${statTile('walk',t('vitais.stepsCardTitle'),'—','', 'var(--cat-atividade)', 'stat-steps-2')}
     ${statTile('warn',t('vitais.fallsCardTitle'),'—','', 'var(--status-good)', 'stat-falls-2')}
   </div>
+  <div id="vitalAlertsPanel"></div>
   <div class="card">
     <div class="card-head">
       <div><h3>${t('vitais.hrCardTitle')} <span id="hrChartLabel">${t('vitais.hrChartDemo')}</span></h3><div class="card-sub">${t('vitais.hrCardSubtitle')}</div></div>
     </div>
     <canvas id="cvHr" height="170" role="img" aria-label="${t('vitais.hrChartAria')}"></canvas>
   </div>
+
+  <div class="card print-hide">
+    <div class="card-head"><div><h3>${t('vitais.baselineTitle')}</h3><div class="card-sub">${t('vitais.baselineSubtitle')}</div></div></div>
+    <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end;">
+      <div>
+        <label for="thresholdHrMin" style="display:block; font-size:12px; color:var(--text-secondary); margin-bottom:4px;">${t('vitais.hrMinLabel')}</label>
+        <input id="thresholdHrMin" type="number" min="20" max="150" style="width:90px;" class="row-input">
+      </div>
+      <div>
+        <label for="thresholdHrMax" style="display:block; font-size:12px; color:var(--text-secondary); margin-bottom:4px;">${t('vitais.hrMaxLabel')}</label>
+        <input id="thresholdHrMax" type="number" min="40" max="220" style="width:90px;" class="row-input">
+      </div>
+      <div>
+        <label for="thresholdSpo2Min" style="display:block; font-size:12px; color:var(--text-secondary); margin-bottom:4px;">${t('vitais.spo2MinLabel')}</label>
+        <input id="thresholdSpo2Min" type="number" min="70" max="100" style="width:90px;" class="row-input">
+      </div>
+      <button class="btn-secondary" onclick="saveThresholds()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+        ${t('common.save')}
+      </button>
+      <span class="empty-hint" id="thresholdsHint" style="margin:0;"></span>
+    </div>
+    <p class="empty-hint">${t('vitais.baselineNoteEmpty')}</p>
+  </div>
 `;
-AFTER_RENDER.vitais = () => { drawHrSeries('cvHr'); applyLiveVitals(); };
+AFTER_RENDER.vitais = () => { drawHrSeries('cvHr'); applyLiveVitals(); requestThresholds(); renderVitalAlertsPanel(); };
 
 TEMPLATES.tendencia = () => `
   <div class="card">
@@ -7254,6 +7288,27 @@ function handleBridgeMessage(msg){
     handleConsentResultMessage(msg);
     return;
   }
+  if (msg.kind === 'thresholds'){
+    handleThresholdsResult(msg);
+    return;
+  }
+  if (msg.kind === 'thresholds_result'){
+    handleThresholdsSaveResult(msg);
+    return;
+  }
+  if (msg.kind === 'vital_alert'){
+    // Canal não autenticado — 'vital' valida contra o par fechado
+    // conhecido; o resto (value/limit/level) são só números/strings
+    // vindos de escapeHtml() na renderização, nunca HTML cru.
+    if (msg.vital === 'hr' || msg.vital === 'spo2'){
+      liveState.vitalAlerts[msg.vital] = msg.cleared ? null : {
+        level: msg.level, value: toFiniteNumber(msg.value), limit: toFiniteNumber(msg.limit),
+        explanation: typeof msg.explanation === 'string' ? msg.explanation : '',
+      };
+      renderVitalAlertsPanel();
+    }
+    return;
+  }
   if (msg.kind === 'record'){
     // Espelha o payload real gravado pelo firmware (ImuPpgPayloadV1 /
     // FullPlain — ver storageTask em main.cpp e Ble.cpp): spo2/hr vêm a
@@ -7824,6 +7879,89 @@ function renderConsentScopes(){
         <span style="font-size:12px; font-weight:600; color:${statusColor};">${statusText}</span>
       </div>`;
   }).join('');
+}
+
+/* ------------------------------------------------------------
+   BASELINE COMPORTAMENTAL PERSONALIZADA (2026-08-05)
+   ------------------------------------------------------------
+   Lê/grava PersonalizedThreshold real (ver bridge/storage_advanced.py) e
+   mostra alertas de FC/SpO2 em tempo real (bridge/vital_alerts.py) quando
+   uma leitura sai dos limiares definidos. Só expõe no formulário os 3
+   campos com avaliação em tempo real de facto ligada (heart_rate_min/max,
+   spo2_min) — o esquema tem mais 4 campos (inactivity_threshold_seconds,
+   sleep/activity_target_minutes, steps_target_daily) sem nenhuma rotina a
+   avaliá-los ainda; não expor um controlo que não faz nada é a mesma
+   disciplina já aplicada ao resto do dashboard (ex.: ACTIVITY_ML_DISCLAIMER).
+------------------------------------------------------------- */
+function requestThresholds(){
+  const hint = document.getElementById('thresholdsHint');
+  if (!bridgeWs || bridgeWs.readyState !== WebSocket.OPEN){
+    if (hint){ hint.style.color = 'var(--status-warning)'; hint.textContent = t('vitais.noBridgeConnectionHint'); }
+    return;
+  }
+  sendWsCommand('get_thresholds');
+}
+
+function handleThresholdsResult(msg){
+  const th = msg.thresholds || {};
+  const hrMin = document.getElementById('thresholdHrMin');
+  const hrMax = document.getElementById('thresholdHrMax');
+  const spo2Min = document.getElementById('thresholdSpo2Min');
+  if (hrMin && th.heart_rate_min != null) hrMin.value = th.heart_rate_min;
+  if (hrMax && th.heart_rate_max != null) hrMax.value = th.heart_rate_max;
+  if (spo2Min && th.spo2_min != null) spo2Min.value = th.spo2_min;
+  const hint = document.getElementById('thresholdsHint');
+  if (hint){
+    hint.style.color = '';
+    hint.textContent = th.is_default ? t('vitais.baselineIsDefaultHint') : '';
+  }
+}
+
+function saveThresholds(){
+  const hint = document.getElementById('thresholdsHint');
+  const hrMin = Number(document.getElementById('thresholdHrMin')?.value);
+  const hrMax = Number(document.getElementById('thresholdHrMax')?.value);
+  const spo2Min = Number(document.getElementById('thresholdSpo2Min')?.value);
+  if (![hrMin, hrMax, spo2Min].every(Number.isFinite)){
+    if (hint){ hint.style.color = 'var(--status-warning)'; hint.textContent = t('vitais.baselineInvalidHint'); }
+    return;
+  }
+  const sent = sendWsCommandWithArgs('set_thresholds', {
+    heart_rate_min: hrMin, heart_rate_max: hrMax, spo2_min: spo2Min,
+  });
+  if (!sent){
+    if (hint){ hint.style.color = 'var(--status-warning)'; hint.textContent = t('vitais.noBridgeConnectionHint'); }
+    return;
+  }
+  if (hint){ hint.style.color = ''; hint.textContent = t('consentimento.savingHint'); }
+}
+
+function handleThresholdsSaveResult(msg){
+  const hint = document.getElementById('thresholdsHint');
+  if (!hint) return;
+  if (msg.ok){
+    hint.style.color = 'var(--status-good)';
+    hint.textContent = t('vitais.baselineSavedHint');
+    handleThresholdsResult({ thresholds: msg.thresholds });
+  } else {
+    hint.style.color = 'var(--status-warning)';
+    hint.textContent = `${t('vitais.baselineSaveFailedPrefix')} ${msg.error || t('vitais.baselineUnknownError')}.`;
+  }
+}
+
+// Estado ao vivo dos alertas de sinal vital (ver kind "vital_alert" em
+// handleBridgeMessage) — indexado por sinal ('hr'/'spo2'), cada entrada é
+// o payload do alerta ativo ou null (dentro dos limiares).
+liveState.vitalAlerts = { hr: null, spo2: null };
+
+function renderVitalAlertsPanel(){
+  const host = document.getElementById('vitalAlertsPanel');
+  if (!host) return;
+  const active = Object.values(liveState.vitalAlerts).filter(Boolean);
+  if (!active.length){ host.innerHTML = ''; return; }
+  host.innerHTML = active.map(a => `
+    <div class="activity-live-flag anomaly" style="margin-bottom:8px;">⚠ ${escapeHtml(a.explanation)}</div>
+  `).join('');
 }
 
 /* ------------------------------------------------------------

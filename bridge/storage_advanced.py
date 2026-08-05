@@ -777,6 +777,116 @@ def get_consent_status(db: Session, patient_id: int) -> dict:
 
 
 # ============================================================
+# BASELINE COMPORTAMENTAL PERSONALIZADA (2026-08-05)
+# ------------------------------------------------------------
+# `PersonalizedThreshold` já existia no esquema (ver classe acima) mas sem
+# NENHUMA lógica a lê-la ou escrevê-la em lado nenhum do bridge — os
+# alertas de sinais vitais (FC/SpO2 fora do esperado) que aparecem no
+# dashboard eram só dados de demonstração fixos (EMERGENCY_LOG/alerts em
+# web/dashboard/index.html), nunca calculados a partir de leituras reais.
+# Esta secção liga o esquema já existente a uma avaliação real (ver
+# bridge/vital_alerts.py) e dá ao dashboard forma de o consultar/editar.
+# ============================================================
+
+# Valores por omissão — ponto de partida genérico enquanto o cuidador não
+# definir limiares próprios para este paciente (nunca uma recomendação
+# clínica validada; documentado como tal, mesmo espírito de
+# ACTIVITY_ML_DISCLAIMER em activity_inference.py). FC de repouso adulto
+# típica 60-100bpm (alargada para 50-100 para reduzir falsos positivos
+# num protótipo sem validação clínica); SpO2 normal >=95%, alerta comum a
+# partir de <92% (linha usada em oximetria de pulso doméstica).
+DEFAULT_THRESHOLDS = {
+    "heart_rate_min": 50,
+    "heart_rate_max": 100,
+    "spo2_min": 92,
+    "inactivity_threshold_seconds": 3600,
+    "sleep_target_minutes": 420,
+    "activity_target_minutes": 60,
+    "steps_target_daily": 3000,
+}
+
+# Limites de sanidade (min, max) por campo — nunca aceitar um valor fora
+# disto, venha do dashboard ou de onde vier (mesmo raciocínio de
+# MIN_RETENTION_DAYS/MAX_RETENTION_DAYS acima).
+THRESHOLD_BOUNDS = {
+    "heart_rate_min": (20, 150),
+    "heart_rate_max": (40, 220),
+    "spo2_min": (70, 100),
+    "inactivity_threshold_seconds": (60, 24 * 3600),
+    "sleep_target_minutes": (60, 900),
+    "activity_target_minutes": (0, 900),
+    "steps_target_daily": (0, 50000),
+}
+
+
+def get_thresholds(db: Session, patient_id: int) -> dict:
+    """Limiares personalizados do paciente, com fallback campo-a-campo para
+    DEFAULT_THRESHOLDS (não só quando a linha inteira não existe — também
+    quando existe mas um campo em concreto nunca foi definido, NULL).
+    Nunca cria uma linha só por ser lida (get, não get-or-create) —
+    'is_default' distingue os dois casos para o dashboard poder mostrar
+    "ainda não personalizado" em vez de fingir que foi uma escolha."""
+    row = db.query(PersonalizedThreshold).filter_by(patient_id=patient_id).first()
+    if row is None:
+        return {**DEFAULT_THRESHOLDS, "is_default": True, "updated_at": None}
+    values = {}
+    for field, default in DEFAULT_THRESHOLDS.items():
+        value = getattr(row, field)
+        values[field] = value if value is not None else default
+    values["is_default"] = False
+    values["updated_at"] = row.updated_at.replace(tzinfo=timezone.utc).timestamp() if row.updated_at else None
+    return values
+
+
+def set_thresholds(db: Session, patient_id: int, **fields) -> dict:
+    """Atualização PARCIAL (get-or-create) — só os campos passados mudam,
+    os restantes mantêm o que já lá estava (ou continuam a usar o
+    fallback por omissão de get_thresholds, se nunca tiverem sido
+    definidos). Lança ValueError se um campo for desconhecido ou estiver
+    fora de THRESHOLD_BOUNDS — nunca grava um limiar fisiologicamente
+    absurdo (ex.: heart_rate_max=5) só porque veio de um formulário."""
+    for field, value in fields.items():
+        if field not in DEFAULT_THRESHOLDS:
+            raise ValueError(f"limiar desconhecido: {field!r} (válidos: {tuple(DEFAULT_THRESHOLDS)})")
+        lo, hi = THRESHOLD_BOUNDS[field]
+        if not (lo <= value <= hi):
+            raise ValueError(f"{field}={value!r} fora do intervalo de sanidade [{lo}, {hi}]")
+
+    # Busca (sem criar ainda) para poder validar heart_rate_min/max contra
+    # os valores EFETIVOS finais (novo valor se vier nesta chamada, senão o
+    # já gravado, senão o padrão) — não só os dois campos desta chamada.
+    # Sem isto, mudar só heart_rate_min para acima de um heart_rate_max já
+    # gravado passava despercebido. A busca fica ANTES de qualquer
+    # db.add(): uma validação que falha aqui não pode deixar uma linha
+    # NOVA pendurada na sessão (add() sem commit ainda conta para
+    # autoflush — um commit futuro e não relacionado, na mesma sessão de
+    # longa duração do bridge, arrastaria essa linha fantasma).
+    existing = db.query(PersonalizedThreshold).filter_by(patient_id=patient_id).first()
+    effective_hr_min = fields.get(
+        "heart_rate_min",
+        existing.heart_rate_min if existing and existing.heart_rate_min is not None else DEFAULT_THRESHOLDS["heart_rate_min"],
+    )
+    effective_hr_max = fields.get(
+        "heart_rate_max",
+        existing.heart_rate_max if existing and existing.heart_rate_max is not None else DEFAULT_THRESHOLDS["heart_rate_max"],
+    )
+    if effective_hr_min >= effective_hr_max:
+        raise ValueError(
+            f"heart_rate_min ({effective_hr_min}) tem de ser menor que heart_rate_max ({effective_hr_max})"
+        )
+
+    row = existing
+    if row is None:
+        row = PersonalizedThreshold(patient_id=patient_id)
+        db.add(row)
+    for field, value in fields.items():
+        setattr(row, field, int(value))
+    db.commit()
+    db.refresh(row)
+    return get_thresholds(db, patient_id)
+
+
+# ============================================================
 # INICIALIZAÇÃO
 # ============================================================
 

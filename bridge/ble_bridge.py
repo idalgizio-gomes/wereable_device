@@ -148,6 +148,11 @@ _FALLBACK_DEFAULT_RETENTION_DAYS = 30
 _FALLBACK_MIN_RETENTION_DAYS = 1
 _FALLBACK_MAX_RETENTION_DAYS = 3650
 
+import vital_alerts  # baseline comportamental personalizada (2026-08-05,
+# ver storage_advanced.py::PersonalizedThreshold) — sem dependências
+# externas (só typing), por isso importado direto, sem try/except: nunca é
+# o elo mais fraco da cadeia de imports opcionais desta secção.
+
 try:
     # Notificações externas de alertas de emergência (SMS/email + escalonamento,
     # ver notifications.py) — não deve exigir twilio/sendgrid instalados só
@@ -710,6 +715,13 @@ class BleBridge:
                 print(f"[BRIDGE] AVISO: falha ao inicializar activity_inference: {exc}")
                 self.activity_inference = None
 
+        # Baseline comportamental personalizada (2026-08-05, ver
+        # vital_alerts.py) — último ESTADO (não valor) difundido por sinal
+        # vital, para só notificar o dashboard numa MUDANÇA (entrar/sair de
+        # alerta), nunca a cada leitura individual. None = dentro dos
+        # limiares (ou ainda sem nenhuma leitura avaliada nesta ligação).
+        self._vital_alert_state: dict[str, Optional[str]] = {"hr": None, "spo2": None}
+
     RECORD_BROADCAST_MIN_INTERVAL_S = 0.25  # no maximo ~4 atualizacoes/seg
     # Intervalo entre limpezas automaticas de sensor_records (ver
     # OrmPersistence.purge em orm_persistence.py) - nao precisa de ser
@@ -963,6 +975,24 @@ class BleBridge:
                     }))
 
         has_new_vital = record["hr"] is not None or record["spo2"] is not None
+
+        # Baseline comportamental personalizada (2026-08-05, ver
+        # vital_alerts.py) — avalia CADA sinal vital independentemente (só
+        # quando este record em concreto trouxe uma leitura NOVA desse
+        # sinal; record["hr"]/record["spo2"] vêm None na maioria dos
+        # records, não representam "voltou ao normal"). Nunca bloqueia o
+        # streaming: qualquer erro é apanhado e só impede este alerta em
+        # concreto, nunca o resto de _on_dump_data.
+        if self.orm and has_new_vital:
+            try:
+                thresholds = self.orm.get_thresholds()
+                if record["hr"] is not None:
+                    self._maybe_broadcast_vital_alert("hr", vital_alerts.evaluate_hr(record["hr"], thresholds), thresholds)
+                if record["spo2"] is not None:
+                    self._maybe_broadcast_vital_alert("spo2", vital_alerts.evaluate_spo2(record["spo2"], thresholds), thresholds)
+            except Exception as exc:  # noqa: BLE001 - nunca deve travar o streaming
+                print(f"[BRIDGE] erro na avaliacao de sinais vitais: {exc}")
+
         now = time.monotonic()
         due = (now - self._last_broadcast_monotonic) >= self.RECORD_BROADCAST_MIN_INTERVAL_S
         if not (has_new_vital or due):
@@ -970,6 +1000,30 @@ class BleBridge:
         self._last_broadcast_monotonic = now
 
         asyncio.create_task(self.broadcast({"kind": "record", "rec_seq": rec_seq, **record}))
+
+    def _maybe_broadcast_vital_alert(self, vital_key: str, alert: Optional[dict], thresholds: dict) -> None:
+        """Difunde "vital_alert" só numa MUDANÇA de estado para este sinal
+        (None<->'low'<->'high'), nunca a cada leitura — sem isto, uma FC
+        persistentemente alta gerava uma mensagem WS a cada ~30s (cadência
+        do PPG) enquanto se mantivesse fora do limiar, inundando o
+        dashboard sem informação nova. 'cleared' distingue explicitamente
+        "voltou ao normal" de "primeira leitura, nunca esteve em alerta"
+        (o segundo caso não gera mensagem nenhuma — nunca houve nada para
+        limpar)."""
+        state_key = alert["level"] if alert else None
+        if state_key == self._vital_alert_state.get(vital_key):
+            return
+        was_in_alert = self._vital_alert_state.get(vital_key) is not None
+        self._vital_alert_state[vital_key] = state_key
+        if alert is None and not was_in_alert:
+            return  # nunca esteve em alerta — nada para anunciar como "limpo"
+        payload = {"kind": "vital_alert", "vital": vital_key, "cleared": alert is None}
+        if alert:
+            payload.update(alert)
+            payload["explanation"] = vital_alerts.explain_vital_alert(alert)
+        else:
+            payload["explanation"] = vital_alerts.explain_vital_cleared(vital_key, thresholds)
+        asyncio.create_task(self.broadcast(payload))
 
     def _on_dump_status(self, _char: BleakGATTCharacteristic, data: bytearray) -> None:
         """Callback de notificação da characteristic dumpStatusChar
@@ -1593,6 +1647,43 @@ class BleBridge:
                 return
             print(f"[BRIDGE] consentimento atualizado pelo dashboard: {scope}={granted}")
             await ws.send(json.dumps({"kind": "consent_result", "ok": True, **result}))
+            return
+        if cmd == "get_thresholds":
+            # Baseline comportamental personalizada (2026-08-05, ver
+            # storage_advanced.get_thresholds/set_thresholds via self.orm)
+            # — devolve os limiares atuais do paciente (ou os valores por
+            # omissão, com is_default=True) para a UI de "Vitais".
+            thresholds = self.orm.get_thresholds() if self.orm else dict(
+                sa.DEFAULT_THRESHOLDS, is_default=True, updated_at=None
+            ) if sa is not None else {"is_default": True, "updated_at": None}
+            await ws.send(json.dumps({"kind": "thresholds", "thresholds": thresholds}))
+            return
+        if cmd == "set_thresholds":
+            # Atualização PARCIAL dos limiares (ex.: {"cmd": "set_thresholds",
+            # "heart_rate_max": 110}). Mesmo rate limit de escrita que
+            # set_consent/set_retention_days.
+            wait_s = self._check_write_rate_limit(cmd)
+            if wait_s is not None:
+                await ws.send(json.dumps({
+                    "kind": "thresholds_result", "ok": False,
+                    "error": f"limite de taxa excedido, aguarde {wait_s:.1f}s",
+                }))
+                return
+            if not self.orm:
+                await ws.send(json.dumps({"kind": "thresholds_result", "ok": False, "error": "persistencia indisponivel"}))
+                return
+            fields = {k: v for k, v in msg.items() if k not in ("cmd",)}
+            try:
+                result = self.orm.set_thresholds(**fields)
+            except (ValueError, TypeError) as exc:
+                await ws.send(json.dumps({"kind": "thresholds_result", "ok": False, "error": str(exc)}))
+                return
+            except Exception as exc:  # noqa: BLE001
+                print(f"[BRIDGE] erro a gravar limiares personalizados: {exc}")
+                await ws.send(json.dumps({"kind": "thresholds_result", "ok": False, "error": str(exc)}))
+                return
+            print(f"[BRIDGE] limiares personalizados atualizados pelo dashboard: {fields}")
+            await ws.send(json.dumps({"kind": "thresholds_result", "ok": True, "thresholds": result}))
             return
         if cmd == "correct_activity":
             # Correção manual do cuidador/equipa clínica à classificação de
