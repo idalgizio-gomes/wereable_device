@@ -47,6 +47,7 @@
 #include "Emergency/Emergency.h"       // Deteção de emergência: SOS manual + queda/inatividade (ver Emergency.h)
 #include "Nfc/Nfc.h"                   // NFC — preparação, antena ainda por confirmar (ver Nfc.h)
 #include "Battery/Battery.h"           // Nível de bateria via ADC (ver Battery.h para proveniência do pinout — UNVALIDADO em hardware real)
+#include "Logger/Logger.h"             // Macros de logging por nível/tag (LOG_INFO/WARN/ERROR/DEBUG) — módulo novo, adoção incremental (ver Logger.h), usado por agora só em alguns pontos de setup() a título de demonstração
 
 // ============================================================
 // FLAGS DE CONFIGURAÇÃO (interruptores para ligar/desligar comportamentos)
@@ -893,7 +894,13 @@ void setup() {
   Serial.println("[BOOT] AVISO: DEBUG_SERIAL_WAKE=1 -- comando WAKE/SLEEP pela serie substitui o botao fisico (BTN_PIN); so desligar depois do botao estar reparado (ver DEBUG_SERIAL_WAKE/DEBUG_DISABLE_SLEEP em main.cpp)");
 #endif
   delay(100);
-  Serial.println("Acordou do System OFF");
+  // Demonstração do novo módulo Logger (ver include/Logger/Logger.h): estas
+  // 3 chamadas foram convertidas de Serial.println/printf diretos para as
+  // novas macros LOG_INFO, a título de exemplo de uso — o resto do ficheiro
+  // continua deliberadamente com Serial.println/printf diretos (adoção
+  // incremental, não um refactor em massa, ver comentário de cabeçalho de
+  // Logger.h).
+  LOG_INFO("BOOT", "Acordou do System OFF");
 
   Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
 
@@ -904,7 +911,7 @@ void setup() {
   // SYSTEM_OFF, dependem de funções que só existem depois disto.)
   Bluefruit.begin(2, 0);
   Bluefruit.setName("Wearable");
-  Serial.println("SoftDevice inicializado");
+  LOG_INFO("BOOT", "SoftDevice inicializado");
 
   // *** DEBUG TEMPORÁRIO *** (ver DEBUG_SERIAL_WAKE): se chegar o comando
   // "WAKE" pela série, avança logo para o arranque normal, sem esperar
@@ -991,7 +998,7 @@ void setup() {
   Emergency::begin(BTN_PIN);
   Serial.println("[BOOT] step: showHourDateScreen");
   showHourDateScreen();
-  Serial.println("[BOOT] step: setup done");
+  LOG_INFO("BOOT", "step: setup done");
 }
 
 // ============================================================
