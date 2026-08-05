@@ -234,6 +234,33 @@ EMERGENCY_ALERT_TYPE_NAMES = {
     2: "fall_inactivity",  # kEmergencyAlertFallInactivity
 }
 
+# "Explicação de alerta" (2026-08-05, funcionalidade derivada da revisão
+# PRISMA — cuidadores recebem melhor um alerta quando sabem PORQUÊ foi
+# disparado, não só o quê). O EmergencyAlertPacket (8 bytes) não traz
+# amplitude/waveform nenhuma — só o tipo já decidido pelo firmware (ver
+# discussão sobre beatPeakAbsHigh: a decisão "isto é um evento real" só é
+# possível com acesso ao sinal bruto, que existe no firmware, não aqui) —
+# por isso este texto descreve o MECANISMO de deteção, fixo por tipo, não
+# um valor medido. Fonte do mecanismo: Emergency.cpp (gesto SOS) e
+# Imu::detectFreefall()/Emergency.cpp (queda + inatividade), ambos citados
+# em DOCUMENTACAO_TECNICA_CODIGO.md.
+EMERGENCY_ALERT_EXPLANATIONS = {
+    "sos_manual": (
+        "Confirmado por 3 cliques do botão físico em menos de 1200ms, "
+        "seguidos de 2500ms sem um 4º clique a cancelar o gesto "
+        "(evita disparo por toque acidental)."
+    ),
+    "fall_inactivity": (
+        "Queda livre detetada pelo IMU (acelerómetro), seguida de um "
+        "período de inatividade prolongada sem movimento — padrão "
+        "consistente com uma queda sem recuperação imediata."
+    ),
+}
+EMERGENCY_ALERT_EXPLANATION_UNKNOWN = (
+    "Tipo de alerta não reconhecido por esta versão do bridge — sem "
+    "explicação disponível do mecanismo de deteção."
+)
+
 WS_HOST = "localhost"
 WS_PORT = 8765
 
@@ -539,11 +566,13 @@ def decode_emergency_alert(raw: bytes) -> dict:
     enviado pelo firmware — usado pelo dashboard para não duplicar o
     mesmo alerta se a notificação BLE chegar mais do que uma vez."""
     alert_type, _reserved, seq, timestamp_utc = EMERGENCY_ALERT_STRUCT.unpack(raw)
+    alert_name = EMERGENCY_ALERT_TYPE_NAMES.get(alert_type, "desconhecido")
     return {
         "alert_type": alert_type,
-        "alert_name": EMERGENCY_ALERT_TYPE_NAMES.get(alert_type, "desconhecido"),
+        "alert_name": alert_name,
         "seq": seq,
         "timestamp_utc": timestamp_utc,
+        "explanation": EMERGENCY_ALERT_EXPLANATIONS.get(alert_name, EMERGENCY_ALERT_EXPLANATION_UNKNOWN),
     }
 
 

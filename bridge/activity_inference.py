@@ -266,7 +266,7 @@ class ActivityInference:
         veredito do bloco FECHADO (None enquanto o bloco atual continua),
         pronto a persistir em activity_windows (start_time/end_time em
         minutos desde a meia-noite local, como o esquema espera)."""
-        from duration_detector import evaluate_block  # ml/duration_detector.py
+        from duration_detector import evaluate_block, explain_block  # ml/duration_detector.py
 
         if self._current_block is None:
             self._current_block = {
@@ -287,6 +287,7 @@ class ActivityInference:
         # device_ts em segundos (ver correção acima em add_sample) -> minutos = /60, não /60000.
         duration_min = (prev["end_device_ts"] - prev["start_device_ts"]) / 60.0
         is_anomaly, reason = evaluate_block(prev["session"], prev["cls"], duration_min)
+        explanation = explain_block(prev["session"], prev["cls"], duration_min, is_anomaly, reason)
         start_local = time.localtime(prev["start_wall_clock_s"])
         end_local = time.localtime(prev["end_wall_clock_s"])
         closed = {
@@ -296,6 +297,7 @@ class ActivityInference:
             "duration_min": duration_min,
             "is_anomaly": is_anomaly,
             "reason": reason,
+            "explanation": explanation,
             "confidence": float(np.mean(prev["confidences"])),
             "start_wall_clock_s": prev["start_wall_clock_s"],
             "start_time_minutes": start_local.tm_hour * 60 + start_local.tm_min,

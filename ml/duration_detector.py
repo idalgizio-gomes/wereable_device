@@ -68,6 +68,43 @@ def evaluate_block(session, cls, duration_min):
     return False, None
 
 
+def explain_block(session, cls, duration_min, is_anomaly, reason):
+    """"Explicação de alerta" (2026-08-05, funcionalidade derivada da
+    PRISMA_SCR_SCOPING_REVIEW.md) — traduz o veredito de evaluate_block
+    numa frase em português com os NÚMEROS reais envolvidos (duração
+    observada e os limites [d_min, d_max] usados), não só o código de
+    motivo (REASON_*). Um cuidador vê "durou 45 min, esperado 5–20 min",
+    não só "duracao_fora_dos_limites" — mesmo raciocínio de
+    beatPeakAbsHigh (a decisão binária sozinha não basta, o "porquê"
+    importa para quem tem de agir sobre o alerta)."""
+    session_label = "noite" if session == "noite" else "dia"
+    if not is_anomaly:
+        return (
+            f"Bloco de '{cls}' durou {duration_min:.0f} min, dentro do "
+            f"intervalo esperado para o período de {session_label}."
+        )
+    if reason == REASON_UNEXPECTED_CLASS:
+        expected = ", ".join(sorted(SESSION_BLOCK_MINUTES.get(session, {}).keys()))
+        expected_text = expected if expected else "nenhuma classe"
+        return (
+            f"'{cls}' não é uma atividade esperada durante o período de "
+            f"{session_label} (esperadas: {expected_text}) — durou "
+            f"{duration_min:.0f} min."
+        )
+    if reason == REASON_OUT_OF_BOUNDS:
+        limits = SESSION_BLOCK_MINUTES.get(session, {}).get(cls)
+        if limits:
+            d_min, d_max = limits
+            return (
+                f"Bloco de '{cls}' durou {duration_min:.0f} min — fora do "
+                f"intervalo esperado para o período de {session_label} "
+                f"({d_min:.0f}–{d_max:.0f} min)."
+            )
+    # Motivo desconhecido/futuro sem texto dedicado ainda — nunca esconde
+    # o facto de ter sido assinalado, só não detalha o mecanismo.
+    return f"Bloco de '{cls}' assinalado como anómalo ({duration_min:.0f} min)."
+
+
 def evaluate_subject(night_segments, day_segments, anomaly_marker):
     """Avalia todos os blocos (noite+dia) de um sujeito, devolvendo uma
     lista de dicts com o veredito do detetor vs. o rótulo verdadeiro

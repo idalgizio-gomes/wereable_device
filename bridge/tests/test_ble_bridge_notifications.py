@@ -56,6 +56,28 @@ def _emergency_alert_bytes(alert_type=1, seq=42, timestamp_utc=1_700_000_000):
     return struct.pack("<BBHI", alert_type, 0, seq, timestamp_utc)
 
 
+# ---------------------------------------------------------------------------
+# decode_emergency_alert — "explicação de alerta" (2026-08-05)
+# ---------------------------------------------------------------------------
+
+def test_decode_emergency_alert_sos_manual_has_explanation():
+    alert = ble_bridge.decode_emergency_alert(_emergency_alert_bytes(alert_type=1, seq=5))
+    assert alert["alert_name"] == "sos_manual"
+    assert "3 cliques" in alert["explanation"]
+
+
+def test_decode_emergency_alert_fall_inactivity_has_explanation():
+    alert = ble_bridge.decode_emergency_alert(_emergency_alert_bytes(alert_type=2, seq=6))
+    assert alert["alert_name"] == "fall_inactivity"
+    assert "queda" in alert["explanation"].lower()
+
+
+def test_decode_emergency_alert_unknown_type_has_fallback_explanation():
+    alert = ble_bridge.decode_emergency_alert(_emergency_alert_bytes(alert_type=99, seq=7))
+    assert alert["alert_name"] == "desconhecido"
+    assert alert["explanation"] == ble_bridge.EMERGENCY_ALERT_EXPLANATION_UNKNOWN
+
+
 @pytest.fixture
 def bridge():
     # Isolamento da BD já é feito globalmente por conftest.py
