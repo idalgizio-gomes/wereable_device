@@ -101,3 +101,78 @@ def test_rate_limit_resets_after_interval(bridge, monkeypatch):
     asyncio.run(bridge.send_command(ws, "reset_readings"))
     assert [m["ok"] for m in ws.sent] == [True, True]
     assert len(bridge.current_client.writes) == 2
+
+
+class TestVersionamentoDoModeloComandosWS:
+    """Comandos "list_model_versions"/"activate_model_version" (2026-08-05,
+    ver storage_advanced.py::MlModelVersion e
+    activity_inference.py::reload_active_model). A fixture `bridge`
+    (topo do ficheiro) já constrói um BleBridge() real, cuja
+    OrmPersistence.__init__ chama sa.create_all_tables() -- por isso a
+    tabela ml_model_versions já existe e activity_inference.py já
+    auto-registou/ativou a versão "1" antes de cada teste começar."""
+
+    def test_list_model_versions_devolve_versoes_registadas(self, bridge):
+        ws = FakeWebSocket()
+        asyncio.run(bridge.handle_dashboard_command(
+            ws, json.dumps({"cmd": "list_model_versions"})
+        ))
+        results = [m for m in ws.sent if m["kind"] == "model_versions"]
+        assert len(results) == 1
+        versions = results[0]["versions"]
+        assert len(versions) >= 1
+        assert any(v["version"] == "1" and v["is_active"] for v in versions)
+
+    def test_activate_model_version_com_sucesso_muda_versao_ativa_e_recarrega(self, bridge):
+        ws = FakeWebSocket()
+        # Regista uma 2ª versão apontando para o MESMO ficheiro físico já
+        # carregado -- confirma o mecanismo de ativação/reload de ponta a
+        # ponta via WebSocket, sem precisar de um 2º modelo .joblib real.
+        db = ble_bridge.sa.get_db_session()
+        try:
+            ble_bridge.sa.register_model_version(
+                db, ble_bridge.ML_MODEL_NAME, version="2",
+                file_path=ble_bridge.activity_inference.DEFAULT_MODEL_FILE_PATH,
+                labels_path=ble_bridge.activity_inference.DEFAULT_MODEL_LABELS_PATH,
+                notes="versao de teste -- mesmo ficheiro fisico da versao 1",
+            )
+        finally:
+            db.close()
+
+        asyncio.run(bridge.handle_dashboard_command(
+            ws, json.dumps({"cmd": "activate_model_version", "version": "2"})
+        ))
+        results = [m for m in ws.sent if m["kind"] == "model_version_result"]
+        assert len(results) == 1
+        assert results[0]["ok"] is True
+        assert results[0]["version"] == "2"
+        assert results[0]["reloaded"] is True
+
+        db = ble_bridge.sa.get_db_session()
+        try:
+            active = ble_bridge.sa.get_active_model_version(db, ble_bridge.ML_MODEL_NAME)
+        finally:
+            db.close()
+        assert active["version"] == "2"
+
+    def test_activate_model_version_inexistente_devolve_ok_false_sem_rebentar(self, bridge):
+        ws = FakeWebSocket()
+        asyncio.run(bridge.handle_dashboard_command(
+            ws, json.dumps({"cmd": "activate_model_version", "version": "nao-existe-999"})
+        ))
+        results = [m for m in ws.sent if m["kind"] == "model_version_result"]
+        assert len(results) == 1
+        assert results[0]["ok"] is False
+        assert "error" in results[0] and results[0]["error"]
+
+    def test_activate_model_version_looped_calls_are_rate_limited(self, bridge):
+        ws = FakeWebSocket()
+        for _ in range(20):
+            asyncio.run(bridge.handle_dashboard_command(
+                ws, json.dumps({"cmd": "activate_model_version", "version": "1"})
+            ))
+        results = [m for m in ws.sent if m["kind"] == "model_version_result"]
+        assert len(results) == 20
+        assert results[0]["ok"] is True
+        assert all(r["ok"] is False for r in results[1:])
+        assert all("limite de taxa" in r["error"] for r in results[1:])

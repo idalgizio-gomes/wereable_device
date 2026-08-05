@@ -25,6 +25,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import sessionmaker, relationship, Session, declarative_base
 from sqlalchemy.pool import StaticPool
+from sqlalchemy.exc import IntegrityError
 
 from crypto_utils import decrypt_field, encrypt_field
 
@@ -1590,6 +1591,154 @@ def get_episode_timeline_for_alert(
         "sequence_number": alert.sequence_number,
     }
     return result
+
+
+# ============================================================
+# VERSIONAMENTO E ROLLBACK DO MODELO ML (2026-08-05)
+# ------------------------------------------------------------
+# Motivação: `activity_inference.py::_load_model()` carregava sempre o
+# mesmo caminho fixo (ml/models/activity_classifier_rf.joblib +
+# _labels.json), sem histórico de versões nem forma de voltar atrás se um
+# modelo retreinado se revelar pior. Esta secção guarda o registo de
+# versões NA BASE DE DADOS (não num ficheiro solto ao lado do .joblib) e
+# dá ao bridge/dashboard forma de trocar a versão ativa em runtime — ver
+# activity_inference.py (_load_model/reload_active_model) e ble_bridge.py
+# (cmds "list_model_versions"/"activate_model_version").
+# ============================================================
+
+
+class MlModelVersion(Base):
+    """Registo de versões do modelo de classificação de atividade (ML) —
+    permite trocar a versão ativa em runtime e reverter para uma anterior
+    sem reiniciar o bridge."""
+    __tablename__ = "ml_model_versions"
+
+    id = Column(Integer, primary_key=True)
+    model_name = Column(String(50), nullable=False)  # ex. "activity_classifier_rf"
+    version = Column(String(50), nullable=False)      # ex. "1", "2", timestamp, etc.
+    file_path = Column(String(500), nullable=False)   # caminho relativo a ml/, ex. "models/activity_classifier_rf_v2.joblib"
+    labels_path = Column(String(500), nullable=False)
+    is_active = Column(Boolean, default=False, nullable=False)
+    trained_at = Column(DateTime)
+    metrics_json = Column(Text)   # JSON livre: accuracy, etc. — sem obrigar a um esquema fixo
+    notes = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("model_name", "version", name="uq_ml_model_name_version"),
+    )
+
+
+def _ml_model_version_to_dict(row: "MlModelVersion") -> dict:
+    """Formato comum devolvido pelos 4 helpers abaixo — um único sítio a
+    decidir o shape exposto ao bridge/dashboard, mesmo raciocínio do resto
+    do ficheiro (ex. _sensor_record_to_dict). `metrics` é desserializado
+    de volta de `metrics_json` (None se nunca foi passado nenhum)."""
+    return {
+        "id": row.id,
+        "model_name": row.model_name,
+        "version": row.version,
+        "file_path": row.file_path,
+        "labels_path": row.labels_path,
+        "is_active": row.is_active,
+        "trained_at": row.trained_at.replace(tzinfo=timezone.utc).timestamp() if row.trained_at else None,
+        "metrics": json.loads(row.metrics_json) if row.metrics_json is not None else None,
+        "notes": row.notes,
+        "created_at": row.created_at.replace(tzinfo=timezone.utc).timestamp() if row.created_at else None,
+    }
+
+
+def register_model_version(
+    db: Session,
+    model_name: str,
+    version: str,
+    file_path: str,
+    labels_path: str,
+    trained_at: Optional[datetime] = None,
+    metrics: Optional[dict] = None,
+    notes: Optional[str] = None,
+    activate: bool = False,
+) -> dict:
+    """Regista uma nova versão do modelo `model_name`. Lança ValueError se
+    já existir uma versão com o mesmo (model_name, version) — apanha o
+    IntegrityError da UniqueConstraint uq_ml_model_name_version, faz
+    rollback e relança com mensagem clara; nunca deixa o IntegrityError cru
+    do SQLAlchemy propagar até a quem chamou (mesmo padrão de
+    insert_emergency_alert em orm_persistence.py, mas aqui o duplicado É
+    um erro do chamador, não um replay legítimo a ignorar).
+
+    Se `activate=True`, ativa esta versão logo a seguir, reutilizando
+    `activate_model_version` (não duplica a lógica de "só uma ativa de
+    cada vez")."""
+    row = MlModelVersion(
+        model_name=model_name,
+        version=str(version),
+        file_path=file_path,
+        labels_path=labels_path,
+        trained_at=trained_at,
+        metrics_json=json.dumps(metrics) if metrics is not None else None,
+        notes=notes,
+    )
+    db.add(row)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise ValueError(
+            f"já existe uma versão {version!r} registada para o modelo {model_name!r}"
+        )
+    db.refresh(row)
+    if activate:
+        return activate_model_version(db, model_name, row.version)
+    return _ml_model_version_to_dict(row)
+
+
+def list_model_versions(db: Session, model_name: str) -> list[dict]:
+    """Todas as versões registadas de `model_name`, mais recentes primeiro
+    (por id — mesmo critério de desempate do resto do ficheiro, ver
+    has_valid_consent/_next_consent_version acima)."""
+    rows = (
+        db.query(MlModelVersion)
+        .filter(MlModelVersion.model_name == model_name)
+        .order_by(desc(MlModelVersion.id))
+        .all()
+    )
+    return [_ml_model_version_to_dict(r) for r in rows]
+
+
+def activate_model_version(db: Session, model_name: str, version: str) -> dict:
+    """Marca a versão pedida como ativa e TODAS as outras do mesmo
+    `model_name` como inativas — nunca podem ficar duas ativas em
+    simultâneo. Feito numa única transação (sem lock explícito — SQLite/o
+    padrão do resto do ficheiro já não usa). Lança ValueError se a versão
+    não existir para este modelo."""
+    target = (
+        db.query(MlModelVersion)
+        .filter(MlModelVersion.model_name == model_name, MlModelVersion.version == str(version))
+        .first()
+    )
+    if target is None:
+        raise ValueError(f"versão {version!r} não encontrada para o modelo {model_name!r}")
+    db.query(MlModelVersion).filter(
+        MlModelVersion.model_name == model_name, MlModelVersion.id != target.id
+    ).update({"is_active": False}, synchronize_session=False)
+    target.is_active = True
+    db.commit()
+    db.refresh(target)
+    return _ml_model_version_to_dict(target)
+
+
+def get_active_model_version(db: Session, model_name: str) -> Optional[dict]:
+    """A versão ativa registada para `model_name`, ou None se nenhuma
+    estiver registada ainda — caso do arranque a frio contra uma BD nova,
+    tratado por activity_inference.py::_load_model() como "usa o caminho
+    fixo de sempre e regista essa carga como a versão inicial"."""
+    row = (
+        db.query(MlModelVersion)
+        .filter(MlModelVersion.model_name == model_name, MlModelVersion.is_active.is_(True))
+        .first()
+    )
+    return _ml_model_version_to_dict(row) if row is not None else None
 
 
 # ============================================================

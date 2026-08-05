@@ -184,6 +184,17 @@ except ImportError as exc:
 # também tenha de ficar.
 ACTIVITY_CORRECTION_CATEGORIES = ("Dormir", "Descanso", "Atividade", "Alimentação", "Higiene")
 
+# Versionamento e rollback do modelo ML (2026-08-05, ver
+# storage_advanced.py::MlModelVersion e activity_inference.DEFAULT_MODEL_NAME)
+# — duplicado aqui em vez de lido de activity_inference de propósito, mesmo
+# raciocínio de ACTIVITY_CORRECTION_CATEGORIES acima: os comandos "listar"/
+# "ativar versão" do dashboard passam só por `sa` (não por
+# self.activity_inference), por isso continuam a funcionar mesmo quando
+# activity_inference não importou (instalação mínima sem scikit-learn/
+# pandas) — só a troca em tempo real (reload_active_model) é que fica sem
+# efeito nesse caso, ver cmd "activate_model_version" abaixo.
+ML_MODEL_NAME = "activity_classifier_rf"
+
 # ============================================================
 # IDENTIFICADORES BLE — têm de corresponder exatamente aos definidos
 # em src/Ble/Ble.cpp. Se algum UUID mudar no firmware, tem de mudar aqui
@@ -1684,6 +1695,95 @@ class BleBridge:
                 return
             print(f"[BRIDGE] limiares personalizados atualizados pelo dashboard: {fields}")
             await ws.send(json.dumps({"kind": "thresholds_result", "ok": True, "thresholds": result}))
+            return
+        if cmd == "list_model_versions":
+            # Versionamento do modelo ML (2026-08-05, ver storage_advanced.py
+            # MlModelVersion/list_model_versions) — sem parâmetros, é sempre
+            # sobre ML_MODEL_NAME (o único modelo hoje). Só leitura, sem rate
+            # limit, mesmo padrão de get_thresholds/get_episode_timeline.
+            if sa is None:
+                await ws.send(json.dumps({
+                    "kind": "model_versions", "versions": [],
+                    "error": "persistencia indisponivel",
+                }))
+                return
+            db = sa.get_db_session()
+            try:
+                versions = sa.list_model_versions(db, ML_MODEL_NAME)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[BRIDGE] erro a listar versoes do modelo: {exc}")
+                await ws.send(json.dumps({"kind": "model_versions", "versions": [], "error": str(exc)}))
+                return
+            finally:
+                db.close()
+            await ws.send(json.dumps({"kind": "model_versions", "versions": versions}))
+            return
+        if cmd == "activate_model_version":
+            # Troca a versão ATIVA do modelo em runtime (ex.: {"cmd":
+            # "activate_model_version", "version": "2"}) — mecanismo de
+            # rollback/promoção sem reiniciar o bridge. Escrita -> mesmo
+            # rate limit de set_thresholds/set_consent/set_retention_days
+            # (canal WebSocket não autenticado).
+            wait_s = self._check_write_rate_limit(cmd)
+            if wait_s is not None:
+                await ws.send(json.dumps({
+                    "kind": "model_version_result", "ok": False,
+                    "error": f"limite de taxa excedido, aguarde {wait_s:.1f}s",
+                }))
+                return
+            if sa is None:
+                await ws.send(json.dumps({"kind": "model_version_result", "ok": False, "error": "persistencia indisponivel"}))
+                return
+            version = msg.get("version")
+            if version is None:
+                await ws.send(json.dumps({"kind": "model_version_result", "ok": False, "error": "parametro 'version' em falta"}))
+                return
+            db = sa.get_db_session()
+            try:
+                activated = sa.activate_model_version(db, ML_MODEL_NAME, version)
+            except ValueError as exc:
+                # Versão inexistente para este modelo — erro do chamador,
+                # não uma falha de infraestrutura.
+                await ws.send(json.dumps({"kind": "model_version_result", "ok": False, "version": version, "error": str(exc)}))
+                return
+            except Exception as exc:  # noqa: BLE001
+                print(f"[BRIDGE] erro a ativar versao do modelo: {exc}")
+                await ws.send(json.dumps({"kind": "model_version_result", "ok": False, "version": version, "error": str(exc)}))
+                return
+            finally:
+                db.close()
+            # A ativação na BD já teve sucesso nesta altura (linha acima).
+            # reload_active_model() troca o modelo em MEMÓRIA nesta
+            # instância do bridge — só é chamado se self.activity_inference
+            # existir; se não existir, a ativação na BD continua válida
+            # (fica pronta para a próxima vez que o bridge arrancar com
+            # activity_inference disponível), só a classificação em tempo
+            # real É QUE não é afetada por não estar disponível de todo
+            # nesta instância (não é um motivo para bloquear a ativação).
+            reloaded = False
+            note = None
+            if self.activity_inference is not None:
+                reloaded = self.activity_inference.reload_active_model()
+                if not reloaded:
+                    note = ("versao ativada na base de dados, mas falhou o recarregamento "
+                            "em tempo real (ver load_error) -- o modelo anterior continua em uso")
+            else:
+                note = "versao ativada na base de dados; classificacao em tempo real indisponivel nesta instancia"
+            print(f"[BRIDGE] versao do modelo ativada pelo dashboard: {ML_MODEL_NAME}={version} (reloaded={reloaded})")
+            response = {
+                "kind": "model_version_result", "ok": True,
+                "version": activated["version"], "reloaded": reloaded,
+            }
+            if note:
+                response["note"] = note
+            await ws.send(json.dumps(response))
+            if self.orm:
+                self.orm.audit(
+                    action="ml_model.activate_version",
+                    resource_type="ml_model_version",
+                    details={"model_name": ML_MODEL_NAME, "version": version, "reloaded": reloaded},
+                    ip=_ws_remote_ip(ws),
+                )
             return
         if cmd == "get_episode_timeline":
             # Timeline correlacionada por episódio (2026-08-05, ver

@@ -39,6 +39,18 @@ from typing import Optional
 
 import numpy as np
 
+# storage_advanced.py (sqlalchemy + crypto_utils) é uma dependência HARD do
+# bridge desde 2026-07-26 (ver requirements.txt: "deixou de ser opcional")
+# — ao contrário de joblib/pandas/sklearn (importados tardiamente abaixo,
+# só dentro de métodos), por isso este import direto no topo do módulo não
+# introduz nenhuma dependência nova que já não fosse exigida por
+# orm_persistence.py. Se AINDA ASSIM falhar (instalação muito mínima),
+# `import activity_inference` falha por inteiro — já é o comportamento
+# existente (ver `import numpy as np` acima, também sem try/except) e já é
+# tratado por ble_bridge.py (try/except ImportError -> activity_inference
+# = None), por isso não precisa de proteção extra aqui.
+import storage_advanced as sa
+
 _ML_DIR = Path(__file__).resolve().parent.parent / "ml"
 if str(_ML_DIR) not in sys.path:
     sys.path.insert(0, str(_ML_DIR))
@@ -101,6 +113,18 @@ CLASS_TO_DB_CATEGORY = {
     "Higiene": "hygiene",
 }
 
+# Versionamento e rollback do modelo ML (2026-08-05, ver
+# storage_advanced.py::MlModelVersion/register_model_version/
+# activate_model_version/get_active_model_version). `DEFAULT_MODEL_NAME` é
+# o identificador usado na tabela `ml_model_versions` — hoje há um único
+# modelo, por isso um valor fixo (não parametrizado por instância); os
+# dois caminhos abaixo são os mesmos de sempre, agora só usados como
+# FALLBACK (BD sem nenhuma versão registada ainda) e como conteúdo do
+# get-or-create da versão inicial "1" — ver _resolve_active_model_paths.
+DEFAULT_MODEL_NAME = "activity_classifier_rf"
+DEFAULT_MODEL_FILE_PATH = "models/activity_classifier_rf.joblib"
+DEFAULT_MODEL_LABELS_PATH = "models/activity_classifier_rf_labels.json"
+
 
 class ActivityInference:
     """Acumula amostras cruas do IMU/PPG numa janela deslizante (tumbling,
@@ -120,19 +144,110 @@ class ActivityInference:
         self._load_model()
 
     def _load_model(self) -> None:
+        """Chamado só pelo `__init__`. Resolve os caminhos do modelo ATIVO
+        (BD, com fallback para o caminho fixo — ver
+        _resolve_active_model_paths) e carrega-os (ver
+        _load_model_from_paths, partilhado com reload_active_model())."""
+        file_path, labels_path = self._resolve_active_model_paths()
+        self._load_model_from_paths(file_path, labels_path)
+
+    def reload_active_model(self) -> bool:
+        """Repete a lógica de `_load_model()`, mas pode ser chamado a
+        qualquer momento (não só no `__init__`) — é o mecanismo de
+        ROLLBACK/promoção em runtime: depois de o dashboard chamar
+        `sa.activate_model_version` (ver ble_bridge.py, cmd
+        "activate_model_version"), este método troca de facto o modelo em
+        memória sem reiniciar o bridge.
+
+        Devolve True se conseguiu carregar com sucesso, False caso
+        contrário — NUNCA lança. Numa falha (ex. `file_path` inválido
+        registado por engano), `self._model`/`self._classes` do modelo
+        ANTERIOR (ainda a funcionar) não são tocados — ver
+        _load_model_from_paths, que só substitui os atributos depois de
+        confirmar que o carregamento teve sucesso. Quem chama decide o que
+        fazer com o False (ex. avisar o dashboard sem derrubar o bridge)."""
+        file_path, labels_path = self._resolve_active_model_paths()
+        return self._load_model_from_paths(file_path, labels_path)
+
+    def _resolve_active_model_paths(self) -> tuple[str, str]:
+        """Consulta `sa.get_active_model_version` para descobrir que
+        ficheiros carregar — devolve (file_path, labels_path) RELATIVOS a
+        `ml/` (_ML_DIR), nunca caminhos absolutos. NUNCA lança: qualquer
+        falha a consultar a BD (tabela `ml_model_versions` ainda não
+        existe numa BD nova, BD indisponível, etc.) degrada para os
+        caminhos fixos de sempre (DEFAULT_MODEL_FILE_PATH/LABELS_PATH).
+
+        Caso especial — nenhuma versão registada ainda (primeira vez que
+        este código corre contra esta BD): além de degradar para o
+        caminho fixo, tenta registar essa carga como a versão "1", já
+        ativa (get-or-create de um registo histórico — não obriga a
+        retreinar nada). Se esse auto-registo falhar por qualquer razão
+        (ex. BD indisponível), não impede a classificação de funcionar —
+        só fica por registar, com um aviso."""
+        try:
+            db = sa.get_db_session()
+        except Exception as exc:  # noqa: BLE001 - nunca impede a classificação de arrancar
+            print(f"[ACTIVITY_INFERENCE] AVISO: nao foi possivel abrir sessao de BD "
+                  f"para consultar a versao ativa do modelo ({exc}); a usar o caminho fixo")
+            return DEFAULT_MODEL_FILE_PATH, DEFAULT_MODEL_LABELS_PATH
+
+        try:
+            active = sa.get_active_model_version(db, DEFAULT_MODEL_NAME)
+            if active is not None:
+                return active["file_path"], active["labels_path"]
+
+            # Nenhuma versão registada ainda — arranque a frio contra esta
+            # BD. Comporta-se como sempre (caminho fixo) e regista essa
+            # carga como a versão inicial, já ativa, para que a próxima
+            # consulta (ou reload_active_model()) já encontre algo.
+            try:
+                sa.register_model_version(
+                    db, DEFAULT_MODEL_NAME, version="1",
+                    file_path=DEFAULT_MODEL_FILE_PATH, labels_path=DEFAULT_MODEL_LABELS_PATH,
+                    notes="Registo automático — versão inicial já existente antes deste "
+                          "sistema de versionamento (2026-08-05)",
+                    activate=True,
+                )
+            except Exception as exc:  # noqa: BLE001 - registo histórico, nunca bloqueia a classificação
+                print(f"[ACTIVITY_INFERENCE] AVISO: falha ao auto-registar a versao inicial "
+                      f"do modelo em MlModelVersion ({exc}); classificacao continua a usar "
+                      f"o caminho fixo, sem versionamento registado")
+            return DEFAULT_MODEL_FILE_PATH, DEFAULT_MODEL_LABELS_PATH
+        except Exception as exc:  # noqa: BLE001 - qualquer outro erro de BD degrada da mesma forma
+            print(f"[ACTIVITY_INFERENCE] AVISO: erro ao consultar a versao ativa do modelo "
+                  f"em BD ({exc}); a usar o caminho fixo")
+            return DEFAULT_MODEL_FILE_PATH, DEFAULT_MODEL_LABELS_PATH
+        finally:
+            db.close()
+
+    def _load_model_from_paths(self, file_path: str, labels_path: str) -> bool:
+        """Núcleo de carregamento partilhado por `_load_model()`/
+        `reload_active_model()` — `file_path`/`labels_path` são RELATIVOS a
+        `ml/` (_ML_DIR), como guardados em MlModelVersion. Carrega para
+        variáveis locais primeiro e só atribui a `self._model`/
+        `self._classes`/`self._feature_cols` depois de AMBOS os ficheiros
+        carregarem com sucesso — uma falha a meio (ex. .joblib existe mas o
+        .json não) nunca deixa o modelo anterior num estado inconsistente
+        nem o apaga."""
         try:
             import joblib  # import tardio: só falha aqui, nunca ao importar este módulo
 
-            model_path = _ML_DIR / "models" / "activity_classifier_rf.joblib"
-            labels_path = _ML_DIR / "models" / "activity_classifier_rf_labels.json"
-            self._model = joblib.load(model_path)
-            with open(labels_path, encoding="utf-8") as f:
+            model_path = _ML_DIR / file_path
+            labels_full_path = _ML_DIR / labels_path
+            model = joblib.load(model_path)
+            with open(labels_full_path, encoding="utf-8") as f:
                 labels = json.load(f)
-            self._classes = labels["classes"]
-            self._feature_cols = labels["feature_cols"]
+            classes = labels["classes"]
+            feature_cols = labels["feature_cols"]
         except Exception as exc:  # noqa: BLE001 - degradação silenciosa, ver docstring do módulo
             self.load_error = str(exc)
-            self._model = None
+            return False
+
+        self._model = model
+        self._classes = classes
+        self._feature_cols = feature_cols
+        self.load_error = None
+        return True
 
     @property
     def available(self) -> bool:

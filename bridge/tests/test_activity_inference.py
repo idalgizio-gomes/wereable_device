@@ -297,3 +297,105 @@ class TestSessaoDiaNoite:
     def test_hora_de_madrugada_e_noite(self):
         night = time.mktime(time.strptime("2026-07-20 03:00:00", "%Y-%m-%d %H:%M:%S"))
         assert ai.ActivityInference._session_for(night) == "noite"
+
+
+@pytest.fixture
+def fresh_ml_schema():
+    """Isola o schema inteiro (mesmo padrão de
+    test_storage_advanced.py::_fresh_schema) só para os testes de
+    versionamento/rollback abaixo -- o engine/SessionLocal de
+    storage_advanced.py é um singleton partilhado por TODA a sessão de
+    pytest (ver conftest.py), por isso "BD vazia" (necessário para o teste
+    de auto-registo da versão inicial) só é garantido recriando o schema
+    do zero antes do teste. Não é autouse: o resto deste ficheiro nunca
+    dependeu do estado da BD (a degradação em _resolve_active_model_paths
+    tolera tabela em falta/ausente) e não deve passar a depender agora."""
+    ai.sa.Base.metadata.drop_all(bind=ai.sa.engine)
+    ai.sa.Base.metadata.create_all(bind=ai.sa.engine)
+    yield ai.sa
+    ai.sa.Base.metadata.drop_all(bind=ai.sa.engine)
+
+
+class TestVersionamentoDoModelo:
+    """Versionamento e rollback do modelo ML (2026-08-05, ver
+    storage_advanced.py::MlModelVersion e
+    activity_inference.py::_resolve_active_model_paths/
+    reload_active_model)."""
+
+    def test_auto_registo_da_versao_inicial_no_primeiro_arranque(self, fresh_ml_schema):
+        sa = fresh_ml_schema
+        inf = ai.ActivityInference()
+        assert inf.available
+        assert inf.load_error is None
+
+        db = sa.get_db_session()
+        try:
+            active = sa.get_active_model_version(db, ai.DEFAULT_MODEL_NAME)
+        finally:
+            db.close()
+        assert active is not None
+        assert active["version"] == "1"
+        assert active["is_active"] is True
+        assert active["file_path"] == ai.DEFAULT_MODEL_FILE_PATH
+        assert active["labels_path"] == ai.DEFAULT_MODEL_LABELS_PATH
+
+    def test_reload_active_model_troca_o_modelo_apos_ativar_outra_versao(self, fresh_ml_schema):
+        sa = fresh_ml_schema
+        inf = ai.ActivityInference()  # auto-regista e ativa a versão "1"
+        assert inf.available
+        modelo_antes = inf._model
+        classes_antes = inf._classes
+
+        # 2ª "versão" a apontar para os MESMOS ficheiros físicos já
+        # existentes -- confirma o MECANISMO de troca funciona, sem
+        # precisar de um segundo modelo .joblib real treinado.
+        db = sa.get_db_session()
+        try:
+            sa.register_model_version(
+                db, ai.DEFAULT_MODEL_NAME, version="2",
+                file_path=ai.DEFAULT_MODEL_FILE_PATH,
+                labels_path=ai.DEFAULT_MODEL_LABELS_PATH,
+                notes="versao de teste -- mesmo ficheiro fisico da versao 1",
+            )
+            sa.activate_model_version(db, ai.DEFAULT_MODEL_NAME, "2")
+        finally:
+            db.close()
+
+        ok = inf.reload_active_model()
+
+        assert ok is True
+        assert inf.load_error is None
+        # joblib.load()/json.load() produzem objetos NOVOS a cada
+        # carregamento -- prova que o modelo foi mesmo recarregado (troca
+        # de facto), não só que a chamada devolveu True sem fazer nada.
+        assert inf._model is not modelo_antes
+        assert inf._classes is not classes_antes
+        assert inf._classes == classes_antes  # mesmo conteúdo (mesmo ficheiro físico)
+
+    def test_reload_active_model_com_caminho_invalido_preserva_modelo_anterior(self, fresh_ml_schema):
+        sa = fresh_ml_schema
+        inf = ai.ActivityInference()  # auto-regista e carrega a versão "1" (boa)
+        assert inf.available
+        modelo_bom = inf._model
+        classes_boas = inf._classes
+
+        db = sa.get_db_session()
+        try:
+            sa.register_model_version(
+                db, ai.DEFAULT_MODEL_NAME, version="2-invalida",
+                file_path="models/nao_existe_de_todo.joblib",
+                labels_path="models/nao_existe_de_todo_labels.json",
+                activate=True,
+            )
+        finally:
+            db.close()
+
+        ok = inf.reload_active_model()
+
+        assert ok is False
+        assert inf.load_error is not None
+        # O modelo BOM anterior continua lá, intacto -- um rollback para
+        # um caminho inválido nunca pode apagar um modelo que funcionava.
+        assert inf._model is modelo_bom
+        assert inf._classes is classes_boas
+        assert inf.available  # continua a classificar com o modelo antigo
