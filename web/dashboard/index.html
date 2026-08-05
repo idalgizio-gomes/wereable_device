@@ -1248,6 +1248,14 @@ const I18N = {
     'consentimento.noteEmpty': 'Protótipo sem autenticação real (ver PROJECT_STATUS.md) — a decisão é registada como given_by="representative" com o nome introduzido acima; um sistema com contas reais associaria isto à sessão autenticada, não a um campo de texto livre.',
     'consentimento.noBridgeConnectionHint': 'Sem ligação ao bridge — não é possível consultar nem alterar o consentimento agora.',
     'consentimento.savingHint': 'A gravar…',
+    // --- versionamento do modelo ML (2026-08-05) ---
+    'modeloVersao.title': 'Versão do modelo de IA', 'modeloVersao.subtitle': 'Classificador de atividade (Random Forest) — histórico de versões e reversão (rollback) sem reiniciar o bridge',
+    'modeloVersao.activeLabel': 'Ativa', 'modeloVersao.activateBtn': 'Ativar', 'modeloVersao.loadingHint': 'A carregar…',
+    'modeloVersao.noBridgeConnectionHint': 'Sem ligação ao bridge — não é possível consultar as versões do modelo agora.',
+    'modeloVersao.emptyHint': 'Nenhuma versão registada ainda.',
+    'modeloVersao.activatingHint': 'A ativar…', 'modeloVersao.activatedHint': 'Versão ativada.',
+    'modeloVersao.reloadFailedHint': 'Ativada na base de dados, mas falhou a recarregar em tempo real — o modelo anterior continua em uso.',
+    'modeloVersao.noteEmpty': 'Trocar de versão aqui muda o modelo em memória desta instância do bridge de imediato (sem reiniciar); não retreina nem cria versões novas — isso continua a ser feito pelos scripts em ml/ (ver ml/README.md).',
     // --- common ---
     'common.save': 'Guardar', 'common.cancel': 'Cancelar', 'common.close': 'Fechar', 'common.edit': 'Editar', 'common.delete': 'Remover', 'common.add': 'Adicionar', 'common.search': 'Pesquisar',
     'common.back': 'Voltar', 'common.confirm': 'Confirmar', 'common.today': 'Hoje',
@@ -5493,7 +5501,7 @@ TEMPLATES.tendencia = () => `
   </div>
 `;
 AFTER_RENDER.tendencia = () => { drawTrend('cvTrend2'); drawHeatmap('cvHeatmap2'); renderRealTrendTable(); requestRealTrend(7); };
-AFTER_RENDER.exportar = () => { requestRetentionSettings(); requestConsentStatus(); };
+AFTER_RENDER.exportar = () => { requestRetentionSettings(); requestConsentStatus(); requestModelVersions(); };
 
 TEMPLATES.definicoes = () => `
   <div class="card">
@@ -6300,6 +6308,13 @@ TEMPLATES.exportar = () => `
       <span class="empty-hint" id="consentHint" style="margin:0;"></span>
     </div>
     <p class="empty-hint">${t('consentimento.noteEmpty')}</p>
+  </div>
+
+  <div class="card print-hide">
+    <div class="card-head"><div><h3>${t('modeloVersao.title')}</h3><div class="card-sub">${t('modeloVersao.subtitle')}</div></div></div>
+    <div id="modelVersionsList"></div>
+    <span class="empty-hint" id="modelVersionsHint" style="margin:0;"></span>
+    <p class="empty-hint">${t('modeloVersao.noteEmpty')}</p>
   </div>
 
   <div class="print-only" id="clinicalPrintSheet"></div>
@@ -7420,6 +7435,14 @@ function handleBridgeMessage(msg){
     handleEpisodeTimelineResult(msg);
     return;
   }
+  if (msg.kind === 'model_versions'){
+    handleModelVersionsResult(msg);
+    return;
+  }
+  if (msg.kind === 'model_version_result'){
+    handleModelVersionResult(msg);
+    return;
+  }
   if (msg.kind === 'vital_alert'){
     // Canal não autenticado — 'vital' valida contra o par fechado
     // conhecido; o resto (value/limit/level) são só números/strings
@@ -8086,6 +8109,84 @@ function renderVitalAlertsPanel(){
   host.innerHTML = active.map(a => `
     <div class="activity-live-flag anomaly" style="margin-bottom:8px;">⚠ ${escapeHtml(a.explanation)}</div>
   `).join('');
+}
+
+/* ------------------------------------------------------------
+   VERSIONAMENTO E ROLLBACK DO MODELO ML (2026-08-05)
+   ------------------------------------------------------------
+   Lista as versões registadas do classificador de atividade
+   (bridge/storage_advanced.py::MlModelVersion) e permite ativar
+   (rollback/promoção) uma delas em runtime, sem reiniciar o bridge — ver
+   cmds "list_model_versions"/"activate_model_version" em ble_bridge.py.
+------------------------------------------------------------- */
+liveState.modelVersions = null; // null = ainda não chegou nenhuma resposta
+
+function requestModelVersions(){
+  const hint = document.getElementById('modelVersionsHint');
+  renderModelVersionsList();
+  if (!bridgeWs || bridgeWs.readyState !== WebSocket.OPEN){
+    if (hint){ hint.style.color = 'var(--status-warning)'; hint.textContent = t('modeloVersao.noBridgeConnectionHint'); }
+    return;
+  }
+  if (hint){ hint.style.color = ''; hint.textContent = t('modeloVersao.loadingHint'); }
+  sendWsCommand('list_model_versions');
+}
+
+function handleModelVersionsResult(msg){
+  const hint = document.getElementById('modelVersionsHint');
+  liveState.modelVersions = Array.isArray(msg.versions) ? msg.versions : [];
+  if (hint){
+    if (msg.error){ hint.style.color = 'var(--status-warning)'; hint.textContent = msg.error; }
+    else { hint.style.color = ''; hint.textContent = ''; }
+  }
+  renderModelVersionsList();
+}
+
+function activateModelVersion(version){
+  const hint = document.getElementById('modelVersionsHint');
+  const sent = sendWsCommandWithArgs('activate_model_version', { version });
+  if (!sent){
+    if (hint){ hint.style.color = 'var(--status-warning)'; hint.textContent = t('modeloVersao.noBridgeConnectionHint'); }
+    return;
+  }
+  if (hint){ hint.style.color = ''; hint.textContent = t('modeloVersao.activatingHint'); }
+}
+
+function handleModelVersionResult(msg){
+  const hint = document.getElementById('modelVersionsHint');
+  if (!msg.ok){
+    if (hint){ hint.style.color = 'var(--status-warning)'; hint.textContent = `${t('vitais.baselineSaveFailedPrefix')} ${msg.error || t('episodio.unknownError')}.`; }
+    return;
+  }
+  if (hint){
+    hint.style.color = msg.reloaded ? 'var(--status-good)' : 'var(--status-warning)';
+    hint.textContent = msg.reloaded ? t('modeloVersao.activatedHint') : t('modeloVersao.reloadFailedHint');
+  }
+  // Pede o estado completo de novo — a base de dados é sempre a fonte de
+  // verdade, mesmo raciocínio de handleConsentResultMessage/
+  // handleThresholdsSaveResult acima.
+  sendWsCommand('list_model_versions');
+}
+
+function renderModelVersionsList(){
+  const list = document.getElementById('modelVersionsList');
+  if (!list) return; // vista "exportar" não está aberta
+  const versions = liveState.modelVersions;
+  if (versions === null){ list.innerHTML = ''; return; }
+  if (!versions.length){ list.innerHTML = `<p class="empty-hint">${t('modeloVersao.emptyHint')}</p>`; return; }
+  list.innerHTML = `
+    <table class="data-table">
+      <tbody>
+        ${versions.map(v => `
+          <tr>
+            <td><b>${escapeHtml(String(v.version))}</b>${v.is_active ? ` ${pillHtml('good', t('modeloVersao.activeLabel'))}` : ''}</td>
+            <td class="table-subtext" style="padding:8px 0;">${escapeHtml(v.notes || v.file_path || '')}</td>
+            <td>${v.is_active ? '' : `<button class="btn-secondary" onclick="activateModelVersion('${escapeHtml(String(v.version))}')">${t('modeloVersao.activateBtn')}</button>`}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
 }
 
 /* ------------------------------------------------------------
