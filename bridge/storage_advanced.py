@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -1379,6 +1380,216 @@ def build_emergency_profile_payload(db: Session, patient_id: int) -> bytes:
                   f"nunca cortar nome/contacto")
 
     return data
+
+
+# ============================================================
+# TIMELINE CORRELACIONADA POR EPISÓDIO (2026-08-05)
+# ------------------------------------------------------------
+# Motivação: hoje, quando surge um alerta de emergência (SOS/queda), o
+# cuidador só vê o alerta isolado no dashboard -- não vê o que estava a
+# acontecer nos minutos antes/depois (FC a subir? o paciente estava
+# classificado como "Atividade" ou "Descanso"? houve outro alerta
+# próximo?). Esta secção junta esses dados dispersos (SensorRecord,
+# ActivityWindow, EmergencyAlert) numa timeline única, ordenada no tempo,
+# centrada num alerta de emergência concreto -- sem inventar nenhuma
+# correlação estatística, só reunir o que já existe em tabelas separadas.
+# ============================================================
+
+
+def _activity_window_epoch_range(window: "ActivityWindow") -> tuple[int, int]:
+    """Reconstrói (start_ts_approx, end_ts_approx), em epoch, a partir de
+    `ActivityWindow.start_time`/`end_time` (MINUTOS DESDE A MEIA-NOITE
+    LOCAL do bridge -- não epoch, ver `insert_activity_window` em
+    orm_persistence.py, que os grava a partir de `time.localtime()` do
+    relógio do bridge) e `activity_date` (a data desse dia).
+
+    APROXIMAÇÃO, não a hora real do dispositivo -- mesmo tipo de limitação
+    já assumida em DAY_SESSION_START_HOUR (bridge/activity_inference.py):
+    os dois campos nasceram em rotinas diferentes e nunca houve unificação
+    de representação de tempo, tal como o comentário de CLASS_TO_DB_CATEGORY
+    (mesmo ficheiro) documenta para o vocabulário de categorias de
+    atividade -- este é o mesmo tipo de inconsistência já assumida no
+    projeto, desta vez de REPRESENTAÇÃO DE TEMPO, não de vocabulário.
+    `time.mktime()` interpreta a hora reconstruída como hora LOCAL do
+    servidor onde o bridge corre (não do dispositivo, que pode estar
+    noutro fuso) -- a melhor aproximação disponível sem alterar o esquema
+    (ver PersonalizedThreshold/ActivityWindow acima, sem coluna de fuso
+    horário nenhuma)."""
+    day_start_local = datetime.combine(window.activity_date.date(), datetime.min.time())
+    start_local = day_start_local + timedelta(minutes=window.start_time or 0)
+    end_local = day_start_local + timedelta(minutes=window.end_time or 0)
+    start_ts = int(time.mktime(start_local.timetuple()))
+    end_ts = int(time.mktime(end_local.timetuple()))
+    return start_ts, end_ts
+
+
+def build_episode_timeline(db: Session, device_id: int, center_ts: int, window_minutes: int = 30) -> dict:
+    """Reúne, numa única estrutura ordenada no tempo, os dados dispersos à
+    volta de um instante `center_ts` (Unix epoch, segundos -- tipicamente o
+    `timestamp_utc` de um `EmergencyAlert`): sinais vitais (downsampled por
+    minuto), blocos de classificação de atividade que se sobrepõem à
+    janela, e outros alertas de emergência próximos. Janela aplicada para
+    AMBOS os lados: [center_ts - window_minutes*60, center_ts +
+    window_minutes*60].
+
+    Nunca lança exceção por "não haver dados" -- uma janela vazia devolve
+    listas vazias, é um resultado válido (ex.: dispositivo sem sensores
+    ligados nesse período, ou sem outros alertas por perto)."""
+    window_start = int(center_ts - window_minutes * 60)
+    window_end = int(center_ts + window_minutes * 60)
+
+    # ---- sensor_summary: downsampling por minuto, feito em SQL (não em
+    # Python) pela mesma razão documentada em get_daily_summary() acima --
+    # o IMU grava a ~14-52Hz, uma janela de 60 min podia ter dezenas de
+    # milhares de linhas em bruto. func.avg()/func.count() ignoram NULL
+    # nativamente (semântica SQL padrão), o que dá exatamente "média entre
+    # os registos não-nulos desse minuto" e "ignora minutos sem nenhuma
+    # leitura" sem lógica extra em Python. Filtra por `received_at` (não
+    # `timestamp_utc`) pelo mesmo critério de get_records_since() -- ver o
+    # comentário lá para o porquê.
+    received_start = datetime.fromtimestamp(window_start, tz=timezone.utc).replace(tzinfo=None)
+    received_end = datetime.fromtimestamp(window_end, tz=timezone.utc).replace(tzinfo=None)
+    # Agrupa por minuto do relógio do DISPOSITIVO (timestamp_utc truncado),
+    # não do bridge (received_at) -- é o timestamp_utc que é diretamente
+    # comparável a center_ts (também um timestamp_utc de EmergencyAlert).
+    # Divisão inteira com "//" (não "/"): o SQLAlchemy insere um CAST para
+    # NUMERIC em "/" sobre colunas Integer (força divisão em vírgula
+    # flutuante, cross-dialect) -- "//" mantém os dois operandos como
+    # inteiros e trunca ao minuto como pretendido (confirmado a correr
+    # contra SQLite real, ver bridge/tests/test_episode_timeline.py).
+    minute_expr = ((SensorRecord.timestamp_utc // 60) * 60).label("minute_ts")
+    sensor_rows = (
+        db.query(
+            minute_expr,
+            func.avg(SensorRecord.heart_rate).label("avg_hr"),
+            func.count(SensorRecord.heart_rate).label("hr_n"),
+            func.avg(SensorRecord.spo2_percent).label("avg_spo2"),
+            func.count(SensorRecord.spo2_percent).label("spo2_n"),
+        )
+        .filter(
+            SensorRecord.device_id == device_id,
+            SensorRecord.received_at >= received_start,
+            SensorRecord.received_at <= received_end,
+        )
+        .group_by(minute_expr)
+        .having(or_(func.count(SensorRecord.heart_rate) > 0, func.count(SensorRecord.spo2_percent) > 0))
+        .order_by(minute_expr.asc())
+        .all()
+    )
+    sensor_summary = [
+        {
+            "ts": int(r.minute_ts),
+            "hr": int(round(r.avg_hr)) if r.avg_hr is not None else None,
+            "spo2": int(round(r.avg_spo2)) if r.avg_spo2 is not None else None,
+        }
+        for r in sensor_rows
+    ]
+
+    # ---- activity_blocks: ActivityWindow acumula muito mais devagar que
+    # SensorRecord (poucos blocos por dia, não dezenas por segundo) -- um
+    # pré-filtro largo (+-2 dias) por activity_date evita carregar todo o
+    # histórico do dispositivo, e o filtro exato de sobreposição acontece
+    # depois em Python, sobre os epochs reconstruídos por
+    # _activity_window_epoch_range (só é possível calcular a sobreposição
+    # depois de reconstruir, porque start_time/end_time não são epoch --
+    # ver essa função).
+    coarse_start = received_start - timedelta(days=2)
+    coarse_end = received_end + timedelta(days=2)
+    candidate_windows = (
+        db.query(ActivityWindow)
+        .filter(
+            ActivityWindow.device_id == device_id,
+            ActivityWindow.activity_date >= coarse_start,
+            ActivityWindow.activity_date <= coarse_end,
+        )
+        .all()
+    )
+    activity_blocks = []
+    for w in candidate_windows:
+        if w.start_time is None or w.end_time is None:
+            continue  # dados incompletos -- sem epoch fiável, não se inclui
+        start_ts_approx, end_ts_approx = _activity_window_epoch_range(w)
+        if end_ts_approx >= window_start and start_ts_approx <= window_end:
+            activity_blocks.append({
+                "category": w.activity_category,
+                "start_ts_approx": start_ts_approx,
+                "end_ts_approx": end_ts_approx,
+                "duration_minutes": w.duration_minutes,
+                "confidence": w.confidence,
+            })
+    activity_blocks.sort(key=lambda b: b["start_ts_approx"])
+
+    # ---- nearby_emergency_alerts: todos os EmergencyAlert do mesmo
+    # dispositivo dentro da janela (excluindo soft-deletados, GDPR-006).
+    # Esta função não sabe qual é "o alerta central" (só recebe center_ts,
+    # um número simples) -- a exclusão do próprio alerta central é feita
+    # por get_episode_timeline_for_alert() abaixo, que É quem sabe o
+    # sequence_number a excluir.
+    alert_rows = (
+        db.query(EmergencyAlert)
+        .filter(
+            EmergencyAlert.device_id == device_id,
+            EmergencyAlert.timestamp_utc >= window_start,
+            EmergencyAlert.timestamp_utc <= window_end,
+            EmergencyAlert.deleted_at.is_(None),
+        )
+        .order_by(EmergencyAlert.timestamp_utc.asc())
+        .all()
+    )
+    nearby_emergency_alerts = [
+        {
+            "alert_type": a.alert_type,
+            "timestamp_utc": a.timestamp_utc,
+            "sequence_number": a.sequence_number,
+        }
+        for a in alert_rows
+    ]
+
+    return {
+        "center_ts": int(center_ts),
+        "window_minutes": window_minutes,
+        "sensor_summary": sensor_summary,
+        "activity_blocks": activity_blocks,
+        "nearby_emergency_alerts": nearby_emergency_alerts,
+    }
+
+
+def get_episode_timeline_for_alert(
+    db: Session, device_id: int, sequence_number: int, window_minutes: int = 30
+) -> dict:
+    """Timeline centrada num EmergencyAlert concreto, identificado por
+    (device_id, sequence_number) -- a mesma chave da UniqueConstraint
+    uq_emergency_device_seq. Lança ValueError se o alerta não existir (ou
+    estiver soft-deletado, GDPR-006) -- ao contrário de
+    build_episode_timeline(), aqui "não encontrado" é um erro do chamador
+    (sequence_number errado), não uma janela vazia legítima."""
+    alert = (
+        db.query(EmergencyAlert)
+        .filter(
+            EmergencyAlert.device_id == device_id,
+            EmergencyAlert.sequence_number == sequence_number,
+            EmergencyAlert.deleted_at.is_(None),
+        )
+        .first()
+    )
+    if alert is None:
+        raise ValueError(
+            f"alerta de emergencia nao encontrado: device_id={device_id} sequence_number={sequence_number}"
+        )
+    result = build_episode_timeline(db, device_id, alert.timestamp_utc, window_minutes)
+    # Exclui o próprio alerta central de "nearby" -- já vai à parte em
+    # result["alert"]. Comparação por sequence_number (não por identidade
+    # de objeto ORM -- nearby_emergency_alerts já são dicts simples nesta
+    # altura, não instâncias de EmergencyAlert).
+    result["nearby_emergency_alerts"] = [
+        a for a in result["nearby_emergency_alerts"] if a["sequence_number"] != sequence_number
+    ]
+    result["alert"] = {
+        "alert_type": alert.alert_type,
+        "timestamp_utc": alert.timestamp_utc,
+        "sequence_number": alert.sequence_number,
+    }
+    return result
 
 
 # ============================================================

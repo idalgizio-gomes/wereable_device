@@ -1685,6 +1685,53 @@ class BleBridge:
             print(f"[BRIDGE] limiares personalizados atualizados pelo dashboard: {fields}")
             await ws.send(json.dumps({"kind": "thresholds_result", "ok": True, "thresholds": result}))
             return
+        if cmd == "get_episode_timeline":
+            # Timeline correlacionada por episódio (2026-08-05, ver
+            # storage_advanced.build_episode_timeline/get_episode_timeline_for_alert
+            # via self.orm) — junta sinais vitais, blocos de atividade e
+            # outros alertas próximos à volta de UM EmergencyAlert concreto
+            # ("sequence_number", obrigatório), para a UI de detalhe de
+            # alerta do dashboard. Só leitura, mesmo padrão de
+            # get_history/get_daily_trend — sem rate limit de escrita.
+            if not self.orm:
+                await ws.send(json.dumps({
+                    "kind": "episode_timeline", "timeline": None,
+                    "error": "persistencia indisponivel",
+                }))
+                return
+            sequence_number = msg.get("sequence_number")
+            window_minutes = msg.get("window_minutes", 30)
+            try:
+                window_minutes = float(window_minutes)
+            except (TypeError, ValueError):
+                window_minutes = 30.0
+            try:
+                timeline = self.orm.get_episode_timeline(sequence_number, window_minutes)
+            except ValueError as exc:
+                # Alerta (device_id, sequence_number) não encontrado — erro
+                # do chamador (sequence_number errado/inexistente), distinto
+                # de uma falha de infraestrutura.
+                await ws.send(json.dumps({
+                    "kind": "episode_timeline", "timeline": None,
+                    "error": f"alerta nao encontrado: {exc}",
+                }))
+                return
+            except Exception as exc:  # noqa: BLE001
+                print(f"[BRIDGE] erro a construir timeline do episodio: {exc}")
+                await ws.send(json.dumps({
+                    "kind": "episode_timeline", "timeline": None,
+                    "error": str(exc),
+                }))
+                return
+            await ws.send(json.dumps({"kind": "episode_timeline", "timeline": timeline}))
+            if self.orm:
+                self.orm.audit(
+                    action="episode_timeline.read",
+                    resource_type="emergency_alerts",
+                    details={"sequence_number": sequence_number, "window_minutes": window_minutes},
+                    ip=_ws_remote_ip(ws),
+                )
+            return
         if cmd == "correct_activity":
             # Correção manual do cuidador/equipa clínica à classificação de
             # atividade da IA (2026-07-22, pedido do utilizador: "falta o

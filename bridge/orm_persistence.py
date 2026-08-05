@@ -59,6 +59,7 @@ Uso a partir de `ble_bridge.py`:
     self.orm.check_consent(scope)          # usado internamente (ex.: export_csv)
     self.orm.get_thresholds()              # leitura (cmd "get_thresholds", 2026-08-05)
     self.orm.set_thresholds(**fields)      # escrita (cmd "set_thresholds", 2026-08-05)
+    self.orm.get_episode_timeline(seq)     # leitura (cmd "get_episode_timeline", 2026-08-05)
 """
 
 from __future__ import annotations
@@ -631,6 +632,20 @@ class OrmPersistence:
         """Substitui storage.insert_activity_correction()."""
         self._require_enabled()
         sa.insert_activity_correction(self.session, self.device_id, original_category, corrected_category)
+
+    # ---- timeline correlacionada por episódio (2026-08-05) -----------------
+
+    def get_episode_timeline(self, sequence_number: int, window_minutes: float = 30) -> dict:
+        """Timeline correlacionada (sinais vitais + blocos de atividade +
+        outros alertas próximos) centrada no EmergencyAlert
+        `sequence_number` deste dispositivo (comando 'get_episode_timeline'
+        do dashboard). Mesmo padrão de get_history/get_daily_trend: leitura,
+        sem storage.py como caminho alternativo, por isso não degrada em
+        silêncio -- lança RuntimeError se o ORM estiver desativado (via
+        _require_enabled) ou ValueError se o alerta não existir (propagado
+        de sa.get_episode_timeline_for_alert)."""
+        self._require_enabled()
+        return sa.get_episode_timeline_for_alert(self.session, self.device_id, sequence_number, window_minutes)
 
 
 # Constantes de retenção re-exportadas para quem só importa orm_persistence
