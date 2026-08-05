@@ -44,11 +44,16 @@ bridge/tls_key.pem
 # fica só local, nunca commitada — o repositório público só expõe o
 # README.md. Ficheiros existentes no disco, não apagados; removidos do
 # histórico local em 2026-08-05 (ver backup-antes-filtro-2026-08-05).
-# NOTA: PROJECT_STATUS.md, SECURITY_STATUS.md, SECURITY_RESEARCH.md,
-# RELATORIO_QA_DETALHADO.md e RELATORIO_QA_RESUMO.md NÃO estão aqui —
-# já estão publicados em origin/main de sessões anteriores; adicioná-los
-# ao .gitignore agora não os torna privados, só pararia commits futuros.
-# Ver decisão pendente sobre esses 5 ficheiros.
 DOCUMENTACAO_TECNICA_CODIGO.md
 PRISMA_SCR_SCOPING_REVIEW.md
 PRISMA_SYSTEMATIC_REVIEW.md
+
+# Idem, mas estes 5 já estavam publicados em origin/main de sessões
+# anteriores — removidos do HEAD com commit dedicado + push em 2026-08-05
+# (não removidos do histórico antigo, só deixam de aparecer a partir de
+# agora; ver commit "remove docs internos do repositório público").
+PROJECT_STATUS.md
+SECURITY_STATUS.md
+SECURITY_RESEARCH.md
+RELATORIO_QA_DETALHADO.md
+RELATORIO_QA_RESUMO.md
