@@ -447,3 +447,177 @@ def test_injected_commit_failure_disables_dual_write():
 def monkeypatch_commit(orm, func):
     """Substitui session.commit por `func` (usado só no teste de falha)."""
     orm.session.commit = func
+
+
+# ---------------------------------------------------------------------------
+# (g) consentimento granular por âmbito (2026-08-05) — sa.has_valid_consent /
+#     sa.grant_consent / sa.get_consent_status e os wrappers de OrmPersistence
+#     (check_consent / set_consent / get_consent_status / gate do export_csv)
+# ---------------------------------------------------------------------------
+
+def test_has_valid_consent_false_when_no_record():
+    session = sa.get_db_session()
+    try:
+        assert sa.has_valid_consent(session, patient_id=1, scope=sa.CONSENT_SCOPE_EXPORT) is False
+    finally:
+        session.close()
+
+
+def test_grant_consent_rejects_unknown_scope():
+    orm = orm_persistence.OrmPersistence()
+    with pytest.raises(ValueError):
+        sa.grant_consent(
+            orm.session, patient_id=orm.patient_id, user_id=orm.user_id,
+            scope="scope_inventado", granted=True,
+        )
+
+
+def test_grant_consent_creates_new_row_each_change_versioned():
+    """Cada chamada grava uma LINHA NOVA (histórico auditável), nunca
+    reescreve a anterior — version incrementa 1, 2, 3..."""
+    orm = orm_persistence.OrmPersistence()
+    r1 = sa.grant_consent(orm.session, patient_id=orm.patient_id, user_id=orm.user_id,
+                           scope=sa.CONSENT_SCOPE_ANALYTICS, granted=True)
+    r2 = sa.grant_consent(orm.session, patient_id=orm.patient_id, user_id=orm.user_id,
+                           scope=sa.CONSENT_SCOPE_ANALYTICS, granted=False)
+    assert r1.version == "1"
+    assert r2.version == "2"
+    assert r1.id != r2.id
+
+    session = sa.get_db_session()
+    try:
+        rows = (
+            session.query(sa.ConsentRecord)
+            .filter_by(patient_id=orm.patient_id, scope=sa.CONSENT_SCOPE_ANALYTICS)
+            .all()
+        )
+        assert len(rows) == 2  # a antiga não foi apagada nem sobrescrita
+    finally:
+        session.close()
+
+
+def test_has_valid_consent_respects_most_recent_decision():
+    """Conceder e depois revogar tem de resultar em has_valid_consent=False
+    (a decisão mais recente vence, mesmo havendo uma linha antiga 'granted')."""
+    orm = orm_persistence.OrmPersistence()
+    sa.grant_consent(orm.session, patient_id=orm.patient_id, user_id=orm.user_id,
+                      scope=sa.CONSENT_SCOPE_RESEARCH, granted=True)
+    assert sa.has_valid_consent(orm.session, orm.patient_id, sa.CONSENT_SCOPE_RESEARCH) is True
+
+    sa.grant_consent(orm.session, patient_id=orm.patient_id, user_id=orm.user_id,
+                      scope=sa.CONSENT_SCOPE_RESEARCH, granted=False)
+    assert sa.has_valid_consent(orm.session, orm.patient_id, sa.CONSENT_SCOPE_RESEARCH) is False
+
+
+def test_has_valid_consent_false_when_expired():
+    orm = orm_persistence.OrmPersistence()
+    sa.grant_consent(
+        orm.session, patient_id=orm.patient_id, user_id=orm.user_id,
+        scope=sa.CONSENT_SCOPE_EXPORT, granted=True,
+    )
+    # Expira manualmente a linha (grant_consent não aceita expires_at
+    # diretamente — simula o cenário via UPDATE direto, como o teste de
+    # bootstrap acima faz para o scope 'sensor_data').
+    session = sa.get_db_session()
+    try:
+        row = (
+            session.query(sa.ConsentRecord)
+            .filter_by(patient_id=orm.patient_id, scope=sa.CONSENT_SCOPE_EXPORT)
+            .first()
+        )
+        row.expires_at = datetime.utcnow() - timedelta(days=1)
+        session.commit()
+    finally:
+        session.close()
+
+    assert sa.has_valid_consent(orm.session, orm.patient_id, sa.CONSENT_SCOPE_EXPORT) is False
+
+
+def test_get_consent_status_none_for_never_decided_scope_but_dict_for_decided():
+    orm = orm_persistence.OrmPersistence()
+    sa.grant_consent(orm.session, patient_id=orm.patient_id, user_id=orm.user_id,
+                      scope=sa.CONSENT_SCOPE_ANALYTICS, granted=True,
+                      representative_name="Filha Cuidadora")
+
+    status = sa.get_consent_status(orm.session, orm.patient_id)
+    assert set(status.keys()) == set(sa.CONSENT_SCOPES)
+    # sensor_data foi decidido implicitamente no bootstrap? Não — o
+    # bootstrap só REGISTA consent_missing, nunca cria um ConsentRecord.
+    assert status[sa.CONSENT_SCOPE_SENSOR_DATA] is None
+    assert status[sa.CONSENT_SCOPE_EXPORT] is None
+    assert status[sa.CONSENT_SCOPE_RESEARCH] is None
+    assert status[sa.CONSENT_SCOPE_ANALYTICS]["granted"] is True
+    assert status[sa.CONSENT_SCOPE_ANALYTICS]["version"] == "1"
+    assert status[sa.CONSENT_SCOPE_ANALYTICS]["given_by"] == "representative"
+
+
+def test_orm_check_consent_true_when_disabled():
+    """check_consent nunca bloqueia por falha de infraestrutura — devolve
+    True (permissivo) quando o ORM está desativado; quem decide bloquear é
+    o chamador, com base no âmbito."""
+    orm = orm_persistence.OrmPersistence()
+    orm.disabled = True
+    assert orm.check_consent(sa.CONSENT_SCOPE_EXPORT) is True
+
+
+def test_orm_check_consent_reflects_granted_state():
+    orm = orm_persistence.OrmPersistence()
+    assert orm.check_consent(sa.CONSENT_SCOPE_EXPORT) is False
+    orm.set_consent(sa.CONSENT_SCOPE_EXPORT, True, representative_name="Filha Cuidadora")
+    assert orm.check_consent(sa.CONSENT_SCOPE_EXPORT) is True
+
+
+def test_orm_set_consent_writes_audit_log_entry():
+    orm = orm_persistence.OrmPersistence()
+    result = orm.set_consent(sa.CONSENT_SCOPE_RESEARCH, True, representative_name="Filha Cuidadora",
+                              representative_relationship="filha")
+    assert result == {"scope": sa.CONSENT_SCOPE_RESEARCH, "granted": True, "version": "1"}
+
+    session = sa.get_db_session()
+    try:
+        audits = session.query(sa.AuditLog).filter_by(action="consent_changed").all()
+        assert len(audits) == 1
+        assert audits[0].details == {"scope": sa.CONSENT_SCOPE_RESEARCH, "granted": True, "version": "1"}
+        assert audits[0].resource_id == orm.patient_id
+    finally:
+        session.close()
+
+
+def test_orm_set_consent_raises_on_unknown_scope():
+    orm = orm_persistence.OrmPersistence()
+    with pytest.raises(ValueError):
+        orm.set_consent("scope_inventado", True)
+
+
+def test_orm_set_consent_raises_runtime_error_when_disabled():
+    """Ao contrário da escrita de sensores, set_consent NÃO degrada em
+    silêncio (ver docstring do método) — lança RuntimeError explícito."""
+    orm = orm_persistence.OrmPersistence()
+    orm.disabled = True
+    with pytest.raises(RuntimeError):
+        orm.set_consent(sa.CONSENT_SCOPE_EXPORT, True)
+
+
+def test_orm_get_consent_status_matches_module_level_function():
+    orm = orm_persistence.OrmPersistence()
+    orm.set_consent(sa.CONSENT_SCOPE_SENSOR_DATA, True, representative_name="Filha Cuidadora")
+    assert orm.get_consent_status() == sa.get_consent_status(orm.session, orm.patient_id)
+
+
+def test_export_csv_blocked_without_export_consent():
+    """export_csv exige o âmbito 'export' especificamente — ter consentido
+    'sensor_data' (ou qualquer outro âmbito) não chega."""
+    orm = orm_persistence.OrmPersistence()
+    orm.set_consent(sa.CONSENT_SCOPE_SENSOR_DATA, True, representative_name="Filha Cuidadora")
+    with pytest.raises(PermissionError):
+        orm.export_csv(24)
+
+
+def test_export_csv_allowed_with_export_consent():
+    orm = orm_persistence.OrmPersistence()
+    orm.set_consent(sa.CONSENT_SCOPE_EXPORT, True, representative_name="Filha Cuidadora")
+    orm.insert_sensor_record(_make_record(ts=5000))
+    orm.flush()
+    csv_text = orm.export_csv(24)
+    assert isinstance(csv_text, str)
+    assert "5000" in csv_text

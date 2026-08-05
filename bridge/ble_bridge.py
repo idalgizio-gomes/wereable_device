@@ -1514,6 +1514,57 @@ class BleBridge:
                     ip=_ws_remote_ip(ws),
                 )
             return
+        if cmd == "get_consent_status":
+            # Consentimento granular por âmbito (2026-08-05, ver
+            # orm_persistence.get_consent_status/set_consent) — devolve o
+            # estado atual de cada âmbito reconhecido (sa.CONSENT_SCOPES)
+            # para a UI de consentimento do dashboard.
+            if not self.orm:
+                await ws.send(json.dumps({"kind": "consent_status", "status": {}, "error": "persistencia indisponivel"}))
+                return
+            try:
+                status = self.orm.get_consent_status()
+            except Exception as exc:  # noqa: BLE001
+                await ws.send(json.dumps({"kind": "consent_status", "status": {}, "error": str(exc)}))
+                return
+            await ws.send(json.dumps({"kind": "consent_status", "status": status}))
+            return
+        if cmd == "set_consent":
+            # Concede/revoga consentimento para UM âmbito (ex.: {"cmd":
+            # "set_consent", "scope": "export", "granted": true}). Mesmo
+            # rate limit de escrita que set_retention_days/correct_activity
+            # — canal não autenticado, sem isto um cliente em loop podia
+            # gravar linhas de consentimento sem fim.
+            wait_s = self._check_write_rate_limit(cmd)
+            if wait_s is not None:
+                await ws.send(json.dumps({
+                    "kind": "consent_result", "ok": False,
+                    "error": f"limite de taxa excedido, aguarde {wait_s:.1f}s",
+                }))
+                return
+            if not self.orm:
+                await ws.send(json.dumps({"kind": "consent_result", "ok": False, "error": "persistencia indisponivel"}))
+                return
+            scope = msg.get("scope")
+            granted = bool(msg.get("granted"))
+            representative_name = msg.get("representative_name")
+            representative_relationship = msg.get("representative_relationship")
+            try:
+                result = self.orm.set_consent(
+                    scope, granted,
+                    representative_name=representative_name,
+                    representative_relationship=representative_relationship,
+                )
+            except ValueError as exc:
+                await ws.send(json.dumps({"kind": "consent_result", "ok": False, "error": str(exc)}))
+                return
+            except Exception as exc:  # noqa: BLE001
+                print(f"[BRIDGE] erro a gravar consentimento: {exc}")
+                await ws.send(json.dumps({"kind": "consent_result", "ok": False, "error": str(exc)}))
+                return
+            print(f"[BRIDGE] consentimento atualizado pelo dashboard: {scope}={granted}")
+            await ws.send(json.dumps({"kind": "consent_result", "ok": True, **result}))
+            return
         if cmd == "correct_activity":
             # Correção manual do cuidador/equipa clínica à classificação de
             # atividade da IA (2026-07-22, pedido do utilizador: "falta o

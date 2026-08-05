@@ -54,6 +54,9 @@ Uso a partir de `ble_bridge.py`:
     self.orm.get_retention_days()          # leitura (cmd "get_retention_days")
     self.orm.set_retention_days(days)      # escrita (cmd "set_retention_days")
     self.orm.insert_activity_correction(orig, corrected)  # escrita (cmd "correct_activity")
+    self.orm.get_consent_status()          # leitura (cmd "get_consent_status")
+    self.orm.set_consent(scope, granted)   # escrita (cmd "set_consent", 2026-08-05)
+    self.orm.check_consent(scope)          # usado internamente (ex.: export_csv)
 """
 
 from __future__ import annotations
@@ -79,6 +82,15 @@ DEFAULT_DEVICE_UUID = "local-default-device"
 # quando o bridge liga — device.address do bleak). "00:00:00:00:00:00"
 # nunca colide com um MAC real de hardware.
 DEFAULT_DEVICE_MAC = "00:00:00:00:00:00"
+# Utilizador "local" get-or-create, mesmo padrão de DEFAULT_PATIENT_UUID/
+# DEFAULT_DEVICE_UUID acima — existe só para que ConsentRecord.user_id
+# (NOT NULL) tenha uma FK válida a apontar quando o consentimento é
+# concedido/revogado a partir do WebSocket não-autenticado do dashboard
+# (2026-08-05, consentimento granular). Nunca serve para login real: o
+# password_hash é um valor fixo que nenhum hash de password real produz.
+DEFAULT_USER_UUID = "local-default-user"
+DEFAULT_USER_EMAIL = "local@carewear.invalid"
+_DEFAULT_USER_PASSWORD_HASH = "!disabled-local-default-user"
 # date_of_birth é NOT NULL no esquema (Patient.date_of_birth) mas o bridge
 # não conhece a data de nascimento real do utente — placeholder explícito
 # e documentado, a corrigir por quem fizer o provisioning/registo real.
@@ -110,6 +122,7 @@ class OrmPersistence:
         self.session = None
         self.patient_id: Optional[int] = None
         self.device_id: Optional[int] = None
+        self.user_id: Optional[int] = None
         try:
             sa.create_all_tables()
             self.session = sa.get_db_session()
@@ -155,6 +168,27 @@ class OrmPersistence:
             self.session.refresh(patient)
         self.patient_id = patient.id
 
+        # Utilizador local placeholder (ver DEFAULT_USER_UUID acima) — FK
+        # necessária para ConsentRecord.user_id. Get-or-create, idempotente
+        # como o resto deste método.
+        user = (
+            self.session.query(sa.User)
+            .filter_by(uuid=DEFAULT_USER_UUID)
+            .first()
+        )
+        if user is None:
+            user = sa.User(
+                uuid=DEFAULT_USER_UUID,
+                email=DEFAULT_USER_EMAIL,
+                password_hash=_DEFAULT_USER_PASSWORD_HASH,
+                role="family",
+                name=os.environ.get("CAREWEAR_PATIENT_NAME", "Utilizador Local"),
+            )
+            self.session.add(user)
+            self.session.commit()
+            self.session.refresh(user)
+        self.user_id = user.id
+
         # GDPR-001/GDPR-003 — ponto de aplicação real do consentimento.
         self._ensure_consent()
 
@@ -193,24 +227,10 @@ class OrmPersistence:
         não há um `user_id` real para atribuir, e inventar um utilizador
         placeholder está fora do âmbito deste item. O consentimento
         propriamente dito passa a ser criado pela UI de consentimento do
-        dashboard (com o representante já autenticado), ainda por fazer."""
-        now = datetime.utcnow()
-        consent = (
-            self.session.query(sa.ConsentRecord)
-            .filter(
-                sa.ConsentRecord.patient_id == self.patient_id,
-                sa.ConsentRecord.scope == CONSENT_SCOPE,
-                sa.ConsentRecord.granted.is_(True),
-            )
-            .filter(
-                sa.or_(
-                    sa.ConsentRecord.expires_at.is_(None),
-                    sa.ConsentRecord.expires_at > now,
-                )
-            )
-            .first()
-        )
-        if consent is not None:
+        dashboard (com o representante já autenticado) — ver `set_consent()`
+        abaixo (2026-08-05): já é possível conceder/revogar por âmbito a
+        partir do dashboard, ainda sem essa UI dedicada."""
+        if sa.has_valid_consent(self.session, self.patient_id, CONSENT_SCOPE):
             return  # consentimento válido — comportamento inalterado.
 
         # Ausência de consentimento válido registada explicitamente.
@@ -220,6 +240,70 @@ class OrmPersistence:
             resource_id=self.patient_id,
             details={"scope": CONSENT_SCOPE},
         )
+
+    # ---- consentimento granular por âmbito (2026-08-05) --------------------
+    #
+    # `_ensure_consent` acima só guarda o âmbito mínimo ('sensor_data') no
+    # arranque. Os métodos a seguir dão ao dashboard uma forma de conceder/
+    # revogar/consultar consentimento por CADA âmbito de sa.CONSENT_SCOPES
+    # separadamente (ex.: aceitar guardar sinais vitais mas recusar
+    # exportação/analítica) — o Choi Moon-Jung (KAIST), citado na
+    # PRISMA_SCR_SCOPING_REVIEW.md, é a referência da literatura que
+    # motivou isto: é o único estudo revisto a tratar a sério o controlo
+    # granular de partilha de dados de saúde por idosos.
+
+    def check_consent(self, scope: str) -> bool:
+        """Existe consentimento válido para este âmbito? Tolerante a falha
+        como o resto do módulo: se o ORM estiver desativado, devolve True
+        (não bloqueia por causa de uma falha de infraestrutura — a decisão
+        de bloquear é de quem chama, baseada no âmbito, não desta função)."""
+        if self.disabled or self.session is None:
+            return True
+        try:
+            return sa.has_valid_consent(self.session, self.patient_id, scope)
+        except Exception as exc:  # noqa: BLE001
+            self._degrade("check_consent", exc)
+            return True
+
+    def set_consent(
+        self,
+        scope: str,
+        granted: bool,
+        given_by: str = "representative",
+        representative_name: Optional[str] = None,
+        representative_relationship: Optional[str] = None,
+    ) -> dict:
+        """Concede ou revoga consentimento para um âmbito (comando
+        'set_consent' do dashboard). Ao contrário da escrita de sensores,
+        NÃO degrada em silêncio — uma alteração de consentimento que pareça
+        ter funcionado mas não foi gravada é pior que um erro visível
+        (mesmo raciocínio das leituras do dashboard, ver `_require_enabled`
+        abaixo). Lança ValueError se `scope` for desconhecido (propagado
+        de `sa.grant_consent`)."""
+        self._require_enabled()
+        row = sa.grant_consent(
+            self.session,
+            patient_id=self.patient_id,
+            user_id=self.user_id,
+            scope=scope,
+            granted=granted,
+            given_by=given_by,
+            representative_name=representative_name,
+            representative_relationship=representative_relationship,
+        )
+        self.audit(
+            "consent_changed",
+            resource_type="patient",
+            resource_id=self.patient_id,
+            details={"scope": scope, "granted": granted, "version": row.version},
+        )
+        return {"scope": scope, "granted": row.granted, "version": row.version}
+
+    def get_consent_status(self) -> dict:
+        """Estado atual de todos os âmbitos de consentimento reconhecidos,
+        para o dashboard mostrar (comando 'get_consent_status')."""
+        self._require_enabled()
+        return sa.get_consent_status(self.session, self.patient_id)
 
     def _flush(self) -> None:
         """Compromete o buffer de SensorRecord acumulado (add_all + commit).
@@ -476,8 +560,22 @@ class OrmPersistence:
         return sa.get_daily_summary(self.session, self.device_id, days)
 
     def export_csv(self, hours: float) -> str:
-        """Substitui storage.export_records_csv()."""
+        """Substitui storage.export_records_csv(). Exportar dados é uma
+        partilha explícita para fora do sistema (download local, mas ainda
+        assim "sair" dos dados só usados internamente) — por isso, ao
+        contrário de get_history/get_daily_trend (leituras internas do
+        próprio dashboard), esta operação exige consentimento do âmbito
+        'export' (2026-08-05). Lança PermissionError (não RuntimeError, para
+        o chamador poder distinguir "sem consentimento" de "ORM em baixo")
+        se não houver consentimento válido — ble_bridge.py já apanha
+        qualquer Exception aqui e devolve {"error": str(exc)} ao dashboard,
+        por isso não precisa de nenhuma alteração para este caso funcionar."""
         self._require_enabled()
+        if not sa.has_valid_consent(self.session, self.patient_id, sa.CONSENT_SCOPE_EXPORT):
+            raise PermissionError(
+                "exportação de dados requer consentimento do âmbito 'export' "
+                "(ainda não concedido para este paciente)"
+            )
         return sa.export_records_csv(self.session, self.device_id, hours)
 
     def get_retention_days(self) -> float:

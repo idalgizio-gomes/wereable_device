@@ -636,6 +636,146 @@ class ConsentRecord(Base):
     )
 
 
+# Âmbitos de consentimento reconhecidos (mesma lista do comentário de
+# `ConsentRecord.scope`, agora como constante para não haver 2 fontes de
+# verdade). 'sensor_data' é o único com um ponto de aplicação real hoje
+# (bootstrap do bridge, `orm_persistence._ensure_consent`); os restantes
+# existem para o dashboard poder gerir consentimento granular por
+# categoria de dado (2026-08-05) — cada operação que os usa decide se
+# bloqueia ou só regista, não há uma regra única para todos os âmbitos.
+CONSENT_SCOPE_SENSOR_DATA = "sensor_data"
+CONSENT_SCOPE_ANALYTICS = "analytics"
+CONSENT_SCOPE_EXPORT = "export"
+CONSENT_SCOPE_RESEARCH = "research"
+CONSENT_SCOPES = (
+    CONSENT_SCOPE_SENSOR_DATA,
+    CONSENT_SCOPE_ANALYTICS,
+    CONSENT_SCOPE_EXPORT,
+    CONSENT_SCOPE_RESEARCH,
+)
+
+
+def has_valid_consent(db: Session, patient_id: int, scope: str, now: Optional[datetime] = None) -> bool:
+    """A decisão MAIS RECENTE (por id, mesmo critério de desempate de
+    `_next_consent_version`/`get_consent_status` abaixo — não `signed_at`,
+    que pode empatar entre chamadas rápidas) para este paciente+âmbito é
+    granted=True e não está expirada?
+
+    CORREÇÃO 2026-08-05: a versão anterior filtrava `granted.is_(True)`
+    NA PRÓPRIA QUERY antes de escolher "a mais recente" — ou seja,
+    procurava a concessão mais recente entre as concedidas, ignorando por
+    completo qualquer revogação (`granted=False`) posterior. Resultado:
+    depois de UMA concessão, `grant_consent(..., granted=False)` nunca
+    conseguia realmente revogar nada — esta função continuava a devolver
+    True para sempre (a não ser que a linha concedida expirasse por
+    `expires_at`). Só não foi apanhado antes porque o único chamador
+    existente (`_ensure_consent`, scope 'sensor_data') nunca é exercido
+    com um cenário de revogação nos testes. Apanhado ao escrever os
+    testes da revogação por âmbito (2026-08-05) — ver
+    test_has_valid_consent_respects_most_recent_decision."""
+    now = now or datetime.utcnow()
+    latest = (
+        db.query(ConsentRecord)
+        .filter(ConsentRecord.patient_id == patient_id, ConsentRecord.scope == scope)
+        .order_by(desc(ConsentRecord.id))
+        .first()
+    )
+    if latest is None or not latest.granted:
+        return False
+    if latest.expires_at is not None and latest.expires_at <= now:
+        return False
+    return True
+
+
+def _next_consent_version(db: Session, patient_id: int, scope: str) -> str:
+    """Cada mudança de consentimento (conceder ou revogar) grava uma LINHA
+    NOVA, nunca reescreve uma anterior — mantém histórico auditável (quem
+    consentiu o quê e quando), no espírito do resto do GDPR-001. A versão
+    é só um contador sequencial por (patient_id, scope), não um número de
+    versão do texto legal do consentimento."""
+    last = (
+        db.query(ConsentRecord)
+        .filter(ConsentRecord.patient_id == patient_id, ConsentRecord.scope == scope)
+        .order_by(desc(ConsentRecord.id))
+        .first()
+    )
+    if last is None:
+        return "1"
+    try:
+        return str(int(last.version) + 1)
+    except (TypeError, ValueError):
+        # Versão antiga não numérica (ex.: consentimento inicial gravado
+        # manualmente com outro esquema de versão) — não rebenta, só deixa
+        # de conseguir incrementar; carimba com timestamp para garantir
+        # unicidade face à UniqueConstraint(patient_id, scope, version).
+        return f"v-{int(datetime.utcnow().timestamp())}"
+
+
+def grant_consent(
+    db: Session,
+    patient_id: int,
+    user_id: int,
+    scope: str,
+    granted: bool,
+    given_by: str = "representative",
+    representative_name: Optional[str] = None,
+    representative_relationship: Optional[str] = None,
+    legal_basis: str = "consent",
+    notes: Optional[str] = None,
+) -> ConsentRecord:
+    """Regista uma decisão de consentimento (conceder OU revogar) para um
+    âmbito. Lança ValueError se `scope` não for um dos CONSENT_SCOPES
+    reconhecidos — evita âmbitos escritos à mão com erro de ortografia que
+    nunca seriam lidos por `has_valid_consent`."""
+    if scope not in CONSENT_SCOPES:
+        raise ValueError(f"âmbito de consentimento desconhecido: {scope!r} (válidos: {CONSENT_SCOPES})")
+    row = ConsentRecord(
+        patient_id=patient_id,
+        user_id=user_id,
+        scope=scope,
+        granted=granted,
+        version=_next_consent_version(db, patient_id, scope),
+        signed_at=datetime.utcnow(),
+        given_by=given_by,
+        representative_name=representative_name,
+        representative_relationship=representative_relationship,
+        legal_basis=legal_basis,
+        notes=notes,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def get_consent_status(db: Session, patient_id: int) -> dict:
+    """Estado atual (mais recente) de cada âmbito reconhecido, para a
+    utilização do dashboard: `{scope: {granted, signed_at, version,
+    given_by} | None}`. `None` significa "nunca decidido para este
+    âmbito" — distinto de `granted=False` ("decidido, e negado/revogado"),
+    porque o dashboard trata os dois casos de forma diferente (pedir
+    consentimento vs. mostrar que foi recusado)."""
+    status = {}
+    for scope in CONSENT_SCOPES:
+        latest = (
+            db.query(ConsentRecord)
+            .filter(ConsentRecord.patient_id == patient_id, ConsentRecord.scope == scope)
+            .order_by(desc(ConsentRecord.id))
+            .first()
+        )
+        if latest is None:
+            status[scope] = None
+        else:
+            status[scope] = {
+                "granted": latest.granted,
+                "signed_at": latest.signed_at.replace(tzinfo=timezone.utc).timestamp() if latest.signed_at else None,
+                "version": latest.version,
+                "given_by": latest.given_by,
+                "expires_at": latest.expires_at.replace(tzinfo=timezone.utc).timestamp() if latest.expires_at else None,
+            }
+    return status
+
+
 # ============================================================
 # INICIALIZAÇÃO
 # ============================================================

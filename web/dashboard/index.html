@@ -1186,6 +1186,18 @@ const I18N = {
     'exportar.retentionSubtitle': 'Há quanto tempo os registos de sensores ficam guardados em <code>carewear_history.db</code> antes de serem apagados automaticamente — o registo de emergências nunca é apagado por esta política',
     'exportar.retentionDaysLabel': 'Dias a manter:',
     'exportar.retentionNoteEmpty': 'Valor por omissão do protótipo: 30 dias. Não é uma política de retenção certificada — a decisão real de quantos dias reter dados clínicos de um utente é do utilizador/responsável pelos dados; este controlo só evita que fique fixa no código-fonte.',
+    // --- consentimento (RGPD, granular por âmbito, 2026-08-05) ---
+    'consentimento.title': 'Consentimento de dados (RGPD)',
+    'consentimento.subtitle': 'Cada âmbito é independente — aceitar um não implica aceitar os outros. Cada alteração fica registada como uma linha nova e auditável (nunca apaga a decisão anterior); revogar um âmbito impede de imediato as operações que dependem dele (ex.: exportação CSV exige o âmbito "Exportação")',
+    'consentimento.scopeSensorData': 'Dados de sensores', 'consentimento.scopeSensorDataDesc': 'Gravar as leituras de PPG/IMU/GNSS recebidas do wearable — sem este âmbito, o arranque do bridge regista a ausência mas não bloqueia (nunca corta o streaming em tempo real)',
+    'consentimento.scopeAnalytics': 'Análise/classificação', 'consentimento.scopeAnalyticsDesc': 'Usar os dados guardados para classificação de atividade e deteção de anomalias',
+    'consentimento.scopeExport': 'Exportação', 'consentimento.scopeExportDesc': 'Gerar e transferir ficheiros (CSV, FHIR) com o histórico — exigido para os botões de exportação acima funcionarem',
+    'consentimento.scopeResearch': 'Investigação', 'consentimento.scopeResearchDesc': 'Partilha de dados agregados/anonimizados para fins de investigação académica',
+    'consentimento.statusGranted': 'Concedido', 'consentimento.statusRevoked': 'Recusado/revogado', 'consentimento.statusNeverDecided': 'Ainda não decidido',
+    'consentimento.repNameLabel': 'Nome de quem decide:', 'consentimento.repNamePlaceholder': 'ex.: nome do representante/cuidador',
+    'consentimento.noteEmpty': 'Protótipo sem autenticação real (ver PROJECT_STATUS.md) — a decisão é registada como given_by="representative" com o nome introduzido acima; um sistema com contas reais associaria isto à sessão autenticada, não a um campo de texto livre.',
+    'consentimento.noBridgeConnectionHint': 'Sem ligação ao bridge — não é possível consultar nem alterar o consentimento agora.',
+    'consentimento.savingHint': 'A gravar…',
     // --- common ---
     'common.save': 'Guardar', 'common.cancel': 'Cancelar', 'common.close': 'Fechar', 'common.edit': 'Editar', 'common.delete': 'Remover', 'common.add': 'Adicionar', 'common.search': 'Pesquisar',
     'common.back': 'Voltar', 'common.confirm': 'Confirmar', 'common.today': 'Hoje',
@@ -5311,7 +5323,7 @@ TEMPLATES.tendencia = () => `
   </div>
 `;
 AFTER_RENDER.tendencia = () => { drawTrend('cvTrend2'); drawHeatmap('cvHeatmap2'); renderRealTrendTable(); requestRealTrend(7); };
-AFTER_RENDER.exportar = () => { requestRetentionSettings(); };
+AFTER_RENDER.exportar = () => { requestRetentionSettings(); requestConsentStatus(); };
 
 TEMPLATES.definicoes = () => `
   <div class="card">
@@ -6106,6 +6118,17 @@ TEMPLATES.exportar = () => `
       <span class="empty-hint" id="retentionHint" style="margin:0;"></span>
     </div>
     <p class="empty-hint">${t('exportar.retentionNoteEmpty')}</p>
+  </div>
+
+  <div class="card print-hide">
+    <div class="card-head"><div><h3>${t('consentimento.title')}</h3><div class="card-sub">${t('consentimento.subtitle')}</div></div></div>
+    <div id="consentScopesList" style="display:flex; flex-direction:column; gap:10px;"></div>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:10px;">
+      <label for="consentRepName" style="font-size:13px; color:var(--text-secondary);">${t('consentimento.repNameLabel')}</label>
+      <input id="consentRepName" type="text" style="width:220px;" class="row-input" placeholder="${t('consentimento.repNamePlaceholder')}">
+      <span class="empty-hint" id="consentHint" style="margin:0;"></span>
+    </div>
+    <p class="empty-hint">${t('consentimento.noteEmpty')}</p>
   </div>
 
   <div class="print-only" id="clinicalPrintSheet"></div>
@@ -7170,6 +7193,14 @@ function handleBridgeMessage(msg){
     handleRetentionDaysSaveResult(msg);
     return;
   }
+  if (msg.kind === 'consent_status'){
+    handleConsentStatusResult(msg);
+    return;
+  }
+  if (msg.kind === 'consent_result'){
+    handleConsentResultMessage(msg);
+    return;
+  }
   if (msg.kind === 'record'){
     // Espelha o payload real gravado pelo firmware (ImuPpgPayloadV1 /
     // FullPlain — ver storageTask em main.cpp e Ble.cpp): spo2/hr vêm a
@@ -7647,6 +7678,99 @@ function handleRetentionDaysSaveResult(msg){
     hint.style.color = 'var(--status-warning)';
     hint.textContent = `Falhou: ${msg.error || 'erro desconhecido'}.`;
   }
+}
+
+/* ------------------------------------------------------------
+   CONSENTIMENTO GRANULAR POR ÂMBITO (RGPD, 2026-08-05)
+   ------------------------------------------------------------
+   Distinto do `.consent-toggle` de "definicoes" (partilha com
+   cuidadores, guardado em localStorage) — isto lê/grava
+   `ConsentRecord` real na base de dados do bridge (ver
+   bridge/storage_advanced.py::CONSENT_SCOPES), por isso a função
+   chama-se setConsentScope() e não setConsent(), para não colidir com
+   a já existente. Cada âmbito é independente: sensor_data, analytics,
+   export, research (mesma ordem de sa.CONSENT_SCOPES).
+------------------------------------------------------------- */
+const CONSENT_SCOPES_UI = [
+  { scope: 'sensor_data', labelKey: 'consentimento.scopeSensorData', descKey: 'consentimento.scopeSensorDataDesc' },
+  { scope: 'analytics', labelKey: 'consentimento.scopeAnalytics', descKey: 'consentimento.scopeAnalyticsDesc' },
+  { scope: 'export', labelKey: 'consentimento.scopeExport', descKey: 'consentimento.scopeExportDesc' },
+  { scope: 'research', labelKey: 'consentimento.scopeResearch', descKey: 'consentimento.scopeResearchDesc' },
+];
+
+// null = ainda não chegou nenhuma resposta do bridge (distinto de "{}" =
+// chegou mas nenhum âmbito foi decidido, o que get_consent_status também
+// pode devolver por scope).
+liveState.consentStatus = null;
+
+function requestConsentStatus(){
+  const hint = document.getElementById('consentHint');
+  renderConsentScopes(); // desenha a lista já (estado "a carregar/sem ligação")
+  if (!bridgeWs || bridgeWs.readyState !== WebSocket.OPEN){
+    if (hint){ hint.style.color = 'var(--status-warning)'; hint.textContent = t('consentimento.noBridgeConnectionHint'); }
+    return;
+  }
+  sendWsCommand('get_consent_status');
+}
+
+function handleConsentStatusResult(msg){
+  const hint = document.getElementById('consentHint');
+  liveState.consentStatus = (msg.status && typeof msg.status === 'object') ? msg.status : {};
+  if (hint){
+    if (msg.error){ hint.style.color = 'var(--status-warning)'; hint.textContent = msg.error; }
+    else { hint.style.color = ''; hint.textContent = ''; }
+  }
+  renderConsentScopes();
+}
+
+function setConsentScope(scope, granted){
+  const hint = document.getElementById('consentHint');
+  const repNameInput = document.getElementById('consentRepName');
+  const representativeName = repNameInput && repNameInput.value.trim() ? repNameInput.value.trim() : undefined;
+  const sent = sendWsCommandWithArgs('set_consent', { scope, granted, representative_name: representativeName });
+  if (!sent){
+    if (hint){ hint.style.color = 'var(--status-warning)'; hint.textContent = t('consentimento.noBridgeConnectionHint'); }
+    renderConsentScopes(); // repõe o toggle visualmente (o pedido nem saiu)
+    return;
+  }
+  if (hint){ hint.style.color = ''; hint.textContent = t('consentimento.savingHint'); }
+}
+
+function handleConsentResultMessage(msg){
+  const hint = document.getElementById('consentHint');
+  if (!msg.ok){
+    if (hint){ hint.style.color = 'var(--status-warning)'; hint.textContent = `Falhou: ${msg.error || 'erro desconhecido'}.`; }
+    renderConsentScopes(); // repõe o toggle para o estado real (a gravação falhou)
+    return;
+  }
+  if (hint){ hint.style.color = 'var(--status-good)'; hint.textContent = 'Guardado.'; }
+  // Pede o estado completo de novo em vez de compor localmente — a base de
+  // dados (signed_at/version reais) é sempre a fonte de verdade, o mesmo
+  // raciocínio de handleRetentionDaysSaveResult acima.
+  sendWsCommand('get_consent_status');
+}
+
+function renderConsentScopes(){
+  const list = document.getElementById('consentScopesList');
+  if (!list) return; // vista "exportar" não está aberta
+  const status = liveState.consentStatus;
+  list.innerHTML = CONSENT_SCOPES_UI.map(({ scope, labelKey, descKey }) => {
+    const entry = status ? status[scope] : null;
+    const granted = !!(entry && entry.granted);
+    let statusText, statusColor;
+    if (!entry){ statusText = t('consentimento.statusNeverDecided'); statusColor = 'var(--text-secondary)'; }
+    else if (entry.granted){ statusText = t('consentimento.statusGranted'); statusColor = 'var(--status-good)'; }
+    else { statusText = t('consentimento.statusRevoked'); statusColor = 'var(--status-warning)'; }
+    return `
+      <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+        <label class="consent-toggle"><input type="checkbox" aria-label="${t(labelKey)}" ${granted ? 'checked' : ''} ${status ? '' : 'disabled'} onchange="setConsentScope('${scope}', this.checked)"><span></span></label>
+        <div style="min-width:180px;">
+          <div style="font-size:13px; font-weight:600;">${t(labelKey)}</div>
+          <div style="font-size:12px; color:var(--text-secondary);">${t(descKey)}</div>
+        </div>
+        <span style="font-size:12px; font-weight:600; color:${statusColor};">${statusText}</span>
+      </div>`;
+  }).join('');
 }
 
 /* ------------------------------------------------------------
