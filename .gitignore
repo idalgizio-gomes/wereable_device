@@ -47,6 +47,7 @@ bridge/tls_key.pem
 DOCUMENTACAO_TECNICA_CODIGO.md
 PRISMA_SCR_SCOPING_REVIEW.md
 PRISMA_SYSTEMATIC_REVIEW.md
+PERGUNTAS_REPETIDAS.md
 
 # Idem, mas estes 5 já estavam publicados em origin/main de sessões
 # anteriores — removidos do HEAD com commit dedicado + push em 2026-08-05
