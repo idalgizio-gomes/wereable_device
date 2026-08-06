@@ -81,10 +81,33 @@ constexpr uint16_t PPG_TASK_STACK_WORDS = 640;       // Tamanho da stack (em pal
 constexpr uint32_t FINGER_THRESHOLD = 50000;         // Valor minimo de luz IR refletida para se considerar que ha um dedo sobre o sensor.
 constexpr int32_t SPO2_BUFFER_LEN = 100;             // Numero de amostras (IR+Red) recolhidas para cada calculo de SpO2 (exigido pelo algoritmo da Maxim).
 
+// Intervalo entre verificacoes de presenca real de dedo/pulso durante o
+// streaming continuo de HR (ver checkFingerPresentBrief() e o bug que isto
+// corrige, descrito junto de g_hrFingerPresent abaixo). 2s e' um bom
+// compromisso: rapido o suficiente para deixar de aceitar batimentos
+// pouco depois do dedo sair, sem interromper o pipeline de deteccao a
+// cada amostra (10ms).
+constexpr uint32_t HR_FINGER_CHECK_INTERVAL_MS = 2000;
+constexpr byte HR_FINGER_CHECK_IR_AMPLITUDE = 60;    // Mesmo brilho usado em setupForSpo2() (ledBrightness).
+
 uint32_t g_irBuffer[SPO2_BUFFER_LEN];   // Buffer de amostras do canal infravermelho, usado so' no calculo de SpO2.
 uint32_t g_redBuffer[SPO2_BUFFER_LEN];  // Buffer de amostras do canal vermelho, usado so' no calculo de SpO2.
 bool g_hrStreaming = false;             // true quando o sensor esta configurado no modo continuo de HR (LEDs Red+IR+Green).
 uint32_t g_lastHrSampleMs = 0;          // Timestamp da ultima amostra de HR processada (para respeitar HR_SAMPLE_INTERVAL_MS).
+
+// Bug real corrigido aqui (2026-08-06, relatado pela utilizadora: "já
+// retirei do pulso e mesmo assim está repleto de falsas leituras"): o
+// streaming continuo de HR usa so' o LED verde (ver setupForHr(), que
+// desliga Red/IR de proposito, por eficiencia/sinal) e processHrSample()
+// nunca verificava presenca real de dedo — qualquer ruido/luz ambiente
+// periodica dentro da gama fisiologica plausivel (30-200bpm) e com
+// amplitude suficiente (kMinBeatPeakAmplitude) era aceite como batimento
+// valido, mesmo com a placa fora do pulso. g_hrFingerPresent guarda o
+// resultado da ultima verificacao real (IR, ver checkFingerPresentBrief())
+// e passa a ser exigido antes de aceitar qualquer batimento — ver uso em
+// ppgTask() no ramo wantHr.
+bool g_hrFingerPresent = false;
+uint32_t g_lastHrFingerCheckMs = 0;
 uint32_t g_inactOffSinceMs = 0;         // Timestamp de quando a "inactivity" deixou de ser verdadeira (usado no holdoff antes de parar o streaming de HR).
 volatile bool g_shutdownRequested = false;     // true depois de prepareForSystemOff(): a task deixa de medir definitivamente.
 volatile bool g_suspendForPowerCheck = false;  // true durante um long-press do botao de power em validacao: a task pausa temporariamente.
@@ -424,6 +447,44 @@ void setupForHr() {
   g_sensor.setPulseAmplitudeIR(0);
 }
 
+// Forward declaration: definida mais abaixo (usada tambem por
+// measureSpo2()), mas checkFingerPresentBrief() aqui precisa dela antes
+// dessa definicao aparecer no ficheiro.
+bool waitSampleAvailable(uint32_t timeoutMs);
+
+// Verificacao breve e real de presenca de dedo/pulso, para usar durante o
+// streaming continuo de HR (que normalmente corre so' com o LED verde,
+// sem nenhum gate de IR — ver g_hrFingerPresent acima). Liga o LED de IR
+// por um instante, espera estabilizar por algumas amostras, le o valor,
+// e desliga o IR outra vez (repondo o modo so'-verde de setupForHr()) —
+// interrupcao curta o suficiente (poucos ms) para nao atrapalhar
+// visivelmente a amostragem continua do canal verde.
+bool checkFingerPresentBrief() {
+  g_sensor.setPulseAmplitudeIR(HR_FINGER_CHECK_IR_AMPLITUDE);
+
+  // Bug real corrigido aqui (2026-08-06): a FIFO do sensor pode ja ter
+  // amostras por consumir de ANTES do IR ligar (gravadas so' com o LED
+  // verde, logo com IR=0) — ler a primeira amostra "disponivel" sem
+  // descartar essas dava sempre "sem dedo" (falso negativo), mesmo com a
+  // placa no pulso. Descarta ate 4 amostras residuais antes de confiar no
+  // valor lido (a 100Hz, 4 amostras = 40ms, tempo mais do que suficiente
+  // para esvaziar o que ja estava na FIFO e chegar a uma amostra genuina
+  // com o IR ja ligado).
+  for (int i = 0; i < 4; i++) {
+    if (!waitSampleAvailable(50)) break;
+    g_sensor.check();
+    g_sensor.nextSample(); // descarta — nao interessa o valor desta
+  }
+
+  uint32_t ir = 0;
+  if (waitSampleAvailable(50)) {
+    g_sensor.check();
+    ir = g_sensor.getIR();
+  }
+  g_sensor.setPulseAmplitudeIR(0); // repoe modo so'-verde para o streaming continuar
+  return ir >= FINGER_THRESHOLD;
+}
+
 // Liga o "streaming" continuo de HR (se ainda nao estiver ligado):
 // configura o sensor no modo HR (LED verde) e reinicia o temporizador de
 // amostragem. Chamada pela task quando o IMU reporta inatividade.
@@ -433,6 +494,11 @@ void startHrStreaming() {
   resetHrFilterState();
   g_hrStreaming = true;
   g_lastHrSampleMs = 0;
+  // Forca uma verificacao de dedo imediata na proxima amostra, em vez de
+  // esperar HR_FINGER_CHECK_INTERVAL_MS — sem isto, os primeiros ~2s de
+  // cada streaming novo aceitavam batimentos sem nenhuma verificacao.
+  g_lastHrFingerCheckMs = 0;
+  g_hrFingerPresent = false;
   Serial.println("[PPG] HR stream ON");
 }
 
@@ -701,6 +767,25 @@ void ppgTask(void *arg) {
         startHrStreaming();
       }
 
+      // Verificacao periodica de dedo/pulso REAL (ver checkFingerPresentBrief()
+      // e g_hrFingerPresent acima) — corrige o bug de "falsas leituras com a
+      // placa fora do pulso" (2026-08-06). So' repete a cada
+      // HR_FINGER_CHECK_INTERVAL_MS, nao a cada amostra de 10ms, para nao
+      // andar a ligar/desligar o IR constantemente.
+      if ((nowMs - g_lastHrFingerCheckMs) >= HR_FINGER_CHECK_INTERVAL_MS) {
+        g_lastHrFingerCheckMs = nowMs;
+        g_hrFingerPresent = checkFingerPresentBrief();
+        taskENTER_CRITICAL();
+        g_latest.finger_present = g_hrFingerPresent;
+        taskEXIT_CRITICAL();
+        if (!g_hrFingerPresent) {
+          // Sem dedo: reinicia o pipeline de filtros para descartar
+          // qualquer estado acumulado (ex.: um "pico" a meio de deteccao)
+          // que pudesse gerar um batimento falso mal o dedo voltasse.
+          resetHrFilterState();
+        }
+      }
+
       if ((nowMs - g_lastHrSampleMs) >= HR_SAMPLE_INTERVAL_MS) {
         g_lastHrSampleMs = nowMs;
 
@@ -708,18 +793,12 @@ void ppgTask(void *arg) {
         bool validHr = false;
         bool finger = false;
         // processHrSample() devolve sempre fingerPresent=true (pipeline HR
-        // sem gate de IR, ver comentario na propria funcao) — nao e' um
-        // sinal real de presenca de dedo, por isso NAO se propaga para
-        // g_latest.finger_present aqui. Antes propagava-se, e como esta
-        // amostragem corre a cada HR_SAMPLE_INTERVAL_MS (~10ms) contra os
-        // SPO2_INTERVAL_MS (~30s) de measureSpo2(), o valor real medido por
-        // measureSpo2() ficava praticamente sempre sobrescrito por este
-        // "true" fixo. g_latest.finger_present so' e' atualizado por
-        // measureSpo2() (unico sitio com uma deteccao real via
-        // FINGER_THRESHOLD), mais acima neste ficheiro.
+        // sem gate de IR proprio) — por isso o gate real e' feito acima,
+        // via g_hrFingerPresent (checkFingerPresentBrief()), nao com este
+        // valor de retorno.
         const bool gotBeat = processHrSample(hrBpm, validHr, finger);
 
-        if (gotBeat && validHr) {
+        if (gotBeat && validHr && g_hrFingerPresent) {
           const float hrRounded = roundf(hrBpm);
           taskENTER_CRITICAL();
           g_latest.hr_timestamp_ms = nowMs;

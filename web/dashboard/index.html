@@ -2951,7 +2951,7 @@ TEMPLATES.resumo = () => `
     ${statTile('moon',t('resumo.sleepCardTitle'),'7h 24m','', 'var(--cat-dormir)', '', true)}
     ${statTile('drop',t('resumo.nutritionCardTitle'),t('resumo.nutritionDemoValue'),'', 'var(--cat-alimentacao)', '', true)}
     ${statTile('heart',t('resumo.heartRateCardTitle'),'—','bpm', 'var(--status-good)', 'stat-hr')}
-    ${statTile('zap',t('resumo.spo2CardTitle'),'—','%', 'var(--status-good)', 'stat-spo2')}
+    ${statTile('zap',t('resumo.spo2CardTitle'),'—','%', 'var(--status-good)', 'stat-spo2', false, 'spo2-hint')}
   </div>
 
   <div class="card activity-live-card">
@@ -3385,7 +3385,7 @@ TEMPLATES.vitais = () => `
 
   <div class="stat-row">
     ${statTile('heart',t('vitais.hrCardTitle'),'—','bpm', 'var(--status-good)', 'stat-hr-2')}
-    ${statTile('zap',t('vitais.spo2CardTitle'),'—','%', 'var(--status-good)', 'stat-spo2-2')}
+    ${statTile('zap',t('vitais.spo2CardTitle'),'—','%', 'var(--status-good)', 'stat-spo2-2', false, 'spo2-hint-2')}
     ${statTile('walk',t('vitais.stepsCardTitle'),'—','', 'var(--cat-atividade)', 'stat-steps-2')}
     ${statTile('warn',t('vitais.fallsCardTitle'),'—','', 'var(--status-good)', 'stat-falls-2')}
   </div>
@@ -4273,9 +4273,19 @@ TEMPLATES.exportar = () => `
 /* ============================================================
    PEÇAS REUTILIZÁVEIS
 ============================================================ */
-function statTile(icon, label, value, unit, color, valueId, sim){
+function statTile(icon, label, value, unit, color, valueId, sim, hintId){
   const valAttr = valueId ? ` id="${valueId}"` : '';
   const simBadge = sim ? ` <span class="sim-flag" title="Classificação de rotina simulada — sem classificador HAR embarcado ainda">simulado</span>` : '';
+  // hintId (2026-08-06, pedido da utilizadora): linha extra, escondida por
+  // omissão (display:none inline — sem depender de nenhuma classe CSS
+  // nova), que applyLiveVitals() mostra quando não há leitura de HR/SpO2
+  // (placa fora do pulso ou pressão insuficiente contra a pele — ver
+  // checkFingerPresentBrief() em Ppg.cpp, é exatamente esse sinal que
+  // liveState.hr/spo2==null reflete agora). Só usado pelos tiles de
+  // HR/SpO2 (hintId omitido nos restantes, que não precisam disto).
+  const hintHtml = hintId
+    ? `<div class="stat-hint" id="${hintId}" style="display:none;font-size:.75rem;color:var(--status-warning);margin-top:2px;"></div>`
+    : '';
   return `
     <div class="stat-tile">
       <div class="top">
@@ -4283,6 +4293,7 @@ function statTile(icon, label, value, unit, color, valueId, sim){
       </div>
       <div class="label">${label}${simBadge}</div>
       <div class="value"${valAttr}>${value}${unit ? `<span class="unit">${unit}</span>` : ''}</div>
+      ${hintHtml}
     </div>`;
 }
 
@@ -5252,6 +5263,26 @@ function applyLiveVitals(){
 
   setVal('stat-hr', hrText); setVal('stat-hr-2', hrText);
   setVal('stat-spo2', spo2Text); setVal('stat-spo2-2', spo2Text);
+
+  // Mensagem pedida pela utilizadora (2026-08-06): quando o HR está a
+  // chegar (prova que o sensor tem contacto/dedo — ver
+  // checkFingerPresentBrief() em Ppg.cpp) mas o SpO2 continua nulo, é
+  // provável que o sensor ainda não tenha conseguido um sinal
+  // suficientemente estável para o cálculo de SpO2 especificamente
+  // (mais sensível a movimento/pressão do que o HR). Só aparece nesta
+  // combinação exata — HR presente, SpO2 ausente — não noutros casos
+  // (ex.: os dois nulos, que já é coberto pelo "—" normal dos tiles).
+  const spo2NeedsHint = liveState.hr != null && liveState.spo2 == null;
+  const spo2HintText = spo2NeedsHint
+    ? 'A ler HR mas sem SpO2 ainda — tenta manter a placa bem encostada ao pulso, sem mover a mão.'
+    : '';
+  ['spo2-hint', 'spo2-hint-2'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = spo2HintText;
+    el.style.display = spo2NeedsHint ? '' : 'none';
+  });
+
   setVal('stat-steps-2', liveState.steps != null ? liveState.steps.toLocaleString(currentLang) : '—');
   setVal('stat-movement', liveState.inactivity ? t('resumo.movementStill') : t('resumo.movementActive'));
   setVal('stat-falls-2', liveState.freefall ? `⚠ ${t('resumo.fallsRecentDetection')}` : '0');
