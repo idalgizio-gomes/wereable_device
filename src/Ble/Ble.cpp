@@ -1179,8 +1179,22 @@ void gattDumpTask(void *arg) {
     }
 
     s_dumpWindowImmediate = false;
-    lastWindowMs = now;
     lastWaitLogMs = now;
+    // Bug real corrigido aqui (2026-08-06, investigado por um subagente a
+    // pedido da utilizadora: ring_count do backlog historico estava a
+    // CRESCER em vez de encolher, mesmo com o catch-up ativo). Antes,
+    // lastWindowMs era atualizado AQUI, logo no inicio da janela — se o
+    // primeiro notify() desta janela falhasse (backpressure normal do
+    // SoftDevice, ver kGattDumpTxMaxRetries abaixo), o `for` de envio
+    // abortava (break) quase de imediato, mas dueByInterval (mais acima)
+    // só voltava a ficar true passado kGattDumpWindowMs (1s) DESSE
+    // instante inicial — desperdicando quase 1s inteiro sempre que uma
+    // janela abortava cedo. Isto piora com o catch-up ativo (ate 3x mais
+    // fragmentos/seg, mais chance de saturar a fila), tornando-o
+    // contraproducente. Agora lastWindowMs só é atualizado DEPOIS do
+    // envio desta janela terminar (ver mais abaixo, apos o `for`), para
+    // a proxima janela poder arrancar assim que esta acabar de trabalhar,
+    // nao 1s depois de ter COMEÇADO a trabalhar.
     // Estes prints corriam sem controlo a cada janela (1x/segundo durante
     // qualquer transferencia ativa), competindo por CPU/USB com as tasks
     // de IMU/PPG em tempo real. Passam a seguir o mesmo interruptor
@@ -1277,6 +1291,11 @@ void gattDumpTask(void *arg) {
         vTaskDelay(0);
       }
     }
+
+    // Ver comentario junto de "s_dumpWindowImmediate = false;" acima: o
+    // temporizador da janela so' avanca AGORA, depois do envio terminar
+    // (com sucesso, falha, ou abortado por disconnect) — nao no inicio.
+    lastWindowMs = millis();
 
     if (sentInWindow > 0 && Bluefruit.connected() > 0) {
       publishDumpStatus(DUMP_STREAMING, 2, s_dumpPendingSeq);
