@@ -5283,6 +5283,24 @@ function applyLiveVitals(){
     el.style.display = spo2NeedsHint ? '' : 'none';
   });
 
+  // Bug real corrigido aqui (2026-08-06, relatado pela utilizadora com
+  // captura de ecrã: topbar mostrava "Wearable ligado" mas o painel de
+  // Sinais Vitais continuava preso em "Sem ligação ao bridge — liga o
+  // dispositivo primeiro."): esse texto só é escrito por
+  // toggleContinuousHr()/resetPendingCommandButtons() no MOMENTO em que a
+  // ligação cai — nada o repunha depois de a ligação voltar. applyLiveVitals()
+  // só corre com liveState.connected true (ver early return no topo desta
+  // função), por isso este é o sítio certo para repor o hint ao texto
+  // normal — mas só se não houver uma medição/countdown genuíno em curso
+  // (senão apagava "a medir…"/"modo contínuo ativo" por engano).
+  const forceHintEl = document.getElementById('forceReadingHint');
+  const forceBtnEl = document.getElementById('forceReadingBtn');
+  const noCountdownActive = forceReadingIntervalId == null && continuousHrIntervalId == null;
+  if (forceHintEl && forceBtnEl && !forceBtnEl.disabled && noCountdownActive) {
+    forceHintEl.style.color = '';
+    forceHintEl.textContent = t('vitais.forceReadingHint');
+  }
+
   setVal('stat-steps-2', liveState.steps != null ? liveState.steps.toLocaleString(currentLang) : '—');
   setVal('stat-movement', liveState.inactivity ? t('resumo.movementStill') : t('resumo.movementActive'));
   setVal('stat-falls-2', liveState.freefall ? `⚠ ${t('resumo.fallsRecentDetection')}` : '0');

@@ -650,6 +650,11 @@ class BleBridge:
         # maximo RECORD_BROADCAST_MIN_INTERVAL_S; registos com HR/SpO2
         # novos sao sempre enviados de imediato (sao raros e importantes).
         self._last_broadcast_monotonic = 0.0
+        # true assim que a subscricao a liveSnapshotChar tiver sucesso nesta
+        # ligacao (ver run_device_loop) — usado para decidir ONDE avaliar
+        # os alertas de sinais vitais (ver comentario junto de
+        # _maybe_broadcast_vital_alert() nos dois callbacks de dados).
+        self._live_snapshot_available = False
         # Referencia ao cliente BLE atualmente ligado (ou None), para que
         # comandos vindos do dashboard (ver ws_handler) possam escrever em
         # dumpCtrlChar sem precisar de re-ligar. So e' valida enquanto
@@ -958,6 +963,23 @@ class BleBridge:
             # caminho histórico, não repete o aviso aqui.
             return
 
+        # Avalia os alertas de sinais vitais AQUI, não no dump histórico
+        # (ver comentário junto de _maybe_broadcast_vital_alert() em
+        # _on_dump_data para o bug real que isto corrige) — este
+        # instantâneo é sempre o mais recente disponível no dispositivo,
+        # por isso é a fonte certa para "o paciente está bem AGORA?".
+        if self.orm:
+            has_new_vital = record["hr"] is not None or record["spo2"] is not None
+            if has_new_vital:
+                try:
+                    thresholds = self.orm.get_thresholds()
+                    if record["hr"] is not None:
+                        self._maybe_broadcast_vital_alert("hr", vital_alerts.evaluate_hr(record["hr"], thresholds), thresholds)
+                    if record["spo2"] is not None:
+                        self._maybe_broadcast_vital_alert("spo2", vital_alerts.evaluate_spo2(record["spo2"], thresholds), thresholds)
+                except Exception as exc:  # noqa: BLE001 - nunca deve travar o streaming
+                    print(f"[BRIDGE] erro na avaliacao de sinais vitais (instantaneo ao vivo): {exc}")
+
         asyncio.create_task(self.broadcast({"kind": "live_record", "rec_seq": rec_seq, **record}))
 
     def _on_dump_data(self, _char: BleakGATTCharacteristic, data: bytearray) -> None:
@@ -1094,7 +1116,20 @@ class BleBridge:
         # records, não representam "voltou ao normal"). Nunca bloqueia o
         # streaming: qualquer erro é apanhado e só impede este alerta em
         # concreto, nunca o resto de _on_dump_data.
-        if self.orm and has_new_vital:
+        # Bug real corrigido aqui (2026-08-06, relatado pela utilizadora com
+        # captura de ecrã: mostrador ao vivo dizia HR=111bpm, mas o alerta
+        # dizia "35bpm — abaixo do limiar"): esta funcao (_on_dump_data)
+        # processa o DUMP HISTORICO, que entrega registos em ordem
+        # cronologica desde o backlog acumulado (por vezes minutos/horas
+        # antigos, ver "armazenamento cheio" no dashboard) — avaliar
+        # alertas aqui significa alertar com base numa leitura ANTIGA,
+        # nao no estado atual do paciente. Quando o instantaneo ao vivo
+        # (liveSnapshotChar) esta disponivel nesta ligacao, os alertas
+        # passam a ser avaliados so' a partir dele (ver _on_live_snapshot),
+        # que reflete sempre o mais recente. Mantido aqui como reserva
+        # apenas para firmware antigo sem liveSnapshotChar (ver
+        # self._live_snapshot_available).
+        if self.orm and has_new_vital and not self._live_snapshot_available:
             try:
                 thresholds = self.orm.get_thresholds()
                 if record["hr"] is not None:
@@ -1403,7 +1438,9 @@ class BleBridge:
                     # (fica limitado ao dump historico, ver PROJECT_STATUS.md).
                     try:
                         await client.start_notify(UUID_LIVE_SNAPSHOT, self._on_live_snapshot)
+                        self._live_snapshot_available = True
                     except Exception as exc:  # noqa: BLE001 - nao bloqueia o resto da ligacao
+                        self._live_snapshot_available = False
                         print(f"[BRIDGE] nao foi possivel subscrever liveSnapshotChar "
                               f"(normal em firmware antigo sem esta characteristic): {exc}")
                     # Battery Level (0x2A19) — so existe em firmware a partir de
