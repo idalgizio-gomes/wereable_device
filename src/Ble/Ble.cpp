@@ -999,6 +999,44 @@ void sendLiveSnapshot() {
   FullMappedRecord mapped{};
   if (!mapRingRecordToFull(rec, mapped)) return; // tipo/tamanho inesperado — ignora, tenta de novo no proximo tick
 
+  // Bug real corrigido aqui (2026-08-06, relatado pela utilizadora: "estou
+  // com a placa no pulso e esta a identificar as leituras" mas o dashboard
+  // continuava com hr/spo2 a null): o registo mais recente do ring buffer
+  // (o que peekLatest() acabou de ler acima) e' quase sempre uma amostra
+  // SO' de IMU — o storage_task em main.cpp grava a 52 Hz e so' preenche
+  // hr/spo2 (em vez do sentinela 0="sem leitura nova") na rara amostra em
+  // que uma leitura PPG nova ficou disponivel nesse instante exato (ver
+  // comentario "a maioria das amostras de IMU nao tera dados de PPG
+  // associados" em main.cpp). Como sendLiveSnapshot() corre 1x/segundo e
+  // pega SEMPRE no registo mais recente, a probabilidade de calhar
+  // exatamente na amostra com PPG e' quase nula — na pratica o
+  // instantaneo ao vivo enviava hr=0/spo2=0 quase sempre, mesmo com o
+  // sensor a detetar batimentos reais (visiveis no log serie).
+  //
+  // Correcao: perguntar diretamente ao modulo Ppg pela sua ultima leitura
+  // conhecida (Ppg::getLatest(), independente do que ja foi "consumido"
+  // para o ring buffer por main.cpp) e usa-la para substituir hr/spo2 do
+  // registo, sempre que for valida — assim o instantaneo ao vivo mostra
+  // sempre a leitura mais recente disponivel, nao só a que calhou de
+  // coincidir com este tick exato. mapped.payload.hr/spo2 continuam 0
+  // quando o Ppg ainda nao tem nenhuma leitura valida (arranque, sem
+  // dedo), preservando o comportamento existente nesse caso.
+  Ppg::Metrics ppgLatest{};
+  if (Ppg::getLatest(ppgLatest)) {
+    if (ppgLatest.hr_valid) {
+      long hrRounded = lroundf(ppgLatest.hr_bpm);
+      if (hrRounded < INT16_MIN) hrRounded = INT16_MIN;
+      if (hrRounded > INT16_MAX) hrRounded = INT16_MAX;
+      mapped.payload.hr = (int16_t)hrRounded;
+    }
+    if (ppgLatest.spo2_valid) {
+      long spo2Clamped = ppgLatest.spo2_value;
+      if (spo2Clamped < INT16_MIN) spo2Clamped = INT16_MIN;
+      if (spo2Clamped > INT16_MAX) spo2Clamped = INT16_MAX;
+      mapped.payload.spo2 = (int16_t)spo2Clamped;
+    }
+  }
+
   uint64_t nonce64 = 0;
   if (!allocateNonce(nonce64)) return; // falha ja avisada pelo proprio allocateNonce() (chave AES invalida ou espaco de nonces esgotado)
   const uint32_t nonce = (uint32_t)(nonce64 & 0xFFFFFFFFULL);
