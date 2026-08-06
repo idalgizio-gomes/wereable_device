@@ -208,6 +208,12 @@ UUID_DUMP_DATA = "abcd1234-5678-1234-5678-abcdef200002"
 UUID_DUMP_STATUS = "abcd1234-5678-1234-5678-abcdef200003"
 UUID_EMERGENCY_ALERT = "abcd1234-5678-1234-5678-abcdef200004"
 UUID_EMERGENCY_PROFILE_WRITE = "abcd1234-5678-1234-5678-abcdef200005"
+# liveSnapshotChar (2026-08-06) — instantâneo ao vivo do registo mais
+# recente do ring buffer, independente do atraso do dump histórico em
+# UUID_DUMP_DATA (ver Ble.cpp, sendLiveSnapshot()/PROJECT_STATUS.md). Só
+# existe em firmwares a partir desta data; subscrever é tolerante a
+# falha (ver run_device_loop), tal como Battery Level acima.
+UUID_LIVE_SNAPSHOT = "abcd1234-5678-1234-5678-abcdef200007"
 # Battery Level (0x2A19) — Battery Service padrão do Bluetooth SIG (0x180F),
 # publicada pelo firmware via Ble::updateBatteryLevel()/BLEBas (ver
 # Battery.h/Ble.cpp, 2026-07-19). UUID padrão, não um dos "abcd1234..."
@@ -627,6 +633,11 @@ class BleBridge:
     def __init__(self):
         self.ws_clients: set[websockets.ServerConnection] = set()
         self._pending_fragments: dict[int, dict] = {}
+        # Dicionário PRÓPRIO para o instantâneo ao vivo (liveSnapshotChar,
+        # 2026-08-06) — deliberadamente separado de _pending_fragments, ver
+        # _on_live_snapshot() para o porquê (mesmo rec_seq pode aparecer nos
+        # dois canais, dicionários separados evitam contaminação cruzada).
+        self._live_pending_fragments: dict[int, dict] = {}
         self.connected_device_name: Optional[str] = None
         self.connected_device_mac: Optional[str] = None
         self.last_record_ts: Optional[int] = None
@@ -859,6 +870,95 @@ class BleBridge:
                  if now - e["created_at"] > self.PENDING_FRAGMENT_TIMEOUT_S]
         for seq in stale:
             del self._pending_fragments[seq]
+
+    def _prune_stale_live_fragments(self) -> None:
+        """Mesma lógica de `_prune_stale_fragments()`, mas sobre
+        `_live_pending_fragments` (canal do instantâneo ao vivo,
+        deliberadamente separado — ver `_on_live_snapshot`)."""
+        now = time.monotonic()
+        stale = [seq for seq, e in self._live_pending_fragments.items()
+                 if now - e["created_at"] > self.PENDING_FRAGMENT_TIMEOUT_S]
+        for seq in stale:
+            del self._live_pending_fragments[seq]
+
+    def _on_live_snapshot(self, _char: BleakGATTCharacteristic, data: bytearray) -> None:
+        """Callback de notificação da characteristic liveSnapshotChar
+        (2026-08-06, ver Ble.cpp::sendLiveSnapshot()) — mesmo formato de
+        fragmento (DumpDataPacket) e cifra do dump histórico
+        (_on_dump_data), mas um "instantâneo" independente do registo
+        mais recente do ring buffer do dispositivo, sem consumir nada
+        dele.
+
+        Existe para resolver um problema real (ver PROJECT_STATUS.md,
+        2026-08-06): o dump histórico (UUID_DUMP_DATA/_on_dump_data)
+        entrega tudo em ordem cronológica, do mais antigo para o mais
+        recente, sem nunca perder dados — mas isso significa que, se o
+        dispositivo gravou muito tempo sem BLE ligado, o dashboard só
+        via dados de minutos atrás, nunca "agora". Este canal dá acesso
+        imediato ao mais recente, em paralelo, sem interferir com o
+        histórico.
+
+        Deliberadamente NÃO participa na persistência (`insert_sensor_
+        record`) nem na classificação de atividade (que precisa de
+        janelas contínuas de ~10s, não de instantâneos avulsos e
+        possivelmente repetidos) — o dump histórico continua a ser a
+        ÚNICA fonte de verdade gravada em `sensor_records`; este canal
+        só difunde ao dashboard como "isto é agora". A reassemblagem
+        usa um dicionário PRÓPRIO (`_live_pending_fragments`),
+        deliberadamente separado de `_pending_fragments` — os dois
+        canais referem-se ao mesmo ring buffer de origem e podem, por
+        coincidência, usar o mesmo rec_seq em momentos próximos;
+        dicionários separados evitam qualquer contaminação cruzada.
+        """
+        if len(data) < 12:
+            return
+        _type, frag_idx, frag_total, chunk_len = data[0], data[1], data[2], data[3]
+        rec_seq = struct.unpack_from("<I", data, 4)[0]
+        nonce = struct.unpack_from("<I", data, 8)[0]
+        chunk = bytes(data[12:12 + chunk_len])
+
+        if frag_total == 0 or not (0 <= frag_idx < frag_total):
+            print(f"[BRIDGE] instantaneo ao vivo: fragmento com frag_idx={frag_idx} invalido "
+                  f"(frag_total={frag_total}, rec_seq={rec_seq}) — descartado")
+            return
+
+        entry = self._live_pending_fragments.setdefault(
+            rec_seq, {"total": frag_total, "nonce": nonce, "parts": {}, "created_at": time.monotonic()}
+        )
+        entry["parts"][frag_idx] = chunk
+
+        if len(entry["parts"]) < entry["total"]:
+            self._prune_stale_live_fragments()
+            return  # ainda faltam fragmentos deste instantâneo
+
+        try:
+            cipher_full = b"".join(entry["parts"][i] for i in range(entry["total"]))
+        except KeyError:
+            print(f"[BRIDGE] instantaneo ao vivo rec_seq={rec_seq}: fragmentos completos em "
+                  f"contagem mas com indices em falta — descartado")
+            del self._live_pending_fragments[rec_seq]
+            return
+        record_nonce = entry["nonce"]
+        del self._live_pending_fragments[rec_seq]
+
+        if len(cipher_full) != FULL_PLAIN_STRUCT.size:
+            print(f"[BRIDGE] instantaneo ao vivo rec_seq={rec_seq} com tamanho inesperado "
+                  f"({len(cipher_full)} bytes, esperado {FULL_PLAIN_STRUCT.size}) — ignorado")
+            return
+
+        if self.aes_key is None:
+            return  # já avisado uma vez pelo caminho histórico (_on_dump_data)
+
+        full = decrypt_full_plain(self.aes_key, record_nonce, cipher_full)
+        record = decode_full_plain(full)
+
+        if not is_plausible_full_plain(record):
+            # Ver is_plausible_full_plain()/_on_dump_data para o porquê
+            # (quase sempre chave/nonce errada) — já avisado uma vez pelo
+            # caminho histórico, não repete o aviso aqui.
+            return
+
+        asyncio.create_task(self.broadcast({"kind": "live_record", "rec_seq": rec_seq, **record}))
 
     def _on_dump_data(self, _char: BleakGATTCharacteristic, data: bytearray) -> None:
         """Callback de notificação da characteristic dumpDataChar.
@@ -1295,6 +1395,17 @@ class BleBridge:
                         await client.start_notify(UUID_EMERGENCY_ALERT, self._on_emergency_alert)
                     except Exception as exc:  # noqa: BLE001 - nao bloqueia o resto da ligacao
                         print(f"[BRIDGE] nao foi possivel subscrever emergencyAlertChar: {exc}")
+                    # liveSnapshotChar (2026-08-06) — so existe em firmware a
+                    # partir desta data; tolerante a falha para nao quebrar a
+                    # ligacao com firmware mais antigo (mesmo padrao que
+                    # Battery Level abaixo). Sem isto, o dashboard continua a
+                    # funcionar normalmente, so sem o "instantaneo ao vivo"
+                    # (fica limitado ao dump historico, ver PROJECT_STATUS.md).
+                    try:
+                        await client.start_notify(UUID_LIVE_SNAPSHOT, self._on_live_snapshot)
+                    except Exception as exc:  # noqa: BLE001 - nao bloqueia o resto da ligacao
+                        print(f"[BRIDGE] nao foi possivel subscrever liveSnapshotChar "
+                              f"(normal em firmware antigo sem esta characteristic): {exc}")
                     # Battery Level (0x2A19) — so existe em firmware a partir de
                     # 2026-07-19 (ver Battery.h/Ble.cpp); tolerante a falha para
                     # nao quebrar a ligacao com firmware mais antigo que ainda

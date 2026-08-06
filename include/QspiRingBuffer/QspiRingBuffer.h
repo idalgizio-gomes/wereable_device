@@ -110,6 +110,23 @@ bool push(uint16_t type, const uint8_t *payload, uint16_t len, uint32_t timestam
 // Retorna false se o buffer estiver vazio ou nao tiver sido inicializado.
 bool peek(Record &out);
 
+// Le o registo mais RECENTE do buffer (head-1) sem o remover e SEM
+// avancar tail/count — ao contrario de peek()/pop()/advanceTail(), nao
+// consome nada do buffer, por isso pode ser chamada tantas vezes quantas
+// se quiser (ex.: uma vez por segundo, para um "instantaneo ao vivo") sem
+// interferir com o esvaziamento sequencial feito por advanceTail()/pop()
+// a partir do tail (ver Ble.cpp, dumpTask: o dump historico continua a
+// entregar tudo em ordem cronologica, do mais antigo para o mais
+// recente; peekLatest() existe para dar acesso independente ao "agora",
+// mesmo que o dump historico esteja com um atraso grande por escoar).
+// Adicionada 2026-08-06 para resolver exatamente esse caso: um atraso
+// acumulado no ring buffer (ex.: dispositivo a gravar horas sem BLE
+// ligado) fazia o dashboard mostrar sempre dados antigos, nunca ao vivo,
+// porque so existia este unico cursor de leitura (tail), sempre
+// sequencial. Retorna false se o buffer estiver vazio ou nao tiver sido
+// inicializado.
+bool peekLatest(Record &out);
+
 // Le e remove o registo mais antigo do buffer (tail), avancando o
 // indice de tail. Se encontrar um slot corrompido (falha de CRC ou
 // magic invalido) durante a leitura, descarta-o silenciosamente e tenta

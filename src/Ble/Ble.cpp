@@ -48,6 +48,9 @@
 //   dados dos sensores (fragmentados) sao enviados ao telemovel.
 // - dumpStatusChar: characteristic de notificacao/leitura com o estado
 //   atual da transmissao (streaming/idle, contagens, motivo do estado).
+// - liveSnapshotChar (2026-08-06): notificacao periodica (~1/seg) do
+//   registo mais recente do ring buffer, independente do atraso do dump
+//   historico em dumpDataChar — ver comentario junto da sua declaracao.
 static BLEService        wearableService("12345678-1234-5678-1234-56789abcdef0");
 static BLECharacteristic aesKeyChar     ("abcd1234-5678-1234-5678-abcdef123456");
 static BLEService        currentTimeService(UUID16_SVC_CURRENT_TIME);
@@ -73,6 +76,19 @@ static BLECharacteristic emergencyAlertChar("abcd1234-5678-1234-5678-abcdef20000
 // poder escrever diretamente no valor "servido" sem passar por Storage.
 static BLECharacteristic emergencyProfileWriteChar("abcd1234-5678-1234-5678-abcdef200005");
 static BLECharacteristic emergencyProfileChar     ("abcd1234-5678-1234-5678-abcdef200006");
+// liveSnapshotChar (2026-08-06): notificacao dedicada a um "instantaneo
+// ao vivo" do registo mais recente do ring buffer (QspiRingBuffer::
+// peekLatest()), independente do atraso do dump historico em
+// dumpDataChar. Resolve o caso em que o dispositivo passou tempo a
+// gravar sem BLE ligado: dumpDataChar continua a entregar tudo em ordem
+// cronologica a partir do mais antigo (nunca perde dados), mas isso
+// significa que pode passar minutos so' a mostrar dados antigos ate'
+// apanhar o atraso — liveSnapshotChar existe so' para dar ao
+// bridge/dashboard o "agora" imediatamente, em paralelo, sem interferir
+// com o esvaziamento sequencial do historico. Mesmo formato de pacote
+// (DumpDataPacket, fragmentado/cifrado da mesma forma) para reaproveitar
+// o codigo de descodificacao ja existente no bridge (decode_full_plain).
+static BLECharacteristic liveSnapshotChar         ("abcd1234-5678-1234-5678-abcdef200007");
 // batteryService: servico PADRAO do Bluetooth SIG "Battery Service"
 // (UUID16 0x180F, characteristic "Battery Level" 0x2A19), atraves da
 // classe BLEBas ja fornecida pela biblioteca Bluefruit (ver
@@ -147,12 +163,61 @@ constexpr uint8_t kGattDumpTxMaxRetries = 5;
 constexpr uint32_t kGattDumpTxRetryDelayMs = 4;
 constexpr uint32_t kGattDumpWindowMs = 1000; // envio continuo: 1 segundo
 constexpr uint32_t kImuRateHz = 52;
-constexpr uint32_t kWindowTargetRecords = (kImuRateHz * kGattDumpWindowMs) / 1000U; // 52
+constexpr uint32_t kWindowTargetRecords = (kImuRateHz * kGattDumpWindowMs) / 1000U; // 52 - ritmo normal, sem atraso a recuperar
+
+// Catch-up do dump historico (2026-08-06, confirmado pela utilizadora e
+// por medicao real em hardware: ring_count ficava estavel ~32.650
+// registos, ~10 min de atraso, porque kWindowTargetRecords=52 iguala
+// EXATAMENTE kImuRateHz — o envio nunca pode ir mais depressa do que os
+// dados sao produzidos, por isso um atraso ja acumulado (ex.: dispositivo
+// a gravar sem BLE ligado) fica constante para sempre, nunca esvazia
+// sozinho). O instantaneo ao vivo (liveSnapshotChar/sendLiveSnapshot(),
+// ver acima) ja resolve o problema de o DASHBOARD mostrar dados
+// desatualizados — isto aqui resolve o problema complementar: sem
+// catch-up, a BASE DE DADOS (sensor_records, via dump historico) tambem
+// nunca mais fica completa/atualizada, so o "agora" e' que passa a
+// aparecer certo.
+//
+// Quando o atraso (ring_count) ultrapassar kCatchUpBacklogRecords, a
+// janela pode enviar ate kWindowCatchUpTargetRecords em vez de
+// kWindowTargetRecords, para recuperar terreno SEM NUNCA descartar
+// registos (continua peek->send->advanceTail, um registo de cada vez,
+// exatamente como antes — só o limite por janela muda). O multiplicador
+// (kWindowCatchUpMultiplier) e' conservador e NAO FOI VALIDADO em
+// throughput real de BLE por mim — a logica de falha/retry ja existente
+// (sendDumpPendingRecord() a falhar -> break do for, mais abaixo) e' a
+// rede de seguranca: se o link BLE nao aguentar este ritmo, a janela
+// simplesmente envia menos e tenta mais na proxima, nunca bloqueia nem
+// perde dados — mas convem confirmar no log (kGattDumpVerboseLogs=true
+// temporariamente, ou o proprio dumpStatusChar reason=6) que nao ha uma
+// taxa de retry anormal antes de considerar aumentar ainda mais.
+constexpr uint32_t kCatchUpBacklogRecords = kWindowTargetRecords * 10; // ~520 registos (~10s de atraso) ja conta como "atrasado"
+constexpr uint32_t kWindowCatchUpMultiplier = 3;                       // 3x o ritmo normal em catch-up
+constexpr uint32_t kWindowCatchUpTargetRecords = kWindowTargetRecords * kWindowCatchUpMultiplier; // 156/s em catch-up
+
 constexpr uint32_t kDumpStatusEveryRecords = 128;
 constexpr uint32_t kGattDumpInterRecordMs = 0;
 constexpr uint32_t kGattDumpWaitLogMs = 2000;
 constexpr uint32_t kGattDumpIdleLogMs = 5000;
 constexpr uint32_t kBleProvisionWaitLogMs = 5000;
+
+// Tempo maximo (ms) que um central pode ficar ligado durante o
+// provisioning (espera pela chave AES ou pela hora) sem completar a
+// escrita esperada, antes de ser desconectado a forca.
+//
+// Porque existe (2026-08-06): sem isto, waitForProvisionWrite() ficava
+// preso para sempre em `while (!arrivedFlag)` sempre que HOUVESSE algum
+// central ligado — mesmo que nao fosse o bridge real. Isto aconteceu na
+// pratica: apos um reflash, o Windows reconectou automaticamente ao
+// dispositivo (por estar bonded de uma sessao anterior) sem o script
+// ble_bridge.py estar a correr para escrever a chave/hora — a placa
+// ficava a imprimir "wait TIME... connected=1" indefinidamente, nunca
+// mais reabria o advertising para o bridge real se conseguir ligar. Com
+// este timeout, esse central "errado" e desconectado ao fim de
+// kProvisionCentralTimeoutMs, o advertising volta a correr
+// (restartOnDisconnect(true) ja esta ativo) e o bridge real consegue
+// ligar-se assim que arrancar.
+constexpr uint32_t kProvisionCentralTimeoutMs = 15000;
 constexpr bool kGattDumpVerboseLogs = false;
 // Reduzido de 12 para 8 bytes (2026-07-07, ver "Cifra AES-CTR do modo de
 // dados" abaixo): o pacote DumpDataPacket ganhou um campo "nonce" (4 bytes,
@@ -907,6 +972,74 @@ bool sendDumpPendingRecord() {
   return true;
 }
 
+// Envia, sem consumir o ring buffer, uma "fotografia" do registo mais
+// recente pela characteristic liveSnapshotChar — ver comentario junto da
+// sua declaracao acima para o porque de existir em paralelo ao dump
+// historico (dumpDataChar). Reutiliza deliberadamente o mesmo formato de
+// pacote/cifra (DumpDataPacket, encryptRecord(), allocateNonce() — MESMO
+// contador de nonce partilhado com o caminho historico, o que e' seguro:
+// a unica regra e' nunca repetir um nonce com a mesma chave, nao importa
+// qual dos dois caminhos o consome), mas com o seu proprio (pequeno)
+// laco de fragmentacao em vez de reutilizar sendDumpPendingRecord()
+// diretamente — essa funcao depende de estado global (s_dumpPending*)
+// pensado para o fluxo "peek -> envia -> so' entao avanca tail" do
+// historico, que nao se aplica aqui (nunca ha' tail a avancar). Ao
+// contrario do caminho historico, NAO tem retries: se este instantaneo
+// em concreto falhar (fila de notificacoes cheia), nao vale a pena
+// insistir — o proximo tick (~1s depois, ver dumpTask) manda um mais
+// recente na mesma, e o registo em si nunca se perde (continua no ring
+// buffer para o dump historico o entregar mais tarde, atraves do
+// caminho normal).
+void sendLiveSnapshot() {
+  if (Bluefruit.connected() == 0) return;
+
+  QspiRingBuffer::Record rec{};
+  if (!QspiRingBuffer::peekLatest(rec)) return; // buffer ainda vazio (nenhuma amostra gravada ainda)
+
+  FullMappedRecord mapped{};
+  if (!mapRingRecordToFull(rec, mapped)) return; // tipo/tamanho inesperado — ignora, tenta de novo no proximo tick
+
+  uint64_t nonce64 = 0;
+  if (!allocateNonce(nonce64)) return; // falha ja avisada pelo proprio allocateNonce() (chave AES invalida ou espaco de nonces esgotado)
+  const uint32_t nonce = (uint32_t)(nonce64 & 0xFFFFFFFFULL);
+
+  const uint8_t *sample = reinterpret_cast<const uint8_t *>(&mapped.payload);
+  constexpr size_t kSampleLen = sizeof(FullPlain);
+  uint8_t cipherBuf[kSampleLen];
+  if (!encryptRecord(nonce, sample, cipherBuf, kSampleLen)) return;
+
+  const uint8_t fragTotal = (uint8_t)((kSampleLen + kGattDumpChunkLen - 1) / kGattDumpChunkLen);
+  for (uint8_t fragIdx = 0; fragIdx < fragTotal; fragIdx++) {
+    const size_t offset = (size_t)fragIdx * kGattDumpChunkLen;
+    const size_t remain = kSampleLen - offset;
+    const uint8_t chunkLen = (uint8_t)((remain > kGattDumpChunkLen) ? kGattDumpChunkLen : remain);
+
+    DumpDataPacket pkt{};
+    pkt.type = kDumpDataType;
+    pkt.frag_idx = fragIdx;
+    pkt.frag_total = fragTotal;
+    pkt.chunk_len = chunkLen;
+    pkt.rec_seq = mapped.rec_seq;
+    pkt.nonce = nonce;
+    memcpy(pkt.chunk, cipherBuf + offset, chunkLen);
+
+    const uint8_t *rawPkt = reinterpret_cast<const uint8_t *>(&pkt);
+    if (!liveSnapshotChar.notify(rawPkt, sizeof(pkt))) {
+      if (kGattDumpVerboseLogs) {
+        Serial.print("[BLEG][LIVE] FAIL frag=");
+        Serial.print((int)fragIdx + 1);
+        Serial.print("/");
+        Serial.println((int)fragTotal);
+      }
+      return; // sem retry de proposito — ver comentario da funcao acima
+    }
+  }
+  if (kGattDumpVerboseLogs) {
+    Serial.print("[BLEG][LIVE] SENT rec_seq=");
+    Serial.println(mapped.rec_seq);
+  }
+}
+
 // Tarefa FreeRTOS de fundo (baixa prioridade) que implementa a maquina
 // de estados do streaming de dados por GATT. Corre indefinidamente e é
 // pilotada por flags partilhadas (s_dumpStartRequested/StopRequested)
@@ -1022,15 +1155,24 @@ void gattDumpTask(void *arg) {
       Serial.println(ringBefore);
     }
 
+    // Catch-up (2026-08-06, ver comentario completo junto de
+    // kCatchUpBacklogRecords acima): so' acelera quando ha' um atraso real
+    // por escoar — em regime normal (ringBefore pequeno) o comportamento
+    // e' identico ao de antes, kWindowTargetRecords=52.
+    const uint32_t windowRecordCap = (ringBefore > kCatchUpBacklogRecords)
+        ? kWindowCatchUpTargetRecords
+        : kWindowTargetRecords;
+    const bool inCatchUp = (windowRecordCap == kWindowCatchUpTargetRecords);
+
     uint32_t targetRecords = ringBefore;
-    if (targetRecords > kWindowTargetRecords) {
-      targetRecords = kWindowTargetRecords;
+    if (targetRecords > windowRecordCap) {
+      targetRecords = windowRecordCap;
     }
     if (kGattDumpVerboseLogs) {
       Serial.print("[BLEG][DUMP] target_records=");
       Serial.print(targetRecords);
-      Serial.print(" (52Hz x 1s = ");
-      Serial.print(kWindowTargetRecords);
+      Serial.print(inCatchUp ? " (catch-up, cap=" : " (cap=");
+      Serial.print(windowRecordCap);
       Serial.println(")");
     }
 
@@ -1107,6 +1249,15 @@ void gattDumpTask(void *arg) {
       Serial.print(" ring_count_after=");
       Serial.println(QspiRingBuffer::count());
     }
+
+    // Instantaneo ao vivo (2026-08-06): uma vez por janela (~1s), em
+    // paralelo ao esvaziamento sequencial do historico acima — ver
+    // comentario completo em sendLiveSnapshot(). Corre sempre que ha
+    // uma janela de dump ativa, independentemente de sentInWindow (o
+    // historico pode nao ter enviado nada nesta janela por falha de
+    // envio e o instantaneo ao vivo continua a fazer sentido na mesma).
+    sendLiveSnapshot();
+
     vTaskDelay(pdMS_TO_TICKS(50));
   }
 }
@@ -1462,6 +1613,16 @@ bool begin() {
   dumpStatusChar.setFixedLen(sizeof(DumpStatusPacket));
   dumpStatusChar.begin();
 
+  // Characteristic do instantaneo ao vivo (2026-08-06) — ver comentario
+  // completo junto da declaracao de liveSnapshotChar acima e de
+  // sendLiveSnapshot(). Mesmo formato/protecao que dumpDataChar (so
+  // notificacao, nunca escrita da app), porque transporta o mesmo tipo
+  // de pacote (DumpDataPacket).
+  liveSnapshotChar.setProperties(CHR_PROPS_NOTIFY);
+  liveSnapshotChar.setPermission(SECMODE_ENC_NO_MITM, SECMODE_NO_ACCESS);
+  liveSnapshotChar.setFixedLen(sizeof(DumpDataPacket));
+  liveSnapshotChar.begin();
+
   // Characteristic dedicada a alertas de emergencia (SOS manual ou
   // queda+inatividade prolongada) — ver Emergency.h. So o dispositivo
   // escreve aqui (app nunca escreve, daí SECMODE_NO_ACCESS), e o valor
@@ -1577,6 +1738,59 @@ bool begin() {
   return true;
 }
 
+// Espera bloqueante por uma escrita da app durante o provisioning
+// (chave AES ou hora atual), com um mecanismo de "kick" por timeout:
+// se ficar um central ligado sem completar a escrita esperada dentro
+// de kProvisionCentralTimeoutMs, esse central e desconectado a forca
+// para libertar a ligacao a um central diferente (o dashboard real).
+// Ver comentario junto de kProvisionCentralTimeoutMs para o bug real
+// que isto resolve.
+static bool waitForProvisionWrite(volatile bool &arrivedFlag, const char *waitLabel) {
+  uint32_t lastLog = 0;
+  uint32_t connectedSinceMs = 0;
+  bool wasConnected = false;
+
+  while (!arrivedFlag) {
+    const uint32_t now = millis();
+    const bool isConnected = Bluefruit.connected() > 0;
+
+    if (isConnected && !wasConnected) {
+      // Um central novo acabou de se ligar — comeca a contar o prazo
+      // a partir de agora, nao do inicio desta funcao.
+      connectedSinceMs = now;
+    }
+    wasConnected = isConnected;
+
+    if (isConnected && (now - connectedSinceMs) >= kProvisionCentralTimeoutMs) {
+      Serial.print("[BLE] central ligado sem completar '");
+      Serial.print(waitLabel);
+      Serial.println("' dentro do tempo limite -> a desconectar (pode nao ser o dashboard real)");
+      uint16_t handles[2] = {0};
+      const uint8_t connCount = Bluefruit.getConnectedHandles(handles, 2);
+      for (uint8_t i = 0; i < connCount; i++) {
+        Bluefruit.disconnect(handles[i]);
+      }
+      // Reinicia a contagem para nao disparar disconnect() em loop
+      // apertado enquanto o evento de desconexao ainda nao foi
+      // processado pela stack.
+      connectedSinceMs = now;
+      wasConnected = false;
+    }
+
+    if ((now - lastLog) >= kBleProvisionWaitLogMs) {
+      lastLog = now;
+      Serial.print("[BLE] wait ");
+      Serial.print(waitLabel);
+      Serial.print("... adv=");
+      Serial.print(Bluefruit.Advertising.isRunning() ? "1" : "0");
+      Serial.print(" connected=");
+      Serial.println(Bluefruit.connected());
+    }
+    delay(100);
+  }
+  return true;
+}
+
 bool ensureAesKey() {
   // Caminho rapido: ja existe uma chave persistida em flash de um
   // provisioning anterior — nao é preciso esperar por BLE outra vez.
@@ -1597,19 +1811,7 @@ bool ensureAesKey() {
   // aesKeyCallback (registado em begin()) e quem marca s_aesArrived.
   Serial.println("[BLE] waiting for AES key via BLE...");
   uiMessage("Receber", "AES key");
-  uint32_t lastLog = 0;
-
-  while (!s_aesArrived) {
-    const uint32_t now = millis();
-    if ((now - lastLog) >= kBleProvisionWaitLogMs) {
-      lastLog = now;
-      Serial.print("[BLE] wait AES... adv=");
-      Serial.print(Bluefruit.Advertising.isRunning() ? "1" : "0");
-      Serial.print(" connected=");
-      Serial.println(Bluefruit.connected());
-    }
-    delay(100);
-  }
+  waitForProvisionWrite(s_aesArrived, "AES");
 
   uiMessage("AES key", "recebida");
   delay(1200);
@@ -1629,19 +1831,7 @@ bool ensureTimeSync() {
   // s_timestampArrived quando isso acontece.
   Serial.println("[BLE] waiting for Current Time (0x2A2B) via BLE...");
   uiMessage("Pedir", "Hora e Data");
-  uint32_t lastLog = 0;
-
-  while (!s_timestampArrived) {
-    const uint32_t now = millis();
-    if ((now - lastLog) >= kBleProvisionWaitLogMs) {
-      lastLog = now;
-      Serial.print("[BLE] wait TIME... adv=");
-      Serial.print(Bluefruit.Advertising.isRunning() ? "1" : "0");
-      Serial.print(" connected=");
-      Serial.println(Bluefruit.connected());
-    }
-    delay(100);
-  }
+  waitForProvisionWrite(s_timestampArrived, "TIME");
 
   // A partir daqui comeca a transicao do modo "provisioning" para o
   // "modo de dados": ja temos chave AES e hora sincronizada, por isso

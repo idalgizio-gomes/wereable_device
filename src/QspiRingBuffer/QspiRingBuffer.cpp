@@ -387,6 +387,16 @@ uint32_t incIndex(uint32_t idx) {
   return idx;
 }
 
+// Recua um indice de slot logico (o inverso de incIndex), fazendo
+// "wrap-around" para capacity_slots-1 ao passar de 0 — usado por
+// peekLatest() para calcular o slot do registo mais recente (head-1).
+// So' definido depois de s_meta.capacity_slots estar valido (chamador
+// tem de garantir isso), tal como incIndex().
+uint32_t decIndex(uint32_t idx) {
+  if (idx == 0) return (s_meta.capacity_slots > 0) ? (s_meta.capacity_slots - 1) : 0;
+  return idx - 1;
+}
+
 // Converte um indice de slot logico (0..capacity_slots-1) no indice do
 // setor de DADOS a que pertence (0 = primeiro setor a seguir ao setor
 // de metadados, ver kDataStartSector).
@@ -696,6 +706,25 @@ bool peek(Record &out) {
 
   SlotWire slot = {};
   if (!readSlot(s_meta.tail, slot)) return false;
+  return decodeSlot(slot, out);
+}
+
+// Ver documentacao completa em QspiRingBuffer.h.
+bool peekLatest(Record &out) {
+  LockGuard lock; // Mesmo mutex de peek()/pop()/advanceTail()/push() — serializa com o produtor (storageTask) tal como as outras leituras.
+  if (!s_started || s_meta.count == 0) return false;
+
+  // s_meta.head aponta para o PROXIMO slot livre (onde o proximo push()
+  // vai escrever) — o registo mais recente ja gravado esta' em head-1.
+  // Seguro ler aqui mesmo com push() a correr concorrentemente noutra
+  // task: como as duas funcoes usam o MESMO mutex (LockGuard), ou este
+  // peekLatest() acontece inteiramente antes de um push() concorrente
+  // (o registo em head-1 e' o penultimo gravado, ainda valido), ou
+  // inteiramente depois (head-1 ja' e' o registo que esse push() acabou
+  // de escrever, tambem valido) — nunca a meio de uma escrita.
+  const uint32_t latestIdx = decIndex(s_meta.head);
+  SlotWire slot = {};
+  if (!readSlot(latestIdx, slot)) return false;
   return decodeSlot(slot, out);
 }
 
