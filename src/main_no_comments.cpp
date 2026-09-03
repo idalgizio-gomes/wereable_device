@@ -25,29 +25,19 @@
 #include "Battery/Battery.h"
 
 #define WIPE_STALE_STORAGE 0
-
 #define WIPE_RING_BUFFER 0
-
 #define QSPI_RING_BUFFER_SELF_TEST 0
-
 #define STORAGE_TASK_ENABLE 1
-
 #define DEBUG_SERIAL_WAKE 1
-
 #define DEBUG_DISABLE_SLEEP 1
-
 #define DEBUG_STACK_WATERMARKS 1
-
 #define DEBUG_FORCE_IMU_RECALIBRATION 0
-
 #define BTN_PIN 0
 #define LONG_PRESS_TIME 5000
 #define DEBOUNCE_TIME 50
-
 #define OLED_CS_PIN D9
 #define OLED_DC_PIN D10
 #define OLED_RST_PIN D11
-
 #define SCREEN_W 128
 #define SCREEN_H 128
 #define COLOR_BLACK 0x0000
@@ -71,8 +61,7 @@ namespace
 
   TaskHandle_t g_storageTaskHandle = nullptr;
 
-  int16_t clampToI16(long v)
-  {
+  int16_t clampToI16(long v){
     if (v > 32767L)
       return 32767;
     if (v < -32768L)
@@ -80,8 +69,7 @@ namespace
     return static_cast<int16_t>(v);
   }
 
-  void storageTask(void *arg)
-  {
+  void storageTask(void *arg){
     (void)arg;
 
     uint32_t lastImuTs = 0;

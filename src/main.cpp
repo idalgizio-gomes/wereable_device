@@ -65,10 +65,7 @@
 // depois de se perder localmente o valor da chave AES já gravada na
 // placa (aesKeyChar só aceita a primeira escrita — sem isto não há como
 // voltar a provisionar). Também reformata o ring buffer (QSPI), perdendo
-// os ~32 mil registos em fila — decisão explícita do utilizador,
-// preferível a ficar com dados que o bridge nunca mais vai conseguir
-// decifrar. Já usada numa única flash (wipe + reprovisionamento
-// concluídos) — reposta a 0.
+// os ~32 mil registos em fila. Preferível a ficar com dados que o bridge nunca mais vai conseguir decifrar.
 #define WIPE_RING_BUFFER 0
 
 // Se a 1, corre um teste automático ao ring buffer da flash externa no
@@ -93,7 +90,7 @@
 // Isto NÃO simula o hardware do botão em si; é só um atalho de teste.
 // Voltar a pôr a 0 (ou apagar este bloco) assim que o botão for
 // resoldado/substituído.
-// *** NAO DESLIGAR ***: so' depois do botao fisico (BTN_PIN) estar reparado. Ver aviso impresso no boot, perto de Serial.begin().
+
 #define DEBUG_SERIAL_WAKE 1
 
 // ------------------------------------------------------------
@@ -1057,7 +1054,7 @@ void loop() {
     }
 #endif
     Emergency::update();
-    Nfc::update(); // no-op enquanto o hardware NFC nao estiver confirmado (ver Nfc.h)
+    Nfc::update(); // no-op (ver Nfc.h)
 
     // pollEmergency=true nas duas chamadas abaixo: Emergency::begin() já
     // correu (setup() terminou, isRunning só fica true depois disso), por

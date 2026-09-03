@@ -278,6 +278,7 @@ EMERGENCY_ALERT_EXPLANATIONS = {
         "consistente com uma queda sem recuperação imediata."
     ),
 }
+
 EMERGENCY_ALERT_EXPLANATION_UNKNOWN = (
     "Tipo de alerta não reconhecido por esta versão do bridge — sem "
     "explicação disponível do mecanismo de deteção."
@@ -348,7 +349,6 @@ def _ensure_tls_cert() -> None:
     WS_TLS_CERT_PATH.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
     print(f"[BRIDGE] certificado TLS autoassinado gerado em {WS_TLS_CERT_PATH}")
 
-
 def _build_ssl_context() -> Optional[ssl.SSLContext]:
     if not WS_TLS_ENABLED:
         return None
@@ -364,7 +364,6 @@ def _build_ssl_context() -> Optional[ssl.SSLContext]:
 # durante o provisioning (16/24/32 bytes = 32/48/64 caracteres hex).
 # ============================================================
 _AES_KEY_HEX_ENV = "CAREWEAR_AES_KEY_HEX"
-
 
 def _load_aes_key_from_env() -> Optional[bytes]:
     raw_hex = os.environ.get(_AES_KEY_HEX_ENV)
@@ -383,7 +382,6 @@ def _load_aes_key_from_env() -> Optional[bytes]:
         return None
     print(f"[BRIDGE] chave AES carregada do ambiente ({len(key) * 8} bits)")
     return key
-
 
 # ============================================================
 # NOTIFICAÇÕES EXTERNAS DE EMERGÊNCIA (SMS/email, ver notifications.py) —
@@ -463,7 +461,6 @@ def _load_notification_recipients_from_env():
 
     return caregivers, emergency_contact, schedule
 
-
 def decrypt_full_plain(key: bytes, nonce: int, ciphertext: bytes) -> bytes:
     """Decifra um registo FullPlain (39 bytes) cifrado pelo firmware com
     AES-CTR (ver encryptRecord() em src/Ble/Ble.cpp) — reproduz o MESMO
@@ -516,7 +513,6 @@ def decrypt_full_plain(key: bytes, nonce: int, ciphertext: bytes) -> bytes:
             carry = total >> 8
     return bytes(out)
 
-
 def decode_full_plain(raw: bytes) -> dict:
     """Descodifica os 39 bytes de um registo FullPlain para um dict Python.
 
@@ -545,7 +541,6 @@ def decode_full_plain(raw: bytes) -> dict:
         "pacing_index": pacing_index,
     }
 
-
 # Limites de plausibilidade física para um registo FullPlain decifrado
 # (2026-07-07, correcao de bug reportado pelo utilizador: dashboard a
 # mostrar FC/SpO2/aceleracao "malucos", a variar em loop). Causa raiz
@@ -562,7 +557,6 @@ def decode_full_plain(raw: bytes) -> dict:
 _MAX_ACCEL_G = 20.0       # IMU nunca deveria exceder ~16g em uso normal
 _MAX_GYRO_DPS = 3000.0    # LSM6DS3 satura bem abaixo disto
 _MAX_STEPS = 200_000_000  # contador de passos plausivel (anos de uso)
-
 
 def is_plausible_full_plain(record: dict) -> bool:
     """True se o registo decifrado parece fisicamente possível. Ver nota
@@ -581,7 +575,6 @@ def is_plausible_full_plain(record: dict) -> bool:
     spo2_ok = record["spo2"] is None or 0 <= record["spo2"] <= 100
     return accel_ok and gyro_ok and steps_ok and hr_ok and spo2_ok
 
-
 def decode_emergency_alert(raw: bytes) -> dict:
     """Descodifica os 8 bytes de EmergencyAlertPacket (ver Ble.cpp):
     type, reserved, seq, timestamp_utc. 'seq' incrementa a cada alerta
@@ -597,7 +590,6 @@ def decode_emergency_alert(raw: bytes) -> dict:
         "explanation": EMERGENCY_ALERT_EXPLANATIONS.get(alert_name, EMERGENCY_ALERT_EXPLANATION_UNKNOWN),
     }
 
-
 def _ws_remote_ip(ws) -> Optional[str]:
     """Extrai o IP de origem de uma ligação WebSocket para auditoria
     (GDPR-003). `ws.remote_address` é um tuplo (host, port, ...) nas
@@ -609,7 +601,6 @@ def _ws_remote_ip(ws) -> Optional[str]:
     if isinstance(remote, str):
         return remote
     return None
-
 
 def build_current_time_payload(dt: Optional[datetime] = None) -> bytes:
     """Constrói os 10 bytes esperados pela characteristic Current Time
@@ -624,7 +615,6 @@ def build_current_time_payload(dt: Optional[datetime] = None) -> bytes:
     ) + bytes(3)  # dia_semana=0, fracoes256=0, motivo=0 -> total 10 bytes
     assert len(payload) == 10, "payload da hora tem de ter exatamente 10 bytes"
     return payload
-
 
 class BleBridge:
     """Liga-se ao wearable, mantém-se ligado (com reconexão automática) e
@@ -2050,7 +2040,6 @@ class BleBridge:
             self.ws_clients.discard(ws)
             print(f"[BRIDGE] dashboard desligado ({len(self.ws_clients)} ativo(s))")
 
-
 async def main() -> None:
     bridge = BleBridge()
     ssl_context = _build_ssl_context()
@@ -2062,7 +2051,6 @@ async def main() -> None:
         asyncio.create_task(bridge.periodic_retention_task())
         asyncio.create_task(bridge.periodic_orm_retention_task())
         await bridge.run_device_loop()
-
 
 if __name__ == "__main__":
     try:
