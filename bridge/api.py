@@ -42,6 +42,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import api_auth
+import auth_sessions
 import storage_advanced as sa
 
 app = FastAPI(
@@ -66,6 +67,7 @@ def _get_db():
 
 def _require_user(
     x_api_key: Optional[str] = Header(default=None),
+    authorization: Optional[str] = Header(default=None),
     db: Session = Depends(_get_db),
 ) -> sa.User:
     """Autenticação por chave por-utilizador (API-002).
@@ -86,10 +88,18 @@ def _require_user(
     recuperar de corridas por dose (ver `record_medication_adherence`).
     """
     row = api_auth._resolve_api_key_row(db, x_api_key)
-    if row is None:
-        raise HTTPException(status_code=401, detail="Chave de API inválida ou ausente")
-    row.last_used_at = datetime.utcnow()
-    return row.user
+    if row is not None:
+        row.last_used_at = datetime.utcnow()
+        return row.user
+
+    token = None
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:]
+    user = auth_sessions.resolve_session(db, token)
+    if user is not None:
+        return user
+
+    raise HTTPException(status_code=401, detail="Não autenticado")
 
 
 def _authorize_patient(db: Session, user: sa.User, patient_id: int, write: bool = False) -> None:
@@ -147,6 +157,31 @@ def _audit_read(db: Session, user: sa.User, request: Request, action: str, resou
 def health():
     """Sem autenticação — não expõe dados, só confirma que o serviço está de pé."""
     return {"status": "ok"}
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+@app.post("/api/auth/login")
+def login(body: LoginRequest, db: Session = Depends(_get_db)):
+    token = auth_sessions.login(db, body.email, body.password)
+    if token is None:
+        raise HTTPException(status_code=401, detail="Credenciais inválidas")
+    return {"token": token, "token_type": "bearer"}
+
+
+@app.post("/api/auth/logout")
+def logout(authorization: Optional[str] = Header(default=None), db: Session = Depends(_get_db)):
+    token = authorization[7:] if authorization and authorization.lower().startswith("bearer ") else None
+    auth_sessions.logout(db, token)
+    return {"status": "ok"}
+
+
+@app.get("/api/auth/me")
+def me(user: sa.User = Depends(_require_user)):
+    return {"id": user.id, "email": user.email, "role": user.role, "name": user.name}
 
 
 @app.get("/api/devices/{device_id}/heart-rate-trends")

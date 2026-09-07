@@ -98,11 +98,9 @@ UTILIZAÇÃO
 from __future__ import annotations
 
 import asyncio
-import ipaddress
 import json
 import math
 import os
-import ssl
 import struct
 import time
 from datetime import datetime, time as dt_time, timedelta, timezone
@@ -131,6 +129,7 @@ try:
     # build_emergency_profile_payload() e' chamado diretamente daqui (ver
     # gatilho em run_device_loop), nao so' através de self.orm.
     import storage_advanced as sa
+    import auth_sessions
 except ImportError as exc:
     print(f"[BRIDGE] AVISO GRAVE: modulo orm_persistence indisponivel ({exc}); "
           f"bridge vai correr SEM PERSISTENCIA NENHUMA (streaming ao vivo "
@@ -138,6 +137,7 @@ except ImportError as exc:
           f"Instale as dependencias em requirements.txt.")
     orm_persistence = None
     sa = None
+    auth_sessions = None
 
 # Valores de recurso para get_retention_days quando o proprio modulo
 # orm_persistence nao importou (caso extremo — sem ele nem sequer as
@@ -147,6 +147,12 @@ except ImportError as exc:
 _FALLBACK_DEFAULT_RETENTION_DAYS = 30
 _FALLBACK_MIN_RETENTION_DAYS = 1
 _FALLBACK_MAX_RETENTION_DAYS = 3650
+
+import ws_transport
+from ws_transport import (
+    WS_HOST, WS_PORT, WS_TLS_ENABLED, WS_TOKEN,
+    build_ssl_context as _build_ssl_context,
+)
 
 import vital_alerts  # baseline comportamental personalizada (2026-08-05,
 # ver storage_advanced.py::PersonalizedThreshold) — sem dependências
@@ -284,78 +290,9 @@ EMERGENCY_ALERT_EXPLANATION_UNKNOWN = (
     "explicação disponível do mecanismo de deteção."
 )
 
-WS_HOST = "localhost"
-WS_PORT = 8765
+async def _ws_process_request(connection, request):
+    return await ws_transport.process_request(connection, request, sa=sa, auth_sessions=auth_sessions)
 
-# ============================================================
-# TLS OPCIONAL NO WEBSOCKET (GDPR-004, ver SECURITY_STATUS.md)
-# ------------------------------------------------------------
-# Por omissão o canal bridge<->dashboard continua em ws:// (texto
-# simples) — WS_HOST está fixado em "localhost", o que já limita o
-# risco a outros processos/utilizadores da mesma máquina (ver
-# SECURITY_STATUS.md). Ativar TLS aqui exige TAMBÉM mudar
-# `WS_URL` para "wss://localhost:8765" em web/dashboard/index.html
-# E aceitar manualmente o certificado autoassinado no browser uma vez
-# (visitar https://localhost:8765 diretamente e confirmar o aviso de
-# segurança) — sem isso a ligação WSS falha silenciosamente e o
-# dashboard mostra "sem ligação ao bridge". Por esta fricção de UX não
-# documentada como "resolvida sozinha", TLS fica opt-in por agora, não
-# ligado por omissão.
-# ============================================================
-WS_TLS_ENABLED = os.environ.get("CAREWEAR_WS_TLS", "0") == "1"
-WS_TLS_CERT_PATH = Path(__file__).parent / "tls_cert.pem"
-WS_TLS_KEY_PATH = Path(__file__).parent / "tls_key.pem"
-
-
-def _ensure_tls_cert() -> None:
-    """Gera um certificado autoassinado para localhost/127.0.0.1 se ainda
-    não existir (nunca reescreve um já gerado — evita invalidar um
-    certificado já aceite manualmente no browser). Válido 10 anos porque
-    serve só para cifrar o transporte num canal já restrito a localhost,
-    não para provar identidade a terceiros."""
-    if WS_TLS_CERT_PATH.exists() and WS_TLS_KEY_PATH.exists():
-        return
-    from cryptography import x509
-    from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import rsa
-    from cryptography.x509.oid import NameOID
-
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "carewear-bridge-local")])
-    now = datetime.now(timezone.utc)
-    cert = (
-        x509.CertificateBuilder()
-        .subject_name(subject)
-        .issuer_name(issuer)
-        .public_key(key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(now - timedelta(days=1))
-        .not_valid_after(now + timedelta(days=3650))
-        .add_extension(
-            x509.SubjectAlternativeName([
-                x509.DNSName("localhost"),
-                x509.IPAddress(ipaddress.ip_address("127.0.0.1")),
-                x509.IPAddress(ipaddress.ip_address("::1")),
-            ]),
-            critical=False,
-        )
-        .sign(key, hashes.SHA256())
-    )
-    WS_TLS_KEY_PATH.write_bytes(key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption(),
-    ))
-    WS_TLS_CERT_PATH.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
-    print(f"[BRIDGE] certificado TLS autoassinado gerado em {WS_TLS_CERT_PATH}")
-
-def _build_ssl_context() -> Optional[ssl.SSLContext]:
-    if not WS_TLS_ENABLED:
-        return None
-    _ensure_tls_cert()
-    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    ctx.load_cert_chain(certfile=str(WS_TLS_CERT_PATH), keyfile=str(WS_TLS_KEY_PATH))
-    return ctx
 
 # ============================================================
 # CIFRA AES-CTR (ver cabecalho do ficheiro, "CIFRA AES-CTR DO MODO DE
@@ -622,6 +559,7 @@ class BleBridge:
 
     def __init__(self):
         self.ws_clients: set[websockets.ServerConnection] = set()
+        self.ws_user_ids: dict[websockets.ServerConnection, Optional[int]] = {}
         self._pending_fragments: dict[int, dict] = {}
         # Dicionário PRÓPRIO para o instantâneo ao vivo (liveSnapshotChar,
         # 2026-08-06) — deliberadamente separado de _pending_fragments, ver
@@ -1547,6 +1485,7 @@ class BleBridge:
                     resource_type="device",
                     resource_id=self.orm.device_id,
                     ip=_ws_remote_ip(ws),
+                user_id=self._ws_user_id(ws),
                 )
         except Exception as exc:  # noqa: BLE001
             print(f"[BRIDGE] falha a enviar comando {name}: {exc}")
@@ -1635,6 +1574,7 @@ class BleBridge:
                     resource_type="sensor_records",
                     details={"hours": hours},
                     ip=_ws_remote_ip(ws),
+                user_id=self._ws_user_id(ws),
                 )
             return
         if cmd == "get_daily_trend":
@@ -1667,6 +1607,7 @@ class BleBridge:
                     resource_type="sensor_records",
                     details={"days": days},
                     ip=_ws_remote_ip(ws),
+                user_id=self._ws_user_id(ws),
                 )
             return
         if cmd == "export_csv":
@@ -1695,6 +1636,7 @@ class BleBridge:
                     resource_type="sensor_records",
                     details={"hours": hours},
                     ip=_ws_remote_ip(ws),
+                user_id=self._ws_user_id(ws),
                 )
             return
         if cmd == "get_retention_days":
@@ -1744,6 +1686,7 @@ class BleBridge:
                     resource_type="settings",
                     details={"days": saved},
                     ip=_ws_remote_ip(ws),
+                user_id=self._ws_user_id(ws),
                 )
             return
         if cmd == "get_consent_status":
@@ -1921,6 +1864,7 @@ class BleBridge:
                     resource_type="ml_model_version",
                     details={"model_name": ML_MODEL_NAME, "version": version, "reloaded": reloaded},
                     ip=_ws_remote_ip(ws),
+                user_id=self._ws_user_id(ws),
                 )
             return
         if cmd == "get_episode_timeline":
@@ -1968,6 +1912,7 @@ class BleBridge:
                     resource_type="emergency_alerts",
                     details={"sequence_number": sequence_number, "window_minutes": window_minutes},
                     ip=_ws_remote_ip(ws),
+                user_id=self._ws_user_id(ws),
                 )
             return
         if cmd == "correct_activity":
@@ -2013,6 +1958,7 @@ class BleBridge:
                     resource_type="activity_classification",
                     details={"original_category": original_category, "corrected_category": category},
                     ip=_ws_remote_ip(ws),
+                user_id=self._ws_user_id(ws),
                 )
             # Difundido a TODOS os dashboards ligados (não só quem corrigiu)
             # — todas as vistas ao vivo (Resumo, área médica) devem refletir
@@ -2027,6 +1973,7 @@ class BleBridge:
 
     async def ws_handler(self, ws: "websockets.ServerConnection") -> None:
         self.ws_clients.add(ws)
+        self.ws_user_ids[ws] = getattr(ws, "_carewear_user_id", None)
         print(f"[BRIDGE] dashboard ligado via WebSocket ({len(self.ws_clients)} ativo(s))")
         await ws.send(json.dumps({
             "kind": "device_status",
@@ -2038,15 +1985,23 @@ class BleBridge:
                 await self.handle_dashboard_command(ws, raw_message)
         finally:
             self.ws_clients.discard(ws)
+            self.ws_user_ids.pop(ws, None)
             print(f"[BRIDGE] dashboard desligado ({len(self.ws_clients)} ativo(s))")
+
+    def _ws_user_id(self, ws) -> Optional[int]:
+        return self.ws_user_ids.get(ws)
 
 async def main() -> None:
     bridge = BleBridge()
     ssl_context = _build_ssl_context()
-    server = await websockets.serve(bridge.ws_handler, WS_HOST, WS_PORT, ssl=ssl_context)
+    server = await websockets.serve(
+        bridge.ws_handler, WS_HOST, WS_PORT, ssl=ssl_context,
+        process_request=_ws_process_request,
+    )
     scheme = "wss" if ssl_context else "ws"
     print(f"[BRIDGE] WebSocket a ouvir em {scheme}://{WS_HOST}:{WS_PORT}"
-          + ("" if ssl_context else " (sem TLS — ver CAREWEAR_WS_TLS em ble_bridge.py)"))
+          + ("" if ssl_context else " (sem TLS — ver CAREWEAR_WS_TLS em ble_bridge.py)")
+          + ("" if WS_TOKEN else " (sem CAREWEAR_WS_TOKEN — WS-001 continua aberto)"))
     async with server:
         asyncio.create_task(bridge.periodic_retention_task())
         asyncio.create_task(bridge.periodic_orm_retention_task())

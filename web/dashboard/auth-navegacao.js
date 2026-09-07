@@ -275,16 +275,32 @@ function applyProfileToAvatar(){
   document.getElementById('avatarRole').textContent = 'Perfil: ' + t(isUtente ? 'login.role.utente' : isAdmin ? 'login.role.admin' : 'login.role.clinico');
 }
 
-function login(){
+const API_ROLE_TO_DASHBOARD_ROLE = { family: 'utente', clinician: 'clinico', admin: 'admin' };
+
+async function login(){
+  const emailEl = document.getElementById('loginEmail');
+  const passEl = document.getElementById('loginPass');
+  const errEl = document.getElementById('loginError');
+  const email = emailEl ? emailEl.value : '';
+  const pass = passEl ? passEl.value : '';
+
+  const result = await apiLogin(email, pass);
+  if (!result.ok){
+    if (errEl){
+      errEl.textContent = result.error === 'credenciais'
+        ? 'Email ou palavra-passe incorretos.'
+        : 'Não foi possível ligar à API (bridge/api.py) — confirma que está a correr em localhost:8766.';
+      errEl.style.display = 'block';
+    }
+    return;
+  }
+  if (errEl) errEl.style.display = 'none';
+  currentRole = API_ROLE_TO_DASHBOARD_ROLE[result.user.role] || 'utente';
+
   document.getElementById('view-login').style.display = 'none';
   document.getElementById('view-app').classList.add('active');
 
-  // Regista a conta que entrou (ver "ATRIBUIÇÃO PACIENTE ↔ CONTA
-  // CLÍNICA" acima) e só agora resolve qual paciente fica selecionado —
-  // antes deste ponto ainda não se sabe o email, por isso
-  // selectedPatientId tinha de ficar por resolver até aqui.
-  const emailEl = document.getElementById('loginEmail');
-  currentUserEmail = emailEl ? emailEl.value : '';
+  currentUserEmail = result.user.email;
 
   // CORREÇÃO (2026-08-06, pedido explícito da utilizadora): a decisão
   // anterior desta mesma sessão — "admin" entrar por baixo do botão
@@ -346,7 +362,8 @@ function login(){
   updateNotificationBadge();
 }
 
-function logout(){
+async function logout(){
+  await apiLogout();
   document.getElementById('view-app').classList.remove('active');
   document.getElementById('view-login').style.display = 'grid';
   currentUserEmail = '';
