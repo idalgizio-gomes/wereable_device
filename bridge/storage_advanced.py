@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -123,6 +124,12 @@ class Patient(Base):
 
     id = Column(Integer, primary_key=True)
     uuid = Column(String(36), unique=True, nullable=False)
+    # Pseudonimização (RGPD Art. 4(5)): identificador opaco, sem relação
+    # com o nome/data de nascimento, para referenciar o paciente em
+    # contextos que não precisam de saber quem é (exports, ML, logs) sem
+    # ter de expor `name`/`date_of_birth`. Reversível só através desta
+    # tabela (não é anonimização) — get_patient_by_pseudonym() abaixo.
+    pseudonym = Column(String(32), unique=True, nullable=False, default=lambda: secrets.token_urlsafe(16))
     name = Column(String(255), nullable=False)
     date_of_birth = Column(DateTime, nullable=False)
     # Cifrados com AES-256-GCM (chave derivada via Argon2id, ver crypto_utils.py)
@@ -655,6 +662,10 @@ CONSENT_SCOPES = (
     CONSENT_SCOPE_EXPORT,
     CONSENT_SCOPE_RESEARCH,
 )
+
+
+def get_patient_by_pseudonym(db: Session, pseudonym: str) -> Optional[Patient]:
+    return db.query(Patient).filter(Patient.pseudonym == pseudonym).first()
 
 
 def has_valid_consent(db: Session, patient_id: int, scope: str, now: Optional[datetime] = None) -> bool:

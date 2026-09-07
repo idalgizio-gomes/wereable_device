@@ -431,18 +431,18 @@ class OrmPersistence:
         resource_id: Optional[int] = None,
         details: Optional[dict] = None,
         ip: Optional[str] = None,
+        user_id: Optional[int] = None,
     ) -> None:
-        """Grava uma entrada em audit_log (commit imediato). user_id fica
-        None de propósito: o canal WebSocket bridge<->dashboard NÃO é
-        autenticado (ver handle_dashboard_command/docstring de ble_bridge),
-        por isso não há utilizador conhecido a atribuir ao acesso. O que
-        interessa registar é a AÇÃO sobre dados de paciente e a origem
-        (ip), não uma identidade que não existe nesta fase."""
+        """Grava uma entrada em audit_log (commit imediato). `user_id` é
+        opcional: o canal WebSocket agora pode identificar o utilizador via
+        token de sessão (?session= na ligação, ver ble_bridge._ws_process_request
+        e auth_sessions.py), mas continua a aceitar None para ligações sem
+        sessão associada."""
         if self.disabled or self.session is None:
             return
         try:
             row = sa.AuditLog(
-                user_id=None,
+                user_id=user_id,
                 action=action,
                 resource_type=resource_type,
                 resource_id=resource_id,

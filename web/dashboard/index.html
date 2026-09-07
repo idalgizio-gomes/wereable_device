@@ -707,9 +707,10 @@
         <input id="loginPass" type="password" placeholder="••••••••" autocomplete="current-password" value="········">
       </div>
 
+      <p class="login-error" id="loginError" style="display:none;color:#c0392b;margin:4px 0;"></p>
       <button class="btn-primary" onclick="login()"><span data-i18n="login.enterAs">Entrar como</span> <span id="loginRoleLabel">Utente / Família</span></button>
       <p class="login-switch"><span data-i18n="login.noAccount">Ainda não tens conta?</span> <a href="#" onclick="showSignup(); return false;" data-i18n="login.createAccount">Criar conta</a></p>
-      <p class="login-note"><b data-i18n="login.prototypeLabel">Protótipo de interface.</b> <span data-i18n="login.prototypeNote">Sem autenticação real ligada — este ecrã demonstra a separação de perfis; dados clínicos usam leituras reais do wearable, dados de rotina/atividade são simulados até o classificador de HAR ser embarcado no firmware.</span></p>
+      <p class="login-note"><b data-i18n="login.prototypeLabel">Protótipo de interface.</b> <span data-i18n="login.prototypeNote">Autenticação ligada à API (bridge/api.py, porta 8766) — precisa de estar a correr e o utilizador ter password definida (bridge/auth_sessions.py set-password). Dados clínicos usam leituras reais do wearable, dados de rotina/atividade são simulados até o classificador de HAR ser embarcado no firmware.</span></p>
     </div>
 
     <div class="login-form" id="signupPanel" style="display:none;">
@@ -902,7 +903,7 @@
              Médico/Técnico e Administrador, esta informação por defeito
              já não faz sentido aqui — passa a ficar confinada à página
              "Dispositivo & firmware" (TEMPLATES.dispositivo, ver
-             templates-medico.js), onde continua disponível quando
+             vista-medico-*.js), onde continua disponível quando
              preciso, sem poluir a topbar nas outras vistas. Escondido/
              mostrado em bloco por login() (auth-navegacao.js), não por
              cada elemento à parte, para não haver inconsistências entre
@@ -1058,14 +1059,27 @@
      já carregados acima). -->
 <script src="i18n-theme.js"></script>
 <script src="demo-data-baseline.js"></script>
+<script src="api-client.js"></script>
 <script src="consentimento-cuidadores.js"></script>
-<script src="pacientes-alertas-medicacao.js"></script>
+<script src="pacientes.js"></script>
+<script src="alertas-emergencias.js"></script>
+<script src="medicacao.js"></script>
 <script src="auth-navegacao.js"></script>
-<script src="templates-utente.js"></script>
-<script src="templates-medico.js"></script>
+<script src="templates-core.js"></script>
+<script src="vista-resumo.js"></script>
+<script src="vista-rotina.js"></script>
+<script src="vista-vitais-tendencia.js"></script>
+<script src="vista-definicoes-ajuda.js"></script>
+<script src="vista-medico-pacientes.js"></script>
+<script src="vista-medico-medicacao.js"></script>
+<script src="vista-medico-perfil.js"></script>
 <script src="componentes-alertas-ui.js"></script>
 <script src="canvas-graficos.js"></script>
 <script src="bridge-exportacao.js"></script>
+<script src="export-clinico.js"></script>
+<script src="configuracoes-paciente.js"></script>
+<script src="modelo-ml-versoes.js"></script>
+<script src="tendencia-real.js"></script>
 <script src="medication-reminders.js"></script>
 <!-- Vista "Administrador" (médicos, pacientes, atribuições) — mesmo padrão
      modular de medication-reminders.js: script clássico global, sem
