@@ -1,6 +1,14 @@
 /* ============================================================
    TEMPLATES — VISTA "MÉDICO / TÉCNICO"
 ============================================================ */
+// BUG DE XSS CORRIGIDO (2026-09-07): p.name/selectedPatient().name é texto
+// livre — "Criar conta" como Utente/Família regista um paciente com o nome
+// escrito no formulário (submitSignup() → registerOwnPatient() →
+// addPatient(), guardado em localStorage) e essa string entrava em
+// innerHTML sem escaping em todas as vistas clínicas. Um nome como
+// <img src=x onerror=…> executava assim que um médico/técnico abrisse a
+// lista de pacientes. admin-view.js já escapava exatamente o mesmo campo
+// (escapeHtml(p.name)) — as vistas clínicas ficaram por atualizar.
 TEMPLATES.pacientes = () => {
   const mine = accessiblePatients();
   const unassigned = isAdminUser() ? [] : PATIENTS.filter(p => !mine.some(m => m.id === p.id));
@@ -25,7 +33,7 @@ TEMPLATES.pacientes = () => {
             : pillHtml(p.status==='good'?'good':p.status==='warn'?'warning':'critical', p.status==='good'?t('pacientes.statusConnected'):p.status==='warn'?t('pacientes.statusUnstable'):t('pacientes.statusDisconnected'));
           return `
           <tr${p.id===selectedPatientId ? ' style="background:color-mix(in srgb, var(--accent) 10%, transparent);"' : ''}>
-            <td><b>${p.name}</b> · ${p.age} anos${isLive ? ` ${pillHtml('good', t('dispositivo.liveDataBadge'))}` : ''}</td>
+            <td><b>${escapeHtml(p.name)}</b> · ${p.age} anos${isLive ? ` ${pillHtml('good', t('dispositivo.liveDataBadge'))}` : ''}</td>
             <td class="num">${p.deviceName} · ${registeredMacFor(p.id, p.mac)}</td>
             <td class="num">${isLive ? t('pacientes.lastSyncLiveNow') : p.lastSync}</td>
             <td>${statusPill}</td>
@@ -56,7 +64,7 @@ TEMPLATES.pacientes = () => {
       <tbody>
         ${unassigned.map(p => `
           <tr>
-            <td>${p.name} · ${p.age} anos</td>
+            <td>${escapeHtml(p.name)} · ${p.age} anos</td>
             <td class="num">${p.deviceName}</td>
             <td><button class="btn-secondary" onclick="assignPatientToCurrentUser('${p.id}'); renderView('pacientes');">${t('pacientes.assignToMeBtn')}</button></td>
           </tr>`).join('')}
@@ -66,7 +74,7 @@ TEMPLATES.pacientes = () => {
   </div>
   ${mine.length ? `
   <div class="card">
-    <div class="card-head"><h3>${t('pacientes.alertsBySeverityCardTitle')} ${selectedPatient().name}</h3></div>
+    <div class="card-head"><h3>${t('pacientes.alertsBySeverityCardTitle')} ${escapeHtml(selectedPatient().name)}</h3></div>
     ${!loadConsent().shareAlerts
       ? `<p class="empty-hint">${t('pacientes.noConsentAlertsEmpty')}</p>`
       : (unreadActiveAlerts().length ? unreadActiveAlerts().map((a,i) => alertRow(a,i)).join('') : `<p class="empty-hint">${t('pacientes.noNewAlertsEmpty')}</p>`)}
@@ -106,7 +114,7 @@ TEMPLATES.dispositivo = () => `
     return `
   <div class="grid-2b">
     <div class="card">
-      <div class="card-head"><div><h3>${t('dispositivo.deviceStatusCardTitle')} ${p.name}${isLive ? ` ${pillHtml('good', t('dispositivo.liveDataBadge'))}` : ''}</h3><div class="card-sub">XIAO nRF52840 Sense Plus · firmware BLE_GATT_DUMP_V1 · ${recognizedMac}</div></div></div>
+      <div class="card-head"><div><h3>${t('dispositivo.deviceStatusCardTitle')} ${escapeHtml(p.name)}${isLive ? ` ${pillHtml('good', t('dispositivo.liveDataBadge'))}` : ''}</h3><div class="card-sub">XIAO nRF52840 Sense Plus · firmware BLE_GATT_DUMP_V1 · ${recognizedMac}</div></div></div>
       <div class="device-meter" style="gap:14px;">
         <div>
           <div class="meter-row"><span>${t('dispositivo.batteryLabel')}</span><span class="tabular">${batteryPct}%</span></div>
@@ -151,7 +159,7 @@ TEMPLATES.anomalias = () => {
   return `
   <div class="card">
     <div class="card-head">
-      <div><h3>${t('nav.anomalies')} — ${selectedPatient().name}</h3><div class="card-sub">${t('anomalias.detectionSubtitle')}</div></div>
+      <div><h3>${t('nav.anomalies')} — ${escapeHtml(selectedPatient().name)}</h3><div class="card-sub">${t('anomalias.detectionSubtitle')}</div></div>
       ${!isUtente && anomalyLog.length ? `<button class="btn-danger" onclick="if(confirm('${t('anomalias.clearAllConfirm')}')) clearAllAnomaliesForPatient();">${t('anomalias.clearAllBtn')}</button>` : ''}
     </div>
     <p class="empty-hint">${t('anomalias.honestLimitationText')}</p>
@@ -186,7 +194,7 @@ TEMPLATES.alertas = () => {
   return `
   <div class="card">
     <div class="card-head">
-      <div><h3>${t('nav.alertHistory')} — ${selectedPatient().name}</h3><div class="card-sub">${t('alertas.allAlertsSubtitle')}</div></div>
+      <div><h3>${t('nav.alertHistory')} — ${escapeHtml(selectedPatient().name)}</h3><div class="card-sub">${t('alertas.allAlertsSubtitle')}</div></div>
       ${!isUtente && all.length ? `<button class="btn-danger" onclick="if(confirm('${t('alertas.clearAllConfirm')}')) clearAllAlertsForPatient();">${t('alertas.clearAllBtn')}</button>` : ''}
     </div>
     <p class="empty-hint">${t('alertas.honestLimitationText')}</p>
@@ -221,7 +229,7 @@ TEMPLATES.emergencias = () => {
   return `
   <div class="card">
     <div class="card-head">
-      <div><h3>${t('nav.emergencies')} — ${selectedPatient().name}</h3><div class="card-sub">${t('emergencias.detectionSubtitle')}</div></div>
+      <div><h3>${t('nav.emergencies')} — ${escapeHtml(selectedPatient().name)}</h3><div class="card-sub">${t('emergencias.detectionSubtitle')}</div></div>
       ${!isUtente && hasClearable ? `<button class="btn-danger" onclick="if(confirm('${t('emergencias.clearAllConfirm')}')) clearAllEmergenciesForPatient();">${t('emergencias.clearAllBtn')}</button>` : ''}
     </div>
     <p class="empty-hint">${t('emergencias.bridgeInfoText')}</p>

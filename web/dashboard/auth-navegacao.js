@@ -353,12 +353,26 @@ async function login(){
   // os botões e marca explicitamente o botão da vista por omissão do
   // perfil que entrou agora.
   const defaultView = isUtente ? 'resumo' : isAdmin ? 'admin' : 'pacientes';
-  document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
-  const defaultGroup = isUtente ? 'navUtente' : isAdmin ? 'navAdmin' : 'navClinico';
-  const defaultBtn = document.querySelector(`#${defaultGroup} .nav-item[data-view="${defaultView}"]`);
-  if (defaultBtn) defaultBtn.classList.add('active');
 
-  renderView(defaultView);
+  // Se a página foi aberta/recarregada com um fragmento (ex.: #rotina), só
+  // agora é possível honrá-lo: o fragmento é lido no arranque mas o perfil
+  // só existe depois da autenticação. Fragmento inválido, desconhecido ou
+  // de uma vista que não pertence a este perfil cai na vista por omissão.
+  let vistaInicial = defaultView;
+  if (vistaPedidaNoArranque && viewPermitidaParaPerfil(vistaPedidaNoArranque, currentRole)) {
+    vistaInicial = vistaPedidaNoArranque;
+  }
+  vistaPedidaNoArranque = null;
+
+  sincronizarMenu(vistaInicial);
+
+  // currentView pode ter ficado com a vista da sessão anterior (logout()
+  // limpa-o, mas a primeira sessão da página começa a null de qualquer
+  // forma). replaceState em vez de pushState: a entrada da aplicação
+  // substitui a entrada atual, para que carregar em "retroceder" logo a
+  // seguir a entrar não deixe um ecrã vazio anterior à aplicação.
+  history.replaceState({ view: vistaInicial }, '', '#' + vistaInicial);
+  renderView(vistaInicial, false);
   updateNotificationBadge();
 }
 
@@ -368,6 +382,12 @@ async function logout(){
   document.getElementById('view-login').style.display = 'grid';
   currentUserEmail = '';
   selectedPatientId = null;
+  // Sem isto, sair na vista "resumo" e voltar a entrar como Utente (cuja
+  // vista de omissão é também "resumo") faria com que renderView() não
+  // detetasse mudança de vista e o fragmento do endereço ficasse preso na
+  // sessão anterior. Ver a regra "só regista se a vista mudou".
+  currentView = null;
+  history.replaceState(null, '', '#');
 }
 
 // Ativa visualmente um nav-item e mostra a vista correspondente — partilhado
@@ -381,6 +401,27 @@ function activateNavItem(item){
   if (group) group.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
   item.classList.add('active');
   renderView(view);
+}
+
+// Marca o botão do menu correspondente a uma vista, sem passar por um clique.
+// Necessário porque renderView() nunca mexe nas classes .active — quem o faz é
+// activateNavItem(), que só é invocada a partir do clique. Sem isto, navegar
+// pelo botão "retroceder" do browser mostrava o conteúdo certo com o botão
+// errado ainda iluminado (a mesma família de bug corrigida em 2026-07-03).
+//
+// Procura restringida ao grupo do perfil atual, e não a document.querySelector
+// global: os botões dos outros perfis continuam no DOM (escondidos por
+// display:none) e um seletor global devolveria o primeiro por ordem de
+// documento, não o visível — foi exatamente essa a causa do bug do sino.
+function sincronizarMenu(view){
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+  const grupo = currentRole === 'utente' ? 'navUtente'
+              : currentRole === 'admin'  ? 'navAdmin'
+              : 'navClinico';
+  const btn = document.querySelector(`#${grupo} .nav-item[data-view="${view}"]`);
+  if (btn) btn.classList.add('active');
+  // Vistas "perfil" e "ajuda" não pertencem a nenhum grupo de navegação:
+  // nenhum botão fica marcado, e isso é o comportamento correto.
 }
 
 // Sino de alertas na topbar (ver botão em #view-app .topbar-right).
@@ -437,11 +478,122 @@ const VIEW_TITLE_KEYS = {
 // aparecem em mais do que uma vista).
 let currentView = null;
 
-function renderView(view){
+// O segundo parâmetro distingue navegação iniciada pelo utilizador (que deve
+// entrar no histórico) de re-desenho iniciado pelo próprio código — seja um
+// renderView(currentView) depois de silenciar um alerta, seja o redesenho que
+// o handler de popstate faz para responder ao botão "retroceder". Sem essa
+// distinção, o popstate voltaria a escrever no histórico aquilo que acabou de
+// ler, e entrava em ciclo.
+//
+// As 28 chamadas espalhadas pelos outros ficheiros não passam o segundo
+// argumento e ficam com o valor por omissão true. Não precisam de ser
+// alteradas por causa da regra abaixo: 24 dessas 28 têm a forma
+// renderView(currentView), e nessas a vista não muda, logo nada é escrito no
+// histórico. Silenciar três alertas seguidos não cria três entradas falsas.
+function renderView(view, registarNoHistorico = true){
+  const mudouDeVista = view !== currentView;
   currentView = view;
   document.getElementById('topbarTitle').textContent = VIEW_TITLE_KEYS[view] ? t(VIEW_TITLE_KEYS[view]) : 'CareWear';
   const c = document.getElementById('content');
   c.innerHTML = TEMPLATES[view] ? TEMPLATES[view]() : '<div class="empty-hint">Vista em construção.</div>';
   requestAnimationFrame(() => AFTER_RENDER[view] && AFTER_RENDER[view]());
+
+  if (registarNoHistorico && mudouDeVista) {
+    // Fragmento (#vista) e não caminho: history.pushState com um caminho
+    // diferente lança SecurityError quando o dashboard é aberto por duplo
+    // clique no index.html (protocolo file://). Com fragmento funciona nos
+    // dois casos. Alterar só o fragmento por pushState não dispara
+    // 'hashchange', pelo que basta tratar 'popstate'.
+    history.pushState({ view }, '', '#' + view);
+  }
 }
+
+/* ============================================================
+   HISTÓRICO DE NAVEGAÇÃO
+   Acrescentado em 2026-09-07. Antes disto o dashboard não tinha
+   histórico nem endereço por vista: o botão "retroceder" do browser saía
+   da aplicação e nenhuma vista era partilhável por ligação.
+============================================================ */
+
+// Que perfis podem abrir cada vista. Esta informação já existia, mas apenas
+// implícita na estrutura dos grupos #navUtente / #navClinico / #navAdmin no
+// index.html. Aqui fica explícita e testável, sem depender do DOM.
+//
+// AVISO, e tem de ser lido antes de se confiar nesta constante: isto NÃO é
+// controlo de acesso. Serve para um endereço colado ou desatualizado não levar
+// o utilizador a uma vista vazia ou partida — é robustez de interface. Na
+// consola do browser, renderView('admin') continua a abrir a vista de
+// administração seja qual for o perfil, porque este código corre no cliente e
+// o cliente está sob controlo de quem o usa.
+//
+// Estado real do controlo de acesso do lado do servidor, verificado em
+// 2026-09-07 (uma versão anterior deste comentário afirmava que não existia
+// nenhum, o que estava errado):
+//   - REST (bridge/api.py): IMPLEMENTADO. _authorize_patient() distingue
+//     cuidador, clínico e admin, e é chamado nos 4 endpoints que devolvem ou
+//     alteram dados clínicos, com _audit_read() a registar cada acesso.
+//   - WebSocket (bridge/ble_bridge.py): EM FALTA, e é o caminho principal dos
+//     dados. handle_dashboard_command() despacha 16 comandos — incluindo
+//     get_history, export_csv, set_consent, set_retention_days e o destrutivo
+//     reset_readings — sem consultar identidade nem perfil. A sessão é
+//     resolvida em ws_transport.py mas só alimenta o campo user_id do registo
+//     de auditoria: é auditoria, não autorização. CAREWEAR_WS_TOKEN está
+//     desligado por omissão.
+// É esta metade em falta que o requisito RF-02 (Must) cobre.
+const VIEW_ROLES = {
+  resumo:      ['utente'],
+  rotina:      ['utente'],
+  vitais:      ['utente'],
+  tendencia:   ['utente'],
+  definicoes:  ['utente'],
+  pacientes:   ['clinico'],
+  dispositivo: ['clinico'],
+  anomalias:   ['clinico'],
+  limites:     ['clinico'],
+  exportar:    ['clinico'],
+  alertas:     ['utente', 'clinico'],
+  emergencias: ['utente', 'clinico'],
+  medicacao:   ['utente', 'clinico'],
+  admin:       ['admin'],
+  perfil:      ['utente', 'clinico', 'admin'],
+  ajuda:       ['utente', 'clinico', 'admin'],
+};
+
+function viewPermitidaParaPerfil(view, role){
+  const perfis = VIEW_ROLES[view];
+  return Array.isArray(perfis) && perfis.includes(role);
+}
+
+function vistaPorOmissao(role){
+  return role === 'utente' ? 'resumo' : role === 'admin' ? 'admin' : 'pacientes';
+}
+
+// Lido uma única vez, no arranque, e só consumido em login() — o fragmento
+// pode chegar antes de haver perfil, e sem perfil não é possível validá-lo.
+let vistaPedidaNoArranque = (location.hash || '').replace(/^#/, '') || null;
+
+window.addEventListener('popstate', (e) => {
+  // Sem sessão ativa não se desenha nada. Isto é uma proteção de privacidade e
+  // não uma verificação de conveniência: as variáveis do módulo mantêm os
+  // dados do paciente depois de logout(), pelo que responder a um "retroceder"
+  // sem esta guarda mostraria dados clínicos a quem não iniciou sessão — num
+  // computador partilhado, bastaria uma tecla. O histórico do browser não pode
+  // ser apagado por JavaScript, por isso o problema tem de ser tratado aqui.
+  // Mesmo padrão já usado em i18n-theme.js.
+  if (!document.getElementById('view-app').classList.contains('active')) return;
+
+  const view = (e.state && e.state.view) || (location.hash || '').replace(/^#/, '');
+  if (!view) return;
+
+  if (!viewPermitidaParaPerfil(view, currentRole)) {
+    const fallback = vistaPorOmissao(currentRole);
+    history.replaceState({ view: fallback }, '', '#' + fallback);
+    sincronizarMenu(fallback);
+    renderView(fallback, false);
+    return;
+  }
+
+  sincronizarMenu(view);
+  renderView(view, false);
+});
 

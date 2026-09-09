@@ -135,9 +135,19 @@ class MedicationReminder {
       // Focar a aba do dashboard e levar o cuidador à vista de Medicação,
       // onde pode de facto marcar a dose como tomada.
       if (window.focus) window.focus();
-      const medNavItem = document.querySelector('.nav-item[data-view="medicacao"]:not([style*="display: none"])')
-        || document.querySelector('.nav-item[data-view="medicacao"]');
-      if (medNavItem && typeof activateNavItem === 'function') activateNavItem(medNavItem);
+      // BUG CORRIGIDO (2026-09-07), mesma família do bug do sino de alertas
+      // documentado em auth-navegacao.js (onNotificationBellClick): o
+      // seletor anterior tentava filtrar o item visível com
+      // :not([style*="display: none"]), mas quem tem display:none é o GRUPO
+      // (#navUtente/#navClinico), não o próprio .nav-item — a condição nunca
+      // excluía nada e querySelector devolvia sempre o primeiro por ordem de
+      // documento, ou seja o botão "Medicação" do perfil Utente/Família.
+      // Num perfil Médico/Técnico isso acendia um botão escondido de outro
+      // perfil e deixava o menu visível sem destaque nenhum.
+      // sincronizarMenu() (auth-navegacao.js) já resolve o grupo pelo
+      // currentRole, que é a informação fiável.
+      if (typeof sincronizarMenu === 'function') sincronizarMenu('medicacao');
+      if (typeof renderView === 'function') renderView('medicacao');
     };
 
     this.showFallbackAlert(medication, time, patient);

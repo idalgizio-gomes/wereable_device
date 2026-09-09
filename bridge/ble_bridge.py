@@ -106,6 +106,7 @@ import time
 from datetime import datetime, time as dt_time, timedelta, timezone
 from pathlib import Path
 from typing import Optional
+from uuid import uuid4  # RF-07: chave publica de cada alerta persistido
 
 import websockets
 from bleak import BleakClient, BleakScanner
@@ -285,6 +286,31 @@ EMERGENCY_ALERT_EXPLANATIONS = {
     ),
 }
 
+# RF-07 (2026-09-07): título curto de cada alerta persistido em `alerts`
+# (a coluna `title` é NOT NULL). O motivo detalhado com os números reais
+# vai para `description`, composto por vital_alerts.explain_vital_alert().
+_VITAL_ALERT_TITLES = {
+    "hr": "Frequência cardíaca fora do intervalo definido",
+    "spo2": "SpO2 abaixo do limiar definido",
+}
+
+# RF-08 (2026-09-07) — "registo da ação tomada após alerta". Allowlist
+# fechada, validada no bridge e não só no dashboard: o canal WebSocket
+# aceita qualquer JSON, e `resolution_note` acaba num relatório clínico —
+# uma "ação" livre tornaria o campo impossível de agregar. A NOTA, essa,
+# é texto livre de propósito (é o ponto do requisito), limitada só em
+# comprimento e escapada por quem a mostra.
+ALERT_RESOLUTION_ACTIONS = (
+    "contactei_o_utente",
+    "verifiquei_presencialmente",
+    "contactei_a_equipa_clinica",
+    "chamei_emergencia_medica",
+    "ajustei_o_dispositivo",
+    "falso_alarme",
+    "sem_acao_necessaria",
+)
+ALERT_RESOLUTION_NOTE_MAX_CHARS = 500
+
 EMERGENCY_ALERT_EXPLANATION_UNKNOWN = (
     "Tipo de alerta não reconhecido por esta versão do bridge — sem "
     "explicação disponível do mecanismo de deteção."
@@ -292,6 +318,67 @@ EMERGENCY_ALERT_EXPLANATION_UNKNOWN = (
 
 async def _ws_process_request(connection, request):
     return await ws_transport.process_request(connection, request, sa=sa, auth_sessions=auth_sessions)
+
+
+# ============================================================
+# RF-02 — AUTORIZACAO POR PERFIL NO CANAL WEBSOCKET (2026-09-07)
+#
+# Ate esta data handle_dashboard_command() despachava os 17 comandos sem
+# consultar identidade nem perfil. A sessao era resolvida em ws_transport
+# mas so' alimentava o campo user_id do registo de auditoria — auditoria
+# nao e' autorizacao. Uma ligacao anonima executava get_history,
+# export_csv, set_consent, set_retention_days e o destrutivo
+# reset_readings.
+#
+# Os perfis abaixo sao os da coluna users.role da base de dados
+# ('family', 'clinician', 'admin'), e NAO os nomes usados no dashboard
+# ('utente', 'clinico', 'admin') — a traducao entre uns e outros e' feita
+# no cliente por API_ROLE_TO_DASHBOARD_ROLE.
+#
+# O mapa nao foi inventado: cada comando foi atribuido ao perfil da vista
+# do dashboard que efetivamente o invoca, levantado ficheiro a ficheiro.
+#   - vitais e tendencia sao vistas do perfil Utente/Familia, e e' de la'
+#     que saem get_thresholds/set_thresholds e get_daily_trend;
+#   - exportar e' vista exclusiva do perfil Medico/Tecnico, e e' o seu
+#     AFTER_RENDER que carrega retencao, consentimento e versoes de modelo;
+#   - dispositivo e' exclusiva do Medico/Tecnico, dai reset_readings.
+#
+# 'admin' nao consta de nenhum comando clinico por decisao ja documentada
+# no cabecalho de web/dashboard/admin-view.js: o administrador navega
+# entre paginas de gestao mas nunca abre o dossie clinico de ninguem.
+# ============================================================
+_ROLES_CUIDADOR_E_CLINICO = ("family", "clinician")
+_ROLES_SO_CLINICO = ("clinician",)
+
+WS_COMMAND_ROLES = {
+    "force_reading":         _ROLES_CUIDADOR_E_CLINICO,
+    "set_ble_enabled":       _ROLES_CUIDADOR_E_CLINICO,
+    "acknowledge_alert":     _ROLES_CUIDADOR_E_CLINICO,
+    # RF-07/RF-08 (2026-09-07): consultar e confirmar alertas persistidos.
+    # Perfil Utente/Familia + Clinico pela mesma razao de acknowledge_alert
+    # acima — quem recebe o alerta e' quem tem de o poder confirmar, e a
+    # vista "Resumo" onde o botao vive e' do perfil Utente/Familia. 'admin'
+    # continua de fora: um alerta traz titulo, motivo clinico e nota livre
+    # do cuidador, ou seja, e' dossie clinico.
+    "get_alerts":            _ROLES_CUIDADOR_E_CLINICO,
+    "confirm_alert":         _ROLES_CUIDADOR_E_CLINICO,
+    "get_history":           _ROLES_CUIDADOR_E_CLINICO,
+    "get_daily_trend":       _ROLES_CUIDADOR_E_CLINICO,
+    "get_episode_timeline":  _ROLES_CUIDADOR_E_CLINICO,
+    "get_thresholds":        _ROLES_CUIDADOR_E_CLINICO,
+    "set_thresholds":        _ROLES_CUIDADOR_E_CLINICO,
+    "correct_activity":      _ROLES_CUIDADOR_E_CLINICO,
+    "export_csv":            _ROLES_CUIDADOR_E_CLINICO,
+    # Exclusivos do perfil clinico: apagam dados, alteram politicas de
+    # governacao ou trocam o modelo de inferencia em producao.
+    "reset_readings":        _ROLES_SO_CLINICO,
+    "get_retention_days":    _ROLES_SO_CLINICO,
+    "set_retention_days":    _ROLES_SO_CLINICO,
+    "get_consent_status":    _ROLES_SO_CLINICO,
+    "set_consent":           _ROLES_SO_CLINICO,
+    "list_model_versions":   _ROLES_SO_CLINICO,
+    "activate_model_version": _ROLES_SO_CLINICO,
+}
 
 
 # ============================================================
@@ -560,6 +647,8 @@ class BleBridge:
     def __init__(self):
         self.ws_clients: set[websockets.ServerConnection] = set()
         self.ws_user_ids: dict[websockets.ServerConnection, Optional[int]] = {}
+        # RF-02: perfil resolvido no handshake, usado por WS_COMMAND_ROLES.
+        self.ws_user_roles: dict[websockets.ServerConnection, Optional[str]] = {}
         self._pending_fragments: dict[int, dict] = {}
         # Dicionário PRÓPRIO para o instantâneo ao vivo (liveSnapshotChar,
         # 2026-08-06) — deliberadamente separado de _pending_fragments, ver
@@ -676,6 +765,13 @@ class BleBridge:
         # alerta), nunca a cada leitura individual. None = dentro dos
         # limiares (ou ainda sem nenhuma leitura avaliada nesta ligação).
         self._vital_alert_state: dict[str, Optional[str]] = {"hr": None, "spo2": None}
+
+        # RF-05 (2026-09-07) — deteção de não-uso do dispositivo. Ver o
+        # cabeçalho de vital_alerts.WearDetector: alimentado pelo
+        # instantâneo ao vivo (_on_live_snapshot) e reposto quando a
+        # ligação BLE cai (run_device_loop), para nunca confundir
+        # "retirado do pulso" com "deixou de comunicar".
+        self.wear_detector = vital_alerts.WearDetector()
 
     RECORD_BROADCAST_MIN_INTERVAL_S = 0.25  # no maximo ~4 atualizacoes/seg
     # Intervalo entre limpezas automaticas de sensor_records (ver
@@ -908,6 +1004,15 @@ class BleBridge:
                 except Exception as exc:  # noqa: BLE001 - nunca deve travar o streaming
                     print(f"[BRIDGE] erro na avaliacao de sinais vitais (instantaneo ao vivo): {exc}")
 
+        # RF-05 (2026-09-07) — não-uso do dispositivo. Avaliado SÓ aqui, no
+        # instantâneo ao vivo, e nunca no dump histórico (_on_dump_data):
+        # o dump reproduz registos gravados enquanto o BLE esteve em baixo,
+        # e esses registos são exatamente o caso "o wearable não estava a
+        # comunicar" que o requisito manda distinguir de "foi retirado".
+        # Alimentá-lo com o backlog produziria "dispositivo removido"
+        # sempre que houvesse uma reconexão com histórico acumulado.
+        self._observe_wear_state(record)
+
         asyncio.create_task(self.broadcast({"kind": "live_record", "rec_seq": rec_seq, **record}))
 
     def _on_dump_data(self, _char: BleakGATTCharacteristic, data: bytearray) -> None:
@@ -1095,9 +1200,358 @@ class BleBridge:
         if alert:
             payload.update(alert)
             payload["explanation"] = vital_alerts.explain_vital_alert(alert)
+            # RF-07 (2026-09-07): o alerta deixa de ser só uma mensagem
+            # efémera no WebSocket e passa a ter uma linha na tabela
+            # `alerts` — com severidade, motivo textual e um uuid estável
+            # que o dashboard usa depois para o confirmar (cmd
+            # "confirm_alert") e que o escalonamento por tempo usa para o
+            # subir de nível se ninguém o confirmar.
+            severity = vital_alerts.severity_for_vital_alert(alert)
+            payload["severity"] = severity
+            alert_uuid = self._persist_alert(
+                alert_type=f"abnormal_vitals_{vital_key}",
+                severity=severity,
+                title=_VITAL_ALERT_TITLES.get(vital_key, "Sinal vital fora do esperado"),
+                description=payload["explanation"],
+                raw_data={k: alert.get(k) for k in ("vital", "level", "value", "limit")},
+            )
+            if alert_uuid:
+                payload["alert_uuid"] = alert_uuid
         else:
             payload["explanation"] = vital_alerts.explain_vital_cleared(vital_key, thresholds)
         asyncio.create_task(self.broadcast(payload))
+
+    # ============================================================
+    # RF-07 / RF-08 (2026-09-07) — ALERTAS PERSISTIDOS, CONFIRMAÇÃO E
+    # ESCALONAMENTO POR TEMPO
+    # ------------------------------------------------------------
+    # A tabela `alerts` (bridge/schema.sql, storage_advanced.py::Alert)
+    # existia desde a migração inicial com TODAS as colunas de que estes
+    # dois requisitos precisam — severity, read_by_user_id/read_at,
+    # escalated_to_severity/escalated_at, resolved_by_user_id/resolved_at/
+    # resolution_note — e nenhuma linha de código alguma vez escreveu ou
+    # leu uma única delas. Os métodos abaixo fecham esse gap.
+    #
+    # Porque é que estas escritas não estão em orm_persistence.py, ao lado
+    # de insert_emergency_alert(): esse ficheiro está fora do conjunto de
+    # ficheiros desta alteração (outra frente de trabalho a mexer nele em
+    # paralelo). Usam self.orm.session/self.orm.device_id diretamente, que
+    # é a mesma sessão SQLAlchemy — com o mesmo padrão de commit imediato
+    # + rollback tolerante a falha, para que um erro de base de dados
+    # nunca derrube o callback BLE ou o WebSocket de onde são chamados.
+    # ============================================================
+
+    # Minutos sem confirmação a partir dos quais um alerta sobe um nível na
+    # escada de severidade (RF-07: "sem confirmação ao fim de N minutos").
+    # 15 min é o compromisso escolhido: curto o suficiente para um alerta
+    # ignorado não ficar horas no nível de entrada, longo o suficiente para
+    # não escalar enquanto o cuidador ainda está a caminho do dashboard.
+    ALERT_ESCALATION_MINUTES = 15
+    # Cadência com que periodic_alert_escalation_task() reavalia. Não tem
+    # de ser igual ao prazo acima — só suficientemente fina para o atraso
+    # entre "passaram os 15 min" e "o dashboard vê o novo nível" ser
+    # pequeno face ao próprio prazo.
+    ALERT_ESCALATION_CHECK_INTERVAL_S = 60
+    # Nº máximo de alertas devolvidos pelo cmd "get_alerts" — a tabela tem
+    # retenção de 7 anos (GDPR-006), não se serve isso tudo a um browser.
+    ALERT_LIST_MAX = 100
+
+    def _persist_alert(
+        self,
+        alert_type: str,
+        severity: str,
+        title: str,
+        description: str,
+        raw_data: Optional[dict] = None,
+    ) -> Optional[str]:
+        """Grava um alerta em `alerts` e devolve o seu uuid (ou None se a
+        persistência estiver indisponível/falhar — o alerta segue à mesma
+        para o dashboard ao vivo, só não fica confirmável nem escalável)."""
+        if not self.orm or getattr(self.orm, "session", None) is None or self.orm.disabled:
+            return None
+        if sa is None:
+            return None
+        alert_uuid = str(uuid4())
+        try:
+            row = sa.Alert(
+                uuid=alert_uuid,
+                device_id=self.orm.device_id,
+                alert_type=alert_type,
+                severity=severity,
+                title=title,
+                description=description,
+                raw_data=raw_data or {},
+            )
+            self.orm.session.add(row)
+            self.orm.session.commit()
+            return alert_uuid
+        except Exception as exc:  # noqa: BLE001 - nunca derruba o caminho ao vivo
+            print(f"[BRIDGE] erro a persistir alerta ({alert_type}): {exc}")
+            try:
+                self.orm.session.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+            return None
+
+    @staticmethod
+    def _alert_to_dict(row) -> dict:
+        """Serializa uma linha de `alerts` para o dashboard. `severity` é
+        sempre o nível ORIGINAL e `effective_severity` o nível a mostrar
+        (já escalado, se foi) — o dashboard precisa dos dois para poder
+        dizer "subiu de aviso para sério", não só mostrar o valor final."""
+        def _iso(value):
+            return value.isoformat() if value is not None else None
+
+        effective = row.escalated_to_severity or row.severity
+        return {
+            "uuid": row.uuid,
+            "alert_type": row.alert_type,
+            "severity": row.severity,
+            "effective_severity": effective,
+            "title": row.title,
+            # `description` é o "motivo textual legível" exigido pelo RF-07:
+            # a frase composta por vital_alerts/explain_wear_state com os
+            # números reais que dispararam o alerta.
+            "reason": row.description,
+            "created_at": _iso(row.created_at),
+            "read_at": _iso(row.read_at),
+            "read_by_user_id": row.read_by_user_id,
+            "escalated_to_severity": row.escalated_to_severity,
+            "escalated_at": _iso(row.escalated_at),
+            "resolved_at": _iso(row.resolved_at),
+            "resolved_by_user_id": row.resolved_by_user_id,
+            # RF-08: ação tomada + nota livre. A ação fica no início da nota
+            # com um prefixo estável (ver _format_resolution_note) para o
+            # histórico do dashboard as poder separar outra vez.
+            "resolution_note": row.resolution_note,
+        }
+
+    def _list_alerts(self, limit: int) -> list:
+        if not self.orm or getattr(self.orm, "session", None) is None or self.orm.disabled or sa is None:
+            return []
+        rows = (
+            self.orm.session.query(sa.Alert)
+            .filter(sa.Alert.device_id == self.orm.device_id)
+            .filter(sa.Alert.deleted_at.is_(None))
+            .order_by(sa.Alert.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+        return [self._alert_to_dict(r) for r in rows]
+
+    @staticmethod
+    def _format_resolution_note(action: str, note: str) -> str:
+        """RF-08: a ação escolhida e a nota livre partilham a mesma coluna
+        (`resolution_note`) — o esquema não tem coluna própria para a ação
+        e este trabalho não altera o esquema. O prefixo "[ação] " é
+        estável e é o que o dashboard usa para voltar a separar as duas
+        partes no histórico. A nota NÃO é sanitizada aqui de propósito: é
+        texto livre e é guardada tal como foi escrita; quem a mostra é que
+        tem de a escapar (ver escapeHtml() no dashboard)."""
+        note = (note or "").strip()
+        return f"[{action}] {note}" if note else f"[{action}]"
+
+    async def _escalate_overdue_alerts(self, now: Optional[datetime] = None) -> list:
+        """RF-07: sobe um nível a todos os alertas que continuam sem
+        confirmação ALERT_ESCALATION_MINUTES depois do último marco
+        (criação, ou o escalonamento anterior), registando
+        `escalated_to_severity` e `escalated_at`. Devolve os alertas
+        escalados nesta passagem, já serializados.
+
+        Regras deliberadas:
+          - um alerta confirmado (resolved_at) ou lido (read_at) NUNCA
+            escala — confirmar é exatamente o que o requisito diz que
+            trava o escalonamento;
+          - 'critical' não escala (não há nível acima), por isso o
+            mecanismo nunca "corre em frente" indefinidamente;
+          - a escada é a de vital_alerts.SEVERITY_LADDER, partilhada com o
+            resto do sistema em vez de reimplementada aqui.
+        """
+        if not self.orm or getattr(self.orm, "session", None) is None or self.orm.disabled or sa is None:
+            return []
+        now = now or datetime.utcnow()
+        cutoff = now - timedelta(minutes=self.ALERT_ESCALATION_MINUTES)
+        escalated = []
+        try:
+            candidates = (
+                self.orm.session.query(sa.Alert)
+                .filter(sa.Alert.device_id == self.orm.device_id)
+                .filter(sa.Alert.deleted_at.is_(None))
+                .filter(sa.Alert.resolved_at.is_(None))
+                .filter(sa.Alert.read_at.is_(None))
+                .all()
+            )
+            for row in candidates:
+                marco = row.escalated_at or row.created_at
+                if marco is None or marco > cutoff:
+                    continue
+                atual = row.escalated_to_severity or row.severity
+                seguinte = vital_alerts.next_severity(atual)
+                if seguinte is None:
+                    continue
+                row.escalated_to_severity = seguinte
+                row.escalated_at = now
+                escalated.append(row)
+            if escalated:
+                self.orm.session.commit()
+        except Exception as exc:  # noqa: BLE001 - nunca derruba a task periódica
+            print(f"[BRIDGE] erro a escalar alertas: {exc}")
+            try:
+                self.orm.session.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+            return []
+        return [self._alert_to_dict(r) for r in escalated]
+
+    async def _handle_confirm_alert(self, ws, cmd: str, msg: dict) -> None:
+        """RF-07 + RF-08: confirma um alerta (trava o escalonamento) e
+        regista a ação tomada + nota livre. Extraído de
+        handle_dashboard_command só por tamanho — a autorização por perfil
+        já correu lá, antes de chegar aqui (ver WS_COMMAND_ROLES)."""
+        wait_s = self._check_write_rate_limit(cmd)
+        if wait_s is not None:
+            await ws.send(json.dumps({
+                "kind": "confirm_alert_result", "ok": False,
+                "error": f"limite de taxa excedido, aguarde {wait_s:.1f}s",
+            }))
+            return
+
+        alert_uuid = msg.get("alert_uuid")
+        action = msg.get("action")
+        note = msg.get("note", "")
+        if not isinstance(alert_uuid, str) or not alert_uuid:
+            await ws.send(json.dumps({
+                "kind": "confirm_alert_result", "ok": False, "error": "alert_uuid em falta",
+            }))
+            return
+        if action not in ALERT_RESOLUTION_ACTIONS:
+            await ws.send(json.dumps({
+                "kind": "confirm_alert_result", "ok": False, "alert_uuid": alert_uuid,
+                "error": "acao desconhecida",
+            }))
+            return
+        if not isinstance(note, str):
+            note = ""
+        if len(note) > ALERT_RESOLUTION_NOTE_MAX_CHARS:
+            await ws.send(json.dumps({
+                "kind": "confirm_alert_result", "ok": False, "alert_uuid": alert_uuid,
+                "error": f"nota acima de {ALERT_RESOLUTION_NOTE_MAX_CHARS} caracteres",
+            }))
+            return
+        if not self.orm or getattr(self.orm, "session", None) is None or self.orm.disabled or sa is None:
+            await ws.send(json.dumps({
+                "kind": "confirm_alert_result", "ok": False, "alert_uuid": alert_uuid,
+                "error": "persistencia indisponivel",
+            }))
+            return
+
+        user_id = self._ws_user_id(ws)
+        agora = datetime.utcnow()
+        try:
+            row = (
+                self.orm.session.query(sa.Alert)
+                .filter(sa.Alert.uuid == alert_uuid)
+                .filter(sa.Alert.device_id == self.orm.device_id)
+                .one_or_none()
+            )
+            if row is None:
+                await ws.send(json.dumps({
+                    "kind": "confirm_alert_result", "ok": False, "alert_uuid": alert_uuid,
+                    "error": "alerta desconhecido",
+                }))
+                return
+            # Confirmar é idempotente na parte que importa (o alerta fica
+            # confirmado), mas a PRIMEIRA confirmação é a que conta para o
+            # escalonamento — por isso read_at/resolved_at só são escritos
+            # se ainda estiverem vazios, e uma segunda confirmação só
+            # atualiza a nota (o cuidador pode corrigir o que escreveu sem
+            # reescrever a hora em que de facto viu o alerta).
+            if row.read_at is None:
+                row.read_at = agora
+                row.read_by_user_id = user_id
+            if row.resolved_at is None:
+                row.resolved_at = agora
+                row.resolved_by_user_id = user_id
+            row.resolution_note = self._format_resolution_note(action, note)
+            self.orm.session.commit()
+            alerta = self._alert_to_dict(row)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[BRIDGE] erro a confirmar alerta {alert_uuid}: {exc}")
+            try:
+                self.orm.session.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+            await ws.send(json.dumps({
+                "kind": "confirm_alert_result", "ok": False, "alert_uuid": alert_uuid,
+                "error": str(exc),
+            }))
+            return
+
+        self.orm.audit(
+            action="alert.confirm",
+            resource_type="alert",
+            details={"alert_uuid": alert_uuid, "resolution_action": action},
+            ip=_ws_remote_ip(ws),
+            user_id=user_id,
+        )
+        await ws.send(json.dumps({
+            "kind": "confirm_alert_result", "ok": True, "alert_uuid": alert_uuid, "alert": alerta,
+        }))
+        # Difundido a TODOS os dashboards ligados (mesmo raciocínio de
+        # "activity_correction"): se dois cuidadores estão a ver o mesmo
+        # alerta, o segundo tem de deixar de ver o botão de confirmar
+        # assim que o primeiro confirma.
+        asyncio.create_task(self.broadcast({"kind": "alert_confirmed", "alert": alerta}))
+
+    async def periodic_alert_escalation_task(self) -> None:
+        """Corre _escalate_overdue_alerts() a cada
+        ALERT_ESCALATION_CHECK_INTERVAL_S e difunde cada subida de nível a
+        todos os dashboards ligados. Mesmo padrão das outras tasks
+        periódicas (periodic_retention_task): try/except por iteração, uma
+        falha num ciclo nunca mata a task para sempre."""
+        while True:
+            try:
+                for alerta in await self._escalate_overdue_alerts():
+                    print(f"[BRIDGE] alerta {alerta['uuid']} escalado para "
+                          f"'{alerta['escalated_to_severity']}' por falta de confirmacao")
+                    await self.broadcast({"kind": "alert_escalated", "alert": alerta})
+            except Exception as exc:  # noqa: BLE001 - nunca deve derrubar o bridge
+                print(f"[BRIDGE] erro na task de escalonamento de alertas: {exc}")
+            await asyncio.sleep(self.ALERT_ESCALATION_CHECK_INTERVAL_S)
+
+    # ============================================================
+    # RF-05 (2026-09-07) — NÃO-USO DO DISPOSITIVO
+    # ============================================================
+    def _observe_wear_state(self, record: dict) -> None:
+        """Alimenta o WearDetector com um registo ao vivo e, em mudança de
+        estado, difunde "wear_status" + persiste um alerta quando o estado
+        novo é "removido". Chamado do callback BLE, por isso nunca pode
+        levantar: qualquer erro fica aqui e não interrompe o streaming."""
+        try:
+            evento = self.wear_detector.observe(record)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[BRIDGE] erro na detecao de nao-uso do dispositivo: {exc}")
+            return
+        if evento is None:
+            return
+        self._broadcast_wear_event(evento)
+
+    def _broadcast_wear_event(self, evento: dict) -> None:
+        if evento["state"] == vital_alerts.WEAR_STATE_REMOVED:
+            print("[BRIDGE] RF-05: dispositivo aparentemente retirado do pulso")
+            alert_uuid = self._persist_alert(
+                alert_type="device_not_worn",
+                severity=vital_alerts.WEAR_REMOVED_SEVERITY,
+                title=vital_alerts.WEAR_REMOVED_TITLE,
+                description=evento["explanation"],
+                raw_data={
+                    "seconds_without_skin": evento.get("seconds_without_skin"),
+                    "seconds_without_motion": evento.get("seconds_without_motion"),
+                },
+            )
+            if alert_uuid:
+                evento = {**evento, "alert_uuid": alert_uuid}
+        asyncio.create_task(self.broadcast({"kind": "wear_status", **evento}))
 
     def _on_dump_status(self, _char: BleakGATTCharacteristic, data: bytearray) -> None:
         """Callback de notificação da characteristic dumpStatusChar
@@ -1288,6 +1742,13 @@ class BleBridge:
                         "kind": "device_status", "connected": True,
                         "mac": self.connected_device_mac,
                     })
+                    # RF-05: reconexão repõe o detetor em 'unknown' — nunca
+                    # em 'worn'. Só a primeira amostra recebida é que diz
+                    # alguma coisa sobre o pulso do utente (ver o cabeçalho
+                    # de vital_alerts.WearDetector).
+                    evento_uso = self.wear_detector.on_link_restored()
+                    if evento_uso:
+                        await self.broadcast({"kind": "wear_status", **evento_uso})
 
                     # Fase A de seguranca BLE (2026-07-20): pairing/bonding
                     # tem de acontecer ANTES de qualquer read/write/
@@ -1422,6 +1883,14 @@ class BleBridge:
                     resource_id=self.orm.device_id,
                 )
             await self.broadcast({"kind": "device_status", "connected": False, "paused": not self.ble_enabled})
+            # RF-05: a ausência de registos a partir daqui é falta de
+            # ligação, NÃO evidência de que o dispositivo foi retirado —
+            # o detetor apaga os seus contadores para não acumular 30 min
+            # de "silêncio" que na verdade é a ligação em baixo, e o
+            # dashboard passa a mostrar uma mensagem diferente.
+            evento_uso = self.wear_detector.on_link_lost()
+            if evento_uso:
+                await self.broadcast({"kind": "wear_status", **evento_uso})
             if not self.ble_enabled:
                 # Desligado a pedido do dashboard — nao ha' motivo para
                 # tentar reconectar, o topo do loop vai ficar a aguardar
@@ -1502,6 +1971,34 @@ class BleBridge:
         except (ValueError, TypeError):
             return
         cmd = msg.get("cmd") if isinstance(msg, dict) else None
+
+        # RF-02: autorizacao por perfil, antes de qualquer efeito. Ver o
+        # cabecalho de WS_COMMAND_ROLES. Um comando desconhecido nao chega
+        # aqui a ser recusado por perfil — cai nos ramos seguintes e e'
+        # ignorado silenciosamente, como sempre foi.
+        if cmd in WS_COMMAND_ROLES:
+            role = self._ws_user_role(ws)
+            if role not in WS_COMMAND_ROLES[cmd]:
+                print(f"[BRIDGE] comando '{cmd}' recusado — perfil '{role}' sem permissao")
+                if self.orm is not None:
+                    try:
+                        self.orm.audit(
+                            action="ws.command_denied",
+                            resource_type="ws_command",
+                            details={"cmd": cmd, "role": role},
+                            ip=_ws_remote_ip(ws),
+                            user_id=self._ws_user_id(ws),
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        print(f"[BRIDGE] falha a registar recusa em auditoria: {exc}")
+                await ws.send(json.dumps({
+                    "kind": "command_result",
+                    "cmd": cmd,
+                    "ok": False,
+                    "error": "nao_autorizado",
+                }))
+                return
+
         if cmd in ("force_reading", "reset_readings"):
             await self.send_command(ws, cmd)
             return
@@ -1542,6 +2039,39 @@ class BleBridge:
             await ws.send(json.dumps({
                 "kind": "command_result", "cmd": cmd, "ok": True, "was_pending": was_pending,
             }))
+            return
+        if cmd == "get_alerts":
+            # RF-07/RF-08 (2026-09-07): lista de alertas persistidos com
+            # severidade, motivo, escalonamento e ação registada. Só
+            # responde a quem pediu (não é broadcast) — mesmo padrão de
+            # get_history.
+            try:
+                limit = int(msg.get("limit", self.ALERT_LIST_MAX))
+            except (TypeError, ValueError):
+                limit = self.ALERT_LIST_MAX
+            limit = max(1, min(limit, self.ALERT_LIST_MAX))
+            if not self.orm:
+                await ws.send(json.dumps({
+                    "kind": "alerts", "alerts": [], "error": "persistencia indisponivel",
+                }))
+                return
+            try:
+                alertas = self._list_alerts(limit)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[BRIDGE] erro a listar alertas: {exc}")
+                await ws.send(json.dumps({"kind": "alerts", "alerts": [], "error": str(exc)}))
+                return
+            await ws.send(json.dumps({
+                "kind": "alerts", "alerts": alertas,
+                "escalation_minutes": self.ALERT_ESCALATION_MINUTES,
+            }))
+            return
+        if cmd == "confirm_alert":
+            # RF-07 (confirmação que trava o escalonamento) + RF-08 (ação
+            # tomada e nota livre). Uma única transição: quem confirma um
+            # alerta está simultaneamente a declarar que o viu (read_at) e
+            # a fechá-lo com uma ação (resolved_at + resolution_note).
+            await self._handle_confirm_alert(ws, cmd, msg)
             return
         if cmd == "get_history":
             # Pedido de histórico real (ver storage_advanced.py, via
@@ -1974,6 +2504,7 @@ class BleBridge:
     async def ws_handler(self, ws: "websockets.ServerConnection") -> None:
         self.ws_clients.add(ws)
         self.ws_user_ids[ws] = getattr(ws, "_carewear_user_id", None)
+        self.ws_user_roles[ws] = getattr(ws, "_carewear_user_role", None)
         print(f"[BRIDGE] dashboard ligado via WebSocket ({len(self.ws_clients)} ativo(s))")
         await ws.send(json.dumps({
             "kind": "device_status",
@@ -1986,10 +2517,29 @@ class BleBridge:
         finally:
             self.ws_clients.discard(ws)
             self.ws_user_ids.pop(ws, None)
+            self.ws_user_roles.pop(ws, None)
             print(f"[BRIDGE] dashboard desligado ({len(self.ws_clients)} ativo(s))")
 
     def _ws_user_id(self, ws) -> Optional[int]:
-        return self.ws_user_ids.get(ws)
+        # Mesma dupla fonte de _ws_user_role() abaixo (alinhado 2026-09-07,
+        # ao ligar `resolved_by_user_id` do RF-08): o dicionario e'
+        # preenchido por ws_handler(), mas o atributo ja' existe desde o
+        # handshake (ws_transport.process_request). Ler o atributo como
+        # alternativa torna a identificacao valida tambem antes de
+        # ws_handler correr — sem isto, "quem confirmou o alerta" podia
+        # ficar a None numa corrida no arranque da ligacao.
+        if ws in self.ws_user_ids:
+            return self.ws_user_ids[ws]
+        return getattr(ws, "_carewear_user_id", None)
+
+    def _ws_user_role(self, ws) -> Optional[str]:
+        # O dicionario e' preenchido por ws_handler(); o atributo e' escrito
+        # antes disso, no handshake, por ws_transport.process_request(). Sao
+        # a mesma fonte de verdade, e ler o atributo como alternativa torna a
+        # verificacao valida mesmo antes de ws_handler correr.
+        if ws in self.ws_user_roles:
+            return self.ws_user_roles[ws]
+        return getattr(ws, "_carewear_user_role", None)
 
 async def main() -> None:
     bridge = BleBridge()
@@ -2005,6 +2555,11 @@ async def main() -> None:
     async with server:
         asyncio.create_task(bridge.periodic_retention_task())
         asyncio.create_task(bridge.periodic_orm_retention_task())
+        # RF-07 (2026-09-07): escalonamento por falta de confirmação. Corre
+        # em paralelo com o ciclo BLE de propósito — um alerta tem de subir
+        # de nível ao fim de N minutos mesmo que o wearable entretanto se
+        # tenha desligado (aliás, sobretudo nesse caso).
+        asyncio.create_task(bridge.periodic_alert_escalation_task())
         await bridge.run_device_loop()
 
 if __name__ == "__main__":

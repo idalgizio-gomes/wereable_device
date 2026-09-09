@@ -511,8 +511,29 @@ class OrmPersistence:
         try:
             row = sa.ActivityWindow(
                 device_id=self.device_id,
+                # BUG CORRIGIDO: `activity_date` era gravado com
+                # `tz=timezone.utc` (data/hora UTC), mas `start_time`/
+                # `end_time` logo abaixo são MINUTOS DESDE A MEIA-NOITE
+                # LOCAL (activity_inference.py::_update_block usa
+                # `time.localtime()`). Os dois campos referiam-se a
+                # relógios diferentes, e quem os volta a juntar
+                # (`storage_advanced._activity_window_epoch_range`, que faz
+                # `datetime.combine(activity_date.date(), ...)` +
+                # `time.mktime()`, ou seja LOCAL) reconstruía o instante
+                # errado. Num fuso a leste de UTC (Portugal em horário de
+                # verão, UTC+1) qualquer bloco fechado entre as 00:00 e as
+                # 01:00 locais era gravado com a data do dia ANTERIOR:
+                # local 2026-08-15 00:30 -> UTC 2026-08-14 23:30, e a
+                # reconstrução dava 2026-08-14 00:30, exatamente 24h de
+                # erro. Consequências reais: o bloco nunca aparecia na
+                # timeline do episódio (`get_episode_timeline`) e era
+                # contado no dia errado por
+                # `Analytics.daily_activity_distribution` (que também
+                # compara contra um `datetime(ano, mês, dia)` local-naive).
+                # `fromtimestamp()` sem `tz` devolve a hora LOCAL naive —
+                # o mesmo relógio de `start_time`/`end_time`.
                 activity_date=datetime.fromtimestamp(
-                    closed_block["start_wall_clock_s"], tz=timezone.utc
+                    closed_block["start_wall_clock_s"]
                 ),
                 activity_category=closed_block["db_category"],
                 start_time=closed_block["start_time_minutes"],
@@ -551,8 +572,13 @@ class OrmPersistence:
         """Aplica as políticas de retenção FIXAS de `DataRetention.cleanup`
         (RETENTION_POLICIES em storage_advanced.py: sensor_records 365d,
         activity_windows 1825d, alerts 2555d [soft delete], anomaly_detections
-        1825d, medication_adherence 1095d — emergency_alerts nunca é apagado
-        de propósito). Isto é DISTINTO de `purge(days)` acima, que só cobre
+        1825d, medication_adherence 1095d, emergency_alerts 2920d [soft
+        delete]). CORRIGIDO: esta docstring afirmava que "emergency_alerts
+        nunca é apagado de propósito", o que deixou de ser verdade em
+        2026-07-31 (GDPR-006, decisão da utilizadora) — `DataRetention.
+        cleanup` passou nessa data a fazer soft delete dos EmergencyAlert
+        com mais de 8 anos (ver o bloco "EmergencyAlert (soft delete...)"
+        em storage_advanced.py). Isto é DISTINTO de `purge(days)` acima, que só cobre
         SensorRecord com a retenção CONFIGURÁVEL do dashboard (paridade com
         storage.py); este método cobre as restantes 4 tabelas do ORM que
         antes de existir este método nunca eram limpas em runtime (GDPR-006).

@@ -234,6 +234,9 @@ def test_get_history_generates_audit_log_entry():
     class FakeWebSocket:
         def __init__(self):
             self.sent = []
+            # RF-02 (2026-09-07): handle_dashboard_command() passou a exigir
+            # perfil. "clinician" e' o perfil com acesso a todos os comandos.
+            self._carewear_user_role = "clinician"
 
         async def send(self, message):
             self.sent.append(json.loads(message))

@@ -47,6 +47,13 @@ TEMPLATES.rotina = () => `
     ${legendHtml()}
     <p class="empty-hint">${t('rotina.anomHint')}</p>
   </div>
+
+  <!-- RF-09 (2026-09-07) — human-in-the-loop. Colocado na vista "Rotina
+       diária" e não numa vista nova: é aqui que o cuidador já olha para o
+       que o sistema CLASSIFICOU (blocos de rotina + anomalias logo
+       acima), por isso é aqui que faz sentido contradizê-lo. Ver o módulo
+       "ROTULAGEM HUMAN-IN-THE-LOOP" em bridge-exportacao.js. -->
+  <div class="card" id="hitlReviewCard"></div>
 `;
 AFTER_RENDER.rotina = () => {
   drawRoutineTimeline('cvRoutineFull', currentRoutineToday(), '');
@@ -55,7 +62,92 @@ AFTER_RENDER.rotina = () => {
   renderCaregiverNotes();
   renderPacingSummary();
   drawPacingTrend('cvPacingTrend', currentPacingTrend());
+  renderHitlReviewCard('hitlReviewCard');
 };
+
+/* ------------------------------------------------------------
+   RF-09 — CARTÃO DE REVISÃO DE CLASSIFICAÇÕES (2026-09-07)
+   ------------------------------------------------------------
+   Duas metades, deliberadamente no mesmo cartão:
+     1. O que ainda se PODE marcar — os alertas ativos deste paciente,
+        cada um com um botão de "falso positivo" que alterna.
+     2. O que JÁ foi marcado — a fila de rótulos acumulada, com quem a
+        criou, se chegou ao bridge, e a exportação para o ciclo de
+        retreino.
+   Separá-las em dois cartões esconderia a consequência da ação: hoje o
+   cuidador carrega no botão e não vê para onde é que aquilo vai. O
+   requisito é precisamente que a marcação "fique disponível para o
+   próximo ciclo de retreino" — mostrar a fila é o que torna isso
+   verificável por quem usa, e não só por quem lê o código.
+------------------------------------------------------------ */
+function renderHitlReviewCard(hostId){
+  const host = document.getElementById(hostId);
+  if (!host) return;
+
+  const alertas = typeof currentAlerts === 'function' ? currentAlerts() : [];
+  const naFila = hitlCorrections.filter(c => c.patientId === selectedPatientId);
+  const porSincronizar = naFila.filter(c => !c.sentToBridge).length;
+
+  const listaAlertas = alertas.length ? alertas.map(a => {
+    const marcado = isAlertMarkedFalsePositive(a.key);
+    return `
+      <div class="hitl-row">
+        <div class="hitl-main">
+          <div class="hitl-title">${escapeHtml(a.title)}</div>
+          <div class="hitl-meta">${escapeHtml(a.time || '')} · gravidade: ${escapeHtml(a.sev)}</div>
+          ${marcado ? '<div class="hitl-badge" style="margin-top:6px;">✎ Marcado como falso positivo</div>' : ''}
+        </div>
+        <div class="hitl-actions">
+          <button type="button" class="btn-secondary"
+                  aria-pressed="${marcado}"
+                  onclick="toggleAlertFalsePositive('${escapeHtml(a.key)}', '${escapeHtml(a.title).replace(/'/g, '&#39;')}')">
+            ${marcado ? 'Anular marcação' : 'Marcar como falso positivo'}
+          </button>
+        </div>
+      </div>`;
+  }).join('') : '<p class="empty-hint">Sem alertas ativos para rever neste paciente.</p>';
+
+  const fila = naFila.length ? naFila.map(c => `
+    <div class="hitl-queue-row">
+      <span class="hitl-when">${new Date(c.ts).toLocaleString(currentLang, {dateStyle:'short', timeStyle:'short'})}</span>
+      <span>${c.kind === 'alerta' ? 'Alerta' : 'Atividade'}: ${escapeHtml(c.targetLabel || c.target)}
+        ${c.originalLabel && c.correctedLabel ? ` — ${escapeHtml(c.originalLabel)} → <b>${escapeHtml(c.correctedLabel)}</b>` : ''}</span>
+      <span class="hitl-sync ${c.sentToBridge ? 'sent' : 'pending'}">${c.sentToBridge ? '✓ no bridge' : '● só local'}</span>
+      <button type="button" class="btn-secondary" style="padding:4px 9px;"
+              aria-label="Remover este rótulo da fila"
+              onclick="removeHitlCorrection('${c.id}')">Remover</button>
+    </div>
+  `).join('') : '<p class="empty-hint">Ainda não corrigiste nenhuma classificação. As correções aparecem aqui.</p>';
+
+  host.innerHTML = `
+    <div class="card-head">
+      <div>
+        <h3>Rever classificações do sistema</h3>
+        <div class="card-sub">Marcar um alerta como falso positivo cria um rótulo humano — o dado que falta para melhorar o modelo.</div>
+      </div>
+    </div>
+    ${listaAlertas}
+
+    <div class="card-sub" style="margin:18px 0 4px;">Rótulos registados por ti (${naFila.length})</div>
+    ${fila}
+
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:14px;">
+      <button type="button" class="btn-secondary" onclick="exportHitlCorrections()" ${naFila.length ? '' : 'disabled'}>
+        Exportar para retreino (.jsonl)
+      </button>
+      <button type="button" class="btn-secondary" onclick="exportHitlCorrectionsCsv()" ${naFila.length ? '' : 'disabled'}>
+        Exportar (.csv)
+      </button>
+    </div>
+    <p class="empty-hint">
+      As correções de <b>atividade</b> feitas com o bridge ligado são gravadas na base de dados do bridge
+      (tabela <code>activity_corrections</code>) e ficam disponíveis para o próximo ciclo de retreino do
+      classificador. As marcações de <b>falso positivo em alertas</b> ainda não têm comando equivalente no
+      bridge: ficam guardadas neste browser e só entram no retreino através do ficheiro exportado acima.
+      ${porSincronizar ? `<b>${porSincronizar}</b> rótulo(s) deste paciente ainda não chegaram ao bridge.` : ''}
+    </p>
+  `;
+}
 
 /* ------------------------------------------------------------
    NOTAS DO CUIDADOR
@@ -183,7 +275,7 @@ function drawCategoryWeeklyBar(id, weekly, color){
     const y = top + plotH - bh;
     ctx.fillStyle = col;
     roundRect(ctx, x, y, bw, bh, 3); ctx.fill();
-    ctx.fillStyle = resolveVar('--text-muted'); ctx.font = '10px ' + getComputedStyle(document.body).fontFamily; ctx.textBaseline='top';
+    ctx.fillStyle = resolveVar('--text-muted'); ctx.font = canvasFont(10); ctx.textBaseline='top';
     ctx.fillText(d.day, x + bw/2 - 8, h-bottom+5);
     S.bars.push({x, y, w:bw, h:bh, d});
   });
@@ -225,7 +317,7 @@ function drawPacingTrend(id, data){
   pts.forEach(p => {
     ctx.fillStyle = col;
     ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = resolveVar('--text-muted'); ctx.font = '10px ' + getComputedStyle(document.body).fontFamily; ctx.textBaseline='top';
+    ctx.fillStyle = resolveVar('--text-muted'); ctx.font = canvasFont(10); ctx.textBaseline='top';
     ctx.fillText(p.d.day, p.x - 8, h-bottom+5);
   });
 

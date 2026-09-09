@@ -168,17 +168,43 @@ uint32_t counterChecksum(uint32_t magic, uint64_t counter) {
 }
 } // namespace
 
+// BUG CORRIGIDO (revisao dirigida a cifra AES-CTR): esta funcao fazia
+// remove()+open()+write(), tal como as restantes save*() deste ficheiro.
+// Para o contador de nonce isso e um defeito de seguranca, nao so de
+// robustez: entre o remove() e o write() existe uma janela em que o
+// ficheiro NAO EXISTE. Uma perda de energia nessa janela (que ocorre a
+// cada lote de nonces, ~1x por cada 21min de streaming continuo, ver
+// reserveNonceBatch() em BleGattDump.cpp) deixa /counter.bin ausente, e
+// counter_load() trata "ausente" como primeiro arranque genuino
+// (corrupted=false, counter=0) — o magic+checksum acrescentado antes so
+// deteta um ficheiro EXISTENTE e corrompido, nunca um ficheiro apagado.
+// Resultado: o contador recomeca do zero com a MESMA chave AES e os
+// nonces ja usados sao reemitidos (quebra real do CTR).
+// Agora escreve-se por cima do ficheiro existente (seek(0)+write+truncate,
+// sem o apagar antes; FILE_O_WRITE abre em modo append, dai o seek), pelo
+// que o ficheiro nunca deixa de existir: uma perda de energia a meio
+// deixa-o com o valor ANTERIOR ja commitado (que e sempre >= a todos os
+// nonces ja usados), nunca ausente.
 bool counter_save(uint64_t counter) {
   CounterRecord rec{kCounterMagic, counter, counterChecksum(kCounterMagic, counter)};
-  InternalFS.remove(PATH_COUNT);
   File f(InternalFS);
   if (!f.open(PATH_COUNT, FILE_O_WRITE)) {
     Serial.println("[Storage] failed to open counter for write");
     return false;
   }
+  if (!f.seek(0)) {
+    Serial.println("[Storage] failed to seek counter for write");
+    f.close();
+    return false;
+  }
   size_t n = f.write(reinterpret_cast<const uint8_t *>(&rec), sizeof(rec));
+  // Trunca para o tamanho exato do registo: cobre o caso de existir em
+  // flash um ficheiro maior de um formato anterior, que de outra forma
+  // deixaria bytes antigos no fim e falharia a validacao de tamanho em
+  // counter_load().
+  const bool truncated = f.truncate(sizeof(rec));
   f.close();
-  return n == sizeof(rec);
+  return n == sizeof(rec) && truncated;
 }
 
 bool counter_load(uint64_t &counter, bool *corrupted) {

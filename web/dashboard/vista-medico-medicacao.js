@@ -67,7 +67,7 @@ TEMPLATES.medicacao = () => {
 
   return `
   <div class="card">
-    <div class="card-head"><div><h3>${t('nav.medication')} — ${p.name} <span class="sim-flag">protótipo</span></h3><div class="card-sub">${t('medicacao.card1Subtitle')}</div></div></div>
+    <div class="card-head"><div><h3>${t('nav.medication')} — ${escapeHtml(p.name)} <span class="sim-flag">protótipo</span></h3><div class="card-sub">${t('medicacao.card1Subtitle')}</div></div></div>
     ${meds.length ? `
     <table class="data-table">
       <thead><tr><th>${t('medicacao.thMed')}</th><th>${t('medicacao.thDose')}</th><th>${t('medicacao.thTime')}</th><th>${t('medicacao.thStatus')}</th>${hasAnyPendingDose ? `<th>${t('medicacao.thAction')}</th>` : ''}</tr></thead>
@@ -82,7 +82,7 @@ TEMPLATES.medicacao = () => {
 
   ${!isUtente ? `
   <div class="card">
-    <div class="card-head"><div><h3>${t('medicacao.manageTitle')}</h3><div class="card-sub">${t('medicacao.manageSubtitle')} ${p.name}</div></div></div>
+    <div class="card-head"><div><h3>${t('medicacao.manageTitle')}</h3><div class="card-sub">${t('medicacao.manageSubtitle')} ${escapeHtml(p.name)}</div></div></div>
     ${meds.length ? `
     <table class="data-table">
       <thead><tr><th>${t('medicacao.thMed')}</th><th>${t('medicacao.thDose')}</th><th>${t('medicacao.thTimes')}</th><th></th></tr></thead>

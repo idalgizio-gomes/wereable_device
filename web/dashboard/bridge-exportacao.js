@@ -317,12 +317,198 @@ function toggleActivityCorrectionPicker(){
 
 function submitActivityCorrection(category){
   activityCorrectionPickerOpen = false;
+  const original = liveState.currentActivity ? liveState.currentActivity.category : null;
   const sent = sendWsCommandWithArgs('correct_activity', {category});
-  if (!sent){
-    renderLiveActivityPanel();
-    return;
-  }
+  // RF-09 (2026-09-07): a correção passa a ser SEMPRE registada também na
+  // fila local de rotulagem, tenha ou não chegado ao bridge. Antes,
+  // quando sendWsCommandWithArgs devolvia false (bridge em baixo, o caso
+  // normal fora de uma sessão de hardware), o juízo do cuidador
+  // desaparecia sem deixar rasto — que é exatamente a escassez de dados
+  // rotulados que M. Carvalho 2026 e Badawi et al. 2024 identificam como
+  // o principal travão ao desempenho.
+  recordHitlCorrection({
+    kind: 'atividade',
+    target: 'classificacao_ao_vivo',
+    targetLabel: 'Classificação de atividade em tempo real',
+    originalLabel: original,
+    correctedLabel: category,
+    falsePositive: original != null && original !== category,
+    sentToBridge: sent,
+  });
   renderLiveActivityPanel();
+}
+
+/* ============================================================
+   RF-09 — ROTULAGEM HUMAN-IN-THE-LOOP (2026-09-07)
+   ------------------------------------------------------------
+   Requisito (Should): "o cuidador marca um alerta/classificação como
+   falso positivo, e a marcação fica disponível para o próximo ciclo de
+   retreino". Evidência: M. Carvalho 2026 e Badawi et al. 2024 apontam a
+   escassez de dados rotulados como o principal travão ao desempenho dos
+   modelos de HAR/deteção de anomalias.
+
+   ESTADO ANTERIOR, verificado antes de escrever isto:
+     - cmd "correct_activity" existe no bridge (ble_bridge.py ~1918/2001),
+       valida a categoria por allowlist fechada, grava em
+       activity_corrections (orm_persistence.insert_activity_correction /
+       storage_advanced) e difunde {kind:"activity_correction"} a todos os
+       dashboards ligados. Do lado do cliente, submitActivityCorrection()
+       já o invocava. Isso estava feito e não foi reescrito.
+     - FALTAVA tudo o resto do critério: (a) só cobria a classificação de
+       atividade AO VIVO, nunca um ALERTA; (b) a correção só existia
+       enquanto o bridge estivesse ligado — sem bridge, perdia-se; (c) não
+       havia nenhuma forma de o cuidador VER o que já corrigiu, nem de
+       desfazer; (d) nada disto saía do sistema num formato que um ciclo
+       de retreino pudesse consumir.
+
+   O QUE ESTE MÓDULO ACRESCENTA: uma fila de rotulagem local (uma entrada
+   por juízo humano), a marcação de alertas como falso positivo, e a
+   exportação dessa fila em JSONL/CSV — o formato que ml/ consome.
+
+   LIMITAÇÃO HONESTA, e é a razão de a exportação existir: não há nenhum
+   comando de bridge equivalente a "correct_activity" para ALERTAS, por
+   isso essas marcações vivem só em localStorage deste browser até serem
+   exportadas à mão. O que falta do lado do servidor está descrito ao
+   pormenor no relatório da tarefa.
+============================================================ */
+const HITL_CORRECTIONS_KEY = 'carewear_hitl_corrections';
+// Teto da fila: cada entrada é minúscula (~200 bytes), mas localStorage é
+// partilhado com o resto do protótipo e uma fila sem limite acabaria por
+// estourar a quota e derrubar gravações de outras funcionalidades.
+const HITL_MAX_ENTRIES = 500;
+
+function loadHitlCorrections(){
+  try {
+    const raw = localStorage.getItem(HITL_CORRECTIONS_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (Array.isArray(parsed)) return parsed;
+  } catch (e) { /* localStorage indisponível ou dados corrompidos — começa vazio */ }
+  return [];
+}
+function saveHitlCorrections(list){
+  try { localStorage.setItem(HITL_CORRECTIONS_KEY, JSON.stringify(list)); }
+  catch (e) { /* quota excedida — a fila fica só em memória nesta sessão */ }
+}
+let hitlCorrections = loadHitlCorrections();
+
+// Acrescenta um juízo humano à fila. `patientId` é gravado na entrada (e
+// não inferido na leitura) porque o cuidador pode trocar de paciente
+// entre a correção e a exportação — um rótulo atribuído ao paciente
+// errado é pior do que rótulo nenhum.
+function recordHitlCorrection(entry){
+  const registo = {
+    id: 'hitl-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7),
+    ts: Date.now(),
+    patientId: typeof selectedPatientId !== 'undefined' ? selectedPatientId : null,
+    role: typeof currentRole !== 'undefined' ? currentRole : null,
+    kind: entry.kind,
+    target: entry.target,
+    targetLabel: entry.targetLabel || '',
+    originalLabel: entry.originalLabel != null ? entry.originalLabel : null,
+    correctedLabel: entry.correctedLabel != null ? entry.correctedLabel : null,
+    falsePositive: !!entry.falsePositive,
+    sentToBridge: !!entry.sentToBridge,
+  };
+  hitlCorrections.unshift(registo);
+  if (hitlCorrections.length > HITL_MAX_ENTRIES) hitlCorrections.length = HITL_MAX_ENTRIES;
+  saveHitlCorrections(hitlCorrections);
+  return registo;
+}
+
+// Chave composta paciente+alerta — o mesmo `key` de alerta ('hr-alta',
+// 'sono-curto', ...) repete-se entre pacientes, tal como já acontecia com
+// deletedAlertsMap/alertas lidos (ver patientAlertKey em
+// alertas-emergencias.js, a mesma convenção).
+function hitlAlertMatches(c, patientId, alertKey){
+  return c.kind === 'alerta' && c.target === alertKey && c.patientId === patientId;
+}
+function isAlertMarkedFalsePositive(alertKey, patientId){
+  const pid = patientId || (typeof selectedPatientId !== 'undefined' ? selectedPatientId : null);
+  return hitlCorrections.some(c => hitlAlertMatches(c, pid, alertKey) && c.falsePositive);
+}
+
+// Marca/desmarca um alerta como falso positivo. Alternar em vez de só
+// marcar: um cuidador que carregue por engano tem de conseguir corrigir a
+// própria correção, senão o dado de treino fica pior do que estava.
+function toggleAlertFalsePositive(alertKey, alertTitle){
+  const pid = typeof selectedPatientId !== 'undefined' ? selectedPatientId : null;
+  if (isAlertMarkedFalsePositive(alertKey, pid)){
+    hitlCorrections = hitlCorrections.filter(c => !hitlAlertMatches(c, pid, alertKey));
+    saveHitlCorrections(hitlCorrections);
+  } else {
+    recordHitlCorrection({
+      kind: 'alerta',
+      target: alertKey,
+      targetLabel: alertTitle || alertKey,
+      originalLabel: 'alerta_gerado',
+      correctedLabel: 'falso_positivo',
+      falsePositive: true,
+      // Não existe comando de bridge para isto (ver o comentário do
+      // módulo) — fica sempre por sincronizar, e a interface diz isso.
+      sentToBridge: false,
+    });
+  }
+  if (typeof currentView !== 'undefined' && currentView) renderView(currentView);
+}
+
+function removeHitlCorrection(id){
+  hitlCorrections = hitlCorrections.filter(c => c.id !== id);
+  saveHitlCorrections(hitlCorrections);
+  if (typeof currentView !== 'undefined' && currentView) renderView(currentView);
+}
+
+// Uma linha JSON por rótulo (JSONL), que é o formato que os scripts de
+// ml/ leem sem precisarem de carregar o ficheiro todo em memória. Os
+// nomes dos campos seguem a tabela activity_corrections do bridge
+// (original_category/corrected_category) para que os dois conjuntos de
+// rótulos — os que chegaram ao bridge e os que ficaram só aqui — possam
+// ser concatenados sem tradução de esquema.
+function buildHitlJsonl(){
+  return hitlCorrections.map(c => JSON.stringify({
+    id: c.id,
+    received_at: new Date(c.ts).toISOString(),
+    patient_id: c.patientId,
+    corrected_by_role: c.role,
+    kind: c.kind,
+    target: c.target,
+    original_category: c.originalLabel,
+    corrected_category: c.correctedLabel,
+    false_positive: c.falsePositive,
+    synced_to_bridge: c.sentToBridge,
+  })).join('\n');
+}
+
+function exportHitlCorrections(){
+  if (!hitlCorrections.length) return;
+  // Blob + <a download>, a mesma técnica de downloadJson()/
+  // downloadCsvText() em export-clinico.js — aqui à mão porque o tipo
+  // MIME é application/x-ndjson e a extensão .jsonl, e nenhuma das duas
+  // funções existentes permite escolher isso.
+  const blob = new Blob([buildHitlJsonl() + '\n'], {type: 'application/x-ndjson'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `carewear-rotulos-cuidador-${new Date().toISOString().slice(0,10)}.jsonl`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function exportHitlCorrectionsCsv(){
+  if (!hitlCorrections.length) return;
+  const cab = 'id,received_at,patient_id,corrected_by_role,kind,target,original_category,corrected_category,false_positive,synced_to_bridge';
+  const linhas = hitlCorrections.map(c => [
+    c.id,
+    new Date(c.ts).toISOString(),
+    c.patientId, c.role, c.kind, c.target,
+    c.originalLabel, c.correctedLabel,
+    c.falsePositive, c.sentToBridge,
+  ].map(v => {
+    const s = v == null ? '' : String(v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }).join(','));
+  downloadCsvText('carewear-rotulos-cuidador', [cab, ...linhas].join('\n'));
 }
 
 // Mapeia a classe do classificador (PT, ver
@@ -884,6 +1070,17 @@ function handleCommandResult(msg){
       status.textContent = t('resumo.liveActivityCorrectionError', {error: msg.error || '—'});
       status.style.display = '';
       setTimeout(() => { status.style.display = 'none'; }, 4000);
+    }
+    // RF-09 (2026-09-07): sendWsCommandWithArgs() só garante que o
+    // comando SAIU pelo WebSocket — o bridge pode recusá-lo a seguir
+    // (limite de taxa, categoria desconhecida, persistência indisponível;
+    // ver os três ramos de erro em ble_bridge.py::correct_activity). Sem
+    // isto, a fila de rotulagem marcava como "enviado ao bridge" um
+    // rótulo que o bridge nunca chegou a gravar — e a exportação para
+    // retreino ficaria a contar duas vezes com dados que só existem aqui.
+    if (!msg.ok){
+      const ultima = hitlCorrections.find(c => c.kind === 'atividade' && c.sentToBridge);
+      if (ultima){ ultima.sentToBridge = false; saveHitlCorrections(hitlCorrections); }
     }
   }
   if (msg.cmd === 'reset_readings'){

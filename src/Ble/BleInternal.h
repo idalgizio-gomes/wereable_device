@@ -138,8 +138,8 @@ extern volatile bool s_dumpStartRequested;
 extern volatile bool s_dumpStopRequested;
 extern volatile bool s_dumpPendingValid;
 extern volatile bool s_dumpWindowImmediate;
-extern uint32_t s_dumpSentRecords;
-extern uint32_t s_dumpAckedRecords;
+extern volatile uint32_t s_dumpSentRecords;
+extern volatile uint32_t s_dumpAckedRecords;
 extern TaskHandle_t s_dumpTaskHandle;
 
 // Ligado/desligado do "modo de dados" - definido em Ble.cpp (startBroadcast/

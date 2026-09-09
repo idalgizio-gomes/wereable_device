@@ -24,8 +24,8 @@ volatile bool s_dumpStartRequested = false;
 volatile bool s_dumpStopRequested = false;
 volatile bool s_dumpPendingValid = false;
 volatile bool s_dumpWindowImmediate = false;
-uint32_t s_dumpSentRecords = 0;
-uint32_t s_dumpAckedRecords = 0;
+volatile uint32_t s_dumpSentRecords = 0;
+volatile uint32_t s_dumpAckedRecords = 0;
 TaskHandle_t s_dumpTaskHandle = nullptr;
 
 namespace {
@@ -645,6 +645,7 @@ void gattDumpTask(void *arg) {
     }
 
     if (targetRecords == 0) {
+      lastWindowMs = now;
       publishDumpStatus(DUMP_STREAMING, 4, 0);
       vTaskDelay(pdMS_TO_TICKS(50));
       continue;
