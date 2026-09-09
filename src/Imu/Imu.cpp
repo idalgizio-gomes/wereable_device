@@ -77,6 +77,35 @@ static Imu::Sample g_latestSample = {};
 // Contador de passos, incrementado pela task de aquisicao sempre que o
 // detetor de passos (detectStep) identifica um novo passo.
 static volatile uint32_t g_stepCount = 0;
+// Dia UTC (epoch em segundos / 86400) a que a contagem atual de g_stepCount
+// se refere. 0 e usado como sentinela de "ainda sem relogio valido/ainda
+// nao inicializado" — impossivel de confundir com um dia real (2026 e o
+// dia epoch ~20340). Ver resetStepsIfNewDay(), chamada uma vez por
+// iteracao do loop de aquisicao, ANTES de decidir se houve passo.
+//
+// FHIR/RF-11 (2026-09-07): sample.step_count deixou de ser um total
+// "desde o ultimo arranque do firmware" — que nao correspondia a nenhum
+// conceito clinico codificavel (nem total-24h LOINC 41950-7, nem
+// contagem-por-janela 55423-8) — e passou a reiniciar a meia-noite UTC,
+// tal como um pedometro convencional. Ver bridge/fhir_export.py para o
+// codigo LOINC agora aplicavel.
+static uint32_t g_stepCountDayEpoch = 0;
+
+// Reinicia g_stepCount quando o dia UTC muda, usando o relogio ja mantido
+// por Clock (Clock/Clock.cpp). Sem relogio valido (Clock::isValid()==false
+// — antes de qualquer sincronizacao por BLE/GNSS) NAO reinicia: e
+// preferivel manter um contador continuo e sem sentido de "dia" definido
+// a apagar passos reais por um falso positivo de mudanca de dia calculado
+// a partir de nowUtc()==0. O campo so passa a comportar-se como contador
+// diario depois do primeiro nowUtc() valido.
+static void resetStepsIfNewDay() {
+  if (!Clock::isValid()) return;
+  const uint32_t today = Clock::nowUtc() / 86400UL;
+  if (g_stepCountDayEpoch != 0 && today != g_stepCountDayEpoch) {
+    g_stepCount = 0;
+  }
+  g_stepCountDayEpoch = today;
+}
 
 // Numero de amostras recolhidas durante a rotina de calibracao: quanto
 // mais amostras, mais estavel/fiavel e a media calculada como offset.
@@ -382,6 +411,7 @@ static void imuTask(void *arg) {
       const float accMag = sqrtf((cax * cax) + (cay * cay) + (caz * caz));
       const uint32_t nowMs = millis();
 
+      resetStepsIfNewDay();
       if (detectStep(accMag, nowMs)) {
         g_stepCount++;
         Serial.print("[IMU] passo: ");
@@ -647,6 +677,7 @@ bool startTask() {
 
   g_motion = MotionState{};
   g_stepCount = 0;
+  g_stepCountDayEpoch = 0;
 
   BaseType_t ok = xTaskCreate(
       imuTask,

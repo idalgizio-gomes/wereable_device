@@ -163,10 +163,74 @@ function occurrencesFor(a, fullKey){
 
 function alertEscalation(a, fullKey){
   const count = occurrencesFor(a, fullKey);
+  // 1) Escalonamento por REPETIÇÃO (o que já existia): 'warning' -> 'serious'
+  //    e nunca mais alto, ver a decisão de segurança documentada acima.
+  let severity = a.sev;
+  let porRepeticao = false;
   if (a.sev === 'warning' && count >= ALERT_ESCALATION_THRESHOLD) {
-    return {severity:'serious', count, escalated:true};
+    severity = 'serious';
+    porRepeticao = true;
   }
-  return {severity:a.sev, count, escalated:false};
+
+  // 2) Escalonamento por TEMPO SEM CONFIRMAÇÃO (RF-07, 2026-09-07).
+  //    Alertas reais vindos do bridge já chegam com o nível efetivo
+  //    calculado do lado do servidor (a.effectiveSeverity/a.escalatedAt,
+  //    colunas escalated_to_severity/escalated_at) — a base de dados é a
+  //    autoridade e o browser não volta a escalar por cima disso, senão
+  //    dois separadores abertos escalavam o mesmo alerta duas vezes.
+  if (a.live){
+    return {
+      severity: a.effectiveSeverity || a.sev,
+      count, escalated: porRepeticao,
+      timeEscalated: !!a.escalatedAt,
+      escalatedAtMs: a.escalatedAtMs || null,
+      originalSeverity: a.sev,
+    };
+  }
+
+  const inicio = isAlertConfirmed(fullKey) ? null : alertClockStart(a, fullKey);
+  let escalatedAtMs = null;
+  if (inicio){
+    const minutos = (Date.now() - inicio) / 60000;
+    const saltos = Math.floor(minutos / ALERT_TIME_ESCALATION_MINUTES);
+    for (let i = 0; i < saltos; i++){
+      const seguinte = alertNextSeverity(severity);
+      if (!seguinte) break;  // 'critical' é o topo — não escala para sempre
+      severity = seguinte;
+      escalatedAtMs = inicio + (i + 1) * ALERT_TIME_ESCALATION_MINUTES * 60000;
+    }
+  }
+  // O requisito pede que o escalonamento fique REGISTADO, não só que a
+  // cor mude — o equivalente local de escalated_at/escalated_to_severity.
+  if (escalatedAtMs && fullKey){
+    const registado = alertEscalations[fullKey];
+    if (!registado || registado.toSeverity !== severity){
+      alertEscalations[fullKey] = {toSeverity: severity, at: escalatedAtMs, fromSeverity: a.sev};
+      saveAlertMap(ALERT_ESCALATIONS_KEY, alertEscalations);
+    }
+  }
+  return {
+    severity, count, escalated: porRepeticao,
+    timeEscalated: !!escalatedAtMs,
+    escalatedAtMs,
+    originalSeverity: a.sev,
+  };
+}
+
+// Re-renderiza a vista atual periodicamente para que um escalonamento por
+// tempo apareça sozinho, sem o cuidador ter de recarregar a página — um
+// alerta que sobe de nível só quando alguém clica noutro sítio não estaria
+// a cumprir o requisito. Meio período do prazo de escalonamento é
+// suficiente e é barato (a renderização é só string -> innerHTML).
+let alertEscalationTimer = null;
+function startAlertEscalationTimer(){
+  if (alertEscalationTimer) return;
+  alertEscalationTimer = setInterval(() => {
+    if (!currentView) return;
+    const temPendentes = (typeof currentAlerts === 'function' ? currentAlerts() : [])
+      .some(a => !isAlertConfirmed(patientAlertKey(selectedPatientId, a.key)));
+    if (temPendentes) renderView(currentView);
+  }, ALERT_TIME_ESCALATION_MINUTES * 30000);
 }
 
 function muteAlert(fullKey, hours){
@@ -185,6 +249,237 @@ function unmuteAlert(fullKey){
   if (currentView) renderView(currentView);
 }
 
+/* ------------------------------------------------------------
+   RF-07 (2026-09-07) — GRAVIDADE, MOTIVO, CONFIRMAÇÃO E
+   ESCALONAMENTO POR TEMPO
+   ------------------------------------------------------------
+   O que já existia antes desta data e é REUTILIZADO aqui, não
+   reescrito: a paleta das 4 severidades (SEV_COLOR/SEV_BG/pillHtml em
+   templates-core.js), o silenciamento (muteAlert), o "marcar como lida"
+   (markAlertRead) e o escalonamento por REPETIÇÃO (alertEscalation).
+   O que faltava para cumprir o critério de aceitação:
+
+     1. os quatro níveis. A paleta usa a chave 'good' onde a base de
+        dados usa 'info' (ver alerts.severity em bridge/schema.sql), por
+        isso é preciso traduzir entre os dois vocabulários — ALERT_SEV_*
+        abaixo. Sem isto um alerta 'info' vindo do bridge era pintado com
+        undefined (fundo transparente, texto herdado);
+     2. o MOTIVO. "plain" é uma explicação em linguagem simples do que a
+        condição significa para a família; o requisito pede outra coisa —
+        porque é que ESTE alerta disparou, com os números reais. O bridge
+        já compõe essa frase (vital_alerts.explain_vital_alert /
+        explain_wear_state) e ela chega no campo `reason`;
+     3. a CONFIRMAÇÃO, que é diferente de "marcar como lida": ler é dizer
+        "vi isto", confirmar é dizer "vi isto E fiz X" (ver RF-08 abaixo).
+        É a confirmação — não a leitura — que trava o escalonamento;
+     4. o escalonamento POR TEMPO. O que existia subia de nível quando a
+        mesma condição se repetia N vezes; o requisito pede que suba
+        quando ninguém confirma dentro de N minutos, que é o caso
+        perigoso (um alerta a que ninguém responde).
+
+   NOTA sobre a "DECISÃO DE SEGURANÇA" documentada mais acima (o
+   escalonamento por repetição nunca gera 'critical' a partir de uma
+   contagem): continua a valer tal e qual para esse mecanismo. O
+   escalonamento por TEMPO percorre a escada toda até 'critical' porque
+   é isso que o requisito pede e porque o sinal é outro — não é "esta
+   condição já aconteceu 3 vezes", é "ninguém respondeu a este alerta
+   durante 45 minutos", que é precisamente a situação que deve acabar
+   por chegar ao nível máximo.
+------------------------------------------------------------ */
+// Ordem de gravidade. Igual a vital_alerts.SEVERITY_LADDER no bridge —
+// os dois lados TÊM de concordar sobre qual é o nível a seguir a
+// 'warning', senão o dashboard mostra um nível e a base de dados guarda
+// outro.
+const ALERT_SEVERITY_LADDER = ['info', 'warning', 'serious', 'critical'];
+
+// Tradução entre o vocabulário da base de dados (info/warning/serious/
+// critical) e as chaves da paleta em templates-core.js, que usa 'good'
+// no lugar de 'info'. Só o nome difere; a cor de 'good' é exatamente a
+// cor neutra/informativa que 'info' precisa.
+const ALERT_SEV_PALETTE = {info:'good', warning:'warning', serious:'serious', critical:'critical'};
+const ALERT_SEV_LABEL = {info:'Informação', warning:'Aviso', serious:'Sério', critical:'Crítico'};
+
+function alertSevPaletteKey(sev){ return ALERT_SEV_PALETTE[sev] || sev; }
+function alertSevLabel(sev){ return ALERT_SEV_LABEL[sev] || sev; }
+function alertSeverityRank(sev){ return ALERT_SEVERITY_LADDER.indexOf(sev); }
+function alertNextSeverity(sev){
+  const i = ALERT_SEVERITY_LADDER.indexOf(sev);
+  // Falha fechada, igual a vital_alerts.next_severity(): um valor
+  // desconhecido não escala, em vez de saltar para 'critical'.
+  return (i < 0 || i + 1 >= ALERT_SEVERITY_LADDER.length) ? null : ALERT_SEVERITY_LADDER[i + 1];
+}
+
+// Minutos sem confirmação até subir um nível. Igual a
+// BleBridge.ALERT_ESCALATION_MINUTES (bridge/ble_bridge.py) — mantido em
+// sincronia à mão, os dois lados não partilham este valor em tempo de
+// execução (mesma limitação já documentada para
+// DUMP_CTRL_FORCE_READING_SECONDS).
+const ALERT_TIME_ESCALATION_MINUTES = 15;
+
+// Instante em que cada alerta foi visto pela primeira vez por este
+// browser. Necessário porque os alertas de demonstração só têm um tempo
+// textual ("há 6 min"), sem carimbo comparável — para os alertas reais
+// vindos do bridge usa-se o created_at do próprio alerta, que é a fonte
+// certa (ver alertEscalation()).
+const ALERT_FIRST_SEEN_KEY = 'carewear_alert_first_seen';
+// Escalonamentos já registados, com o momento e o nível para que
+// subiram — o requisito pede explicitamente que isto FIQUE REGISTADO,
+// não só que a cor mude no ecrã (colunas escalated_at/
+// escalated_to_severity do lado do bridge).
+const ALERT_ESCALATIONS_KEY = 'carewear_alert_escalations';
+
+function loadAlertMap(key){
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* localStorage indisponível ou dados corrompidos - ignora */ }
+  return {};
+}
+function saveAlertMap(key, map){
+  try { localStorage.setItem(key, JSON.stringify(map)); }
+  catch (e) { /* quota excedida ou localStorage indisponível - fica só em memória */ }
+}
+let alertFirstSeen = loadAlertMap(ALERT_FIRST_SEEN_KEY);
+let alertEscalations = loadAlertMap(ALERT_ESCALATIONS_KEY);
+
+// Momento a partir do qual se conta o prazo de confirmação deste alerta.
+// Para alertas reais é o created_at do bridge; para os de demonstração é
+// a primeira vez que este browser os mostrou (registada aqui).
+function alertClockStart(a, fullKey){
+  if (a && a.createdAtMs) return a.createdAtMs;
+  if (!fullKey) return null;
+  if (!(fullKey in alertFirstSeen)){
+    alertFirstSeen[fullKey] = Date.now();
+    saveAlertMap(ALERT_FIRST_SEEN_KEY, alertFirstSeen);
+  }
+  return alertFirstSeen[fullKey];
+}
+
+/* ------------------------------------------------------------
+   RF-08 (2026-09-07) — REGISTO DA AÇÃO TOMADA APÓS ALERTA
+   ------------------------------------------------------------
+   Cada confirmação guarda a ação escolhida (lista fechada, a mesma
+   validada pelo bridge em ALERT_RESOLUTION_ACTIONS) e uma NOTA LIVRE.
+   A nota é texto escrito pelo utilizador e vai parar a innerHTML no
+   histórico — passa SEMPRE por escapeHtml() (já houve um XSS real neste
+   projeto por causa exatamente disto, ver o cabeçalho de escapeHtml()
+   em templates-core.js).
+------------------------------------------------------------ */
+const ALERT_CONFIRMATIONS_KEY = 'carewear_alert_confirmations';
+let alertConfirmations = loadAlertMap(ALERT_CONFIRMATIONS_KEY);
+
+// Valor guardado <-> rótulo mostrado. Os valores TÊM de ser iguais aos
+// de ALERT_RESOLUTION_ACTIONS em bridge/ble_bridge.py, senão o bridge
+// recusa a confirmação com "acao desconhecida".
+const ALERT_ACTION_LABELS = {
+  contactei_o_utente: 'Contactei o utente',
+  verifiquei_presencialmente: 'Fui verificar presencialmente',
+  contactei_a_equipa_clinica: 'Contactei a equipa clínica',
+  chamei_emergencia_medica: 'Chamei emergência médica',
+  ajustei_o_dispositivo: 'Ajustei/recoloquei o dispositivo',
+  falso_alarme: 'Falso alarme',
+  sem_acao_necessaria: 'Sem ação necessária',
+};
+
+function alertActionLabel(action){ return ALERT_ACTION_LABELS[action] || action; }
+function alertConfirmationFor(fullKey){ return fullKey ? (alertConfirmations[fullKey] || null) : null; }
+function isAlertConfirmed(fullKey){ return !!alertConfirmationFor(fullKey); }
+
+// Abre/fecha o formulário de confirmação de um alerta. Fica embutido na
+// própria linha (não é um modal) porque a ação é de baixo risco e o
+// cuidador precisa de continuar a ver o motivo do alerta enquanto
+// escreve a nota — ao contrário do cancelamento de emergência, que é
+// destrutivo e por isso tem modal + confirmação reforçada.
+function toggleAlertConfirmForm(idx){
+  const box = document.getElementById(`alertConfirm-${idx}`);
+  if (!box) return;
+  box.style.display = box.style.display === 'none' ? 'block' : 'none';
+}
+
+function submitAlertConfirm(fullKey, idx, alertUuid){
+  const actionEl = document.getElementById(`alertConfirmAction-${idx}`);
+  const noteEl = document.getElementById(`alertConfirmNote-${idx}`);
+  if (!actionEl || !noteEl) return;
+  const action = actionEl.value;
+  const note = noteEl.value.slice(0, 500); // igual a ALERT_RESOLUTION_NOTE_MAX_CHARS no bridge
+  if (!Object.prototype.hasOwnProperty.call(ALERT_ACTION_LABELS, action)) return;
+
+  alertConfirmations[fullKey] = {
+    action, note,
+    at: Date.now(),
+    by: (document.getElementById('avatarName') || {}).textContent || '',
+  };
+  saveAlertMap(ALERT_CONFIRMATIONS_KEY, alertConfirmations);
+  // Confirmar implica ter visto — sem isto o alerta continuava a contar
+  // como "por ler" no sino da topbar depois de já ter sido tratado.
+  markAlertRead(fullKey);
+
+  // Alertas REAIS (vindos do bridge, com uuid) são confirmados também na
+  // base de dados: é lá que ficam resolved_by_user_id/resolved_at/
+  // resolution_note, e é lá que o escalonamento do lado do servidor
+  // consulta se alguém já respondeu. Os de demonstração não têm uuid e
+  // ficam só no localStorage deste browser.
+  if (alertUuid && typeof sendWsCommandWithArgs === 'function'){
+    sendWsCommandWithArgs('confirm_alert', {alert_uuid: alertUuid, action, note});
+  }
+  // Alertas de emergência em curso: cancela também o escalonamento
+  // automático ao contacto de emergência agendado pelo bridge (cmd que
+  // já existia em ble_bridge.py e que o dashboard nunca chamava).
+  const alertaEmergencia = liveEmergencyAlertIdFor(fullKey);
+  if (alertaEmergencia && typeof sendWsCommandWithArgs === 'function'){
+    sendWsCommandWithArgs('acknowledge_alert', {alert_id: alertaEmergencia});
+  }
+  if (currentView) renderView(currentView);
+}
+
+// Reabre um alerta confirmado por engano. Não apaga o registo anterior
+// em silêncio — o histórico de ações (ver renderAlertActionsHistory)
+// deixa de o listar, mas a reabertura é uma ação explícita do cuidador,
+// não um efeito colateral de outra coisa.
+function reopenAlertConfirmation(fullKey){
+  delete alertConfirmations[fullKey];
+  saveAlertMap(ALERT_CONFIRMATIONS_KEY, alertConfirmations);
+  if (currentView) renderView(currentView);
+}
+
+// HTML do formulário de confirmação + do resumo da ação já registada.
+function alertConfirmControl(a, fullKey, idx){
+  if (!fullKey) return '';
+  const registada = alertConfirmationFor(fullKey);
+  if (registada){
+    const quando = new Date(registada.at).toLocaleString(currentLang, {
+      day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit',
+    });
+    // escapeHtml() em TUDO o que veio do utilizador: a nota é texto livre
+    // e o nome do cuidador vem do perfil, também editável.
+    const nota = registada.note
+      ? `<div class="alert-explain-box" style="display:block;">${escapeHtml(registada.note)}</div>` : '';
+    return `
+      <div class="alert-confirmed-summary" style="display:flex;flex-direction:column;gap:4px;align-items:flex-start;">
+        <span class="alert-read-badge">Confirmado — ${escapeHtml(alertActionLabel(registada.action))}</span>
+        <span class="alert-mute-note">${quando}${registada.by ? ` · ${escapeHtml(registada.by)}` : ''}</span>
+        ${nota}
+        <button type="button" class="alert-explain-btn" onclick="reopenAlertConfirmation('${fullKey}')">Reabrir</button>
+      </div>`;
+  }
+  const opcoes = Object.keys(ALERT_ACTION_LABELS)
+    .map(v => `<option value="${v}">${escapeHtml(ALERT_ACTION_LABELS[v])}</option>`).join('');
+  const uuidArg = a && a.alertUuid ? `'${a.alertUuid}'` : 'null';
+  return `
+    <button type="button" class="alert-explain-btn" onclick="toggleAlertConfirmForm(${idx})">Confirmar alerta</button>
+    <div class="alert-explain-box" id="alertConfirm-${idx}" style="display:none;">
+      <label style="display:block;margin-bottom:6px;">Ação tomada
+        <select id="alertConfirmAction-${idx}" style="width:100%;margin-top:4px;">${opcoes}</select>
+      </label>
+      <label style="display:block;margin-bottom:6px;">Nota (opcional)
+        <textarea id="alertConfirmNote-${idx}" rows="2" maxlength="500" style="width:100%;margin-top:4px;"
+          placeholder="O que observou e o que fez"></textarea>
+      </label>
+      <button type="button" class="alert-explain-btn"
+        onclick="submitAlertConfirm('${fullKey}', ${idx}, ${uuidArg})">Registar confirmação</button>
+    </div>`;
+}
+
 // 'idx' identifica este alerta dentro do array de alertas do paciente
 // atual (ver chamadas currentAlerts().map((a,i) => alertRow(a,i))), usado
 // para dar um id único à caixa de explicação em linguagem simples e ao
@@ -195,6 +490,7 @@ function unmuteAlert(fullKey){
 function alertRow(a, idx){
   const fullKey = a.key ? patientAlertKey(selectedPatientId, a.key) : null;
   const esc = alertEscalation(a, fullKey);
+  const paleta = alertSevPaletteKey(esc.severity);
   const icon = esc.severity==='critical' ? 'heart' : esc.severity==='serious' ? 'warn' : 'zap';
   const explainId = `alertPlain-${idx}`;
   const explainBtn = a.plain
@@ -204,6 +500,21 @@ function alertRow(a, idx){
 
   const escalationNote = esc.escalated
     ? `<p class="alert-escalation-note">${t('alertRow.escalationNote', {n: esc.count})}</p>`
+    : '';
+
+  // RF-07 — nível + motivo, sempre visíveis (não escondidos atrás de um
+  // botão como a explicação em linguagem simples): são os dois elementos
+  // que o critério de aceitação exige que cada alerta tenha.
+  const sevPill = `<span class="pill ${paleta}" style="background:${SEV_BG[paleta]};color:${SEV_COLOR[paleta]}">${escapeHtml(alertSevLabel(esc.severity))}</span>`;
+  const timeEscalationNote = esc.timeEscalated
+    ? `<p class="alert-escalation-note">Escalado de "${escapeHtml(alertSevLabel(esc.originalSeverity))}" para "${escapeHtml(alertSevLabel(esc.severity))}"${esc.escalatedAtMs ? ` às ${new Date(esc.escalatedAtMs).toLocaleTimeString(currentLang, {hour:'2-digit', minute:'2-digit'})}` : ''} — sem confirmação ao fim de ${ALERT_TIME_ESCALATION_MINUTES} min.</p>`
+    : '';
+  const motivo = alertReasonText(a);
+  // Estilo em linha e não uma classe CSS nova: index.html (onde vive todo
+  // o CSS desta página) está fora do âmbito desta alteração, e uma classe
+  // sem regra definida não teria aspeto nenhum.
+  const reasonHtml = motivo
+    ? `<div class="alert-reason" style="font-size:.82rem;color:var(--text-secondary);margin-top:4px;"><b>Motivo:</b> ${a.live ? escapeHtml(motivo) : motivo}</div>`
     : '';
 
   const mutedUntil = fullKey ? alertMutedUntil(fullKey) : null;
@@ -223,14 +534,16 @@ function alertRow(a, idx){
     : `<button type="button" class="alert-explain-btn" onclick="markAlertRead('${fullKey}')">${t('alertRow.markReadBtn')}</button>`;
 
   return `
-    <div class="alert-row ${esc.severity}${mutedUntil ? ' muted' : ''}">
-      <span class="alert-icon" style="background:${SEV_BG[esc.severity]}; color:${SEV_COLOR[esc.severity]}">${iconFor(icon)}</span>
+    <div class="alert-row ${paleta}${mutedUntil ? ' muted' : ''}">
+      <span class="alert-icon" style="background:${SEV_BG[paleta]}; color:${SEV_COLOR[paleta]}">${iconFor(icon)}</span>
       <div class="body">
-        <div class="title">${alertField(a,'title')}</div>
+        <div class="title">${alertField(a,'title')} ${sevPill}</div>
         <div class="desc">${alertField(a,'desc')}</div>
+        ${reasonHtml}
         ${escalationNote}
+        ${timeEscalationNote}
         ${explainBtn}
-        <div class="alert-actions">${readControl}${muteControl}</div>
+        <div class="alert-actions">${alertConfirmControl(a, fullKey, idx)}${readControl}${muteControl}</div>
       </div>
       <div class="time">${alertField(a,'time')}</div>
     </div>`;

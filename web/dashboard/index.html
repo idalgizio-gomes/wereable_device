@@ -1,4 +1,14 @@
 <!DOCTYPE html>
+<!-- RNF-08 (2026-09-07) — WCAG 2.1 SC 3.1.1 (Language of Page). O
+     ficheiro não tinha nenhuma tag <html>: o elemento raiz era criado
+     implicitamente pelo parser, sem atributo lang, e um leitor de ecrã
+     lia texto português com a pronúncia da língua por omissão do
+     sistema. A tag é explícita agora só por causa do lang — o resto do
+     documento continua a funcionar exatamente como antes (o data-theme
+     escrito por applyTheme() vai para este mesmo elemento). O valor é
+     atualizado ao trocar de idioma, ver initAccessibility() em
+     canvas-graficos.js. -->
+<html lang="pt">
 <meta charset="UTF-8">
 <!-- CSP parcial (2026-07-19, ver SECURITY_STATUS.md) — mantém
      'unsafe-inline' em script-src porque o dashboard ainda tem lógica em
@@ -12,7 +22,16 @@
      quando definido via <meta>, e este ficheiro é servido estaticamente
      sem servidor/cabeçalhos — incluí-lo aqui só geraria ruído sem
      proteção real. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src ws://localhost:8765 wss://localhost:8765; base-uri 'none'; form-action 'none'; object-src 'none'">
+<!-- connect-src (2026-09-07): acrescentado http://127.0.0.1:8766 e
+     https://127.0.0.1:8766 — a API REST do bridge (bridge/api.py,
+     ver api-client.js API_BASE) corre nesse porto e nunca esteve na
+     lista, pelo que todo o fetch() para /api/... (incluindo o login)
+     era bloqueado pela CSP desde que este cabeçalho foi escrito, sem
+     ter sido detetado por o dashboard correr sobretudo em modo
+     demonstração com dados locais. 127.0.0.1 e localhost NÃO são a
+     mesma origem para efeitos de CSP — mantidos os dois hosts (ws e
+     http) explicitamente, em vez de um caractere universal. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src ws://localhost:8765 wss://localhost:8765 http://127.0.0.1:8766 https://127.0.0.1:8766; base-uri 'none'; form-action 'none'; object-src 'none'">
 <title>CareWear · Monitorização de Rotina</title>
 <style>
   :root{
@@ -21,10 +40,28 @@
     --bg-surface-2:#1A2540;
     --bg-surface-3:#22304F;
     --border:#24304D;
+    /* RNF-08 (2026-09-07) — WCAG 2.1 SC 1.4.11 (Non-text Contrast) exige
+       3:1 entre um controlo de formulário e o fundo adjacente. --border
+       (#24304D) contra --bg-surface (#121B2E) dá 1.31:1: serve para
+       separadores decorativos de cartões (que não são controlos), mas não
+       para a moldura de um input/botão, que é a única pista visual de que
+       ali há um campo. --border-input é uma variável NOVA, aplicada só a
+       inputs/textarea/select/botões (ver regras mais abaixo), para não
+       engrossar visualmente todas as molduras de cartão do dashboard.
+       #6B7BA8 = 4.11:1 sobre --bg-surface e 3.64:1 sobre --bg-surface-2
+       (o próprio preenchimento do campo) — as duas cores adjacentes. */
+    --border-input:#6B7BA8;
     --border-soft:rgba(255,255,255,0.06);
     --text-primary:#E7ECF5;
     --text-secondary:#93A1C0;
-    --text-muted:#5C6A8A;
+    /* CONTRASTE CORRIGIDO (RNF-08, 2026-09-07): era #5C6A8A, que dá
+       3.19:1 sobre --bg-surface e 3.60:1 sobre --bg-page — abaixo do
+       mínimo 4.5:1 do WCAG 2.1 AA para texto normal. É a cor mais usada
+       do dashboard em texto pequeno (.empty-hint, .card-sub, .sim-flag,
+       cabeçalhos de tabela, rótulos de eixo dos gráficos), por isso era a
+       falha de contraste com maior alcance. #8592B4 sobre --bg-surface =
+       4.90:1, mantendo o mesmo matiz azul-acinzentado. */
+    --text-muted:#8592B4;
     --accent:#3FD6C0;
     --accent-ink:#04211D;
     --accent-dim:rgba(63,214,192,0.14);
@@ -36,14 +73,39 @@
     --cat-alimentacao:#d95926;
     --cat-higiene:#d55181;
 
-    --status-good:#0ca30c;
+    /* CONTRASTE CORRIGIDO (RNF-08, 2026-09-07). As cores de estado são
+       usadas SEMPRE como texto sobre o respetivo tinte --status-*-bg ou
+       sobre --bg-surface (verificado: nenhuma é fundo com texto por cima,
+       só preenchimento de pontos/pastilhas em .status-dot/.badge-dot), por
+       isso têm de cumprir 4.5:1 como texto normal. Valores antigos e o que
+       falhava, medido sobre --bg-surface do tema escuro:
+         --status-good    #0ca30c  5.12:1 sobre a superfície, mas só
+                                   4.40:1 sobre --status-good-bg (o fundo
+                                   real da pastilha .pill.good) → falha;
+         --status-critical #d03b3b 3.57:1 → falha clara.
+       Só a luminosidade foi alterada; o matiz mantém-se, para uma cor de
+       estado continuar a significar o mesmo (regra já assumida no
+       comentário do tema claro mais abaixo). */
+    --status-good:#17b317;         /* 6.13:1 sobre --bg-surface, 5.17:1 sobre --status-good-bg */
     --status-good-bg:rgba(12,163,12,0.14);
-    --status-warning:#fab219;
+    --status-warning:#fab219;      /* 9.37:1 — já cumpria, mantido */
     --status-warning-bg:rgba(250,178,25,0.14);
-    --status-serious:#ec835a;
+    --status-serious:#ec835a;      /* 6.51:1 — já cumpria, mantido */
     --status-serious-bg:rgba(236,131,90,0.14);
-    --status-critical:#d03b3b;
+    --status-critical:#e85f5f;     /* 5.17:1 sobre --bg-surface, 4.60:1 sobre --status-critical-bg */
     --status-critical-bg:rgba(208,59,59,0.16);
+
+    /* RNF-08 (2026-09-07) — TAMANHO DE LETRA AJUSTÁVEL.
+       Multiplicador aplicado a TODAS as declarações font-size do
+       dashboard, reescritas para calc(Npx * var(--font-scale)). O
+       dashboard fixa tamanhos em px em ~78 sítios, por isso mexer só no
+       font-size da raiz (a forma habitual) não teria qualquer efeito — e
+       usar `zoom` na raiz partia o posicionamento do tooltip, que é
+       calculado em coordenadas de viewport não escaladas (ver showTip()
+       em canvas-graficos.js). O valor é escrito por setFontScale() e
+       persistido em localStorage (ver a secção ACESSIBILIDADE em
+       canvas-graficos.js). 1 = tamanho base. */
+    --font-scale:1;
 
     --radius-sm:6px;
     --radius-md:10px;
@@ -72,14 +134,39 @@
     --bg-surface-2:#EEF3F0;
     --bg-surface-3:#E3EAE6;
     --border:#D8E2DC;
+    /* Ver --border-input no tema escuro. #6E837A sobre #FFFFFF = 3.75:1 e
+       sobre --bg-surface-2 (#EEF3F0) = 3.32:1. */
+    --border-input:#6E837A;
     --border-soft:rgba(10,40,25,0.07);
     --text-primary:#122019;
     --text-secondary:#4C5F56;
-    --text-muted:#82938A;
+    /* CONTRASTE CORRIGIDO (RNF-08, 2026-09-07): era #82938A = 3.24:1
+       sobre branco, abaixo de 4.5:1. #5E6F66 = 5.35:1 sobre --bg-surface
+       e 4.77:1 sobre --bg-surface-2. */
+    --text-muted:#5E6F66;
     --accent:#0E7A56;
     --accent-ink:#FFFFFF;
     --accent-dim:rgba(14,122,86,0.12);
     --link:#1462C9;
+
+    /* CONTRASTE CORRIGIDO (RNF-08, 2026-09-07) — este bloco NÃO existia:
+       as 4 cores de estado eram herdadas do tema escuro e usadas como
+       texto sobre fundo branco, onde falhavam quase todas:
+         --status-warning  #fab219 → 1.83:1  (pior falha do dashboard;
+                            aparece em .storage-warning-banner.level-1,
+                            .pill.warning, .experimental-flag e
+                            .activity-live-flag.anomaly)
+         --status-serious  #ec835a → 2.64:1
+         --status-good     #0ca30c → 3.36:1
+         --status-critical #d03b3b → 4.82:1 sobre branco, mas 4.15:1 sobre
+                            o próprio --status-critical-bg claro → falha
+       O matiz mantém-se em todas (verde/âmbar/laranja/vermelho); só a
+       luminosidade desce, que é o que um tema claro exige. Os tintes
+       --status-*-bg já eram próprios do tema claro e ficam como estavam. */
+    --status-good:#0a7a0a;      /* 5.52:1 sobre branco, 4.92:1 sobre --bg-surface-2 */
+    --status-warning:#9a6700;   /* 4.91:1 sobre branco */
+    --status-serious:#b3502a;   /* 5.18:1 sobre branco, 4.62:1 sobre --bg-surface-2 */
+    --status-critical:#be2f2f;  /* 5.77:1 sobre branco, 4.97:1 sobre --status-critical-bg */
 
     --status-good-bg:rgba(12,163,12,0.10);
     --status-warning-bg:rgba(196,140,0,0.12);
@@ -93,12 +180,60 @@
     background:var(--bg-page);
     color:var(--text-primary);
     font-family:var(--font-ui);
-    font-size:14px;
+    font-size:calc(14px * var(--font-scale));
     -webkit-font-smoothing:antialiased;
     transition: background-color .15s, color .15s;
   }
   ::selection{ background:var(--accent-dim); }
-  :focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+  /* ============================================================
+     RNF-08 — FOCO VISÍVEL (WCAG 2.1 SC 2.4.7 / 2.4.11)
+     ------------------------------------------------------------
+     A regra genérica :focus-visible já existia, mas na prática não se
+     via em três situações concretas, todas corrigidas aqui (2026-09-07):
+       1. O contorno era desenhado com --accent, que sobre um item de
+          menu ATIVO (fundo --accent-dim, texto --accent) é quase a mesma
+          cor — navegar com Tab pela barra lateral não mostrava onde
+          estava o foco. Passa a haver um segundo anel (box-shadow) na
+          cor da superfície, que garante separação em qualquer fundo.
+       2. outline-offset:2px em elementos dentro de contentores com
+          overflow:hidden/auto (.note-list, .activity-blocks-list,
+          .modal-box-wide) ficava cortado. scroll-margin dá folga.
+       3. Elementos com tabindex (o canvas da timeline unificada, ver
+          vista-timeline.js) não são :focus-visible em todos os motores
+          quando recebem foco por rato; a regra :focus abaixo cobre-os.
+  ============================================================ */
+  :focus-visible{
+    outline:2px solid var(--accent);
+    outline-offset:2px;
+    box-shadow:0 0 0 4px var(--bg-page);
+    border-radius:3px;
+  }
+  [tabindex]:focus{ outline:2px solid var(--accent); outline-offset:2px; }
+  :focus-visible{ scroll-margin:6px; }
+  /* Removido o contorno nativo só quando o nosso já está aplicado — nunca
+     um outline:none sem substituto (isso é a falha de acessibilidade
+     clássica, não a correção dela). */
+  button:focus:not(:focus-visible){ outline:none; }
+
+  /* Ligação "saltar para o conteúdo" (WCAG 2.1 SC 2.4.1, Bypass Blocks):
+     a barra lateral tem 8-9 itens de menu que um utilizador de teclado
+     tinha de percorrer em TODAS as vistas antes de chegar ao conteúdo.
+     Invisível até receber foco. */
+  .skip-link{
+    position:absolute; left:-9999px; top:0; z-index:200;
+    background:var(--accent); color:var(--accent-ink);
+    padding:10px 16px; border-radius:0 0 var(--radius-sm) 0;
+    font-weight:700; font-size:calc(13px * var(--font-scale)); text-decoration:none;
+  }
+  .skip-link:focus{ left:0; }
+
+  /* Só para leitores de ecrã — texto que descreve algo que hoje só existe
+     em pixels (ex.: o resumo textual da timeline unificada). */
+  .sr-only{
+    position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+    overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0;
+  }
+
   button, input, select{ font-family:inherit; font-size:inherit; color:inherit; }
   /* CONTRASTE CORRIGIDO (2026-07-21, reportado pelo utilizador): inputs
      soltos fora de .field/.row-input (ex.: os 3 campos do formulário de
@@ -113,7 +248,7 @@
   input[type="email"], input[type="tel"], input[type="password"], input[type="search"],
   textarea, select {
     background:var(--bg-surface-2); color:var(--text-primary);
-    border:1px solid var(--border); border-radius:var(--radius-sm); padding:8px 10px;
+    border:1px solid var(--border-input); border-radius:var(--radius-sm); padding:8px 10px;
   }
   /* Mesmo destaque ao focar já usado em .note-form textarea/.field input —
      agora consistente em todos os campos, não só nesses dois sítios. */
@@ -161,7 +296,7 @@
   .login-brand-mark .logo-dot{
     width:128px; height:128px; border-radius:9px;
     display:flex; align-items:center; justify-content:center;
-    color:var(--accent-ink); font-weight:700; font-size:15px;
+    color:var(--accent-ink); font-weight:700; font-size:calc(15px * var(--font-scale));
     overflow:visible;
   }
   /* Logótipo (2026-07-15, revisto): logo.png já vem com fundo transparente
@@ -171,18 +306,18 @@
      dela. .logo-dot deixa de ter background/gradiente próprio: a imagem já
      tem cor suficiente e assim funciona igual em tema claro e escuro. */
   .logo-dot img{ width:100%; height:100%; object-fit:contain; display:block; }
-  .login-brand-mark span{ font-weight:600; font-size:16px; letter-spacing:0.01em; }
+  .login-brand-mark span{ font-weight:600; font-size:calc(16px * var(--font-scale)); letter-spacing:0.01em; }
   .login-brand-quote{ max-width:420px; }
   .login-brand-quote .eyebrow{
-    text-transform:uppercase; font-size:11px; letter-spacing:0.09em; color:var(--accent);
+    text-transform:uppercase; font-size:calc(11px * var(--font-scale)); letter-spacing:0.09em; color:var(--accent);
     margin-bottom:14px; font-weight:600;
   }
-  .login-brand-quote h1{ font-size:28px; line-height:1.28; font-weight:600; color:var(--text-primary); }
+  .login-brand-quote h1{ font-size:calc(28px * var(--font-scale)); line-height:1.28; font-weight:600; color:var(--text-primary); }
 
   .login-form-col{ display:flex; align-items:center; justify-content:center; padding:32px; }
   .login-form{ width:100%; max-width:380px; }
-  .login-form h2{ font-size:21px; font-weight:600; }
-  .login-form .sub{ color:var(--text-secondary); margin-top:6px; font-size:13.5px; }
+  .login-form h2{ font-size:calc(21px * var(--font-scale)); font-weight:600; }
+  .login-form .sub{ color:var(--text-secondary); margin-top:6px; font-size:calc(13.5px * var(--font-scale)); }
 
   .role-toggle{
     margin-top:28px;
@@ -194,13 +329,13 @@
     background:transparent; border:none; border-radius:calc(var(--radius-md) - 2px);
     padding:11px 10px; cursor:pointer; color:var(--text-secondary);
     display:flex; align-items:center; justify-content:center; gap:8px;
-    font-weight:600; font-size:13px; transition:background .15s, color .15s;
+    font-weight:600; font-size:calc(13px * var(--font-scale)); transition:background .15s, color .15s;
   }
   .role-toggle button[aria-pressed="true"]{ background:var(--accent); color:var(--accent-ink); }
   .role-toggle button svg{ width:16px; height:16px; flex:none; }
 
   .field{ margin-top:16px; display:flex; flex-direction:column; gap:6px; }
-  .field label{ font-size:12.5px; color:var(--text-secondary); font-weight:600; }
+  .field label{ font-size:calc(12.5px * var(--font-scale)); color:var(--text-secondary); font-weight:600; }
   .field input, .field select{
     background:var(--bg-surface-2); border:1px solid var(--border); border-radius:var(--radius-sm);
     padding:10px 12px; color:var(--text-primary); width:100%;
@@ -209,14 +344,14 @@
 
   .btn-primary{
     margin-top:22px; width:100%; padding:12px; border:none; border-radius:var(--radius-sm);
-    background:var(--accent); color:var(--accent-ink); font-weight:700; font-size:14px; cursor:pointer;
+    background:var(--accent); color:var(--accent-ink); font-weight:700; font-size:calc(14px * var(--font-scale)); cursor:pointer;
     transition:filter .15s;
   }
   .btn-primary:hover{ filter:brightness(1.06); }
-  .login-switch{ margin-top:16px; font-size:13px; color:var(--text-secondary); text-align:center; }
+  .login-switch{ margin-top:16px; font-size:calc(13px * var(--font-scale)); color:var(--text-secondary); text-align:center; }
   .login-switch a{ color:var(--accent); font-weight:600; text-decoration:none; }
   .login-switch a:hover{ text-decoration:underline; }
-  .login-note{ margin-top:16px; font-size:12px; color:var(--text-muted); line-height:1.6; }
+  .login-note{ margin-top:16px; font-size:calc(12px * var(--font-scale)); color:var(--text-muted); line-height:1.6; }
   .login-note b{ color:var(--text-secondary); }
 
   /* ============================================================
@@ -233,7 +368,7 @@
   .sidebar-brand{ display:flex; align-items:center; gap:10px; padding:0 6px; }
   .sidebar-brand .logo-dot{
     width:76px; height:76px; border-radius:8px;
-    display:flex; align-items:center; justify-content:center; color:var(--accent-ink); font-weight:700; font-size:13px;
+    display:flex; align-items:center; justify-content:center; color:var(--accent-ink); font-weight:700; font-size:calc(13px * var(--font-scale));
     overflow:visible;
   }
   .sidebar-brand{ justify-content:center; }
@@ -241,7 +376,7 @@
   .sidebar-footer-logo img{ width:100%; max-width:170px; height:auto; display:block; }
 
   .sidebar-role-pill{
-    font-size:11px; font-weight:700; letter-spacing:0.03em; text-transform:uppercase;
+    font-size:calc(11px * var(--font-scale)); font-weight:700; letter-spacing:0.03em; text-transform:uppercase;
     padding:4px 8px; border-radius:5px; width:fit-content; margin-left:6px;
   }
   .sidebar-role-pill.utente{ background:var(--accent-dim); color:var(--accent); }
@@ -251,10 +386,10 @@
   .sidebar-role-pill.admin{ background:var(--status-warning-bg); color:var(--status-warning); }
 
   .nav-group{ display:flex; flex-direction:column; gap:2px; }
-  .nav-group-label{ font-size:11px; text-transform:uppercase; letter-spacing:0.07em; color:var(--text-muted); padding:0 10px; margin-bottom:6px; font-weight:600; }
+  .nav-group-label{ font-size:calc(11px * var(--font-scale)); text-transform:uppercase; letter-spacing:0.07em; color:var(--text-muted); padding:0 10px; margin-bottom:6px; font-weight:600; }
   .nav-item{
     display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius:var(--radius-sm);
-    color:var(--text-secondary); cursor:pointer; font-size:13.5px; font-weight:500;
+    color:var(--text-secondary); cursor:pointer; font-size:calc(13.5px * var(--font-scale)); font-weight:500;
     border:none; background:transparent; width:100%; text-align:left;
   }
   .nav-item svg{ width:17px; height:17px; flex:none; opacity:0.85; }
@@ -266,7 +401,7 @@
   .switch-role-btn{
     display:flex; align-items:center; gap:8px; padding:9px 10px; border-radius:var(--radius-sm);
     background:transparent; border:1px dashed var(--border); color:var(--text-secondary);
-    cursor:pointer; font-size:12.5px; width:100%;
+    cursor:pointer; font-size:calc(12.5px * var(--font-scale)); width:100%;
   }
   .switch-role-btn:hover{ border-color:var(--accent); color:var(--accent); }
 
@@ -279,11 +414,11 @@
     position:sticky; top:0; z-index:5; backdrop-filter:blur(6px);
   }
   .topbar-left{ display:flex; align-items:center; gap:18px; }
-  .topbar h1{ font-size:16.5px; font-weight:600; }
-  .device-status{ display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--text-secondary); }
+  .topbar h1{ font-size:calc(16.5px * var(--font-scale)); font-weight:600; }
+  .device-status{ display:flex; align-items:center; gap:6px; font-size:calc(12.5px * var(--font-scale)); color:var(--text-secondary); }
   .status-dot{ width:7px; height:7px; border-radius:50%; background:var(--status-good); box-shadow:0 0 0 3px var(--status-good-bg); }
   .status-dot.warn{ background:var(--status-warning); box-shadow:0 0 0 3px var(--status-warning-bg); }
-  .battery-chip{ display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--text-secondary); }
+  .battery-chip{ display:flex; align-items:center; gap:6px; font-size:calc(12.5px * var(--font-scale)); color:var(--text-secondary); }
   .battery-chip svg{ width:16px; height:16px; }
   .topbar-right{ display:flex; align-items:center; gap:14px; }
   .icon-btn{
@@ -297,7 +432,7 @@
   .ble-toggle-btn{
     display:flex; align-items:center; gap:6px; height:28px; padding:0 10px; border-radius:var(--radius-sm);
     background:var(--bg-surface-2); border:1px solid var(--border); color:var(--text-secondary);
-    font-size:12px; font-weight:600; cursor:pointer; white-space:nowrap;
+    font-size:calc(12px * var(--font-scale)); font-weight:600; cursor:pointer; white-space:nowrap;
   }
   .ble-toggle-btn:hover{ color:var(--text-primary); border-color:var(--accent); }
   .ble-toggle-btn svg{ width:14px; height:14px; flex-shrink:0; }
@@ -305,23 +440,23 @@
 
   .lang-select{
     height:34px; padding:0 8px; border-radius:var(--radius-sm); background:var(--bg-surface-2);
-    border:1px solid var(--border); color:var(--text-secondary); font-size:12.5px; font-weight:600; cursor:pointer;
+    border:1px solid var(--border); color:var(--text-secondary); font-size:calc(12.5px * var(--font-scale)); font-weight:600; cursor:pointer;
   }
   .lang-select:hover{ border-color:var(--accent); }
   .badge-dot{ position:absolute; top:-3px; right:-3px; width:9px; height:9px; border-radius:50%; background:var(--status-critical); border:2px solid var(--bg-surface); }
   .avatar-chip{ display:flex; align-items:center; gap:9px; padding:5px 10px 5px 5px; border-radius:20px; background:var(--bg-surface-2); border:1px solid var(--border); }
   .avatar-chip img, .avatar-chip .initials{
     width:26px; height:26px; border-radius:50%; object-fit:cover;
-    background:var(--bg-surface-3); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:var(--text-secondary);
+    background:var(--bg-surface-3); display:flex; align-items:center; justify-content:center; font-size:calc(11px * var(--font-scale)); font-weight:700; color:var(--text-secondary);
   }
-  .avatar-chip .name{ font-size:12.5px; font-weight:600; }
-  .avatar-chip .role{ font-size:10.5px; color:var(--text-muted); }
+  .avatar-chip .name{ font-size:calc(12.5px * var(--font-scale)); font-weight:600; }
+  .avatar-chip .role{ font-size:calc(10.5px * var(--font-scale)); color:var(--text-muted); }
 
   .content{ padding:22px 26px 60px; display:flex; flex-direction:column; gap:20px; max-width:1440px; width:100%; margin:0 auto; }
 
   .section-title-row{ display:flex; align-items:baseline; justify-content:space-between; }
-  .section-title-row h2{ font-size:15px; font-weight:600; }
-  .section-title-row .meta{ font-size:12px; color:var(--text-muted); }
+  .section-title-row h2{ font-size:calc(15px * var(--font-scale)); font-weight:600; }
+  .section-title-row .meta{ font-size:calc(12px * var(--font-scale)); color:var(--text-muted); }
 
   /* stat tiles */
   .stat-row{ display:grid; grid-template-columns:repeat(auto-fit, minmax(148px,1fr)); gap:12px; }
@@ -332,10 +467,10 @@
   .stat-tile .top{ display:flex; align-items:center; justify-content:space-between; }
   .stat-icon{ width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; }
   .stat-icon svg{ width:16px; height:16px; }
-  .stat-tile .label{ font-size:12px; color:var(--text-secondary); font-weight:600; }
-  .stat-tile .value{ font-size:17px; font-weight:600; }
-  .stat-tile .value .unit{ font-size:12px; color:var(--text-muted); font-weight:500; margin-left:3px; }
-  .stat-pill{ font-size:10.5px; font-weight:700; padding:2px 7px; border-radius:20px; letter-spacing:0.02em; }
+  .stat-tile .label{ font-size:calc(12px * var(--font-scale)); color:var(--text-secondary); font-weight:600; }
+  .stat-tile .value{ font-size:calc(17px * var(--font-scale)); font-weight:600; }
+  .stat-tile .value .unit{ font-size:calc(12px * var(--font-scale)); color:var(--text-muted); font-weight:500; margin-left:3px; }
+  .stat-pill{ font-size:calc(10.5px * var(--font-scale)); font-weight:700; padding:2px 7px; border-radius:20px; letter-spacing:0.02em; }
 
   /* generic card */
   .grid-2{ display:grid; grid-template-columns: 1.55fr 1fr; gap:16px; align-items:start; }
@@ -347,8 +482,8 @@
     padding:16px 17px 18px;
   }
   .card-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
-  .card-head h3{ font-size:13.5px; font-weight:600; }
-  .card-head .card-sub{ font-size:11.5px; color:var(--text-muted); margin-top:2px; }
+  .card-head h3{ font-size:calc(13.5px * var(--font-scale)); font-weight:600; }
+  .card-head .card-sub{ font-size:calc(11.5px * var(--font-scale)); color:var(--text-muted); margin-top:2px; }
   .card-head-actions{ display:flex; gap:6px; }
 
   /* alerts */
@@ -363,19 +498,19 @@
   .alert-icon{ width:26px; height:26px; border-radius:7px; flex:none; display:flex; align-items:center; justify-content:center; margin-top:1px; }
   .alert-icon svg{ width:14px; height:14px; }
   .alert-row .body{ flex:1; min-width:0; }
-  .alert-row .title{ font-size:12.5px; font-weight:600; }
-  .alert-row .desc{ font-size:11.5px; color:var(--text-secondary); margin-top:2px; line-height:1.5; }
-  .alert-row .time{ font-size:10.5px; color:var(--text-muted); flex:none; margin-top:1px; }
+  .alert-row .title{ font-size:calc(12.5px * var(--font-scale)); font-weight:600; }
+  .alert-row .desc{ font-size:calc(11.5px * var(--font-scale)); color:var(--text-secondary); margin-top:2px; line-height:1.5; }
+  .alert-row .time{ font-size:calc(10.5px * var(--font-scale)); color:var(--text-muted); flex:none; margin-top:1px; }
   /* Botão "O que significa isto?" — expande uma explicação em linguagem
      simples por baixo do alerta, pensada para a família (não só termos
      técnicos). Ver alertRow()/toggleAlertPlain() no <script>. */
   .alert-explain-btn{
-    margin-top:6px; font-size:11px; font-weight:600; color:var(--accent);
+    margin-top:6px; font-size:calc(11px * var(--font-scale)); font-weight:600; color:var(--accent);
     background:none; border:none; padding:0; cursor:pointer; text-decoration:underline;
     font-family:inherit;
   }
   .alert-explain-box{
-    margin-top:6px; font-size:11.5px; line-height:1.55; color:var(--text-secondary);
+    margin-top:6px; font-size:calc(11.5px * var(--font-scale)); line-height:1.55; color:var(--text-secondary);
     background:var(--bg-card); border:1px solid var(--border-soft); border-radius:var(--radius-sm);
     padding:8px 10px;
   }
@@ -383,15 +518,15 @@
      silenciada fica visualmente recessiva (opacidade reduzida) mas nunca
      desaparece da lista, para não esconder um alerta por engano. */
   .alert-row.muted{ opacity:0.55; }
-  .alert-mute-note{ margin:6px 0 0; font-size:11px; color:var(--text-muted); }
-  .alert-mute-note .alert-explain-btn{ font-size:11px; }
+  .alert-mute-note{ margin:6px 0 0; font-size:calc(11px * var(--font-scale)); color:var(--text-muted); }
+  .alert-mute-note .alert-explain-btn{ font-size:calc(11px * var(--font-scale)); }
   .alert-actions{ display:flex; align-items:center; gap:10px; margin-top:6px; flex-wrap:wrap; }
-  .alert-read-badge{ font-size:11px; font-weight:600; color:var(--status-good); }
+  .alert-read-badge{ font-size:calc(11px * var(--font-scale)); font-weight:600; color:var(--status-good); }
   /* Escalonamento gradual — ver alertEscalation()/occurrencesFor() no
      <script>. Um alerta 'warning' que se repete várias vezes sem ser
      silenciado sobe de prioridade visual (para 'serious') em vez de o
      cuidador só ver o mesmo aviso de baixa prioridade indefinidamente. */
-  .alert-escalation-note{ margin:6px 0 0; font-size:11px; font-weight:600; color:var(--status-serious); }
+  .alert-escalation-note{ margin:6px 0 0; font-size:calc(11px * var(--font-scale)); font-weight:600; color:var(--status-serious); }
 
   /* Interruptor de consentimento — ver setConsent()/loadConsent() no
      <script>. Reutiliza a semântica de uma checkbox nativa (acessível,
@@ -415,7 +550,7 @@
      visível por cima do conteúdo da vista atual, em todas as vistas,
      porque exportar a tempo importa independentemente de onde se está. */
   .storage-warning-banner{
-    display:flex; align-items:center; gap:10px; padding:10px 20px; font-size:12.5px; font-weight:600;
+    display:flex; align-items:center; gap:10px; padding:10px 20px; font-size:calc(12.5px * var(--font-scale)); font-weight:600;
   }
   .storage-warning-banner.level-1{ background:var(--status-warning-bg); color:var(--status-warning); }
   .storage-warning-banner.level-2{ background:var(--status-critical-bg); color:var(--status-critical); }
@@ -427,19 +562,19 @@
      Reutiliza a forma do aviso de armazenamento mas com cor sempre
      crítica (nunca é um aviso "leve" — é sempre uma emergência real). */
   .emergency-live-banner{
-    display:flex; align-items:center; gap:10px; padding:10px 20px; font-size:12.5px; font-weight:700;
+    display:flex; align-items:center; gap:10px; padding:10px 20px; font-size:calc(12.5px * var(--font-scale)); font-weight:700;
     background:var(--status-critical-bg); color:var(--status-critical);
   }
   .emergency-live-banner svg{ width:16px; height:16px; flex:none; }
   .emergency-live-banner a{ color:inherit; text-decoration:underline; font-weight:700; }
 
   .legend{ display:flex; flex-wrap:wrap; gap:12px; margin-top:12px; }
-  .legend-item{ display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--text-secondary); }
+  .legend-item{ display:flex; align-items:center; gap:6px; font-size:calc(11.5px * var(--font-scale)); color:var(--text-secondary); }
   .legend-swatch{ width:9px; height:9px; border-radius:2px; flex:none; }
 
   .tooltip{
     position:fixed; pointer-events:none; z-index:50; background:var(--tooltip-bg); border:1px solid var(--border);
-    border-radius:var(--radius-sm); padding:8px 10px; font-size:11.5px; line-height:1.5; color:var(--tooltip-text);
+    border-radius:var(--radius-sm); padding:8px 10px; font-size:calc(11.5px * var(--font-scale)); line-height:1.5; color:var(--tooltip-text);
     box-shadow:0 8px 24px rgba(0,0,0,0.4); opacity:0; transform:translateY(2px); transition:opacity .1s, transform .1s;
     max-width:220px;
   }
@@ -451,9 +586,9 @@
   canvas{ display:block; max-width:100%; }
 
   /* table (clinician) */
-  table.data-table{ width:100%; border-collapse:collapse; font-size:12.5px; }
+  table.data-table{ width:100%; border-collapse:collapse; font-size:calc(12.5px * var(--font-scale)); }
   table.data-table th{
-    text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted);
+    text-align:left; font-size:calc(11px * var(--font-scale)); text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted);
     font-weight:600; padding:0 10px 8px; border-bottom:1px solid var(--border);
   }
   table.data-table td{ padding:10px; border-bottom:1px solid var(--border-soft); vertical-align:middle; }
@@ -462,7 +597,7 @@
   .row-input{ width:64px; background:var(--bg-surface-2); border:1px solid var(--border); border-radius:5px; padding:5px 7px; font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
   .row-input:focus{ border-color:var(--accent); }
 
-  .pill{ display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:20px; font-size:11px; font-weight:700; }
+  .pill{ display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:20px; font-size:calc(11px * var(--font-scale)); font-weight:700; }
   .pill.good{ background:var(--status-good-bg); color:var(--status-good); }
   .pill.warning{ background:var(--status-warning-bg); color:var(--status-warning); }
   .pill.critical{ background:var(--status-critical-bg); color:var(--status-critical); }
@@ -470,23 +605,23 @@
   .pill svg{ width:10px; height:10px; }
 
   .device-meter{ display:flex; flex-direction:column; gap:6px; }
-  .device-meter .meter-row{ display:flex; justify-content:space-between; font-size:11.5px; color:var(--text-secondary); }
+  .device-meter .meter-row{ display:flex; justify-content:space-between; font-size:calc(11.5px * var(--font-scale)); color:var(--text-secondary); }
   .meter-track{ height:6px; border-radius:4px; background:var(--bg-surface-2); overflow:hidden; }
   .meter-fill{ height:100%; border-radius:4px; background:var(--accent); }
 
-  .empty-hint{ font-size:12px; color:var(--text-muted); padding:8px 0; }
-  .sim-flag{ font-size:10.5px; color:var(--text-muted); background:var(--bg-surface-2); border:1px solid var(--border); padding:1px 7px; border-radius:20px; font-weight:600; }
+  .empty-hint{ font-size:calc(12px * var(--font-scale)); color:var(--text-muted); padding:8px 0; }
+  .sim-flag{ font-size:calc(10.5px * var(--font-scale)); color:var(--text-muted); background:var(--bg-surface-2); border:1px solid var(--border); padding:1px 7px; border-radius:20px; font-weight:600; }
   /* Distinto de .sim-flag de propósito: dados REAIS do sensor, mas
      classificados por um modelo treinado só com dados sintéticos (ver
      bridge/activity_inference.py) — o aviso precisa de se destacar mais do
      que o simples "dados de demonstração". */
-  .experimental-flag{ font-size:10.5px; color:var(--status-warning); background:var(--status-warning-bg); border:1px solid var(--status-warning); padding:1px 7px; border-radius:20px; font-weight:600; }
+  .experimental-flag{ font-size:calc(10.5px * var(--font-scale)); color:var(--status-warning); background:var(--status-warning-bg); border:1px solid var(--status-warning); padding:1px 7px; border-radius:20px; font-weight:600; }
   .activity-live-card .card-sub{ margin-top:2px; }
-  .activity-live-empty{ font-size:12.5px; color:var(--text-muted); padding:10px 0; }
+  .activity-live-empty{ font-size:calc(12.5px * var(--font-scale)); color:var(--text-muted); padding:10px 0; }
   .activity-live-now{ display:flex; align-items:baseline; gap:10px; margin-bottom:10px; }
-  .activity-live-now .cat{ font-size:19px; font-weight:700; }
-  .activity-live-now .conf{ font-size:12px; color:var(--text-muted); }
-  .activity-live-flag{ display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:var(--radius-sm); font-size:12.5px; margin-top:8px; }
+  .activity-live-now .cat{ font-size:calc(19px * var(--font-scale)); font-weight:700; }
+  .activity-live-now .conf{ font-size:calc(12px * var(--font-scale)); color:var(--text-muted); }
+  .activity-live-flag{ display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:var(--radius-sm); font-size:calc(12.5px * var(--font-scale)); margin-top:8px; }
   .activity-live-flag.anomaly{ background:var(--status-warning-bg); color:var(--status-warning); border:1px solid var(--status-warning); }
   .activity-live-flag.normal{ background:var(--bg-surface-2); color:var(--text-secondary); border:1px solid var(--border); }
   /* "indicador de incerteza" (2026-08-05) — nem "problema" (não é uma
@@ -495,23 +630,23 @@
   .activity-live-flag.uncertain{ background:var(--bg-surface-2); color:var(--accent); border:1px dashed var(--accent); }
   /* "explicação de alerta" (2026-08-05) — o "porquê" em texto secundário,
      logo abaixo do veredito colorido acima, sem competir com ele. */
-  .activity-live-flag-reason{ font-size:11.5px; color:var(--text-secondary); margin-top:2px; padding:0 10px; }
+  .activity-live-flag-reason{ font-size:calc(11.5px * var(--font-scale)); color:var(--text-secondary); margin-top:2px; padding:0 10px; }
   /* Mesma ideia, genérica para qualquer célula de tabela (Registo de
      emergências: mecanismo de deteção por baixo do tipo do alerta). */
-  .table-subtext{ font-size:11.5px; color:var(--text-secondary); margin-top:2px; max-width:320px; }
+  .table-subtext{ font-size:calc(11.5px * var(--font-scale)); color:var(--text-secondary); margin-top:2px; max-width:320px; }
   /* Botão "Corrigir" (2026-07-22) — link discreto ao lado da % de
      confiança, não um botão cheio: é uma ação secundária, não a principal
      do cartão. */
-  .activity-correct-btn{ background:none; border:none; padding:0; font:inherit; font-size:12px; color:var(--accent); cursor:pointer; margin-left:auto; }
+  .activity-correct-btn{ background:none; border:none; padding:0; font:inherit; font-size:calc(12px * var(--font-scale)); color:var(--accent); cursor:pointer; margin-left:auto; }
   .activity-correct-btn:hover{ text-decoration:underline; }
-  .activity-live-correction{ font-size:12.5px; color:var(--text-secondary); margin-top:6px; }
+  .activity-live-correction{ font-size:calc(12.5px * var(--font-scale)); color:var(--text-secondary); margin-top:6px; }
 
   /* análise por atividade (drill-down por categoria) */
   .activity-chips{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; }
   .activity-chip{
     display:flex; align-items:center; gap:7px; padding:7px 12px; border-radius:20px;
     background:var(--bg-surface-2); border:1px solid var(--border); color:var(--text-secondary);
-    font-size:12.5px; font-weight:600; cursor:pointer; transition:border-color .15s, color .15s;
+    font-size:calc(12.5px * var(--font-scale)); font-weight:600; cursor:pointer; transition:border-color .15s, color .15s;
   }
   .activity-chip:hover{ color:var(--text-primary); }
   .activity-chip.active{ border-color:var(--chip-color); color:var(--text-primary); background:color-mix(in srgb, var(--chip-color) 14%, transparent); }
@@ -519,11 +654,11 @@
 
   .activity-stat-row{ display:grid; grid-template-columns:repeat(auto-fit, minmax(130px,1fr)); gap:12px; margin-bottom:16px; }
   .activity-stat{ background:var(--bg-surface-2); border:1px solid var(--border); border-radius:var(--radius-sm); padding:12px 13px; }
-  .activity-stat .n{ font-size:17px; font-weight:700; }
-  .activity-stat .l{ font-size:11px; color:var(--text-muted); margin-top:4px; }
+  .activity-stat .n{ font-size:calc(17px * var(--font-scale)); font-weight:700; }
+  .activity-stat .l{ font-size:calc(11px * var(--font-scale)); color:var(--text-muted); margin-top:4px; }
 
   .activity-blocks-list{ display:flex; flex-direction:column; gap:2px; max-height:180px; overflow-y:auto; }
-  .activity-block-row{ display:flex; align-items:center; gap:10px; padding:7px 4px; font-size:12.5px; border-bottom:1px solid var(--border-soft); }
+  .activity-block-row{ display:flex; align-items:center; gap:10px; padding:7px 4px; font-size:calc(12.5px * var(--font-scale)); border-bottom:1px solid var(--border-soft); }
   .activity-block-row .legend-swatch{ width:8px; height:8px; }
   .activity-block-dur{ margin-left:auto; color:var(--text-secondary); }
 
@@ -531,14 +666,14 @@
   .btn-secondary{
     display:inline-flex; align-items:center; gap:7px; padding:8px 14px; border-radius:var(--radius-sm);
     background:var(--bg-surface-2); border:1px solid var(--border); color:var(--text-primary);
-    font-weight:600; font-size:12.5px; cursor:pointer; white-space:nowrap;
+    font-weight:600; font-size:calc(12.5px * var(--font-scale)); cursor:pointer; white-space:nowrap;
   }
   .btn-secondary:hover{ border-color:var(--accent); }
   .btn-secondary:disabled{ opacity:0.55; cursor:default; border-color:var(--border); }
   .btn-danger{
     display:inline-flex; align-items:center; gap:7px; padding:8px 14px; border-radius:var(--radius-sm);
     background:transparent; border:1px solid var(--status-critical); color:var(--status-critical);
-    font-weight:700; font-size:12.5px; cursor:pointer; white-space:nowrap;
+    font-weight:700; font-size:calc(12.5px * var(--font-scale)); cursor:pointer; white-space:nowrap;
   }
   .btn-danger:hover{ background:var(--status-critical-bg); }
   .btn-danger:disabled{ opacity:0.55; cursor:default; }
@@ -550,27 +685,27 @@
   .faq-item{ border-bottom:1px solid var(--border-soft); padding:10px 2px; }
   .faq-item:last-child{ border-bottom:none; }
   .faq-item summary{
-    cursor:pointer; font-size:13px; font-weight:600; list-style:none; display:flex; align-items:center; gap:8px;
+    cursor:pointer; font-size:calc(13px * var(--font-scale)); font-weight:600; list-style:none; display:flex; align-items:center; gap:8px;
   }
   .faq-item summary::-webkit-details-marker{ display:none; }
   .faq-item summary::before{ content:'+'; color:var(--accent); font-weight:700; width:14px; flex:none; }
   .faq-item[open] summary::before{ content:'−'; }
-  .faq-item p{ margin-top:8px; padding-left:22px; font-size:12.5px; color:var(--text-secondary); line-height:1.6; }
+  .faq-item p{ margin-top:8px; padding-left:22px; font-size:calc(12.5px * var(--font-scale)); color:var(--text-secondary); line-height:1.6; }
 
   /* notas do cuidador */
   .note-form{ display:flex; gap:10px; align-items:flex-start; margin-bottom:14px; }
   .note-form textarea{
     flex:1; resize:vertical; min-height:44px; background:var(--bg-surface-2); border:1px solid var(--border);
-    border-radius:var(--radius-sm); padding:9px 11px; color:var(--text-primary); font-family:inherit; font-size:12.5px;
+    border-radius:var(--radius-sm); padding:9px 11px; color:var(--text-primary); font-family:inherit; font-size:calc(12.5px * var(--font-scale));
   }
   .note-form textarea:focus{ border-color:var(--accent); }
   .note-form .btn-secondary{ flex:none; align-self:flex-start; }
   .note-list{ display:flex; flex-direction:column; gap:2px; max-height:260px; overflow-y:auto; }
   .note-row{ padding:9px 2px; border-bottom:1px solid var(--border-soft); }
   .note-row:last-child{ border-bottom:none; }
-  .note-meta{ display:flex; justify-content:space-between; font-size:11px; color:var(--text-muted); margin-bottom:3px; }
+  .note-meta{ display:flex; justify-content:space-between; font-size:calc(11px * var(--font-scale)); color:var(--text-muted); margin-bottom:3px; }
   .note-meta b{ color:var(--text-secondary); font-weight:600; }
-  .note-row p{ font-size:12.5px; color:var(--text-primary); line-height:1.5; }
+  .note-row p{ font-size:calc(12.5px * var(--font-scale)); color:var(--text-primary); line-height:1.5; }
 
   /* modal de confirmação */
   .modal-overlay{
@@ -586,11 +721,11 @@
     color:var(--status-critical); display:flex; align-items:center; justify-content:center;
   }
   .modal-icon svg{ width:22px; height:22px; }
-  .modal-box h3{ font-size:16px; font-weight:700; margin-bottom:10px; }
-  .modal-box p{ font-size:13px; color:var(--text-secondary); line-height:1.6; text-align:left; }
+  .modal-box h3{ font-size:calc(16px * var(--font-scale)); font-weight:700; margin-bottom:10px; }
+  .modal-box p{ font-size:calc(13px * var(--font-scale)); color:var(--text-secondary); line-height:1.6; text-align:left; }
   .modal-actions{ display:flex; gap:10px; justify-content:center; margin-top:20px; }
   .modal-actions .btn-secondary, .modal-actions .btn-danger{ flex:1; justify-content:center; padding:10px; }
-  .modal-status{ margin-top:12px; font-size:12px; min-height:16px; }
+  .modal-status{ margin-top:12px; font-size:calc(12px * var(--font-scale)); min-height:16px; }
   .modal-status.ok{ color:var(--status-good); }
   .modal-status.err{ color:var(--status-critical); }
 
@@ -601,11 +736,111 @@
   .modal-box-wide{ max-width:640px; text-align:left; max-height:82vh; overflow-y:auto; }
   .modal-box-wide h3{ text-align:center; }
   .episode-timeline-section{ margin-top:16px; }
-  .episode-timeline-section h4{ font-size:13px; font-weight:700; margin-bottom:8px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:.03em; }
-  .episode-timeline-row{ display:flex; align-items:center; gap:10px; padding:6px 0; font-size:13px; border-bottom:1px solid var(--border); }
+  .episode-timeline-section h4{ font-size:calc(13px * var(--font-scale)); font-weight:700; margin-bottom:8px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:.03em; }
+  .episode-timeline-row{ display:flex; align-items:center; gap:10px; padding:6px 0; font-size:calc(13px * var(--font-scale)); border-bottom:1px solid var(--border); }
   .episode-timeline-row:last-child{ border-bottom:none; }
   .episode-timeline-row .et-time{ font-variant-numeric:tabular-nums; color:var(--text-secondary); min-width:64px; }
-  .episode-timeline-row .et-badge{ font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px; white-space:nowrap; }
+  .episode-timeline-row .et-badge{ font-size:calc(11px * var(--font-scale)); font-weight:700; padding:2px 8px; border-radius:999px; white-space:nowrap; }
+
+  /* ============================================================
+     RNF-08 — MOLDURA DOS CONTROLOS (SC 1.4.11, Non-text Contrast)
+     ------------------------------------------------------------
+     Colocado AQUI, no fim da folha de estilos, e não junto à regra
+     genérica de inputs lá em cima: .btn-secondary/.icon-btn/.activity-chip
+     declaram `border:1px solid var(--border)` na forma abreviada, que
+     repõe border-color; com a mesma especificidade (uma classe), ganha a
+     regra que vier depois no ficheiro. Sem isto a correção não teria
+     qualquer efeito nesses três — foi verificado.
+     Ver --border-input em :root para os rácios medidos.
+  ============================================================ */
+  .row-input, .btn-secondary, .icon-btn, .ble-toggle-btn, .lang-select,
+  .activity-chip, .note-form textarea, .field input, .field select,
+  .switch-role-btn{
+    border-color:var(--border-input);
+  }
+
+  /* ============================================================
+     RNF-08 — CONTROLO DE TAMANHO DE LETRA (topbar)
+     ------------------------------------------------------------
+     Três botões A−/A/A+ que escrevem --font-scale (ver setFontScale()
+     em canvas-graficos.js). Estão na barra superior, ao lado do tema e
+     do idioma, porque é onde o utilizador já procura preferências de
+     apresentação — e não escondido em Definições, que os utilizadores
+     idosos visados (Freitas et al. 2025) podem nunca abrir.
+     Alvos de 34x34px, acima do mínimo de 24x24 do SC 2.5.8.
+  ============================================================ */
+  .font-scale-group{ display:flex; align-items:center; gap:4px; }
+  .font-scale-btn{
+    min-width:34px; height:34px; padding:0 7px; border-radius:var(--radius-sm);
+    background:var(--bg-surface-2); border:1px solid var(--border-input);
+    color:var(--text-secondary); font-weight:700; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; line-height:1;
+  }
+  .font-scale-btn:hover{ color:var(--text-primary); border-color:var(--accent); }
+  .font-scale-btn[aria-pressed="true"]{ background:var(--accent-dim); color:var(--accent); border-color:var(--accent); }
+  .font-scale-btn:disabled{ opacity:0.45; cursor:default; }
+  /* Tamanhos fixos em px de propósito: os próprios botões não devem
+     crescer com a escala que controlam, senão empurram a topbar para
+     fora do ecrã nos níveis maiores. */
+  .font-scale-btn.sm{ font-size:11px; }
+  .font-scale-btn.md{ font-size:14px; }
+  .font-scale-btn.lg{ font-size:17px; }
+
+  /* ============================================================
+     RF-13 — TIMELINE UNIFICADA MULTIMODAL (2026-09-07)
+     ------------------------------------------------------------
+     Ver vista-timeline.js. Estilos das faixas de controlo (período/zoom)
+     e da tabela-resumo que acompanha o canvas — o canvas sozinho é
+     invisível para um leitor de ecrã, por isso a mesma informação existe
+     sempre também em texto (SC 1.1.1).
+  ============================================================ */
+  .tl-controls{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px; }
+  .tl-controls .tl-sep{ width:1px; height:22px; background:var(--border-input); margin:0 4px; }
+  .tl-zoom-btn{
+    padding:6px 11px; border-radius:20px; background:var(--bg-surface-2);
+    border:1px solid var(--border-input); color:var(--text-secondary);
+    font-size:calc(12px * var(--font-scale)); font-weight:600; cursor:pointer; white-space:nowrap;
+  }
+  .tl-zoom-btn:hover{ color:var(--text-primary); border-color:var(--accent); }
+  .tl-zoom-btn[aria-pressed="true"]{ background:var(--accent-dim); color:var(--accent); border-color:var(--accent); }
+  .tl-window-label{ font-size:calc(12px * var(--font-scale)); color:var(--text-secondary); font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+  .tl-hint{ font-size:calc(11.5px * var(--font-scale)); color:var(--text-muted); margin-top:8px; }
+  .tl-canvas-wrap{ position:relative; }
+  .tl-canvas-wrap canvas{ border-radius:var(--radius-sm); }
+  .tl-lane-legend{ display:flex; flex-wrap:wrap; gap:14px; margin-top:10px; font-size:calc(11.5px * var(--font-scale)); color:var(--text-secondary); }
+  .tl-lane-legend .legend-item b{ color:var(--text-primary); }
+  .tl-events-table td .tl-ev-dot{ width:9px; height:9px; border-radius:2px; display:inline-block; margin-right:7px; vertical-align:middle; }
+
+  /* ============================================================
+     RF-09 — CORREÇÕES DO CUIDADOR (human-in-the-loop, 2026-09-07)
+     ------------------------------------------------------------
+     Ver a secção "ROTULAGEM HUMAN-IN-THE-LOOP" em bridge-exportacao.js e
+     o cartão em vista-rotina.js.
+  ============================================================ */
+  .hitl-row{
+    display:flex; align-items:flex-start; gap:12px; padding:10px 2px;
+    border-bottom:1px solid var(--border-soft);
+  }
+  .hitl-row:last-child{ border-bottom:none; }
+  .hitl-row .hitl-main{ flex:1; min-width:0; }
+  .hitl-row .hitl-title{ font-size:calc(12.5px * var(--font-scale)); font-weight:600; }
+  .hitl-row .hitl-meta{ font-size:calc(11px * var(--font-scale)); color:var(--text-muted); margin-top:2px; }
+  .hitl-actions{ display:flex; gap:8px; flex:none; flex-wrap:wrap; }
+  .hitl-badge{
+    display:inline-flex; align-items:center; gap:5px; padding:2px 9px; border-radius:20px;
+    font-size:calc(11px * var(--font-scale)); font-weight:700;
+    background:var(--status-warning-bg); color:var(--status-warning);
+  }
+  .hitl-badge.confirmed{ background:var(--status-good-bg); color:var(--status-good); }
+  .hitl-queue-row{
+    display:flex; align-items:center; gap:10px; padding:7px 2px;
+    font-size:calc(12px * var(--font-scale)); border-bottom:1px solid var(--border-soft);
+  }
+  .hitl-queue-row:last-child{ border-bottom:none; }
+  .hitl-queue-row .hitl-when{ font-family:var(--font-mono); color:var(--text-muted); flex:none; }
+  .hitl-queue-row .hitl-sync{ margin-left:auto; font-size:calc(11px * var(--font-scale)); }
+  .hitl-queue-row .hitl-sync.pending{ color:var(--status-warning); }
+  .hitl-queue-row .hitl-sync.sent{ color:var(--status-good); }
 
   /* Exportação de resumo clínico em PDF — ver exportClinicalPdf() no
      <script>. Usa window.print() (sem bibliotecas externas) escondendo a
@@ -781,7 +1016,16 @@
      APP SHELL
 ============================================================ -->
 <div id="view-app">
-  <aside class="sidebar">
+  <!-- RNF-08 (2026-09-07) — SC 2.4.1 (Bypass Blocks). Primeiro elemento
+       focável da aplicação; invisível até receber foco (ver .skip-link).
+       NÃO navega para "#content": o fragmento do endereço é o
+       identificador da VISTA aberta (ver o histórico de navegação em
+       auth-navegacao.js, "só se escreve no histórico quando a vista
+       muda"). Um href real deixaria "#content" na barra de endereço e,
+       ao retroceder, o popstate leria "content" como nome de vista.
+       Por isso é preventDefault + foco programático. -->
+  <a class="skip-link" href="#content" onclick="event.preventDefault(); focusMainContent();">Saltar para o conteúdo principal</a>
+  <aside class="sidebar" aria-label="Navegação principal">
     <div class="sidebar-brand">
       <div class="logo-dot"><img src="assets/logo.png" alt="CareWear"></div>
     </div>
@@ -804,6 +1048,17 @@
       <button class="nav-item" data-view="tendencia">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V9M11 19V5M18 19v-7"/></svg>
         <span data-i18n="nav.trend">Tendência semanal</span>
+      </button>
+      <!-- RF-13 (2026-09-07) — timeline unificada multimodal. Colocada
+           logo a seguir a "Tendência semanal" de propósito: é a vista que
+           CRUZA o que as vistas acima mostram cada uma por si (rotina,
+           sinais vitais, alertas, medicação) no mesmo eixo de tempo.
+           Sem data-i18n: as chaves novas teriam de ir para
+           i18n-strings.js, e o texto literal em português é consistente
+           com o estado atual desse ficheiro. -->
+      <button class="nav-item" data-view="timeline">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 5h18M3 12h12M3 19h15"/><circle cx="18" cy="12" r="2"/><circle cx="8" cy="5" r="2"/></svg>
+        <span>Timeline unificada</span>
       </button>
       <button class="nav-item" data-view="alertas">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
@@ -836,6 +1091,12 @@
       <button class="nav-item" data-view="anomalias">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
         <span data-i18n="nav.anomalies">Anomalias detetadas</span>
+      </button>
+      <!-- RF-13 — mesma vista disponível ao perfil Médico/Técnico (ver o
+           comentário no grupo #navUtente). -->
+      <button class="nav-item" data-view="timeline">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 5h18M3 12h12M3 19h15"/><circle cx="18" cy="12" r="2"/><circle cx="8" cy="5" r="2"/></svg>
+        <span>Timeline unificada</span>
       </button>
       <button class="nav-item" data-view="alertas">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
@@ -921,7 +1182,19 @@
         </div>
       </div>
       <div class="topbar-right">
-        <select class="lang-select" id="langSelect" onchange="setLanguage(this.value)" title="Idioma / Language"></select>
+        <!-- RNF-08 (2026-09-07) — tamanho de letra ajustável, com
+             persistência entre sessões. role="group" + aria-pressed para
+             que um leitor de ecrã anuncie qual dos três níveis está
+             ativo. Ver setFontScale() em canvas-graficos.js. -->
+        <div class="font-scale-group" role="group" aria-label="Tamanho de letra">
+          <button type="button" class="font-scale-btn sm" id="fontScaleBtn1" aria-pressed="false" aria-label="Tamanho de letra normal" title="Tamanho de letra normal" onclick="setFontScale(1)">A</button>
+          <button type="button" class="font-scale-btn md" id="fontScaleBtn2" aria-pressed="false" aria-label="Tamanho de letra grande (+15%)" title="Tamanho de letra grande" onclick="setFontScale(1.15)">A</button>
+          <button type="button" class="font-scale-btn lg" id="fontScaleBtn3" aria-pressed="false" aria-label="Tamanho de letra muito grande (+35%)" title="Tamanho de letra muito grande" onclick="setFontScale(1.35)">A</button>
+        </div>
+        <!-- aria-label acrescentado (RNF-08, 2026-09-07): o `title` não é
+             um nome acessível fiável num <select> — vários leitores de
+             ecrã anunciavam só "caixa de combinação". -->
+        <select class="lang-select" id="langSelect" onchange="setLanguage(this.value)" title="Idioma / Language" aria-label="Idioma / Language"></select>
         <button class="icon-btn" id="themeToggleBtn" title="Alternar tema claro/escuro" aria-label="Alternar tema claro/escuro" onclick="toggleTheme()">
           <svg id="themeIconMoon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg>
           <svg id="themeIconSun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
@@ -942,7 +1215,11 @@
 
     <div id="storageWarningBanner" class="storage-warning-banner print-hide" style="display:none;"></div>
     <div id="emergencyLiveBanner" class="emergency-live-banner print-hide" style="display:none;"></div>
-    <div class="content" id="content"><!-- injected per view --></div>
+    <!-- role="main" + tabindex="-1" (RNF-08, 2026-09-07): destino da
+         ligação "Saltar para o conteúdo" e ponto de referência para
+         leitores de ecrã. tabindex="-1" torna-o focável por programa sem
+         o meter na ordem de tabulação. -->
+    <div class="content" id="content" role="main" tabindex="-1"><!-- injected per view --></div>
   </div>
 </div>
 
@@ -952,11 +1229,14 @@
      MODAL DE CONFIRMAÇÃO — usado para a ação destrutiva "Repor leituras"
 ============================================================ -->
 <div class="modal-overlay" id="resetModalOverlay" style="display:none;">
-  <div class="modal-box">
+  <!-- role="dialog"/aria-modal (RNF-08, 2026-09-07): sem isto um leitor de
+       ecra continuava a percorrer a pagina por baixo do modal como se ele
+       nao existisse. aria-labelledby aponta para o <h3> do proprio modal. -->
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="resetModalTitle">
     <div class="modal-icon">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
     </div>
-    <h3>Repor leituras do dispositivo?</h3>
+    <h3 id="resetModalTitle">Repor leituras do dispositivo?</h3>
     <p>Esta ação apaga <b>permanentemente</b> todos os registos guardados no dispositivo (ring buffer da flash externa). Não é possível desfazer. A calibração do sensor e a chave de emparelhamento não são afetadas — só perdes o histórico de leituras.</p>
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeResetModal()">Cancelar</button>
@@ -972,11 +1252,11 @@
      de queda/SOS real é muito pior do que o incómodo extra de confirmar
      duas vezes. -->
 <div class="modal-overlay" id="emergencyCancelOverlay" style="display:none;">
-  <div class="modal-box">
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="emergencyCancelTitle">
     <div class="modal-icon">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
     </div>
-    <h3>Cancelar alerta de emergência?</h3>
+    <h3 id="emergencyCancelTitle">Cancelar alerta de emergência?</h3>
     <p>Esta é uma ação de segurança crítica — só deve ser usada se tiveres a certeza de que o alerta foi um falso positivo ou que a situação já foi resolvida por outra via (ex.: o wearable ficou sem resposta a meio de um teste). Confirma a tua identidade com dois passos:</p>
     <div class="field" style="text-align:left; margin-top:12px;">
       <label for="emergencyCancelPassword">Palavra-passe da conta</label>
@@ -1010,7 +1290,7 @@
      admin-view.js::openAdminPatientReportModal() — populamento feito lá,
      não aqui, para não duplicar lógica de formatação já existente. -->
 <div class="modal-overlay" id="adminPatientReportOverlay" style="display:none;">
-  <div class="modal-box modal-box-wide">
+  <div class="modal-box modal-box-wide" role="dialog" aria-modal="true" aria-labelledby="adminPatientReportTitle">
     <h3 id="adminPatientReportTitle" data-i18n="admin.reportTitle">Relatório do paciente</h3>
     <p class="empty-hint" data-i18n="admin.reportSubtitle" style="margin:0 0 8px;">Só de leitura — sem ações disponíveis a partir daqui.</p>
     <div id="adminPatientReportBody"></div>
@@ -1021,7 +1301,7 @@
 </div>
 
 <div class="modal-overlay" id="episodeTimelineOverlay" style="display:none;">
-  <div class="modal-box modal-box-wide">
+  <div class="modal-box modal-box-wide" role="dialog" aria-modal="true" aria-labelledby="episodeTimelineTitle">
     <h3 id="episodeTimelineTitle" data-i18n="episodio.title">Linha do tempo do episódio</h3>
     <p class="empty-hint" data-i18n="episodio.subtitle" style="margin:0 0 8px;">Sinais vitais, atividade classificada e outros alertas nos minutos à volta deste alerta — reunidos a partir da base de dados do bridge, sem inventar nenhuma correlação estatística.</p>
     <div id="episodeTimelineBody"></div>
@@ -1069,6 +1349,12 @@
 <script src="vista-resumo.js"></script>
 <script src="vista-rotina.js"></script>
 <script src="vista-vitais-tendencia.js"></script>
+<!-- RF-13 (2026-09-07) — timeline unificada multimodal. Depois de
+     canvas-graficos.js? NÃO: a ordem de <script> só importa para o que é
+     lido no momento do carregamento; setupCanvas()/showTip() só são
+     chamados dentro de AFTER_RENDER.timeline, muito depois de todos os
+     ficheiros estarem carregados. Fica aqui, junto das outras vistas. -->
+<script src="vista-timeline.js"></script>
 <script src="vista-definicoes-ajuda.js"></script>
 <script src="vista-medico-pacientes.js"></script>
 <script src="vista-medico-medicacao.js"></script>

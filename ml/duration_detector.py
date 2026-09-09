@@ -172,7 +172,15 @@ def run_evaluation(n_normal_subjects=40, n_subjects_per_anomaly=40, seed=123):
 
     normal_blocks = [r for r in all_rows if not r["is_true_anomaly"]]
     normal_flagged = [r for r in normal_blocks if r["flagged"]]
-    false_positive_rate = len(normal_flagged) / len(normal_blocks)
+    # Guarda de divisão por zero: sem nenhum bloco normal avaliado (ex.:
+    # `run_evaluation(n_normal_subjects=0, n_subjects_per_anomaly=0)`, ambos
+    # parâmetros públicos desta função) isto rebentava com ZeroDivisionError.
+    # `None` = "não medido", o mesmo contrato já usado pelo `recall` acima
+    # nesta função e pelo `fp_rate`/`oracle_fp_rate` equivalentes de
+    # ml/combined_pipeline_report.py, que já se protegiam desta forma.
+    false_positive_rate = (
+        len(normal_flagged) / len(normal_blocks) if normal_blocks else None
+    )
     fp_last_of_session = sum(1 for r in normal_flagged if r["is_last_of_session"])
 
     return dict(

@@ -74,6 +74,29 @@ function buildTrend(seed){
 const TREND_DATA_BY_PATIENT = (typeof DEMO_TREND_DATA !== 'undefined') ? DEMO_TREND_DATA : {p1: buildTrend(3), p2: buildTrend(13), p3: buildTrend(23)};
 function currentTrendData(){ return TREND_DATA_BY_PATIENT[selectedPatientId] || TREND_DATA_BY_PATIENT.p1; }
 
+// BUG CORRIGIDO (2026-09-07): buildHr()/currentHrSeries() perderam-se na
+// divisão do <script> único de index.html por ficheiros — o comentário
+// acima já listava currentHrSeries() entre as 7 séries por-paciente, e
+// scripts/generate-demo-data.js continua a gerar DEMO_HR_SERIES para ela,
+// mas a função nunca chegou a ser recriada em nenhum dos ficheiros novos.
+// Consequência real: drawHrSeries() (canvas-graficos.js) chama-a sempre
+// que o bridge NÃO está ligado (o caso normal de demonstração), lançando
+// ReferenceError e abortando todo o AFTER_RENDER.vitais a meio — o gráfico
+// de FC ficava em branco e applyLiveVitals()/requestThresholds()/
+// renderVitalAlertsPanel(), que corriam a seguir, nunca chegavam a correr.
+// buildHrSeries() é a mesma função buildHr() que o gerador documenta (48
+// amostras de meia em meia hora, base 72 bpm de dia / 58 à noite).
+function buildHrSeries(seed){
+  const rnd = seedRand(seed);
+  return Array.from({length: 48}, (_, i) => {
+    const hour = i / 2;
+    const night = hour < 7 || hour > 22;
+    return { t: hour, hr: Math.round((night ? 58 : 72) + rnd() * 10 + Math.sin(i * 0.4) * 4) };
+  });
+}
+const HR_SERIES_BY_PATIENT = (typeof DEMO_HR_SERIES !== 'undefined') ? DEMO_HR_SERIES : {p1: buildHrSeries(5), p2: buildHrSeries(15), p3: buildHrSeries(25)};
+function currentHrSeries(){ return HR_SERIES_BY_PATIENT[selectedPatientId] || HR_SERIES_BY_PATIENT.p1; }
+
 /* ============================================================
    LIMIARES PERSONALIZADOS POR PESSOA (protótipo)
    ------------------------------------------------------------

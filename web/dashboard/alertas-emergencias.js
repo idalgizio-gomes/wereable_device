@@ -148,8 +148,76 @@ function clearAllEmergenciesForPatient(){
    "Repor leituras" abaixo) — quem quiser apagar tudo tem de usar as
    três opções.
 ------------------------------------------------------------ */
+/* ------------------------------------------------------------
+   RF-07 (2026-09-07) — ALERTAS REAIS VINDOS DA BASE DE DADOS
+   ------------------------------------------------------------
+   Até esta data, TODOS os alertas que este dashboard mostrava eram
+   entradas fixas de demonstração (PATIENTS[i].alerts). O bridge grava
+   agora cada alerta na tabela `alerts` (severidade, motivo, escalonamento
+   e ação registada — ver ble_bridge.py, cmd "get_alerts"), e estes são
+   fundidos com os de demonstração na MESMA lista, para não haver duas
+   secções de alertas a competir pela atenção do cuidador.
+   Distinguem-se por `live: true`, que também é o que faz `alertField()`
+   escapar o texto (ver abaixo): o texto de demonstração é constante
+   escrita neste repositório, o do bridge não é.
+------------------------------------------------------------ */
+let bridgeAlerts = [];
+
+// Converte um alerta da base de dados para a forma que alertRow() e a
+// tabela de histórico já sabem desenhar.
+function bridgeAlertToRow(raw){
+  const criadoMs = raw.created_at ? Date.parse(raw.created_at + 'Z') : null;
+  const escaladoMs = raw.escalated_at ? Date.parse(raw.escalated_at + 'Z') : null;
+  return {
+    key: `live-${raw.uuid}`,
+    alertUuid: raw.uuid,
+    live: true,
+    sev: raw.severity,
+    effectiveSeverity: raw.effective_severity || raw.severity,
+    escalatedAt: raw.escalated_at || null,
+    escalatedAtMs: Number.isFinite(escaladoMs) ? escaladoMs : null,
+    createdAtMs: Number.isFinite(criadoMs) ? criadoMs : null,
+    title: raw.title || 'Alerta',
+    desc: raw.reason || '',
+    reason: raw.reason || '',
+    resolutionNote: raw.resolution_note || null,
+    resolvedAt: raw.resolved_at || null,
+    time: Number.isFinite(criadoMs)
+      ? new Date(criadoMs).toLocaleString(currentLang, {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})
+      : '',
+  };
+}
+
+// Alertas reais + de demonstração, sem os apagados. Os reais vêm
+// primeiro por serem sempre mais recentes do que as entradas fixas.
 function currentAlerts(){
-  return selectedPatient().alerts.filter(a => !isAlertDeleted(patientAlertKey(selectedPatientId, a.key)));
+  const reais = bridgeAlerts.filter(a => !isAlertDeleted(patientAlertKey(selectedPatientId, a.key)));
+  const demo = selectedPatient().alerts.filter(a => !isAlertDeleted(patientAlertKey(selectedPatientId, a.key)));
+  return reais.concat(demo);
+}
+
+// RF-07 — "motivo textual legível que explique porque foi gerado".
+// Para alertas reais é a frase composta pelo bridge com os números que
+// dispararam a regra (vital_alerts.explain_vital_alert /
+// explain_wear_state). Para os de demonstração, que não têm campo
+// próprio, usa-se a descrição técnica, que é exatamente isso — o que foi
+// medido e contra que referência.
+function alertReasonText(a){
+  if (!a) return '';
+  if (a.reason) return a.reason;
+  return alertField(a, 'desc') || '';
+}
+
+// Ponte entre um alerta desta lista e o `alert_id` que o
+// EscalationManager do bridge usa ("{alert_type}-{seq}", ver
+// _dispatch_emergency_notifications em ble_bridge.py). Só os alertas de
+// emergência REAIS têm um — os restantes devolvem null e a confirmação
+// fica-se pelo registo em `alerts`.
+function liveEmergencyAlertIdFor(fullKey){
+  if (!fullKey) return null;
+  const chave = String(fullKey).split('::').pop();
+  const entrada = currentEmergencyLog().find(e => e.live && `live-${e.liveSeq}` === chave);
+  return entrada && entrada.liveSeq != null ? `${entrada.type}-${entrada.liveSeq}` : null;
 }
 function currentAnomalyLog(){
   return selectedPatient().anomalyLog.filter(a => !deletedAnomaliesMap[`${selectedPatientId}:${a.id}`]);
@@ -317,7 +385,7 @@ function updateLiveEmergencyBanner(){
   const label = emergencyLabelText(active[0]);
   el.style.display = 'flex';
   el.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
-    <span><b>${t('emergencyLive.bannerTitle')}</b> — ${label} (${selectedPatient().name}). <a href="#" onclick="renderView('emergencias'); return false;">${t('emergencyLive.viewLogLink')}</a></span>`;
+    <span><b>${t('emergencyLive.bannerTitle')}</b> — ${label} (${escapeHtml(selectedPatient().name)}). <a href="#" onclick="renderView('emergencias'); return false;">${t('emergencyLive.viewLogLink')}</a></span>`;
 }
 
 // Estado do modal de cancelamento — o código gerado (6 dígitos) é

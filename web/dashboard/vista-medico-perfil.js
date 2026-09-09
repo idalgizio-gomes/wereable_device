@@ -17,10 +17,20 @@ function sensitiveProfileFieldHtml(role, field, label, currentValue, inputType){
   return `
     <div class="field">
       <label for="profile_${field}">${label} <span class="empty-hint" style="padding:0; display:inline;">— ${t('perfil.requiresApprovalNote')}</span></label>
-      <input id="profile_${field}" type="${inputType || 'text'}" value="${currentValue}">
+      <input id="profile_${field}" type="${inputType || 'text'}" value="${escapeHtml(currentValue)}">
     </div>`;
 }
 
+// BUG DE XSS CORRIGIDO (2026-09-07): os campos do próprio perfil são texto
+// livre escrito pelo utilizador (ver submitProfileForm(), que grava
+// el.value.trim() tal e qual em localStorage) e entravam sem escaping
+// dentro de value="..." — um nome como  Maria" onfocus="…" autofocus x="
+// fecha o atributo e executa código ao voltar a abrir a vista Perfil. Este
+// mesmo ficheiro já usava escapeHtml() nos dois sítios em texto (valor
+// pendente e tabela de aprovações), e vista-definicoes-ajuda.js já o usa
+// exatamente neste padrão value="${escapeHtml(...)}" — faltava só aqui.
+// escapeHtml() escapa " (mas não '), por isso os atributos têm de
+// continuar delimitados por aspas duplas, como estão.
 TEMPLATES.perfil = () => {
   const isUtente = currentRole === 'utente';
   const role = isUtente ? 'utente' : 'clinico';
@@ -30,26 +40,26 @@ TEMPLATES.perfil = () => {
     <div class="card-head"><div><h3>${t('perfil.myProfileTitle')}</h3><div class="card-sub">${t('perfil.myProfileSubtitle')}</div></div></div>
     <div class="field">
       <label for="profile_name">${t('perfil.nameLabel')}</label>
-      <input id="profile_name" type="text" value="${p.name}">
+      <input id="profile_name" type="text" value="${escapeHtml(p.name)}">
     </div>
     <div class="field">
       <label for="profile_email">${t('login.email')}</label>
-      <input id="profile_email" type="email" value="${p.email}">
+      <input id="profile_email" type="email" value="${escapeHtml(p.email)}">
     </div>
     <div class="field">
       <label for="profile_phone">${t('perfil.phoneLabel')}</label>
-      <input id="profile_phone" type="tel" value="${p.phone || ''}">
+      <input id="profile_phone" type="tel" value="${escapeHtml(p.phone || '')}">
     </div>
     ${sensitiveProfileFieldHtml(role, 'nif', t('perfil.nifLabel'), p.nif || '')}
     ${isUtente ? sensitiveProfileFieldHtml(role, 'address', t('perfil.addressLabel'), p.address || '') : ''}
     ${!isUtente ? `
     <div class="field">
       <label for="profile_institution">${t('perfil.institutionLabel')}</label>
-      <input id="profile_institution" type="text" value="${p.institution || ''}">
+      <input id="profile_institution" type="text" value="${escapeHtml(p.institution || '')}">
     </div>
     <div class="field">
       <label for="profile_license">${t('perfil.licenseLabel')}</label>
-      <input id="profile_license" type="text" value="${p.license || ''}">
+      <input id="profile_license" type="text" value="${escapeHtml(p.license || '')}">
     </div>` : ''}
     <button class="btn-primary" onclick="submitProfileForm()" style="width:auto; padding:8px 20px;">${t('perfil.saveChangesBtn')}</button>
     <p class="modal-status" id="profileSaveStatus"></p>
@@ -61,15 +71,15 @@ TEMPLATES.perfil = () => {
     <div class="card-head"><div><h3>${t('perfil.emergencyContactTitle')}</h3><div class="card-sub">${t('perfil.emergencyContactSubtitle')}</div></div></div>
     <div class="field">
       <label for="profile_caregiverName">${t('perfil.caregiverNameLabel')}</label>
-      <input id="profile_caregiverName" type="text" value="${p.caregiverName || ''}">
+      <input id="profile_caregiverName" type="text" value="${escapeHtml(p.caregiverName || '')}">
     </div>
     <div class="field">
       <label for="profile_caregiverPhone">${t('perfil.caregiverPhoneLabel')}</label>
-      <input id="profile_caregiverPhone" type="tel" value="${p.caregiverPhone || ''}">
+      <input id="profile_caregiverPhone" type="tel" value="${escapeHtml(p.caregiverPhone || '')}">
     </div>
     <div class="field">
       <label for="profile_caregiverRelation">${t('perfil.caregiverRelationLabel')}</label>
-      <input id="profile_caregiverRelation" type="text" value="${p.caregiverRelation || ''}">
+      <input id="profile_caregiverRelation" type="text" value="${escapeHtml(p.caregiverRelation || '')}">
     </div>
     <button class="btn-primary" onclick="submitProfileForm()" style="width:auto; padding:8px 20px;">${t('perfil.saveChangesBtn')}</button>
   </div>` : ''}
@@ -143,6 +153,32 @@ TEMPLATES.exportar = () => `
       </button>
     </div>
     <p class="empty-hint">${t('exportar.fhirNoteEmpty')}</p>
+  </div>
+
+  <!-- RF-12 (2026-09-07) — Relatório semanal automático.
+       Texto em português literal (não passa por t()/i18n-strings.js) por
+       decisão de âmbito: o ficheiro de traduções está a ser alterado por
+       outro trabalho em paralelo e acrescentar chaves lá daria conflito.
+       Passar estas 4 strings para i18n é trabalho por fazer, registado no
+       relatório do requisito.
+       O botão chama exportWeeklyReportPdf() (web/dashboard/export-clinico.js),
+       que reutiliza a MESMA folha de impressão #clinicalPrintSheet no fim
+       deste template — não há um segundo mecanismo de exportação. -->
+  <div class="card print-hide">
+    <div class="card-head"><div><h3>Relatório semanal</h3><div class="card-sub">Rotina, sinais vitais, alertas e adesão à medicação dos últimos 7 dias, num só PDF.</div></div></div>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+      <button class="btn-secondary" onclick="exportWeeklyReportPdf()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M6 9V2h9l5 5v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-2M6 14h4M6 18h2"/></svg>
+        Gerar relatório semanal (PDF)
+      </button>
+      <label for="weeklyReportEnd" style="font-size:13px; color:var(--text-secondary);">Semana terminada em</label>
+      <input id="weeklyReportEnd" type="date" class="row-input" style="width:150px;">
+      <button class="btn-secondary" onclick="exportWeeklyReportPdf(document.getElementById('weeklyReportEnd').value || undefined)">
+        Gerar para essa semana
+      </button>
+      <span class="empty-hint" id="weeklyReportHint" style="margin:0;"></span>
+    </div>
+    <p class="empty-hint">O mesmo relatório é gerado automaticamente pela tarefa periódica (Cron) do bridge; este botão serve para o obter a pedido. Quando a API não está acessível, o PDF sai com os dados desta sessão e diz-o no cabeçalho.</p>
   </div>
 
   <div class="card print-hide">

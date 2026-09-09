@@ -1,4 +1,112 @@
 /* ============================================================
+   ACESSIBILIDADE (RNF-08, 2026-09-07)
+   ------------------------------------------------------------
+   Justificação: Freitas et al. 2025 (Universal Design) — os cuidadores
+   que usam este dashboard são, muitas vezes, eles próprios idosos.
+   Critério de aceitação do requisito: contraste WCAG 2.1 AA, tamanho de
+   letra ajustável e navegação completa por teclado.
+
+   O contraste foi corrigido nas variáveis CSS (ver :root e
+   html[data-theme="light"] em index.html, com os rácios medidos em
+   comentário). Este bloco trata das outras duas partes.
+
+   PORQUÊ AQUI e não em i18n-theme.js, que seria o vizinho natural do
+   tema claro/escuro: esse ficheiro está fora do conjunto de ficheiros
+   que esta tarefa podia alterar. canvas-graficos.js é o módulo de
+   apresentação partilhado por todas as vistas e é também quem precisa
+   da escala de letra para desenhar rótulos dentro dos canvas (o canvas
+   não herda font-size do CSS — ver canvasFont()), por isso as duas
+   coisas ficam juntas em vez de duplicadas.
+============================================================ */
+const FONT_SCALE_KEY = 'carewear_font_scale';
+// Três níveis, não um slider contínuo: um slider obriga a mira fina do
+// rato, exatamente o que se está a tentar evitar. 1.35 é o máximo antes
+// de a barra superior começar a partir em ecrãs de 1366px.
+const FONT_SCALE_STEPS = [1, 1.15, 1.35];
+
+function loadFontScale(){
+  const raw = Number(localStorage.getItem(FONT_SCALE_KEY));
+  return FONT_SCALE_STEPS.includes(raw) ? raw : 1;
+}
+let currentFontScale = loadFontScale();
+
+// Escreve a escala na variável CSS --font-scale, que multiplica TODAS as
+// declarações font-size do dashboard (reescritas para
+// calc(Npx * var(--font-scale)) em index.html).
+function setFontScale(scale){
+  currentFontScale = FONT_SCALE_STEPS.includes(scale) ? scale : 1;
+  try { localStorage.setItem(FONT_SCALE_KEY, String(currentFontScale)); }
+  catch (e) { /* quota excedida ou localStorage indisponível — fica só nesta sessão */ }
+  document.documentElement.style.setProperty('--font-scale', String(currentFontScale));
+  syncFontScaleButtons();
+  // Os canvas não são texto CSS: têm de ser redesenhados para os rótulos
+  // acompanharem a escala. renderView(currentView) é o mesmo caminho já
+  // usado por setAlertMode()/applyI18n() — e, por não haver mudança de
+  // vista, não escreve no histórico de navegação (ver renderView()).
+  if (typeof currentView !== 'undefined' && currentView
+      && document.getElementById('view-app').classList.contains('active')) {
+    renderView(currentView);
+  }
+}
+
+function syncFontScaleButtons(){
+  FONT_SCALE_STEPS.forEach((step, i) => {
+    const btn = document.getElementById('fontScaleBtn' + (i + 1));
+    if (btn) btn.setAttribute('aria-pressed', String(step === currentFontScale));
+  });
+}
+
+// Tamanho de letra a usar DENTRO de um canvas. O contexto 2D não herda
+// nada do CSS, por isso a escala tem de ser aplicada à mão aqui — sem
+// isto, aumentar a letra deixava todos os rótulos de eixo dos gráficos
+// no tamanho original (e cada vez mais pequenos em comparação).
+function canvasFont(px, weight){
+  const family = getComputedStyle(document.body).fontFamily;
+  return `${weight ? weight + ' ' : ''}${(px * currentFontScale).toFixed(2)}px ${family}`;
+}
+
+// Destino da ligação "Saltar para o conteúdo" (ver .skip-link em
+// index.html). Foco programático em vez de navegação por fragmento, para
+// não colidir com o fragmento que identifica a vista aberta.
+function focusMainContent(){
+  const c = document.getElementById('content');
+  if (!c) return;
+  c.focus();
+  c.scrollIntoView({block: 'start'});
+}
+
+function initAccessibility(){
+  document.documentElement.style.setProperty('--font-scale', String(currentFontScale));
+  syncFontScaleButtons();
+
+  // SC 3.1.1 — mantém <html lang> em sintonia com o idioma escolhido. O
+  // onchange do <select> já chama setLanguage() (i18n-theme.js, fora do
+  // alcance desta tarefa); este ouvinte corre a seguir, em vez de
+  // alterar essa função.
+  const langSel = document.getElementById('langSelect');
+  if (langSel) langSel.addEventListener('change', () => {
+    document.documentElement.lang = langSel.value || 'pt';
+  });
+  document.documentElement.lang = (typeof currentLang !== 'undefined' && currentLang) || 'pt';
+
+  // SC 2.1.2 (No Keyboard Trap) / 2.1.1: os quatro modais da aplicação só
+  // se fechavam clicando no botão "Cancelar"/"Fechar". Escape fecha o
+  // modal visível carregando no seu próprio botão de saída — reutiliza a
+  // função de fecho de cada modal (closeResetModal, closeEpisodeTimelineModal,
+  // ...) em vez de as reimplementar aqui, que é o que garante que o estado
+  // interno de cada um fica limpo.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const aberto = Array.from(document.querySelectorAll('.modal-overlay'))
+      .find(m => m.style.display !== 'none');
+    if (!aberto) return;
+    const sair = aberto.querySelector('.modal-actions .btn-secondary');
+    if (sair) { e.preventDefault(); sair.click(); }
+  });
+}
+initAccessibility();
+
+/* ============================================================
    CANVAS — utilidades de tooltip + DPR
 ============================================================ */
 const ttipEl = document.getElementById('ttip');
@@ -46,7 +154,7 @@ function drawRoutineTimeline(id, blocks, subtitle, dashedAnomaly){
 
   // eixo de horas
   ctx.strokeStyle = resolveVar('--border'); ctx.lineWidth = 1;
-  ctx.fillStyle = resolveVar('--text-muted'); ctx.font = '10.5px ' + getComputedStyle(document.body).fontFamily;
+  ctx.fillStyle = resolveVar('--text-muted'); ctx.font = canvasFont(10.5);
   ctx.textBaseline = 'middle';
   for (let hh=0; hh<=24; hh+=6){
     const x = minToX(hh*60);
@@ -77,7 +185,7 @@ function drawRoutineTimeline(id, blocks, subtitle, dashedAnomaly){
   });
 
   if (subtitle){
-    ctx.fillStyle = resolveVar('--text-secondary'); ctx.font = '600 11.5px ' + getComputedStyle(document.body).fontFamily;
+    ctx.fillStyle = resolveVar('--text-secondary'); ctx.font = canvasFont(11.5, '600');
     ctx.fillText(subtitle, padL, top+barH+16);
   }
 
@@ -180,7 +288,7 @@ function drawHeatmap(id){
   const gridW = w - labelW - 4, gridH = h - top - bottom;
   const cw = gridW/cols, ch = gridH/rows;
 
-  ctx.font = '10px ' + getComputedStyle(document.body).fontFamily;
+  ctx.font = canvasFont(10);
   ctx.fillStyle = resolveVar('--text-muted');
   ctx.textBaseline = 'middle';
 
@@ -257,7 +365,7 @@ function drawTrend(id){
     });
   });
 
-  ctx.fillStyle = resolveVar('--text-muted'); ctx.font = '10px ' + getComputedStyle(document.body).fontFamily; ctx.textBaseline='top';
+  ctx.fillStyle = resolveVar('--text-muted'); ctx.font = canvasFont(10); ctx.textBaseline='top';
   currentTrendData().forEach((d,i) => ctx.fillText(d.day, xAt(i)-14, h-bottom+6));
 
   S.xAt = xAt;
@@ -310,7 +418,7 @@ function drawHrSeries(id){
   const xAt = (i) => padL + (i/(series.length-1))*plotW;
   const yAt=(v)=> top + plotH - ((v-min)/(max-min))*plotH;
 
-  ctx.strokeStyle=resolveVar('--border-soft'); ctx.fillStyle=resolveVar('--text-muted'); ctx.font='10px '+getComputedStyle(document.body).fontFamily;
+  ctx.strokeStyle=resolveVar('--border-soft'); ctx.fillStyle=resolveVar('--text-muted'); ctx.font=canvasFont(10);
   const tickCount = 4;
   Array.from({length: tickCount + 1}, (_, i) => Math.round(min + (i * (max - min) / tickCount)))
     .forEach(v=>{ const y=yAt(v); ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(w-padR,y); ctx.stroke(); ctx.fillText(v, 2, y-4); });
