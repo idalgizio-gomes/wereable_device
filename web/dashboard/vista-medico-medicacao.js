@@ -3,20 +3,10 @@ TEMPLATES.medicacao = () => {
   const isUtente = currentRole === 'utente';
   const meds = patientMedications(p);
   const todayPct = todayAdherencePct(p);
-  // CONTRADIÇÃO REAL corrigida (2026-07-21, reportada pelo utilizador): um
-  // dia com d.pct===null (ver withDeviceOffGaps() em generate-demo-data.js)
-  // significa "sem dados fiáveis" (dispositivo desligado nesse dia), não
-  // "toma em falta" — nunca deve entrar em missedDays nem ser tratado como
-  // 0%/100%. `d.pct < 100` sozinho incluiria null por engano (null < 100
-  // é true em JS, null coage para 0), por isso filtra explicitamente.
+  // d.pct===null = dispositivo desligado nesse dia, não toma em falta; exclui explicitamente (null < 100 é true em JS)
   const missedDays = p.adherenceHistory.filter(d => d.pct != null && d.pct < 100);
 
-  // hasAnyPendingDose (2026-08-06, pedido da utilizadora): se todas as
-  // doses de hoje já estão "tomado", a coluna Ação nunca teria nada para
-  // mostrar (era sempre "—" em todas as linhas) — deixa de fazer sentido
-  // mostrar a coluna. Calculado ANTES de construir doseRows para poder
-  // decidir a estrutura da tabela (thead + cada <tr>) de forma
-  // consistente — as duas partes têm de concordar no número de colunas.
+  // se nenhuma dose está pendente, a coluna Ação não é mostrada (thead e <tr> têm de concordar)
   const doseStatuses = meds.flatMap(med => med.times.map(time => doseStatus(p.id, med.id, time)));
   const hasAnyPendingDose = doseStatuses.some(s => s !== 'tomado');
 
@@ -25,9 +15,7 @@ TEMPLATES.medicacao = () => {
     const pill = status === 'tomado' ? pillHtml('good',t('medicacao.statusTaken'))
       : status === 'atrasado' ? pillHtml('warning',t('medicacao.statusLate'))
       : pillHtml('neutral',t('medicacao.statusPending'));
-    // Célula de ação só é emitida quando a coluna existe (hasAnyPendingDose)
-    // — com a coluna escondida, nunca chega a haver nada para "—" ou para
-    // o botão substituírem, então nem sequer se gera essa <td>.
+    // célula só é emitida se a coluna existir
     const actionCell = hasAnyPendingDose
       ? `<td>${status === 'tomado' ? '—' : `<button type="button" class="alert-explain-btn" onclick="markDoseTaken('${p.id}','${med.id}','${time}')">${t('medicacao.markTakenBtn')}</button>`}</td>`
       : '';
@@ -46,12 +34,7 @@ TEMPLATES.medicacao = () => {
     ? `<p class="empty-hint"><span class="sim-flag">${t('rotina.simFlag')}</span> ${t('medicacao.correlationPrefix')} (${missedDays.map(d => d.day).join(', ')}), ${t('medicacao.correlationSuffix')}</p>`
     : `<p class="empty-hint">${t('medicacao.noIncompleteEmpty')}</p>`;
 
-  // Cartão "Análise de adesão" (window.adherenceAnalytics,
-  // medication-reminders.js) — distinto do cartão "Adesão — últimos 6
-  // dias" acima: aquele usa `p.adherenceHistory`, dados de EXEMPLO fixos
-  // no código; este usa cliques reais de "Marcar como tomado" neste
-  // browser (localStorage, só a partir de hoje) — nunca misturados na
-  // mesma série, mesma regra já seguida no resto do dashboard.
+  // window.adherenceAnalytics usa cliques reais em "Marcar tomado" (localStorage), distinto de p.adherenceHistory (dados de exemplo)
   const analyticsSummary = window.adherenceAnalytics ? window.adherenceAnalytics.getWeekSummary(p.id) : null;
   const analyticsRecs = window.adherenceAnalytics ? window.adherenceAnalytics.getRecommendations(p.id, p) : [];
   const analyticsCard = analyticsSummary ? `

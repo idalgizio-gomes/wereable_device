@@ -8,6 +8,14 @@ TEMPLATES.resumo = () => `
     ${statTile('zap',t('resumo.spo2CardTitle'),'—','%', 'var(--status-good)', 'stat-spo2', false, 'spo2-hint')}
   </div>
 
+  <!-- RF-05: estado de uso do wearable, antes dos outros cartões (se não está no pulso, os dados deles são inválidos). Texto fixo em PT, este ficheiro não passa por i18n-strings.js -->
+  <div class="card">
+    <div class="card-head">
+      <div><h3>Estado de uso do dispositivo</h3><div class="card-sub">Distingue "retirado do pulso" de "sem ligação" — ver WearDetector em bridge/vital_alerts.py</div></div>
+    </div>
+    <div id="wearStatusPanel"></div>
+  </div>
+
   <div class="card activity-live-card">
     <div class="card-head">
       <div><h3>${t('resumo.liveActivityCardTitle')} <span class="experimental-flag" title="${t('resumo.liveActivityDisclaimer')}">${t('resumo.experimentalBadge')}</span></h3><div class="card-sub">${t('resumo.liveActivityCardSubtitle')}</div></div>
@@ -53,6 +61,14 @@ TEMPLATES.resumo = () => `
     </div>
     <div id="nightSummary"></div>
   </div>
+
+  <!-- RF-08: histórico de ações pós-alerta, consultável mesmo depois de o alerta sair de "recentes" -->
+  <div class="card">
+    <div class="card-head">
+      <div><h3>Ações registadas após alertas</h3><div class="card-sub">O que foi feito, por quem e quando — alertas reais vêm de resolved_at/resolution_note na base de dados do bridge</div></div>
+    </div>
+    <div id="alertActionsHistory"></div>
+  </div>
 `;
 AFTER_RENDER.resumo = () => {
   drawRoutineTimeline('cvRoutineToday', currentRoutineToday(), t('resumo.routineTodayChartLabel'));
@@ -60,25 +76,20 @@ AFTER_RENDER.resumo = () => {
   drawHeatmap('cvHeatmap');
   drawTrend('cvTrend');
   applyLiveVitals();
+  // wear_status/alerts chegam do bridge de forma assíncrona; preenche com o último estado conhecido
+  if (typeof renderWearStatusCard === 'function') renderWearStatusCard();
+  if (typeof renderAlertActionsHistory === 'function') renderAlertActionsHistory();
   renderNightSummary();
   renderLiveActivityPanel();
 };
 
-/* ------------------------------------------------------------
-   RESUMO NOTURNO
-   ------------------------------------------------------------
-   Ideia da pesquisa: agitação/deambulação noturna ("sundowning") é uma
-   das preocupações mais citadas por cuidadores de pessoas com demência,
-   e é distinta da atividade diurna — merece o seu próprio resumo em vez
-   de se perder dentro da timeline geral de 24h. Calculado a partir do
-   bloco "dormir" noturno do currentRoutineToday() (dados simulados, ver aviso).
------------------------------------------------------------- */
+// Resumo noturno (sundowning) — calculado a partir do bloco "dormir" de currentRoutineToday(), dados simulados
 function buildNightRestlessness(seed){
   const rnd = seedRand(seed);
-  const count = Math.floor(rnd() * 3); // 0-2 episódios, plausível
+  const count = Math.floor(rnd() * 3); // 0-2 episódios
   const events = [];
   for (let i = 0; i < count; i++){
-    const minute = 22*60 + 30 + Math.floor(rnd() * (7*60 + 60 - 22*60 - 30)); // entre 22:30 e ~08:00 (cruza meia-noite em minutos "do dia")
+    const minute = 22*60 + 30 + Math.floor(rnd() * (7*60 + 60 - 22*60 - 30)); // entre 22:30 e ~08:00, cruza meia-noite
     events.push({ time: fmtMin(minute % (24*60)), durationMin: 3 + Math.floor(rnd()*12) });
   }
   return events;
@@ -116,35 +127,14 @@ function renderNightSummary(){
   `;
 }
 
-/* ------------------------------------------------------------
-   PACING / DEAMBULAÇÃO (deteção precoce de wandering via giroscópio)
-   ------------------------------------------------------------
-   Ideia da pesquisa: uma métrica de "curvas apertadas"/pacing (mudanças
-   de direção frequentes e de raio pequeno, medidas pelo giroscópio) é
-   apontada na literatura como sinal precoce de deambulação (wandering),
-   complementar ao geofencing por GPS — capta o padrão de "andar às
-   voltas" mesmo dentro de casa, onde o GPS não distingue bem posições
-   próximas. Índice diário (0-100, mais alto = mais voltas apertadas que
-   o habitual).
-   **Cálculo real implementado (2026-07-03)**: Imu::detectPacing() em
-   src/Imu/Imu.cpp conta rajadas de rotação acima de um limiar na norma
-   do giroscópio (janela de 1 minuto), reencaminhado via FullPlain/bridge
-   até liveState.pacing (ver handleBridgeMessage abaixo). Quando o bridge
-   está ligado, o valor "hoje" mostrado é este índice real, calculado a
-   partir de gx/gy/gz do IMU — a TENDÊNCIA de 7 dias (buildPacingTrend)
-   continua simulada, porque ainda não há histórico real acumulado (só
-   existirá depois do serviço de persistência, ver PROJECT_STATUS.md,
-   Prioridade 4 — Base de dados).
------------------------------------------------------------- */
+// Pacing/deambulação: índice diário 0-100 de "curvas apertadas" via giroscópio, sinal precoce de wandering.
+// Hoje real quando bridge ligado (Imu::detectPacing() em src/Imu/Imu.cpp -> liveState.pacing); tendência 7 dias ainda simulada (sem persistência real)
 function buildPacingTrend(seed){
   const rnd = seedRand(seed);
   const days = ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
-  // Índice de base plausível (rotina calma) com uma pequena tendência a
-  // subir nos últimos dias, para haver algo a comentar no cartão sem
-  // exagerar (dados sintéticos, não uma alegação clínica).
   return days.map((day, i) => {
     const base = 22 + rnd() * 10;
-    const drift = i >= 5 ? (i - 4) * 4 : 0; // sáb/dom ligeiramente mais altos
+    const drift = i >= 5 ? (i - 4) * 4 : 0; // fim de semana ligeiramente mais alto
     return { day, score: Math.round(Math.min(100, base + drift)) };
   });
 }
@@ -154,17 +144,10 @@ function currentPacingTrend(){ return PACING_TREND_BY_PATIENT[selectedPatientId]
 function renderPacingSummary(){
   const host = document.getElementById('pacingSummary');
   if (!host) return;
-  // Índice de "hoje": real (vindo do firmware via bridge) quando ligado e
-  // já houver pelo menos uma janela de 1 minuto processada; caso
-  // contrário cai para o último dia da série simulada (buildPacingTrend),
-  // igual ao padrão já usado noutros cartões com dados ao vivo (ver
-  // drawHrSeries/liveState.connected).
+  // "Hoje" real via bridge quando ligado, senão cai para o último dia da série simulada
   const live = liveState.connected && liveState.pacing != null;
   const today = live ? liveState.pacing : currentPacingTrend()[currentPacingTrend().length - 1].score;
   const weekAvg = Math.round(currentPacingTrend().reduce((s,d) => s + d.score, 0) / currentPacingTrend().length);
-  // Bug corrigido: o ramo "today >= 40 ? 'good' : 'good'" era morto (as
-  // duas saídas eram idênticas) — só existem dois estados reais aqui,
-  // como o próprio levelLabel (2 valores) já deixava claro.
   const level = today >= 60 ? 'warning' : 'good';
   const levelLabel = today >= 60 ? t('rotina.pacingAboveUsual') : t('rotina.pacingWithinUsual');
   const todayLabelSuffix = live ? ` — ${t('rotina.pacingLive')}` : ` — ${t('rotina.pacingDemo')}`;

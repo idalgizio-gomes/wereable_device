@@ -1,16 +1,7 @@
-/* ============================================================
-   PEÇAS REUTILIZÁVEIS
-============================================================ */
 function statTile(icon, label, value, unit, color, valueId, sim, hintId){
   const valAttr = valueId ? ` id="${valueId}"` : '';
   const simBadge = sim ? ` <span class="sim-flag" title="Classificação de rotina simulada — sem classificador HAR embarcado ainda">simulado</span>` : '';
-  // hintId (2026-08-06, pedido da utilizadora): linha extra, escondida por
-  // omissão (display:none inline — sem depender de nenhuma classe CSS
-  // nova), que applyLiveVitals() mostra quando não há leitura de HR/SpO2
-  // (placa fora do pulso ou pressão insuficiente contra a pele — ver
-  // checkFingerPresentBrief() em Ppg.cpp, é exatamente esse sinal que
-  // liveState.hr/spo2==null reflete agora). Só usado pelos tiles de
-  // HR/SpO2 (hintId omitido nos restantes, que não precisam disto).
+  // hintId: linha extra escondida por omissão, mostrada por applyLiveVitals() quando não há leitura HR/SpO2 (checkFingerPresentBrief em Ppg.cpp); só usada nesses tiles
   const hintHtml = hintId
     ? `<div class="stat-hint" id="${hintId}" style="display:none;font-size:.75rem;color:var(--status-warning);margin-top:2px;"></div>`
     : '';
@@ -25,29 +16,10 @@ function statTile(icon, label, value, unit, color, valueId, sim, hintId){
     </div>`;
 }
 
-/* ------------------------------------------------------------
-   FADIGA DE ALERTA — silenciar alertas não-críticos temporariamente
-   ------------------------------------------------------------
-   Ideia da pesquisa: a literatura de monitorização remota (RPM) aponta a
-   "fadiga de alerta" (alert fatigue) como um risco real — demasiadas
-   notificações repetidas para a mesma situação já reconhecida levam a
-   que os cuidadores comecem a ignorar TODOS os alertas, incluindo os que
-   importam. A mitigação recomendada é permitir silenciar/adiar alertas
-   já vistos, com escalonamento gradual antes de reforçar.
-   DECISÃO DE SEGURANÇA (não negociável, tomada sem esperar confirmação
-   por ser uma salvaguarda e não uma redução de segurança): alertas
-   'critical' NUNCA podem ser silenciados — só 'serious' e 'warning'. Um
-   alerta silenciado continua visível na lista (não desaparece), só fica
-   com uma nota clara de até quando está silenciado, com opção de
-   reativar a qualquer momento.
------------------------------------------------------------- */
+// fadiga de alerta (RPM): permite silenciar/adiar alertas já vistos. 'critical' nunca pode ser silenciado, só 'serious'/'warning'
 const MUTED_ALERTS_KEY = 'carewear_muted_alerts';
 
-// As chaves guardadas em localStorage (silenciados, ocorrências, lidos)
-// são sempre namespaced por paciente ("idPaciente::chaveAlerta") — sem
-// isto, dois pacientes diferentes com a mesma chave de alerta (ex.: se
-// ambos tivessem um alerta 'spo2-limite') partilhariam acidentalmente o
-// mesmo estado de silêncio/leitura.
+// namespaced por paciente ("idPaciente::chaveAlerta") — evita dois pacientes partilharem estado pela mesma chave de alerta
 function patientAlertKey(patientId, alertKey){
   return `${patientId}::${alertKey}`;
 }
@@ -72,18 +44,7 @@ function alertMutedUntil(key){
   return until;
 }
 
-/* ------------------------------------------------------------
-   LEITURA DE ALERTAS — "Marcar como lida"
-   ------------------------------------------------------------
-   Pedido do utilizador (2026-07-03): em vez de o indicador do sino
-   (badge-dot vermelho na topbar) desligar sozinho só por abrir a vista de
-   alertas — o que é fácil de disparar sem querer e não regista uma
-   confirmação real — cada alerta tem um botão explícito "Marcar como
-   lida". Só isso desliga o indicador (quando já não há nenhum alerta por
-   ler do paciente selecionado). Ao contrário de silenciar (que pausa o
-   alerta por um período), marcar como lida não afeta a severidade nem o
-   escalonamento — só regista que o cuidador já viu esta informação.
------------------------------------------------------------- */
+// "Marcar como lida": botão explícito em vez do sino desligar sozinho ao abrir a vista; não afeta severidade/escalonamento
 const READ_ALERTS_KEY = 'carewear_read_alerts';
 
 function loadReadAlerts(){
@@ -109,10 +70,7 @@ function markAlertRead(key){
   if (currentView) renderView(currentView);
 }
 
-// Atualiza a visibilidade do ponto vermelho de notificação na topbar,
-// consoante existam ou não alertas por ler do paciente atualmente
-// selecionado (ver selectedPatient()). Chamada depois de login, de mudar
-// de paciente, e de marcar um alerta como lido.
+// atualiza o ponto vermelho da topbar; chamada após login, mudar de paciente, e marcar um alerta como lido
 function updateNotificationBadge(){
   const dot = document.getElementById('notifBadgeDot');
   if (!dot) return;
@@ -122,21 +80,7 @@ function updateNotificationBadge(){
   if (bellBtn) bellBtn.setAttribute('aria-label', hasUnread ? 'Alertas — há alertas por ler' : 'Alertas');
 }
 
-/* ------------------------------------------------------------
-   ESCALONAMENTO GRADUAL — subir a prioridade de um alerta 'warning'
-   que se repete, em vez de o cuidador ver sempre a mesma prioridade
-   baixa para uma condição que já ocorreu várias vezes.
-   ------------------------------------------------------------
-   `occurrences` em cada alerta (ver array `alerts` acima) é o nº de
-   vezes que essa condição ocorreu nas últimas 24h — dado de exemplo
-   nesta versão protótipo (sem histórico persistido ainda, ver
-   Prioridade 4 / serviço de persistência SQLite no PROJECT_STATUS.md).
-   `alertOccurrences` (localStorage) permite ao cuidador "resolver" a
-   contagem ao silenciar o alerta, tornando a demonstração interativa.
-   DECISÃO DE SEGURANÇA (mesmo raciocínio da mitigação de silenciamento
-   acima): este mecanismo só sobe 'warning' para 'serious' — nunca gera
-   'critical' automaticamente a partir de uma simples contagem de
-   repetições, isso continua reservado a deteções clínicas reais. */
+// escalonamento gradual por repetição: 'occurrences' (dado de exemplo, sem histórico persistido) sobe só 'warning'->'serious', nunca 'critical'
 const ALERT_OCCURRENCES_KEY = 'carewear_alert_occurrences';
 const ALERT_ESCALATION_THRESHOLD = 3; // nº de ocorrências em 24h para subir de 'warning' a 'serious'
 
@@ -153,18 +97,14 @@ function saveAlertOccurrences(map){
 }
 let alertOccurrences = loadAlertOccurrences();
 
-// Nº de ocorrências a usar para este alerta: o valor guardado localmente
-// (já ajustado por um silenciamento anterior) tem prioridade sobre o
-// dado de exemplo do próprio alerta. 'fullKey' já vem namespaced por
-// paciente (ver patientAlertKey()).
+// valor guardado localmente (já ajustado por silenciamento) tem prioridade sobre o dado de exemplo
 function occurrencesFor(a, fullKey){
   return (fullKey in alertOccurrences) ? alertOccurrences[fullKey] : (a.occurrences || 1);
 }
 
 function alertEscalation(a, fullKey){
   const count = occurrencesFor(a, fullKey);
-  // 1) Escalonamento por REPETIÇÃO (o que já existia): 'warning' -> 'serious'
-  //    e nunca mais alto, ver a decisão de segurança documentada acima.
+  // 1) escalonamento por repetição: 'warning' -> 'serious', nunca mais alto
   let severity = a.sev;
   let porRepeticao = false;
   if (a.sev === 'warning' && count >= ALERT_ESCALATION_THRESHOLD) {
@@ -172,12 +112,7 @@ function alertEscalation(a, fullKey){
     porRepeticao = true;
   }
 
-  // 2) Escalonamento por TEMPO SEM CONFIRMAÇÃO (RF-07, 2026-09-07).
-  //    Alertas reais vindos do bridge já chegam com o nível efetivo
-  //    calculado do lado do servidor (a.effectiveSeverity/a.escalatedAt,
-  //    colunas escalated_to_severity/escalated_at) — a base de dados é a
-  //    autoridade e o browser não volta a escalar por cima disso, senão
-  //    dois separadores abertos escalavam o mesmo alerta duas vezes.
+  // 2) escalonamento por tempo sem confirmação: alertas reais já chegam com o nível efetivo calculado pelo servidor — o browser não escala por cima
   if (a.live){
     return {
       severity: a.effectiveSeverity || a.sev,
@@ -200,8 +135,7 @@ function alertEscalation(a, fullKey){
       escalatedAtMs = inicio + (i + 1) * ALERT_TIME_ESCALATION_MINUTES * 60000;
     }
   }
-  // O requisito pede que o escalonamento fique REGISTADO, não só que a
-  // cor mude — o equivalente local de escalated_at/escalated_to_severity.
+  // registo local equivalente a escalated_at/escalated_to_severity, não só mudar a cor
   if (escalatedAtMs && fullKey){
     const registado = alertEscalations[fullKey];
     if (!registado || registado.toSeverity !== severity){
@@ -217,11 +151,7 @@ function alertEscalation(a, fullKey){
   };
 }
 
-// Re-renderiza a vista atual periodicamente para que um escalonamento por
-// tempo apareça sozinho, sem o cuidador ter de recarregar a página — um
-// alerta que sobe de nível só quando alguém clica noutro sítio não estaria
-// a cumprir o requisito. Meio período do prazo de escalonamento é
-// suficiente e é barato (a renderização é só string -> innerHTML).
+// re-renderiza periodicamente p/ o escalonamento por tempo aparecer sozinho, sem recarregar a página
 let alertEscalationTimer = null;
 function startAlertEscalationTimer(){
   if (alertEscalationTimer) return;
@@ -236,9 +166,7 @@ function startAlertEscalationTimer(){
 function muteAlert(fullKey, hours){
   mutedAlerts[fullKey] = Date.now() + hours * 3600 * 1000;
   saveMutedAlerts(mutedAlerts);
-  // silenciar = o cuidador reconheceu o alerta, por isso a contagem que
-  // alimenta o escalonamento reinicia (tem de se repetir outra vez para
-  // voltar a subir de prioridade)
+  // silenciar reinicia a contagem de escalonamento (tem de se repetir p/ voltar a subir)
   alertOccurrences[fullKey] = 0;
   saveAlertOccurrences(alertOccurrences);
   if (currentView) renderView(currentView);
@@ -249,53 +177,10 @@ function unmuteAlert(fullKey){
   if (currentView) renderView(currentView);
 }
 
-/* ------------------------------------------------------------
-   RF-07 (2026-09-07) — GRAVIDADE, MOTIVO, CONFIRMAÇÃO E
-   ESCALONAMENTO POR TEMPO
-   ------------------------------------------------------------
-   O que já existia antes desta data e é REUTILIZADO aqui, não
-   reescrito: a paleta das 4 severidades (SEV_COLOR/SEV_BG/pillHtml em
-   templates-core.js), o silenciamento (muteAlert), o "marcar como lida"
-   (markAlertRead) e o escalonamento por REPETIÇÃO (alertEscalation).
-   O que faltava para cumprir o critério de aceitação:
-
-     1. os quatro níveis. A paleta usa a chave 'good' onde a base de
-        dados usa 'info' (ver alerts.severity em bridge/schema.sql), por
-        isso é preciso traduzir entre os dois vocabulários — ALERT_SEV_*
-        abaixo. Sem isto um alerta 'info' vindo do bridge era pintado com
-        undefined (fundo transparente, texto herdado);
-     2. o MOTIVO. "plain" é uma explicação em linguagem simples do que a
-        condição significa para a família; o requisito pede outra coisa —
-        porque é que ESTE alerta disparou, com os números reais. O bridge
-        já compõe essa frase (vital_alerts.explain_vital_alert /
-        explain_wear_state) e ela chega no campo `reason`;
-     3. a CONFIRMAÇÃO, que é diferente de "marcar como lida": ler é dizer
-        "vi isto", confirmar é dizer "vi isto E fiz X" (ver RF-08 abaixo).
-        É a confirmação — não a leitura — que trava o escalonamento;
-     4. o escalonamento POR TEMPO. O que existia subia de nível quando a
-        mesma condição se repetia N vezes; o requisito pede que suba
-        quando ninguém confirma dentro de N minutos, que é o caso
-        perigoso (um alerta a que ninguém responde).
-
-   NOTA sobre a "DECISÃO DE SEGURANÇA" documentada mais acima (o
-   escalonamento por repetição nunca gera 'critical' a partir de uma
-   contagem): continua a valer tal e qual para esse mecanismo. O
-   escalonamento por TEMPO percorre a escada toda até 'critical' porque
-   é isso que o requisito pede e porque o sinal é outro — não é "esta
-   condição já aconteceu 3 vezes", é "ninguém respondeu a este alerta
-   durante 45 minutos", que é precisamente a situação que deve acabar
-   por chegar ao nível máximo.
------------------------------------------------------------- */
-// Ordem de gravidade. Igual a vital_alerts.SEVERITY_LADDER no bridge —
-// os dois lados TÊM de concordar sobre qual é o nível a seguir a
-// 'warning', senão o dashboard mostra um nível e a base de dados guarda
-// outro.
+// RF-07: 4 níveis (traduzindo 'info'<->'good' da paleta), motivo real (campo `reason` do bridge, distinto de "plain"),
+// confirmação (trava escalonamento, diferente de "marcar como lida"), e escalonamento por tempo (sobe até 'critical', ao contrário do por repetição)
 const ALERT_SEVERITY_LADDER = ['info', 'warning', 'serious', 'critical'];
 
-// Tradução entre o vocabulário da base de dados (info/warning/serious/
-// critical) e as chaves da paleta em templates-core.js, que usa 'good'
-// no lugar de 'info'. Só o nome difere; a cor de 'good' é exatamente a
-// cor neutra/informativa que 'info' precisa.
 const ALERT_SEV_PALETTE = {info:'good', warning:'warning', serious:'serious', critical:'critical'};
 const ALERT_SEV_LABEL = {info:'Informação', warning:'Aviso', serious:'Sério', critical:'Crítico'};
 
@@ -304,28 +189,22 @@ function alertSevLabel(sev){ return ALERT_SEV_LABEL[sev] || sev; }
 function alertSeverityRank(sev){ return ALERT_SEVERITY_LADDER.indexOf(sev); }
 function alertNextSeverity(sev){
   const i = ALERT_SEVERITY_LADDER.indexOf(sev);
-  // Falha fechada, igual a vital_alerts.next_severity(): um valor
-  // desconhecido não escala, em vez de saltar para 'critical'.
+  // falha fechada, igual a vital_alerts.next_severity(): valor desconhecido não escala
   return (i < 0 || i + 1 >= ALERT_SEVERITY_LADDER.length) ? null : ALERT_SEVERITY_LADDER[i + 1];
 }
 
-// Minutos sem confirmação até subir um nível. Igual a
-// BleBridge.ALERT_ESCALATION_MINUTES (bridge/ble_bridge.py) — mantido em
-// sincronia à mão, os dois lados não partilham este valor em tempo de
-// execução (mesma limitação já documentada para
-// DUMP_CTRL_FORCE_READING_SECONDS).
+// igual a BleBridge.ALERT_ESCALATION_MINUTES (bridge/ble_bridge.py), sincronizado à mão
 const ALERT_TIME_ESCALATION_MINUTES = 15;
 
-// Instante em que cada alerta foi visto pela primeira vez por este
-// browser. Necessário porque os alertas de demonstração só têm um tempo
-// textual ("há 6 min"), sem carimbo comparável — para os alertas reais
-// vindos do bridge usa-se o created_at do próprio alerta, que é a fonte
-// certa (ver alertEscalation()).
+// texto ao cuidador usa o valor real do servidor (bridgeEscalationMinutes); a constante acima só para alertas de demonstração
+function effectiveEscalationMinutes(){
+  return (typeof bridgeEscalationMinutes === 'number' && bridgeEscalationMinutes > 0)
+    ? bridgeEscalationMinutes : ALERT_TIME_ESCALATION_MINUTES;
+}
+
+// instante em que o alerta foi visto pela 1ª vez por este browser; demonstração não tem carimbo comparável, reais usam created_at
 const ALERT_FIRST_SEEN_KEY = 'carewear_alert_first_seen';
-// Escalonamentos já registados, com o momento e o nível para que
-// subiram — o requisito pede explicitamente que isto FIQUE REGISTADO,
-// não só que a cor mude no ecrã (colunas escalated_at/
-// escalated_to_severity do lado do bridge).
+// escalonamentos registados (momento + nível), equivalente a escalated_at/escalated_to_severity do bridge
 const ALERT_ESCALATIONS_KEY = 'carewear_alert_escalations';
 
 function loadAlertMap(key){
@@ -342,9 +221,7 @@ function saveAlertMap(key, map){
 let alertFirstSeen = loadAlertMap(ALERT_FIRST_SEEN_KEY);
 let alertEscalations = loadAlertMap(ALERT_ESCALATIONS_KEY);
 
-// Momento a partir do qual se conta o prazo de confirmação deste alerta.
-// Para alertas reais é o created_at do bridge; para os de demonstração é
-// a primeira vez que este browser os mostrou (registada aqui).
+// reais: created_at do bridge; demonstração: 1ª vez que este browser os mostrou
 function alertClockStart(a, fullKey){
   if (a && a.createdAtMs) return a.createdAtMs;
   if (!fullKey) return null;
@@ -355,22 +232,11 @@ function alertClockStart(a, fullKey){
   return alertFirstSeen[fullKey];
 }
 
-/* ------------------------------------------------------------
-   RF-08 (2026-09-07) — REGISTO DA AÇÃO TOMADA APÓS ALERTA
-   ------------------------------------------------------------
-   Cada confirmação guarda a ação escolhida (lista fechada, a mesma
-   validada pelo bridge em ALERT_RESOLUTION_ACTIONS) e uma NOTA LIVRE.
-   A nota é texto escrito pelo utilizador e vai parar a innerHTML no
-   histórico — passa SEMPRE por escapeHtml() (já houve um XSS real neste
-   projeto por causa exatamente disto, ver o cabeçalho de escapeHtml()
-   em templates-core.js).
------------------------------------------------------------- */
+// RF-08: confirmação guarda ação (lista fechada, validada pelo bridge) + nota livre — nota passa SEMPRE por escapeHtml() (já houve XSS real por isto)
 const ALERT_CONFIRMATIONS_KEY = 'carewear_alert_confirmations';
 let alertConfirmations = loadAlertMap(ALERT_CONFIRMATIONS_KEY);
 
-// Valor guardado <-> rótulo mostrado. Os valores TÊM de ser iguais aos
-// de ALERT_RESOLUTION_ACTIONS em bridge/ble_bridge.py, senão o bridge
-// recusa a confirmação com "acao desconhecida".
+// valores TÊM de ser iguais a ALERT_RESOLUTION_ACTIONS em bridge/ble_bridge.py, senão o bridge recusa a confirmação
 const ALERT_ACTION_LABELS = {
   contactei_o_utente: 'Contactei o utente',
   verifiquei_presencialmente: 'Fui verificar presencialmente',
@@ -385,11 +251,7 @@ function alertActionLabel(action){ return ALERT_ACTION_LABELS[action] || action;
 function alertConfirmationFor(fullKey){ return fullKey ? (alertConfirmations[fullKey] || null) : null; }
 function isAlertConfirmed(fullKey){ return !!alertConfirmationFor(fullKey); }
 
-// Abre/fecha o formulário de confirmação de um alerta. Fica embutido na
-// própria linha (não é um modal) porque a ação é de baixo risco e o
-// cuidador precisa de continuar a ver o motivo do alerta enquanto
-// escreve a nota — ao contrário do cancelamento de emergência, que é
-// destrutivo e por isso tem modal + confirmação reforçada.
+// embutido na linha, não é modal — ação de baixo risco, ao contrário do cancelamento de emergência (destrutivo)
 function toggleAlertConfirmForm(idx){
   const box = document.getElementById(`alertConfirm-${idx}`);
   if (!box) return;
@@ -410,21 +272,13 @@ function submitAlertConfirm(fullKey, idx, alertUuid){
     by: (document.getElementById('avatarName') || {}).textContent || '',
   };
   saveAlertMap(ALERT_CONFIRMATIONS_KEY, alertConfirmations);
-  // Confirmar implica ter visto — sem isto o alerta continuava a contar
-  // como "por ler" no sino da topbar depois de já ter sido tratado.
-  markAlertRead(fullKey);
+  markAlertRead(fullKey); // confirmar implica ter visto
 
-  // Alertas REAIS (vindos do bridge, com uuid) são confirmados também na
-  // base de dados: é lá que ficam resolved_by_user_id/resolved_at/
-  // resolution_note, e é lá que o escalonamento do lado do servidor
-  // consulta se alguém já respondeu. Os de demonstração não têm uuid e
-  // ficam só no localStorage deste browser.
+  // alertas reais (com uuid) confirmam-se também na BD, onde o escalonamento do servidor consulta se já houve resposta
   if (alertUuid && typeof sendWsCommandWithArgs === 'function'){
     sendWsCommandWithArgs('confirm_alert', {alert_uuid: alertUuid, action, note});
   }
-  // Alertas de emergência em curso: cancela também o escalonamento
-  // automático ao contacto de emergência agendado pelo bridge (cmd que
-  // já existia em ble_bridge.py e que o dashboard nunca chamava).
+  // cancela também o escalonamento ao contacto de emergência agendado pelo bridge
   const alertaEmergencia = liveEmergencyAlertIdFor(fullKey);
   if (alertaEmergencia && typeof sendWsCommandWithArgs === 'function'){
     sendWsCommandWithArgs('acknowledge_alert', {alert_id: alertaEmergencia});
@@ -432,17 +286,13 @@ function submitAlertConfirm(fullKey, idx, alertUuid){
   if (currentView) renderView(currentView);
 }
 
-// Reabre um alerta confirmado por engano. Não apaga o registo anterior
-// em silêncio — o histórico de ações (ver renderAlertActionsHistory)
-// deixa de o listar, mas a reabertura é uma ação explícita do cuidador,
-// não um efeito colateral de outra coisa.
+// reabre um alerta confirmado por engano — ação explícita, não efeito colateral
 function reopenAlertConfirmation(fullKey){
   delete alertConfirmations[fullKey];
   saveAlertMap(ALERT_CONFIRMATIONS_KEY, alertConfirmations);
   if (currentView) renderView(currentView);
 }
 
-// HTML do formulário de confirmação + do resumo da ação já registada.
 function alertConfirmControl(a, fullKey, idx){
   if (!fullKey) return '';
   const registada = alertConfirmationFor(fullKey);
@@ -450,8 +300,7 @@ function alertConfirmControl(a, fullKey, idx){
     const quando = new Date(registada.at).toLocaleString(currentLang, {
       day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit',
     });
-    // escapeHtml() em TUDO o que veio do utilizador: a nota é texto livre
-    // e o nome do cuidador vem do perfil, também editável.
+    // escapeHtml() em tudo: nota é texto livre, nome do cuidador vem do perfil editável
     const nota = registada.note
       ? `<div class="alert-explain-box" style="display:block;">${escapeHtml(registada.note)}</div>` : '';
     return `
@@ -480,13 +329,14 @@ function alertConfirmControl(a, fullKey, idx){
     </div>`;
 }
 
-// 'idx' identifica este alerta dentro do array de alertas do paciente
-// atual (ver chamadas currentAlerts().map((a,i) => alertRow(a,i))), usado
-// para dar um id único à caixa de explicação em linguagem simples e ao
-// botão que a mostra/esconde (ver toggleAlertPlain()). Se 'a.plain' não
-// existir (ex.: alertas vindos de outra fonte no futuro, sem explicação
-// escrita ainda), o botão simplesmente não é mostrado em vez de mostrar
-// uma caixa vazia.
+// 'idx' dá um id único à caixa/botão de explicação em linguagem simples (toggleAlertPlain())
+// texto de alerta REAL é sempre escapado (chega por WebSocket sem autenticação); demonstração passa como está (HTML escrito à mão)
+function alertTextField(a, field){
+  const valor = alertField(a, field);
+  if (valor == null) return '';
+  return a && a.live ? escapeHtml(valor) : valor;
+}
+
 function alertRow(a, idx){
   const fullKey = a.key ? patientAlertKey(selectedPatientId, a.key) : null;
   const esc = alertEscalation(a, fullKey);
@@ -502,17 +352,13 @@ function alertRow(a, idx){
     ? `<p class="alert-escalation-note">${t('alertRow.escalationNote', {n: esc.count})}</p>`
     : '';
 
-  // RF-07 — nível + motivo, sempre visíveis (não escondidos atrás de um
-  // botão como a explicação em linguagem simples): são os dois elementos
-  // que o critério de aceitação exige que cada alerta tenha.
+  // nível + motivo sempre visíveis, não escondidos atrás de botão
   const sevPill = `<span class="pill ${paleta}" style="background:${SEV_BG[paleta]};color:${SEV_COLOR[paleta]}">${escapeHtml(alertSevLabel(esc.severity))}</span>`;
   const timeEscalationNote = esc.timeEscalated
-    ? `<p class="alert-escalation-note">Escalado de "${escapeHtml(alertSevLabel(esc.originalSeverity))}" para "${escapeHtml(alertSevLabel(esc.severity))}"${esc.escalatedAtMs ? ` às ${new Date(esc.escalatedAtMs).toLocaleTimeString(currentLang, {hour:'2-digit', minute:'2-digit'})}` : ''} — sem confirmação ao fim de ${ALERT_TIME_ESCALATION_MINUTES} min.</p>`
+    ? `<p class="alert-escalation-note">Escalado de "${escapeHtml(alertSevLabel(esc.originalSeverity))}" para "${escapeHtml(alertSevLabel(esc.severity))}"${esc.escalatedAtMs ? ` às ${new Date(esc.escalatedAtMs).toLocaleTimeString(currentLang, {hour:'2-digit', minute:'2-digit'})}` : ''} — sem confirmação ao fim de ${effectiveEscalationMinutes()} min.</p>`
     : '';
   const motivo = alertReasonText(a);
-  // Estilo em linha e não uma classe CSS nova: index.html (onde vive todo
-  // o CSS desta página) está fora do âmbito desta alteração, e uma classe
-  // sem regra definida não teria aspeto nenhum.
+  // estilo em linha, não classe CSS nova: index.html está fora do âmbito desta alteração
   const reasonHtml = motivo
     ? `<div class="alert-reason" style="font-size:.82rem;color:var(--text-secondary);margin-top:4px;"><b>Motivo:</b> ${a.live ? escapeHtml(motivo) : motivo}</div>`
     : '';
@@ -537,8 +383,8 @@ function alertRow(a, idx){
     <div class="alert-row ${paleta}${mutedUntil ? ' muted' : ''}">
       <span class="alert-icon" style="background:${SEV_BG[paleta]}; color:${SEV_COLOR[paleta]}">${iconFor(icon)}</span>
       <div class="body">
-        <div class="title">${alertField(a,'title')} ${sevPill}</div>
-        <div class="desc">${alertField(a,'desc')}</div>
+        <div class="title">${alertTextField(a,'title')} ${sevPill}</div>
+        <div class="desc">${alertTextField(a,'desc')}</div>
         ${reasonHtml}
         ${escalationNote}
         ${timeEscalationNote}
@@ -549,11 +395,7 @@ function alertRow(a, idx){
     </div>`;
 }
 
-// Mostra/esconde a caixa de explicação em linguagem simples de um alerta,
-// e atualiza o texto do próprio botão ("O que significa isto?" <->
-// "Esconder explicação") para refletir o novo estado. 'btnEl' é o próprio
-// botão clicado (passado via 'this' no onclick), para não ter de o
-// procurar outra vez no DOM.
+// mostra/esconde a explicação simples e atualiza o texto do botão; 'btnEl' vem de 'this' no onclick
 function toggleAlertPlain(explainId, btnEl){
   const box = document.getElementById(explainId);
   if (!box) return;

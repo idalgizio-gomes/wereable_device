@@ -37,6 +37,37 @@
  *    dispositivo, médicos atribuídos, contagem agregada de alertas ativos
  *    — um número, não o conteúdo dos alertas).
  *
+ * 3) DOIS PERFIS DE ADMINISTRADOR (2026-09-07) — NOTA, SEM ALTERAÇÃO DE UI.
+ *    O backend deixou de ter um único `admin`. Passou a ter:
+ *      * `admin` (Admin de Sistema) — contas, dispositivos, configuração,
+ *        firmware, logs, manutenção. A API já NÃO lhe dá dados clínicos
+ *        (404 em `_authorize_patient`, bridge/api.py). Ou seja: a decisão
+ *        do ponto 2) acima, que até aqui só existia nesta vista, passou a
+ *        estar imposta do lado do servidor. É exatamente este perfil que
+ *        esta vista serve, e por isso nada aqui muda.
+ *      * `admin_clinical` (Admin Clínico / Suporte Autorizado) — lê dados
+ *        clínicos só com motivo explícito (`reason` no pedido), com
+ *        concessão temporal por expirar (`privileged_access_expires_at`) e
+ *        com auditoria própria (`privileged_clinical_access`).
+ *
+ *    O que o dashboard PRECISARIA de fazer (deliberadamente NÃO feito
+ *    aqui — os ficheiros envolvidos estão fora do âmbito desta alteração):
+ *      a) `API_ROLE_TO_DASHBOARD_ROLE` (auth-navegacao.js) não conhece
+ *         'admin_clinical' — hoje esse papel traduziria para `undefined`.
+ *         Precisa de uma entrada nova e de um nome de perfil próprio.
+ *      b) uma forma de entrar como Admin Clínico: um segundo botão no
+ *         ecrã de login OU um seletor dentro do perfil admin.
+ *      c) uma caixa de diálogo que peça o MOTIVO antes de abrir qualquer
+ *         dado clínico, e que o envie em `reason` — sem ele a API responde
+ *         403 com a explicação.
+ *      d) mostrar quanto tempo falta para a concessão expirar (`/api/auth/me`
+ *         devolve `privileged_access_expires_at`) e tratar o 403 de
+ *         concessão expirada como "pedir renovação", não como erro genérico.
+ *      e) o canal WebSocket (ble_bridge.py, WS_COMMAND_ROLES) não conhece
+ *         'admin_clinical': por ser uma lista de permissões explícita,
+ *         esse papel fica sem NENHUM comando WS. É fail-closed (seguro),
+ *         mas significa que o acesso privilegiado existe só via REST.
+ *
  * LIMITAÇÃO ASSUMIDA (design já existente do projeto, não um bug desta
  * funcionalidade): sem backend real, "registar um clínico" é só gravar em
  * localStorage deste browser — outro browser/dispositivo não vê a mesma

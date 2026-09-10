@@ -1,20 +1,6 @@
 const LANG_NAMES = {pt:'Português', en:'English', zh:'中文', es:'Español', fr:'Français', de:'Deutsch', it:'Italiano'};
 
-/* ============================================================
-   TTL AUTOMÁTICO DE DADOS LOCAIS (GDPR-002, ver SECURITY_STATUS.md)
-   ------------------------------------------------------------
-   'carewear_last_activity' guarda a última vez que esta app correu
-   neste browser. Se passarem mais de LOCAL_DATA_TTL_DAYS dias sem
-   nenhuma visita, todas as chaves 'carewear_*' (perfil com NIF/morada,
-   consentimento, medicação, notas, histórico de alertas) são apagadas
-   automaticamente antes de qualquer outra leitura de localStorage —
-   janela deslizante de inatividade, não um prazo fixo desde a
-   criação, para não apagar dados de quem usa a app ativamente ao
-   longo de meses. Mesmo prazo por omissão (30 dias) já usado na
-   retenção do bridge (ver retentionDaysInput), por consistência.
-   Purga manual continua disponível em Definições → Zona de risco
-   (eraseAllLocalData()), para quando o utilizador não quiser esperar.
-============================================================ */
+// TTL automático de dados locais (GDPR-002) — apaga chaves 'carewear_*' após LOCAL_DATA_TTL_DAYS dias de inatividade
 const LOCAL_DATA_TTL_DAYS = 30;
 (function purgeExpiredLocalDataIfNeeded(){
   const TS_KEY = 'carewear_last_activity';
@@ -39,15 +25,7 @@ function applyI18n(){
   document.title = t('app.title');
   document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
   document.querySelectorAll('[data-i18n-placeholder]').forEach(el => { el.placeholder = t(el.dataset.i18nPlaceholder); });
-  // Reaplica o título da vista atual (VIEW_TITLES é traduzido dinamicamente, ver renderView).
-  // BUG CORRIGIDO (2026-07-17): usava document.querySelector('.nav-item.active[data-view]')
-  // para saber "qual vista está aberta" — mas os botões "Ajuda" e "Terminar sessão" chamam
-  // renderView() diretamente por onclick, sem passar por nenhum handler que atualize a
-  // classe .active dos itens de navegação. Resultado: ao trocar de idioma estando na vista
-  // Ajuda, o querySelector encontrava o item .active MAIS ANTIGO (ex. "Resumo", nunca
-  // desmarcado) e renderView('resumo') substituía silenciosamente o conteúdo da Ajuda pelo
-  // Resumo — a vista aberta "desaparecia" sem qualquer erro. currentView (ver renderView())
-  // já rastreia isto corretamente para qualquer vista, incluindo as que não têm nav-item.
+  // Reaplica a vista atual via currentView, não via .nav-item.active (esse fica desatualizado em vistas sem nav-item, ex. Ajuda)
   if (currentView && document.getElementById('view-app').classList.contains('active')) renderView(currentView);
   updateDeviceStatusUI();
   updateBatteryUI();
@@ -67,12 +45,7 @@ function populateLangSelect(){
   sel.value = currentLang;
 }
 
-/* ============================================================
-   TEMA CLARO/ESCURO
-   ------------------------------------------------------------
-   Persistido em localStorage; por omissão segue a preferência do
-   sistema operativo (prefers-color-scheme) na primeira visita.
-============================================================ */
+// Tema claro/escuro — persistido em localStorage, por omissão segue prefers-color-scheme
 function applyTheme(theme){
   document.documentElement.setAttribute('data-theme', theme);
   const moon = document.getElementById('themeIconMoon');

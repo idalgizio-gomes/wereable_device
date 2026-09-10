@@ -1,31 +1,6 @@
-// =============================================================================
-// QspiRingBuffer - implementacao
-// -----------------------------------------------------------------------------
-// Ver QspiRingBuffer.h para a visao geral do modulo e o diagrama de layout
-// na flash (setor de metadados + area de dados dividida em slots).
-//
-// Este ficheiro define dois "formatos de fio" (structs "packed", ou seja,
-// sem padding entre campos, para que o layout em bytes seja previsivel
-// quando gravado/lido diretamente da flash):
-//
-//   - MetaWire: o registo de metadados globais do ring (head, tail, count,
-//     proximo numero de sequencia, etc.). E gravado no setor 0 como um
-//     "journal": cada operacao de escrita adiciona uma NOVA copia dentro
-//     do mesmo setor (em vez de reescrever a mesma posicao), e ao ler
-//     usa-se sempre a copia mais recente (maior commit_seq). Isto existe
-//     porque a flash NOR so pode ser apagada por setor inteiro e tem um
-//     numero de ciclos de escrita/apagamento limitado; escrever um novo
-//     registo no journal e muito mais barato do que apagar o setor a
-//     cada atualizacao. So quando o setor de metadados fica cheio de
-//     copias e que ele e finalmente apagado (ver persistMetaNow).
-//
-//   - SlotWire: um registo individual de dados (amostra de sensor) tal
-//     como e gravado num "slot" de 64 bytes na area de dados. Cada slot
-//     tem o seu proprio magic number e CRC32, para que seja possivel
-//     validar cada registo independentemente ao ler (deteta corrupcao
-//     causada por escrita incompleta, desgaste da flash, etc.).
-// =============================================================================
-
+// QspiRingBuffer.cpp - ver QspiRingBuffer.h para a visao geral e o layout na flash (setor de metadados + area de dados em slots).
+// MetaWire: metadados globais gravados como journal no setor 0 (cada flush acrescenta uma copia nova, so apaga o setor quando enche) — NOR flash so apaga por setor, com ciclos limitados.
+// SlotWire: 1 registo de dados por slot de 64 bytes, com magic+CRC32 proprios para validar cada um independentemente.
 #include "QspiRingBuffer/QspiRingBuffer.h"
 
 #include <Adafruit_SPIFlash.h>
@@ -45,45 +20,36 @@ constexpr uint32_t kMetaSector = 0;
 constexpr uint32_t kDataStartSector = 1;
 constexpr uint16_t kSlotSize = 64;
 
-// Politica de "throttling" (atraso deliberado) da escrita dos metadados na
-// flash: os metadados so sao persistidos de facto quando se atingir um
-// destes limites, o que vier primeiro. Isto existe para reduzir o desgaste
-// da flash: sem este limite, cada push()/pop() teria de gravar os
-// metadados imediatamente, gastando ciclos de escrita/apagamento a um
-// ritmo muito mais rapido do que o necessario. Ver maybeFlushMeta().
-constexpr uint32_t kMetaFlushMinOps = 2048;     // Numero de operacoes (push/pop) acumuladas antes de forcar um flush.
-constexpr uint32_t kMetaFlushIntervalMs = 15000; // Tempo maximo (ms) que os metadados podem ficar "sujos" sem serem gravados.
+// throttling da escrita de metadados: flush so ao atingir 1 destes limites, para nao desgastar a flash a cada push/pop
+constexpr uint32_t kMetaFlushMinOps = 2048;
+constexpr uint32_t kMetaFlushIntervalMs = 15000;
 
-// Formato "em fio" de um registo de dados dentro de um slot de 64 bytes na
-// area de dados da flash. "packed" garante que nao ha padding do
-// compilador entre campos, para o layout em bytes ser exato.
 struct __attribute__((packed)) SlotWire {
-  uint32_t magic;     // Assinatura kSlotMagic; usada para distinguir um slot valido de flash "em branco" (0xFF) ou lixo.
-  uint32_t seq;        // Numero de sequencia unico e crescente, atribuido no push().
-  uint32_t timestamp;  // Timestamp da amostra (fornecido pelo chamador de push()).
-  uint16_t type;       // Tipo/categoria do registo, definido pelo chamador.
-  uint16_t len;        // Numero de bytes validos em payload.
-  uint8_t payload[QspiRingBuffer::kPayloadSize]; // Dados brutos da amostra.
-  uint32_t crc32;       // Checksum (FNV-1a) de todos os campos anteriores, para deteccao de corrupcao.
+  uint32_t magic;
+  uint32_t seq;
+  uint32_t timestamp;
+  uint16_t type;
+  uint16_t len;
+  uint8_t payload[QspiRingBuffer::kPayloadSize];
+  uint32_t crc32;
 };
 
 static_assert(sizeof(SlotWire) == kSlotSize, "SlotWire size must be 64 bytes");
 
-// Formato "em fio" do registo de metadados globais, gravado no setor 0.
 struct __attribute__((packed)) MetaWire {
-  uint32_t magic;             // Assinatura kMetaMagic.
-  uint32_t version;           // Versao do formato de metadados (para deteccao de incompatibilidade apos updates de firmware).
-  uint32_t sector_size;       // Tamanho de setor usado quando estes metadados foram gravados (validacao de geometria da flash).
-  uint32_t slot_size;         // Tamanho de slot usado (idem).
-  uint32_t data_start_sector; // Primeiro setor da area de dados (idem).
-  uint32_t capacity_slots;    // Numero total de slots disponiveis no buffer.
-  uint32_t head;              // Indice do proximo slot livre onde push() vai escrever.
-  uint32_t tail;              // Indice do slot mais antigo ainda por consumir (proximo a ser lido por peek()/pop()).
-  uint32_t count;             // Numero de slots atualmente ocupados (validos, ainda nao consumidos).
-  uint32_t next_seq;          // Proximo numero de sequencia a atribuir a um novo registo.
-  uint32_t dropped;           // Contador cumulativo de registos perdidos por terem sido sobrescritos antes de serem lidos.
-  uint32_t commit_seq;        // Numero de sequencia do proprio registo de metadados no journal (usado para achar a copia mais recente).
-  uint32_t crc32;             // Checksum (FNV-1a) de todos os campos anteriores.
+  uint32_t magic;
+  uint32_t version;
+  uint32_t sector_size;
+  uint32_t slot_size;
+  uint32_t data_start_sector;
+  uint32_t capacity_slots;
+  uint32_t head;              // proximo slot livre onde push() escreve
+  uint32_t tail;              // slot mais antigo ainda por consumir
+  uint32_t count;
+  uint32_t next_seq;
+  uint32_t dropped;           // registos perdidos por sobrescrita antes de serem lidos
+  uint32_t commit_seq;        // sequencia do proprio registo no journal, para achar a copia mais recente
+  uint32_t crc32;
 };
 
 #if defined(EXTERNAL_FLASH_USE_QSPI)
@@ -95,38 +61,17 @@ Adafruit_FlashTransport_SPI s_flashTransport(EXTERNAL_FLASH_USE_CS, EXTERNAL_FLA
 #endif
 
 Adafruit_SPIFlash s_flash(&s_flashTransport);
-bool s_started = false;      // true depois de begin()/format() terem inicializado a flash e os metadados com sucesso.
-MetaWire s_meta = {};        // Copia em RAM dos metadados atuais (espelha o que esta gravado na flash, exceto operacoes ainda pendentes de flush).
-uint32_t s_totalSectors = 0;      // Numero total de setores fisicos na flash detetada.
-uint32_t s_slotsPerSector = 0;    // Quantos slots de dados cabem num setor (kSectorSize / kSlotSize).
-uint32_t s_metaSlotsPerSector = 0; // Quantas copias de MetaWire cabem no setor de metadados (usado como journal).
-uint32_t s_metaNextSlot = 0;      // Proxima posicao livre no journal de metadados onde a proxima copia sera escrita.
-uint32_t s_metaLastFlushMs = 0;   // Timestamp (millis()) do ultimo flush de metadados persistido, para a regra de "byTime".
-uint32_t s_metaOpsSinceFlush = 0; // Numero de operacoes (push/pop) acumuladas desde o ultimo flush, para a regra de "byOps".
-bool s_metaDirty = false;         // true quando s_meta em RAM tem alteracoes ainda nao persistidas na flash.
+bool s_started = false;
+MetaWire s_meta = {}; // copia em RAM, espelha a flash exceto operacoes pendentes de flush
+uint32_t s_totalSectors = 0;
+uint32_t s_slotsPerSector = 0;
+uint32_t s_metaSlotsPerSector = 0;
+uint32_t s_metaNextSlot = 0;
+uint32_t s_metaLastFlushMs = 0;
+uint32_t s_metaOpsSinceFlush = 0;
+bool s_metaDirty = false;
 
-// *** CORRECAO DE CONCORRENCIA (2026-07-08, rotina diaria) ***: s_meta e
-// todo o resto do estado acima e lido/escrito por DUAS tasks FreeRTOS
-// independentes — storageTask (main.cpp, chama push() a ~52Hz) e
-// gattDumpTask (Ble.cpp, chama count()/peek()/advanceTail()/pop() ao
-// transmitir por BLE) — sem qualquer secao critica antes desta correcao
-// (o unico aviso escrito sobre isto, em Ble.cpp junto de
-// kDumpCtrlResetReadings, ja dizia explicitamente que uma correcao
-// completa "exigiria sincronizacao (mutex/secao critica) dentro do
-// proprio QspiRingBuffer" mas ficava "fora do ambito" daquele comando
-// pontual). Um context switch a meio de uma sequencia read-modify-write
-// sobre s_meta.head/tail/count (ex.: storageTask a meio de push() quando
-// gattDumpTask preempta com advanceTail()) pode perder um incremento/
-// decremento e dessincronizar o estado logico do buffer do que
-// realmente esta gravado na flash. Ao contrario do taskENTER_CRITICAL/
-// taskEXIT_CRITICAL ja usado em Imu.cpp/Ppg.cpp (secoes muito curtas, so
-// uma copia de struct), as funcoes deste ficheiro fazem I/O de flash
-// (SPI, pode demorar) misturado com as mutacoes de s_meta — desativar
-// interrupcoes durante esse tempo bloquearia a pilha BLE/temporizadores.
-// Por isso usa-se aqui um mutex FreeRTOS (bloqueia a task concorrente,
-// mas nao desativa interrupcoes), tomado/largado com um pequeno RAII
-// (LockGuard, abaixo) para cobrir todos os pontos de retorno existentes
-// sem reestruturar cada funcao para um unico ponto de saida.
+// mutex FreeRTOS (nao desativa interrupcoes, so bloqueia a task concorrente): s_meta e lido/escrito por storageTask (push, ~52Hz) e gattDumpTask (count/peek/advanceTail/pop) concorrentemente; taskENTER_CRITICAL nao serve aqui porque as funcoes fazem I/O de flash (SPI, pode demorar)
 SemaphoreHandle_t s_mutex = nullptr;
 
 void ensureMutex() {
@@ -146,17 +91,13 @@ class LockGuard {
   LockGuard &operator=(const LockGuard &) = delete;
 };
 
-// Versao interna (sem lock) de count(), para uso por isEmpty() sem
-// tentar readquirir o mutex (nao-reentrante) dentro de uma secao ja
-// protegida por LockGuard.
+// versao sem lock, para isEmpty() nao tentar readquirir o mutex (nao-reentrante) dentro de uma secao ja protegida
 uint32_t countUnlocked() {
   if (!s_started) return 0;
   return s_meta.count;
 }
 
-// Algumas variantes Seeed referem P25Q16H mas este device nao existe
-// em algumas versoes de flash_devices.h. Definimos localmente para garantir
-// deteccao por JEDEC e inicializacao robusta.
+// algumas variantes Seeed referem P25Q16H mas nem sempre existe em flash_devices.h
 #ifndef P25Q16H
 #define P25Q16H                                                               \
   {                                                                           \
@@ -179,11 +120,7 @@ static const SPIFlash_Device_t kKnownFlashDevices[] = {
 static constexpr size_t kKnownFlashDeviceCount =
     sizeof(kKnownFlashDevices) / sizeof(kKnownFlashDevices[0]);
 
-// Hash FNV-1a: algoritmo de checksum simples e rapido, adequado para
-// microcontroladores (sem tabelas de lookup, so operacoes basicas).
-// Usado aqui como "CRC" para detetar corrupcao/escrita incompleta nos
-// registos gravados na flash (nao e um CRC32 "verdadeiro" no sentido
-// polinomial, mas cumpre o mesmo papel de deteccao de erros).
+// FNV-1a: checksum simples/rapido (sem tabelas), usado como "CRC" para detetar corrupcao/escrita incompleta
 uint32_t fnv1a(const uint8_t *data, size_t len) {
   uint32_t hash = 2166136261u;
   for (size_t i = 0; i < len; i++) {
@@ -193,24 +130,14 @@ uint32_t fnv1a(const uint8_t *data, size_t len) {
   return hash;
 }
 
-// Calcula o checksum de um MetaWire cobrindo todos os campos ANTES do
-// proprio campo crc32 (offsetof garante isto), para que o checksum nao
-// dependa de si mesmo.
 uint32_t metaCrc(const MetaWire &m) {
   return fnv1a(reinterpret_cast<const uint8_t *>(&m), offsetof(MetaWire, crc32));
 }
 
-// Idem, mas para um SlotWire (registo de dados individual).
 uint32_t slotCrc(const SlotWire &s) {
   return fnv1a(reinterpret_cast<const uint8_t *>(&s), offsetof(SlotWire, crc32));
 }
 
-// Valida um registo de metadados lido da flash: confirma a assinatura,
-// versao e geometria esperadas, garante que os indices/contagens fazem
-// sentido dentro da capacidade atual, e por fim confirma o checksum.
-// Usado ao carregar o journal de metadados (scanMetaJournal) para
-// distinguir uma copia valida de lixo/corrupcao/dados de uma versao
-// antiga incompativel.
 bool metaIsValid(const MetaWire &m) {
   if (m.magic != kMetaMagic || m.version != kMetaVersion) return false;
   if (m.sector_size != kSectorSize || m.slot_size != kSlotSize) return false;
@@ -222,18 +149,11 @@ bool metaIsValid(const MetaWire &m) {
   return true;
 }
 
-// Calcula o endereco fisico na flash da N-esima copia de metadados
-// dentro do setor de metadados (journal). As copias sao gravadas em
-// sequencia dentro do mesmo setor ate este ficar cheio (ver
-// persistMetaNow).
 uint32_t metaSlotAddress(uint32_t metaSlot) {
   return (kMetaSector * kSectorSize) + (metaSlot * sizeof(MetaWire));
 }
 
-// Uma flash NOR apagada tem todos os bits a 1 (0xFF por byte). Esta
-// funcao deteta se uma posicao do journal de metadados ainda nao foi
-// escrita desde o ultimo apagamento do setor, distinguindo "posicao
-// livre" de "posicao com dados invalidos/corrompidos".
+// flash NOR apagada = todos os bits a 1 (0xFF); distingue "posicao livre" de "dados invalidos"
 bool metaIsErased(const MetaWire &m) {
   const uint8_t *p = reinterpret_cast<const uint8_t *>(&m);
   for (size_t i = 0; i < sizeof(MetaWire); i++) {
@@ -254,14 +174,7 @@ bool writeMetaSlot(uint32_t metaSlot, const MetaWire &in) {
   return s_flash.writeBuffer(addr, reinterpret_cast<const uint8_t *>(&in), sizeof(in)) == sizeof(in);
 }
 
-// Percorre todas as posicoes do journal de metadados (setor 0) a procura
-// da copia mais recente e valida, e tambem descobre qual e a proxima
-// posicao livre para escrita (a primeira posicao ainda "apagada").
-// Isto e necessario porque, apos um desligar inesperado, pode haver
-// varias copias de metadados no setor (algumas antigas, talvez uma
-// parcialmente escrita/corrompida); a copia "correta" a usar e sempre a
-// mais recente com commit_seq mais alto (usando aritmetica com sinal
-// para lidar corretamente com o wrap-around do contador de 32 bits).
+// acha a copia mais recente e valida no journal (setor 0) + a proxima posicao livre; necessario porque um desligar inesperado pode deixar varias copias
 bool scanMetaJournal(MetaWire &latest, uint32_t &nextMetaSlot) {
   bool found = false;
   uint32_t newestCommit = 0;
@@ -272,10 +185,6 @@ bool scanMetaJournal(MetaWire &latest, uint32_t &nextMetaSlot) {
     if (!readMetaSlot(i, entry)) return false;
 
     if (metaIsErased(entry)) {
-      // Posicao ainda em branco: marca-a como candidata a proxima escrita
-      // (so a primeira encontrada interessa) e continua a varrer o resto
-      // do setor a procura de copias validas mais recentes que possam
-      // existir por engano (nao deveria acontecer em condicoes normais).
       if (firstFree == s_metaSlotsPerSector) firstFree = i;
       continue;
     }
@@ -301,10 +210,7 @@ bool scanMetaJournal(MetaWire &latest, uint32_t &nextMetaSlot) {
   return true;
 }
 
-// Grava de facto os metadados atuais (s_meta) na flash, adicionando uma
-// nova copia ao journal. Esta e a UNICA funcao que efetivamente escreve
-// metadados na flash; as restantes funcoes so decidem QUANDO chama-la
-// (ver maybeFlushMeta) para poupar ciclos de escrita/apagamento.
+// unica funcao que escreve metadados de facto na flash; as restantes so decidem QUANDO chama-la (maybeFlushMeta)
 bool persistMetaNow() {
   if (!s_started) return false;
 
@@ -313,10 +219,6 @@ bool persistMetaNow() {
     return false;
   }
 
-  // O journal enche-se com o tempo (cada flush acrescenta uma copia).
-  // Quando ja nao ha espaco livre no setor de metadados, e preciso
-  // apagar o setor inteiro (NOR flash so apaga por setor) e recomecar o
-  // journal do inicio antes de poder escrever a nova copia.
   if (s_metaNextSlot >= s_metaSlotsPerSector) {
     if (!s_flash.eraseSector(kMetaSector)) {
       Serial.println("[QSPIRB] erro a apagar setor de metadados");
@@ -325,8 +227,6 @@ bool persistMetaNow() {
     s_metaNextSlot = 0;
   }
 
-  // commit_seq incrementa a cada escrita para permitir a scanMetaJournal
-  // identificar sempre qual e a copia mais recente do journal.
   MetaWire out = s_meta;
   out.crc32 = 0;
   out.commit_seq = s_meta.commit_seq + 1;
@@ -345,17 +245,7 @@ bool persistMetaNow() {
   return true;
 }
 
-// Decide se e altura de persistir os metadados na flash agora, ou se
-// pode continuar a adiar (mantendo apenas a versao em RAM atualizada).
-// Sem este adiamento, cada push()/pop() geraria uma escrita imediata no
-// journal de metadados, o que desgastaria a flash muito mais depressa
-// (e cada push()/pop() ja e frequente, ao contrario da escrita de
-// dados, que so precisa de um novo slot). As duas condicoes que forcam
-// o flush (kMetaFlushMinOps operacoes acumuladas OU
-// kMetaFlushIntervalMs decorridos desde o ultimo flush) sao um
-// compromisso entre durabilidade da flash e risco de perder o estado
-// mais recente em caso de desligar inesperado — por isso sync() existe,
-// para ser chamado explicitamente antes de um desligar controlado.
+// adia a escrita ate kMetaFlushMinOps acumuladas OU kMetaFlushIntervalMs decorridos; sync() existe para forcar antes de um desligar controlado
 bool maybeFlushMeta(bool force) {
   if (!s_metaDirty) return true;
 
@@ -369,44 +259,27 @@ bool maybeFlushMeta(bool force) {
   return persistMetaNow();
 }
 
-// Marca os metadados em RAM como alterados e tenta, de forma oportunista,
-// fazer o flush segundo a politica de throttling (ver maybeFlushMeta).
-// Chamada no fim de qualquer operacao que altere s_meta (push/pop).
 void markMetaDirty() {
   s_metaDirty = true;
   s_metaOpsSinceFlush++;
   (void)maybeFlushMeta(false);
 }
 
-// Avanca um indice de slot logico (head ou tail), fazendo "wrap-around"
-// para 0 ao atingir a capacidade total — e este wrap que torna o buffer
-// "circular".
 uint32_t incIndex(uint32_t idx) {
   idx++;
   if (idx >= s_meta.capacity_slots) idx = 0;
   return idx;
 }
 
-// Recua um indice de slot logico (o inverso de incIndex), fazendo
-// "wrap-around" para capacity_slots-1 ao passar de 0 — usado por
-// peekLatest() para calcular o slot do registo mais recente (head-1).
-// So' definido depois de s_meta.capacity_slots estar valido (chamador
-// tem de garantir isso), tal como incIndex().
 uint32_t decIndex(uint32_t idx) {
   if (idx == 0) return (s_meta.capacity_slots > 0) ? (s_meta.capacity_slots - 1) : 0;
   return idx - 1;
 }
 
-// Converte um indice de slot logico (0..capacity_slots-1) no indice do
-// setor de DADOS a que pertence (0 = primeiro setor a seguir ao setor
-// de metadados, ver kDataStartSector).
 uint32_t slotToDataSector(uint32_t slotIndex) {
-  return slotIndex / s_slotsPerSector; // relativo ao inicio da area de dados
+  return slotIndex / s_slotsPerSector;
 }
 
-// Traduz um indice de slot logico para o endereco fisico (em bytes) na
-// flash onde esse slot esta gravado, combinando o setor fisico de dados
-// com o deslocamento do slot dentro desse setor.
 uint32_t slotAddress(uint32_t slotIndex) {
   const uint32_t dataSector = slotToDataSector(slotIndex);
   const uint32_t slotInSector = slotIndex % s_slotsPerSector;
@@ -424,24 +297,7 @@ bool writeSlot(uint32_t slotIndex, const SlotWire &in) {
   return s_flash.writeBuffer(addr, reinterpret_cast<const uint8_t *>(&in), sizeof(in)) == sizeof(in);
 }
 
-// A NOR flash apaga por setor. Ao iniciar escrita num setor novo, precisamos
-// apagar o setor inteiro; se ele ainda tiver dados validos antigos, esses
-// registos sao descartados (drop por setor).
-//
-// Esta funcao e chamada antes de cada push() e so faz algo quando head
-// aponta exatamente para o PRIMEIRO slot de um setor de dados (ou seja,
-// estamos prestes a comecar a escrever num setor ainda nao preparado
-// neste "lap" do buffer circular). Nesse caso:
-//   1. Se o tail (o registo mais antigo ainda por consumir) tambem cai
-//      dentro desse mesmo setor, esses registos vao ser destruidos pelo
-//      apagamento — por isso sao removidos logicamente primeiro
-//      (avancando tail e incrementando o contador de "dropped"), para
-//      que o estado do buffer (count/tail) va manter-se consistente com
-//      o que realmente existe fisicamente na flash depois do erase.
-//   2. So depois disso o setor e apagado fisicamente, deixando-o pronto
-//      para receber novos slots (a escrita em NOR flash so pode
-//      transformar bits de 1 para 0, por isso e preciso apagar — repor
-//      tudo a 1 — antes de poder escrever dados novos nesse setor).
+// apaga o setor de dados antes de comecar a escrever nele; se tail cair no mesmo setor, esses registos sao removidos logicamente primeiro (dropped++) para o estado ficar consistente com o erase
 bool prepareHeadSectorForWrite() {
   if ((s_meta.head % s_slotsPerSector) != 0) return true;
 
@@ -454,12 +310,7 @@ bool prepareHeadSectorForWrite() {
     s_meta.dropped++;
   }
 
-  // Aviso único (não repetido a cada perda, para não inundar o log): a
-  // primeira vez que o buffer começa a sobrescrever registos ainda não
-  // consumidos, avisa uma vez. O sinal contínuo (para a app/dashboard)
-  // vai por BLE em DumpStatusPacket::data_loss_flag (ver Ble.cpp) — este
-  // print é só para diagnóstico durante desenvolvimento/série.
-  static bool s_dataLossWarned = false;
+  static bool s_dataLossWarned = false; // aviso unico, o continuo vai por BLE (DumpStatusPacket::data_loss_flag)
   if (!s_dataLossWarned && s_meta.dropped > droppedBefore) {
     s_dataLossWarned = true;
     Serial.println("[QSPIRB] AVISO: ring buffer cheio — a sobrescrever registos antigos ainda nao consumidos");
@@ -474,11 +325,6 @@ bool prepareHeadSectorForWrite() {
   return true;
 }
 
-// Converte um SlotWire "em fio" (tal como esta gravado na flash) para um
-// Record "em memoria", validando primeiro que o slot e genuino (magic
-// correto), que o comprimento declarado e plausivel, e que o checksum
-// bate certo (ou seja, os bytes nao foram corrompidos nem a escrita
-// ficou incompleta, ex.: por perda de energia a meio de um writeBuffer).
 bool decodeSlot(const SlotWire &in, QspiRingBuffer::Record &out) {
   if (in.magic != kSlotMagic) return false;
   if (in.len > QspiRingBuffer::kPayloadSize) return false;
@@ -492,12 +338,7 @@ bool decodeSlot(const SlotWire &in, QspiRingBuffer::Record &out) {
   return true;
 }
 
-// (Re)cria os metadados do buffer do zero — implementacao real de
-// format() (ver QspiRingBuffer.h), extraida para uma funcao interna
-// SEM lock proprio para que begin() a possa chamar diretamente quando
-// precisa de formatar (ja dentro do seu proprio LockGuard) sem tentar
-// readquirir um mutex nao-reentrante. O format() publico (mais abaixo)
-// e so um wrapper fino que toma o lock e chama esta funcao.
+// implementacao real de format(), sem lock proprio para begin() poder chamar dentro do seu proprio LockGuard (mutex nao-reentrante)
 bool formatUnlocked() {
   if (!s_flash.begin()) {
     Serial.println("[QSPIRB] format: flash.begin() falhou");
@@ -513,9 +354,6 @@ bool formatUnlocked() {
     return false;
   }
 
-  // Metadados "em branco": head/tail/count a 0 (buffer vazio), proximo
-  // numero de sequencia comeca em 1 (0 fica reservado para poder
-  // distinguir "nunca atribuido" de um seq real, se necessario).
   MetaWire fresh = {};
   fresh.magic = kMetaMagic;
   fresh.version = kMetaVersion;
@@ -526,14 +364,11 @@ bool formatUnlocked() {
   fresh.head = 0;
   fresh.tail = 0;
   fresh.count = 0;
-  fresh.next_seq = 1;
+  fresh.next_seq = 1; // 0 fica reservado para "nunca atribuido"
   fresh.dropped = 0;
   fresh.commit_seq = 0;
   fresh.crc32 = 0;
 
-  // format() apaga sempre o setor de metadados (ao contrario da operacao
-  // normal, onde as escritas se acumulam no journal) porque estamos a
-  // reiniciar o buffer do zero: nao faz sentido manter copias antigas.
   if (!s_flash.eraseSector(kMetaSector)) {
     Serial.println("[QSPIRB] format: falha erase metadata");
     return false;
@@ -542,11 +377,7 @@ bool formatUnlocked() {
   s_meta = fresh;
   s_metaNextSlot = 0;
   s_metaDirty = true;
-  // Forca s_metaOpsSinceFlush a atingir logo o limiar de kMetaFlushMinOps
-  // para que persistMetaNow() abaixo grave imediatamente os metadados
-  // recem-formatados na flash, em vez de ficar apenas em RAM a espera do
-  // throttling normal (ver maybeFlushMeta).
-  s_metaOpsSinceFlush = kMetaFlushMinOps;
+  s_metaOpsSinceFlush = kMetaFlushMinOps; // forca persistMetaNow() a gravar ja, sem esperar pelo throttling normal
   s_metaLastFlushMs = 0;
   s_started = true;
   if (!persistMetaNow()) {
@@ -566,15 +397,10 @@ bool formatUnlocked() {
 
 namespace QspiRingBuffer {
 
-// Ver documentacao completa em QspiRingBuffer.h.
 bool begin(bool formatIfNeeded) {
-  LockGuard lock; // Protege s_meta/s_started contra push()/peek()/pop() concorrentes de outra task — ver aviso de concorrencia acima.
-  if (s_started) return true; // Chamar begin() varias vezes e seguro (no-op apos a primeira).
+  LockGuard lock;
+  if (s_started) return true;
 
-  // Diagnostico JEDEC antes de iniciar o driver alto nivel: le o ID
-  // JEDEC diretamente do chip de flash (comando de baixo nivel) so para
-  // efeitos de log, ajudando a confirmar no terminal serie que tipo de
-  // chip esta realmente instalado na placa antes de tentar usa-lo.
   uint8_t jedec[4] = {0};
   s_flashTransport.begin();
   const bool jedecOk = s_flashTransport.readCommand(SFLASH_CMD_READ_JEDEC_ID, jedec, 4);
@@ -604,9 +430,6 @@ bool begin(bool formatIfNeeded) {
     return false;
   }
 
-  // Tenta recuperar o estado existente do buffer lendo o journal de
-  // metadados gravado na flash (isto e o que permite ao buffer
-  // "sobreviver" a um reinicio ou desligar do dispositivo).
   MetaWire loaded = {};
   uint32_t nextMetaSlot = 0;
   if (scanMetaJournal(loaded, nextMetaSlot)) {
@@ -635,26 +458,18 @@ bool begin(bool formatIfNeeded) {
   return formatUnlocked();
 }
 
-// Ver documentacao completa em QspiRingBuffer.h.
 bool format() {
-  LockGuard lock; // Ver formatUnlocked() acima e o aviso de concorrencia no topo do ficheiro.
+  LockGuard lock;
   return formatUnlocked();
 }
 
-// Ver documentacao completa em QspiRingBuffer.h.
 bool push(uint16_t type, const uint8_t *payload, uint16_t len, uint32_t timestamp) {
-  LockGuard lock; // Ver aviso de concorrencia no topo do ficheiro — serializa com peek()/pop()/advanceTail() chamados por gattDumpTask.
+  LockGuard lock;
   if (!s_started) return false;
   if (len > kPayloadSize) return false;
   if (len > 0 && payload == nullptr) return false;
 
-  // Aviso antecipado, único (2026-07-03): a kRingBufferNearFullThreshold
-  // (ver QspiRingBuffer.h — constante partilhada com Ble.cpp) da
-  // capacidade, avisa UMA vez, ANTES de o buffer começar mesmo a
-  // substituir dados antigos (isso só acontece em
-  // prepareHeadSectorForWrite(), mais abaixo). Dá tempo a quem estiver a
-  // monitorizar (ver DumpStatusPacket::data_loss_flag em Ble.cpp) de
-  // exportar os dados antes de haver qualquer perda real.
+  // avisa 1x aos 90% (kRingBufferNearFullThreshold), ANTES de prepareHeadSectorForWrite() comecar a substituir dados
   static bool s_nearFullWarned = false;
   if (!s_nearFullWarned && s_meta.capacity_slots > 0 &&
       (static_cast<float>(s_meta.count) / s_meta.capacity_slots) >= kRingBufferNearFullThreshold) {
@@ -662,16 +477,12 @@ bool push(uint16_t type, const uint8_t *payload, uint16_t len, uint32_t timestam
     Serial.println("[QSPIRB] AVISO: ring buffer a 90% da capacidade — exportar em breve antes de começar a substituir dados antigos");
   }
 
-  // Garante que o setor onde vamos escrever (o setor que contem o slot
-  // "head") ja foi apagado e esta pronto a receber dados; se head cair
-  // dentro de um buffer cheio, esta chamada tambem descarta os registos
-  // antigos desse setor que ainda nao tinham sido consumidos.
   if (!prepareHeadSectorForWrite()) return false;
 
   SlotWire slot = {};
   slot.magic = kSlotMagic;
   slot.seq = s_meta.next_seq++;
-  if (s_meta.next_seq == 0) s_meta.next_seq = 1; // Evita usar 0 como numero de sequencia apos dar a volta ao uint32_t.
+  if (s_meta.next_seq == 0) s_meta.next_seq = 1; // evita seq=0 apos overflow do uint32_t
   slot.timestamp = timestamp;
   slot.type = type;
   slot.len = len;
@@ -683,13 +494,8 @@ bool push(uint16_t type, const uint8_t *payload, uint16_t len, uint32_t timestam
     return false;
   }
 
-  // Se o buffer ja estava cheio, o novo registo substitui logicamente o
-  // mais antigo: avanca-se tail (o registo que "desaparece") em vez de
-  // aumentar count, porque a capacidade maxima ja foi atingida — este e
-  // o comportamento essencial de um ring buffer ("os dados novos
-  // empurram os antigos para fora").
   if (s_meta.count == s_meta.capacity_slots) {
-    s_meta.tail = incIndex(s_meta.tail);
+    s_meta.tail = incIndex(s_meta.tail); // cheio: novo registo substitui logicamente o mais antigo
   } else {
     s_meta.count++;
   }
@@ -699,9 +505,8 @@ bool push(uint16_t type, const uint8_t *payload, uint16_t len, uint32_t timestam
   return true;
 }
 
-// Ver documentacao completa em QspiRingBuffer.h.
 bool peek(Record &out) {
-  LockGuard lock; // Ver aviso de concorrencia no topo do ficheiro — serializa com push() chamado por storageTask.
+  LockGuard lock;
   if (!s_started || s_meta.count == 0) return false;
 
   SlotWire slot = {};
@@ -709,36 +514,22 @@ bool peek(Record &out) {
   return decodeSlot(slot, out);
 }
 
-// Ver documentacao completa em QspiRingBuffer.h.
 bool peekLatest(Record &out) {
-  LockGuard lock; // Mesmo mutex de peek()/pop()/advanceTail()/push() — serializa com o produtor (storageTask) tal como as outras leituras.
+  LockGuard lock;
   if (!s_started || s_meta.count == 0) return false;
 
-  // s_meta.head aponta para o PROXIMO slot livre (onde o proximo push()
-  // vai escrever) — o registo mais recente ja gravado esta' em head-1.
-  // Seguro ler aqui mesmo com push() a correr concorrentemente noutra
-  // task: como as duas funcoes usam o MESMO mutex (LockGuard), ou este
-  // peekLatest() acontece inteiramente antes de um push() concorrente
-  // (o registo em head-1 e' o penultimo gravado, ainda valido), ou
-  // inteiramente depois (head-1 ja' e' o registo que esse push() acabou
-  // de escrever, tambem valido) — nunca a meio de uma escrita.
+  // head aponta para o proximo slot livre -> o mais recente ja gravado esta em head-1; seguro mesmo com push() concorrente porque ambos usam o mesmo mutex
   const uint32_t latestIdx = decIndex(s_meta.head);
   SlotWire slot = {};
   if (!readSlot(latestIdx, slot)) return false;
   return decodeSlot(slot, out);
 }
 
-// Ver documentacao completa em QspiRingBuffer.h.
 bool pop(Record &out) {
-  LockGuard lock; // Ver aviso de concorrencia no topo do ficheiro — serializa com push() chamado por storageTask.
+  LockGuard lock;
   if (!s_started || s_meta.count == 0) return false;
 
-  // Normalmente o slot em tail e valido e o loop sai logo na primeira
-  // iteracao. O loop existe para o caso raro de corrupcao (ex.: reset a
-  // meio de uma escrita anterior): em vez de falhar logo, avanca-se
-  // tail e tenta-se o slot seguinte, ate encontrar um registo valido ou
-  // esgotar o buffer — assim um unico slot corrompido nao bloqueia
-  // permanentemente a leitura de todos os registos a seguir a ele.
+  // loop cobre o caso raro de corrupcao (ex. reset a meio de escrita): avanca e tenta o slot seguinte em vez de bloquear tudo
   while (s_meta.count > 0) {
     SlotWire slot = {};
     if (readSlot(s_meta.tail, slot) && decodeSlot(slot, out)) {
@@ -748,7 +539,6 @@ bool pop(Record &out) {
       return true;
     }
 
-    // Se houver corrupcao, descarta slot e tenta o seguinte.
     s_meta.tail = incIndex(s_meta.tail);
     s_meta.count--;
     s_meta.dropped++;
@@ -758,22 +548,9 @@ bool pop(Record &out) {
   return false;
 }
 
-// Ver documentacao completa em QspiRingBuffer.h.
-// *** OTIMIZACAO DE CPU/FLASH (2026-07-07, rotina diaria) ***: esta funcao
-// existe para o chamador poder confirmar o consumo de um registo ja lido
-// por peek() sem pagar o custo de o reler da flash. Antes desta funcao
-// existir, o unico caminho disponivel para "avancar tail" apos um peek()
-// bem sucedido era pop(), que faz sempre um novo readSlot() (transacao
-// QSPI) + decodeSlot() (checksum FNV-1a sobre ~60 bytes + memcpy de 44
-// bytes) — repetindo exatamente o trabalho que peek() já tinha acabado de
-// fazer sobre o MESMO slot, so para deitar fora o resultado. No caminho
-// quente do streaming BLE (gattDumpTask/peekImuPpgRecord em Ble.cpp), isto
-// corria a ate ~52 registos/seg (taxa do IMU), ou seja, ate ~52 leituras
-// QSPI + descodificacoes por segundo eram puro desperdicio, chegando a
-// duplicar o numero de transacoes de flash nesse caminho. Ver Ble.cpp para
-// os dois pontos onde pop() foi substituido por advanceTail().
+// evita repetir readSlot()+decodeSlot() de pop() quando o chamador ja fez peek() sobre o mesmo slot (caminho quente do streaming BLE, ate ~52 vezes/seg)
 bool advanceTail() {
-  LockGuard lock; // Ver aviso de concorrencia no topo do ficheiro — serializa com push() chamado por storageTask.
+  LockGuard lock;
   if (!s_started || s_meta.count == 0) return false;
   s_meta.tail = incIndex(s_meta.tail);
   s_meta.count--;
@@ -781,40 +558,34 @@ bool advanceTail() {
   return true;
 }
 
-// Ver documentacao completa em QspiRingBuffer.h.
 bool isEmpty() {
   LockGuard lock;
-  return countUnlocked() == 0; // Usa a versao sem lock: count() readquiriria o mutex (nao-reentrante) dentro desta secao.
+  return countUnlocked() == 0;
 }
 
-// Ver documentacao completa em QspiRingBuffer.h.
 uint32_t count() {
   LockGuard lock;
   return countUnlocked();
 }
 
-// Ver documentacao completa em QspiRingBuffer.h.
 uint32_t capacity() {
   LockGuard lock;
   if (!s_started) return 0;
   return s_meta.capacity_slots;
 }
 
-// Ver documentacao completa em QspiRingBuffer.h.
 uint32_t droppedByErase() {
   LockGuard lock;
   if (!s_started) return 0;
   return s_meta.dropped;
 }
 
-// Ver documentacao completa em QspiRingBuffer.h.
 bool sync() {
-  LockGuard lock; // Protege maybeFlushMeta()/persistMetaNow() da mesma forma que push()/pop() acima.
+  LockGuard lock;
   if (!s_started) return false;
-  return maybeFlushMeta(true); // force=true ignora o throttling normal e grava imediatamente se houver alteracoes pendentes.
+  return maybeFlushMeta(true); // ignora throttling, grava ja se houver alteracoes pendentes
 }
 
-// Ver documentacao completa em QspiRingBuffer.h.
 bool selfTest() {
   Serial.println("[QSPIRB] self-test: inicio");
   if (!begin(true)) return false;
@@ -844,8 +615,7 @@ bool selfTest() {
   if (!pop(r) || r.seq != 3 || r.timestamp != 333) return false;
   if (!isEmpty()) return false;
 
-  // Limpa no fim para deixar modulo pronto para uso real.
-  if (!format()) return false;
+  if (!format()) return false; // limpa no fim para deixar o modulo pronto para uso real
 
   Serial.println("[QSPIRB] self-test: OK");
   return true;

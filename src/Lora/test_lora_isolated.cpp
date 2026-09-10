@@ -1,36 +1,11 @@
-// test_lora_isolated.cpp
-//
-// Teste ISOLADO do rádio LoRa (Wio-SX1262), pedido pelo utilizador:
-// "começa com códigos mais simples e que testem cada parâmetro
-// individualmente antes de seguirmos para o código completo".
-//
-// Contexto (ver PROJECT_STATUS.md, secção "Deteção de emergência" e
-// "Descobertas do esquemático"): a hipótese atual NSS=AD3 já falhou
-// através do RadioLib (código -2, RADIOLIB_ERR_CHIP_NOT_FOUND). Antes de
-// gastar mais tempo a testar pinouts diferentes ou versões diferentes da
-// biblioteca RadioLib (pista de pesquisa: v4.6.0 é referida como "versão
-// que funciona" nalguns fóruns, ao contrário da nossa 7.5.0), este teste
-// faz uma leitura SPI em BRUTO (sem depender de nenhuma biblioteca de
-// rádio) para confirmar se há sequer algum chip a responder no pino NSS
-// testado — separa "o pino está errado" de "a biblioteca está a
-// interpretar mal uma resposta válida".
-//
-// Este ficheiro só é compilado no ambiente PlatformIO dedicado
-// `test_lora_isolated` (ver platformio.ini) — não faz parte do firmware
-// principal (main.cpp), para não interferir com o resto do sistema
-// (BLE/IMU/PPG/storage) enquanto se testa só o LoRa.
-//
-// Como usar: `pio run -e test_lora_isolated -t upload`, depois abrir o
-// monitor série a 115200 baud. Ler os resultados dos 3 testes e comparar
-// com a interpretação escrita a seguir a cada um.
+// test_lora_isolated.cpp - teste isolado do radio LoRa (Wio-SX1262): SPI em bruto sem RadioLib, para separar "pino errado" de "lib interpreta mal". So compila no env PlatformIO test_lora_isolated (ver platformio.ini), nao faz parte do firmware principal.
+// uso: pio run -e test_lora_isolated -t upload, depois monitor serie 115200
 
 #include <Arduino.h>
 #include <SPI.h>
 
-// Pinout — mesma fonte de confiança documentada em include/Lora/Lora.h:
-// RF_SW, DIO1 e BUSY têm confiança alta (visíveis claramente no
-// esquemático); NSS é a hipótese ainda por confirmar.
-constexpr uint8_t kPinNssCandidate = A3;  // HIPÓTESE — já falhou no RadioLib
+// pinout: RF_SW/DIO1/BUSY confianca alta (ver Lora.h); NSS e hipotese, ja falhou no RadioLib
+constexpr uint8_t kPinNssCandidate = A3;
 constexpr uint8_t kPinBusy = D8;
 constexpr uint8_t kPinDio1 = D7;
 constexpr uint8_t kPinRfSwitch = A2;
@@ -54,11 +29,7 @@ void setup() {
   Serial.println("=== Teste isolado LoRa - parametro a parametro ===");
   Serial.print("NSS candidato = pino "); Serial.println(kPinNssCandidate);
 
-  // IMPORTANTE (bug já corrigido no firmware principal, ver Lora.cpp):
-  // o RF switch NÃO é tocado aqui de propósito, porque ainda não
-  // confirmámos que o LoRa funciona — mexer nele sem essa confirmação
-  // corta a antena BLE (ver bug corrigido em 2026-07-03). Este teste
-  // isolado não usa BLE de todo, mas mantemos o hábito por segurança.
+  // RF switch nao e tocado aqui de proposito: sem confirmar o LoRa, mexer nele corta a antena BLE (ver Lora.cpp)
   pinMode(kPinBusy, INPUT);
   pinMode(kPinDio1, INPUT);
   pinMode(kPinNssCandidate, OUTPUT);

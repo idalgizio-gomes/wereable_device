@@ -1,27 +1,6 @@
 #!/usr/bin/env python3
-"""
-crypto_utils.py — Cifra real dos campos sensíveis da BD (NIF, morada).
-
-Contexto: storage_advanced.py já marcava `Patient.nif_encrypted`/
-`address_encrypted` como "encriptado" na documentação, mas guardava os
-valores em texto simples — este módulo fecha essa lacuna (ver
-PROJECT_STATUS.md, "Próximas fases" da Base de Dados SQL Completa).
-
-Desenho:
-  - Chave derivada com Argon2id (`argon2-cffi`) a partir de uma frase-passe
-    (`CAREWEAR_DB_ENCRYPTION_KEY`) + sal (`CAREWEAR_DB_ENCRYPTION_SALT_HEX`,
-    hex de pelo menos 16 bytes) — ambas variáveis de ambiente, nunca no
-    código-fonte, mesmo padrão já usado para `CAREWEAR_AES_KEY_HEX` no
-    bridge BLE.
-  - Cifra por campo com AES-256-GCM (autenticada — ao contrário do
-    AES-CTR usado no streaming BLE, aqui a latência de um MAC completo por
-    campo não é um problema, por isso não há razão para abrir mão da
-    autenticação).
-  - Sem as duas variáveis de ambiente configuradas, degrada de forma
-    visível: `encrypt_field()` devolve o texto simples (com aviso único no
-    arranque), nunca finge cifrar com uma chave previsível — mesma decisão
-    já tomada para a cifra BLE quando `CAREWEAR_AES_KEY_HEX` está ausente.
-"""
+"""Cifra AES-256-GCM dos campos sensíveis da BD (NIF, morada); chave derivada com Argon2id.
+Sem CAREWEAR_DB_ENCRYPTION_KEY/SALT_HEX definidas, degrada para texto simples com aviso."""
 
 from __future__ import annotations
 
@@ -35,8 +14,7 @@ _KEY_ENV = "CAREWEAR_DB_ENCRYPTION_KEY"
 _SALT_ENV = "CAREWEAR_DB_ENCRYPTION_SALT_HEX"
 _PREFIX = "enc:"  # distingue valores cifrados por este módulo de texto simples legado
 
-# Parâmetros Argon2id recomendados pela OWASP para derivação de chave
-# (não hashing de password): time_cost=3, memory_cost=64MiB, parallelism=4.
+# Argon2id recomendado pela OWASP para derivação de chave (não hashing de password)
 _ARGON2_TIME_COST = 3
 _ARGON2_MEMORY_COST_KIB = 65536
 _ARGON2_PARALLELISM = 4
@@ -94,12 +72,7 @@ def encrypt_field(plaintext: str | None) -> str | None:
 
 
 def decrypt_field(stored_value: str | None) -> str | None:
-    """Decifra um valor guardado por `encrypt_field()`.
-
-    Valores sem o prefixo `enc:` são tratados como texto simples legado
-    (guardados antes da cifra estar configurada) e devolvidos tal como
-    estão — nunca rebenta ao ler dados antigos.
-    """
+    """Decifra um valor de encrypt_field(); sem o prefixo enc: trata como texto simples legado."""
     if stored_value is None:
         return None
     if not stored_value.startswith(_PREFIX):

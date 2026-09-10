@@ -1,20 +1,7 @@
-/* ============================================================
-   LIGAÇÃO AO BRIDGE (bridge/ble_bridge.py) — dados reais do wearable
-   ------------------------------------------------------------
-   Esta página não fala Bluetooth diretamente: liga-se por WebSocket a
-   um pequeno serviço Python (ver bridge/ble_bridge.py) que por sua vez
-   fala com o dispositivo via BLE e reencaminha cada registo já
-   descodificado, em JSON. Se o bridge não estiver a correr (ex.: ao
-   abrir esta página publicada como demonstração, sem nada instalado no
-   PC), a ligação falha silenciosamente e o dashboard mantém os dados
-   simulados — nada se parte por não haver bridge disponível.
-============================================================ */
-// TLS opcional (GDPR-004, ver SECURITY_STATUS.md): por omissão o bridge
-// corre em ws:// simples. Para usar wss://, corre o bridge com
-// CAREWEAR_WS_TLS=1 (gera um certificado autoassinado na 1ª vez),
-// aceita manualmente o certificado em https://localhost:8765 no browser,
-// e só depois define localStorage.setItem('carewear_ws_tls','1') aqui —
-// sem os dois passos anteriores a ligação WSS falha silenciosamente.
+// Liga por WebSocket a bridge/ble_bridge.py (fala BLE com o dispositivo e reencaminha JSON já descodificado).
+// Sem bridge a correr, a ligação falha silenciosamente e o dashboard fica nos dados simulados.
+// TLS opcional (GDPR-004): bridge com CAREWEAR_WS_TLS=1 + aceitar o certificado em https://localhost:8765
+// + localStorage.setItem('carewear_ws_tls','1') aqui — sem os 3 passos a ligação wss:// falha silenciosamente.
 function wsUrl(){
   const scheme = localStorage.getItem('carewear_ws_tls') === '1' ? 'wss' : 'ws';
   const base = scheme + '://localhost:8765';
@@ -25,67 +12,19 @@ const LIVE_HR_WINDOW = 60; // amostras mantidas no gráfico de FC ao vivo
 
 const liveState = {
   connected: false,
-  // true quando o utilizador desligou manualmente a ligação BLE ao
-  // wearable pelo botão da topbar (ver toggleBleConnection()) — distingue
-  // "desligado porque o utilizador pediu" de "a tentar ligar/perdeu o
-  // sinal", que usam a mesma liveState.connected=false.
-  blePaused: false,
-  // MAC do wearable realmente ligado por BLE (ver device_status no bridge,
-  // ble_bridge.py::connected_device_mac), null enquanto não ligado. Usado
-  // por TEMPLATES.dispositivo para saber se o paciente selecionado
-  // (PATIENTS[].mac) é o mesmo dispositivo fisicamente ligado agora, e
-  // assim mostrar dados reais em vez dos de demonstração.
-  deviceMac: null,
+  blePaused: false, // desligado manualmente pelo utilizador (toggleBleConnection), distinto de "a tentar ligar"
+  deviceMac: null, // MAC realmente ligado por BLE (device_status), usado por TEMPLATES.dispositivo
   hr: null, spo2: null, steps: null, freefall: false, inactivity: false,
-  // Índice 0-100 de "pacing"/curvas apertadas (ver Imu::detectPacing em
-  // Imu.cpp), reencaminhado pelo bridge a partir de FullPlain.pacing_index.
-  // null até chegar a primeira leitura real (0 é um valor válido — "sem
-  // curvas apertadas na última janela" — por isso não se usa 0 como
-  // sentinela de "sem dados", ao contrário de hr/spo2).
-  pacing: null,
+  pacing: null, // 0-100 "pacing"/curvas apertadas (Imu::detectPacing); 0 é válido, null = sem leitura ainda
   lastRecordAt: 0,
-  // dataLossFlag (2026-07-03): 0=normal, 1=ring buffer quase cheio (aviso
-  // antecipado — ainda dá tempo de exportar), 2=já a substituir dados
-  // antigos não consumidos. Vem de DumpStatusPacket::data_loss_flag via
-  // o bridge (ver handleBridgeMessage() abaixo e Ble.cpp/ble_bridge.py).
-  dataLossFlag: 0,
-  // sentRecords (DumpStatusPacket::sent, via bridge): contagem cumulativa
-  // de registos já transferidos do wearable nesta sessão de ligação.
-  sentRecords: null,
-  // ringCount (2026-07-21, DumpStatusPacket::ring_count via bridge — bump
-  // de formato de 16 para 20 bytes, ver Ble.cpp/ble_bridge.py): quantos
-  // registos continuam por enviar no ring buffer NESTE INSTANTE. Combinado
-  // com sentRecords dá uma percentagem real de progresso da transferência
-  // (sentRecords / (sentRecords + ringCount)) — antes desta correção não
-  // havia como saber "quanto falta", só a contagem acumulada enviada.
-  ringCount: null,
-  // Nível de bateria (0-100, ver Battery Service BLE padrão 0x180F/0x2A19,
-  // firmware a partir de 2026-07-19) — null até chegar a primeira leitura.
-  // Ao contrário de hr/spo2, não se reinicia ao perder a ligação: é o
-  // último valor conhecido, não um valor "ao vivo" sensível a segundos.
-  batteryPercent: null,
-  // Histórico REAL agregado por dia (base de dados local do bridge, ver
-  // storage.get_daily_summary), pedido sob demanda na vista "Tendência
-  // semanal" — []  até chegar a primeira resposta ou se a BD ainda não
-  // tiver dados. Distinto de `currentTrendData()` (sempre sintético) — nunca são
-  // misturados no mesmo gráfico, ver renderRealTrendTable().
-  realTrend: [],
-  // Classificação de atividade em tempo real (ver bridge/activity_inference.py,
-  // 2026-07-20) — modelo treinado só com dados SINTÉTICOS, nunca validado
-  // clinicamente (ver renderLiveActivityPanel(), que mostra o aviso sempre
-  // junto ao resultado, nunca escondido). null até chegar a 1ª classificação.
-  currentActivity: null, // {category, confidence, session, receivedAt}
-  // Último bloco fechado com veredito do detetor de duração (ver
-  // ml/duration_detector.py) — mostrado como aviso extra quando anómalo.
-  lastActivityDurationFlag: null,
-  // Correção manual do cuidador/equipa clínica à classificação da IA
-  // (2026-07-22, pedido do utilizador: "falta o botão para contradizer o
-  // que a ia acredita que o utente está a fazer"; ver cmd
-  // "correct_activity"/kind "activity_correction" no bridge). Mostrada AO
-  // LADO da classificação da IA, nunca a substituir silenciosamente — a
-  // correção não realimenta o classificador (não há pipeline de
-  // retreino em tempo real), é só um registo de auditoria + indicação
-  // visual imediata de que o cuidador discorda do que está no ecrã.
+  dataLossFlag: 0, // 0=normal, 1=ring buffer quase cheio, 2=já a substituir dados não consumidos
+  sentRecords: null, // contagem cumulativa de registos transferidos nesta sessão
+  ringCount: null, // registos por enviar agora no ring buffer; com sentRecords dá % real de progresso
+  batteryPercent: null, // não reinicia ao perder ligação — é o último valor conhecido
+  realTrend: [], // histórico real por dia (storage.get_daily_summary), distinto de currentTrendData() sintético
+  currentActivity: null, // {category, confidence, session, receivedAt} — modelo só treinado com dados sintéticos
+  lastActivityDurationFlag: null, // veredito do detetor de duração (ml/duration_detector.py)
+  // correção manual do cuidador à classificação da IA — mostrada ao lado, nunca substitui; não realimenta o modelo
   activityCorrection: null, // {category, originalCategory, correctedAtEpochS}
 };
 const liveHrBuffer = []; // {t: epoch_s, hr, label: "HH:MM:SS"}
@@ -95,30 +34,16 @@ function fmtClock(epochSeconds){
   return d.toLocaleTimeString('pt-PT', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
 }
 
-// Mostra/esconde o aviso de armazenamento (ver liveState.dataLossFlag,
-// preenchido a partir de DumpStatusPacket::data_loss_flag via bridge).
-// Pedido do utilizador (2026-07-03): avisar A TEMPO de exportar os dados
-// antes de começarem a ser substituídos, não só depois de já ter
-// acontecido — por isso há dois níveis:
-//   1 = ring buffer quase cheio, ainda sem perdas (aviso, cor de aviso)
-//   2 = já a substituir dados antigos não consumidos (cor crítica)
+// Aviso de armazenamento (liveState.dataLossFlag): 1=ring buffer quase cheio, 2=já a substituir dados não consumidos.
 function renderStorageWarningBanner(){
   const el = document.getElementById('storageWarningBanner');
   if (!el) return;
-  // Ver comentário completo junto de #topbarDeviceStatusGroup em
-  // index.html — este banner segue a mesma regra: só faz sentido em
-  // destaque para Utente/Família, não para Médico/Técnico/Administrador.
-  if (currentRole !== 'utente') { el.style.display = 'none'; return; }
+  if (currentRole !== 'utente') { el.style.display = 'none'; return; } // só relevante para Utente/Família, ver index.html
   const flag = liveState.dataLossFlag;
   if (!flag) { el.style.display = 'none'; el.className = 'storage-warning-banner print-hide'; return; }
   el.className = `storage-warning-banner print-hide level-${flag}`;
   el.style.display = 'flex';
-  // Progresso ao vivo (2026-07-21): antes só existia sentRecords
-  // (contagem cumulativa desta ligação), sem noção de "quanto falta" — o
-  // firmware não expunha o tamanho do buffer em anel por BLE. Desde o
-  // bump de formato do DumpStatusPacket (16->20 bytes, ver Ble.cpp/
-  // ble_bridge.py), ring_count chega também, permitindo uma percentagem
-  // real: sentRecords / (sentRecords + ringCount).
+  // % real de progresso: sentRecords / (sentRecords + ringCount)
   const haveBoth = liveState.sentRecords != null && liveState.ringCount != null;
   const totalKnown = haveBoth ? liveState.sentRecords + liveState.ringCount : null;
   const pctDone = haveBoth && totalKnown > 0 ? Math.round((liveState.sentRecords / totalKnown) * 100) : null;
@@ -136,7 +61,6 @@ function renderStorageWarningBanner(){
        <span>${t('topbar.storageAlmostFullWarning')}${progressText}${progressBar}</span>`;
 }
 
-// Atualiza a pastilha de estado do dispositivo na barra superior.
 function updateDeviceStatusUI(){
   const dot = document.getElementById('deviceDot');
   const text = document.getElementById('deviceStatusText');
@@ -155,11 +79,7 @@ function updateDeviceStatusUI(){
   updateBleToggleUI();
 }
 
-// Botão da topbar que pede ao bridge para largar/retomar a ligação BLE ao
-// wearable (comando "set_ble_enabled") — não fecha o WebSocket
-// dashboard<->bridge, só a ligação Bluetooth ao dispositivo. Pedido do
-// utilizador para poder libertar a placa (gravar firmware, outra
-// ferramenta de série) sem ter de fechar o bridge no terminal.
+// Botão que pede ao bridge para largar/retomar a ligação BLE (set_ble_enabled) — não fecha o WebSocket, só o BLE.
 function updateBleToggleUI(){
   const btn = document.getElementById('bleToggleBtn');
   const btnText = document.getElementById('bleToggleBtnText');
@@ -170,8 +90,6 @@ function updateBleToggleUI(){
   btnText.textContent = enabled ? t('topbar.bleDisconnect') : t('topbar.bleConnect');
 }
 
-// Atualiza o chip de bateria da topbar (ver liveState.batteryPercent,
-// preenchido a partir de handleBridgeMessage ao receber {kind:'battery'}).
 function updateBatteryUI(){
   const text = document.getElementById('batteryText');
   const chip = document.getElementById('batteryChip');
@@ -181,18 +99,9 @@ function updateBatteryUI(){
   chip.title = pct != null ? t('topbar.batteryTitle', {pct}) : t('topbar.batteryUnknown');
 }
 
-// Painel "Atividade detetada (IA)" na vista Resumo — mostra a classificação
-// em tempo real vinda do bridge (kind "activity_classification") e, quando
-// existir, o veredito de duração do último bloco fechado (kind
-// "activity_duration_flag"). O aviso de "não validado clinicamente" é
-// SEMPRE visível junto ao resultado, nunca só no título do card — ver
-// ACTIVITY_ML_DISCLAIMER em bridge/activity_inference.py, a mesma frase
-// (traduzida) é repetida aqui de propósito.
-// Estado efémero só de UI (não em liveState de propósito: não vem do
-// bridge, não sobrevive a re-render por outro motivo que não seja o
-// próprio clique do utilizador) — se o seletor de categorias do botão
-// "Corrigir" está aberto.
-let activityCorrectionPickerOpen = false;
+// Painel "Atividade detetada (IA)": classificação em tempo real + veredito de duração do último bloco.
+// Aviso "não validado clinicamente" sempre visível junto ao resultado (ACTIVITY_ML_DISCLAIMER no bridge).
+let activityCorrectionPickerOpen = false; // estado efémero de UI, não em liveState — não vem do bridge
 
 function renderLiveActivityPanel(){
   const host = document.getElementById('liveActivityPanel');
@@ -204,19 +113,10 @@ function renderLiveActivityPanel(){
   }
 
   const a = liveState.currentActivity;
-  // Nomes de categoria (Dormir/Descanso/Atividade/Alimentação/Higiene) não
-  // são traduzidos em lado nenhum do dashboard hoje (ver o mesmo padrão em
-  // catMap, usado pela timeline de rotina simulada) — mostrados tal como o
-  // bridge os envia, não por omissão, mas por consistência com o resto da
-  // vista Resumo, que já faz o mesmo.
-  const catLabel = escapeHtml(a.category);
+  const catLabel = escapeHtml(a.category); // categorias não traduzidas em lado nenhum do dashboard, por consistência
   const pct = Math.round(a.confidence * 100);
 
-  // "indicador de incerteza" (2026-08-05) — só aparece quando o bridge o
-  // envia (a.isUncertain vem de is_uncertain, ver
-  // UNCERTAINTY_MARGIN_THRESHOLD em bridge/activity_inference.py) e há uma
-  // 2ª classe conhecida para nomear. Compatível com um bridge mais antigo
-  // que ainda não envie estes campos (a.isUncertain fica undefined/false).
+  // indicador de incerteza: só aparece se o bridge o enviar (is_uncertain); compatível com bridge mais antigo
   let uncertaintyHtml = '';
   if (a.isUncertain && a.runnerUpCategory){
     const runnerUpPct = a.runnerUpConfidence != null ? Math.round(a.runnerUpConfidence * 100) : null;
@@ -227,10 +127,7 @@ function renderLiveActivityPanel(){
   const flag = liveState.lastActivityDurationFlag;
   if (flag){
     const flagCatLabel = escapeHtml(flag.category);
-    // "explicação de alerta" (2026-08-05): linha extra com o PORQUÊ (frase
-    // já composta no bridge, com números reais), não só o veredito. Só
-    // aparece quando o bridge a envia — mantém compatibilidade com um
-    // bridge mais antigo que ainda não a inclua na mensagem.
+    // explicação (frase já composta no bridge com números reais) só se o bridge a enviar
     const explanationHtml = flag.explanation
       ? `<div class="activity-live-flag-reason">${escapeHtml(flag.explanation)}</div>` : '';
     flagHtml = flag.isAnomaly
@@ -238,17 +135,8 @@ function renderLiveActivityPanel(){
       : `<div class="activity-live-flag normal">✓ ${t('resumo.liveActivityDurationNormal', {cat: flagCatLabel, min: flag.durationMin})}</div>${explanationHtml}`;
   }
 
-  // Correção manual do cuidador (2026-07-22, revisto a pedido do
-  // utilizador: "não faz sentido ter um botão de correção se isso não
-  // servir para... a correção sobrepor-se ao que ela [a IA] pensa"). A
-  // correção passa a ser o valor PRINCIPAL mostrado (não só uma nota ao
-  // lado) enquanto estiver "fresca" (< ACTIVITY_CORRECTION_OVERRIDE_S) —
-  // a classificação em tempo real da IA continua visível, mas em segundo
-  // plano, para nunca esconder por completo o que o classificador está
-  // de facto a produzir (nem fingir que a correção "retreinou" o modelo —
-  // não há pipeline de retreino em tempo real; a correção fica guardada
-  // em bridge/storage.py::activity_corrections para uma eventual
-  // reavaliação/retreino futuro do classificador, isso sim).
+  // Correção do cuidador é o valor PRINCIPAL enquanto "fresca" (< ACTIVITY_CORRECTION_OVERRIDE_S);
+  // a IA fica em segundo plano, nunca escondida — não há retreino em tempo real, só fica guardada em storage.py.
   const corr = liveState.activityCorrection;
   const correctionAgeS = corr && corr.correctedAtEpochS != null
     ? (Date.now() / 1000) - corr.correctedAtEpochS : null;
@@ -272,10 +160,7 @@ function renderLiveActivityPanel(){
     </div>
   ` : '';
 
-  // Linha principal: se a correção está ativa, é ELA que aparece em
-  // destaque (categoria + "confirmado pelo cuidador"); a IA passa para a
-  // nota secundária acima (correctionHtml). Caso contrário, a IA volta a
-  // ser a linha principal, como sempre foi.
+  // linha principal: correção ativa em destaque, senão a IA
   const mainCat = correctionActive ? escapeHtml(corr.category) : catLabel;
   const mainColor = correctionActive ? categoryColorVar(corr.category) : categoryColorVar(a.category);
   const mainSuffix = correctionActive
@@ -297,17 +182,9 @@ function renderLiveActivityPanel(){
   `;
 }
 
-// Quanto tempo uma correção do cuidador fica como valor PRINCIPAL exibido
-// (sobrepondo-se à classificação da IA) antes de ser considerada antiga
-// e o painel voltar a mostrar a IA em destaque — 30 min: suficiente para
-// uma verificação do cuidador continuar válida por um bocado, mas sem
-// ficar para sempre a apresentar como "atual" uma correção de horas atrás.
-const ACTIVITY_CORRECTION_OVERRIDE_S = 1800;
+const ACTIVITY_CORRECTION_OVERRIDE_S = 1800; // 30 min — janela em que a correção do cuidador fica em destaque
 
-// Vocabulário das 5 categorias (PT) usado pelo seletor de correção — o
-// mesmo conjunto fechado de ACTIVITY_CLASS_COLOR_VAR, como array (a ordem
-// de exibição dos botões é a mesma ordem em que o classificador as define,
-// ver CLASS_TO_DB_CATEGORY em bridge/activity_inference.py).
+// Mesmo conjunto de ACTIVITY_CLASS_COLOR_VAR, como array (ordem = CLASS_TO_DB_CATEGORY no bridge)
 const ACTIVITY_CORRECTION_CATEGORIES = ['Dormir', 'Descanso', 'Atividade', 'Alimentação', 'Higiene'];
 
 function toggleActivityCorrectionPicker(){
@@ -319,13 +196,7 @@ function submitActivityCorrection(category){
   activityCorrectionPickerOpen = false;
   const original = liveState.currentActivity ? liveState.currentActivity.category : null;
   const sent = sendWsCommandWithArgs('correct_activity', {category});
-  // RF-09 (2026-09-07): a correção passa a ser SEMPRE registada também na
-  // fila local de rotulagem, tenha ou não chegado ao bridge. Antes,
-  // quando sendWsCommandWithArgs devolvia false (bridge em baixo, o caso
-  // normal fora de uma sessão de hardware), o juízo do cuidador
-  // desaparecia sem deixar rasto — que é exatamente a escassez de dados
-  // rotulados que M. Carvalho 2026 e Badawi et al. 2024 identificam como
-  // o principal travão ao desempenho.
+  // RF-09: registada sempre na fila local, mesmo se o bridge estiver em baixo — senão o juízo do cuidador desaparecia sem rasto
   recordHitlCorrection({
     kind: 'atividade',
     target: 'classificacao_ao_vivo',
@@ -338,44 +209,13 @@ function submitActivityCorrection(category){
   renderLiveActivityPanel();
 }
 
-/* ============================================================
-   RF-09 — ROTULAGEM HUMAN-IN-THE-LOOP (2026-09-07)
-   ------------------------------------------------------------
-   Requisito (Should): "o cuidador marca um alerta/classificação como
-   falso positivo, e a marcação fica disponível para o próximo ciclo de
-   retreino". Evidência: M. Carvalho 2026 e Badawi et al. 2024 apontam a
-   escassez de dados rotulados como o principal travão ao desempenho dos
-   modelos de HAR/deteção de anomalias.
-
-   ESTADO ANTERIOR, verificado antes de escrever isto:
-     - cmd "correct_activity" existe no bridge (ble_bridge.py ~1918/2001),
-       valida a categoria por allowlist fechada, grava em
-       activity_corrections (orm_persistence.insert_activity_correction /
-       storage_advanced) e difunde {kind:"activity_correction"} a todos os
-       dashboards ligados. Do lado do cliente, submitActivityCorrection()
-       já o invocava. Isso estava feito e não foi reescrito.
-     - FALTAVA tudo o resto do critério: (a) só cobria a classificação de
-       atividade AO VIVO, nunca um ALERTA; (b) a correção só existia
-       enquanto o bridge estivesse ligado — sem bridge, perdia-se; (c) não
-       havia nenhuma forma de o cuidador VER o que já corrigiu, nem de
-       desfazer; (d) nada disto saía do sistema num formato que um ciclo
-       de retreino pudesse consumir.
-
-   O QUE ESTE MÓDULO ACRESCENTA: uma fila de rotulagem local (uma entrada
-   por juízo humano), a marcação de alertas como falso positivo, e a
-   exportação dessa fila em JSONL/CSV — o formato que ml/ consome.
-
-   LIMITAÇÃO HONESTA, e é a razão de a exportação existir: não há nenhum
-   comando de bridge equivalente a "correct_activity" para ALERTAS, por
-   isso essas marcações vivem só em localStorage deste browser até serem
-   exportadas à mão. O que falta do lado do servidor está descrito ao
-   pormenor no relatório da tarefa.
-============================================================ */
+// RF-09 — rotulagem human-in-the-loop: cuidador marca alerta/classificação como falso positivo,
+// fica disponível para o próximo ciclo de retreino (escassez de dados rotulados = principal travão do HAR).
+// cmd "correct_activity" já existia no bridge só para classificação ao vivo; faltava: cobrir alertas,
+// persistir sem bridge, permitir ver/desfazer, e exportar num formato consumível por ml/.
+// Sem comando de bridge equivalente para alertas — essas marcações vivem só em localStorage até exportação manual.
 const HITL_CORRECTIONS_KEY = 'carewear_hitl_corrections';
-// Teto da fila: cada entrada é minúscula (~200 bytes), mas localStorage é
-// partilhado com o resto do protótipo e uma fila sem limite acabaria por
-// estourar a quota e derrubar gravações de outras funcionalidades.
-const HITL_MAX_ENTRIES = 500;
+const HITL_MAX_ENTRIES = 500; // localStorage é partilhado com o resto do protótipo, evita estourar a quota
 
 function loadHitlCorrections(){
   try {
@@ -391,10 +231,7 @@ function saveHitlCorrections(list){
 }
 let hitlCorrections = loadHitlCorrections();
 
-// Acrescenta um juízo humano à fila. `patientId` é gravado na entrada (e
-// não inferido na leitura) porque o cuidador pode trocar de paciente
-// entre a correção e a exportação — um rótulo atribuído ao paciente
-// errado é pior do que rótulo nenhum.
+// patientId gravado na entrada (não inferido na leitura) — o cuidador pode trocar de paciente entretanto
 function recordHitlCorrection(entry){
   const registo = {
     id: 'hitl-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7),
@@ -415,10 +252,7 @@ function recordHitlCorrection(entry){
   return registo;
 }
 
-// Chave composta paciente+alerta — o mesmo `key` de alerta ('hr-alta',
-// 'sono-curto', ...) repete-se entre pacientes, tal como já acontecia com
-// deletedAlertsMap/alertas lidos (ver patientAlertKey em
-// alertas-emergencias.js, a mesma convenção).
+// chave composta paciente+alerta — o key do alerta repete-se entre pacientes (mesma convenção de patientAlertKey)
 function hitlAlertMatches(c, patientId, alertKey){
   return c.kind === 'alerta' && c.target === alertKey && c.patientId === patientId;
 }
@@ -427,9 +261,7 @@ function isAlertMarkedFalsePositive(alertKey, patientId){
   return hitlCorrections.some(c => hitlAlertMatches(c, pid, alertKey) && c.falsePositive);
 }
 
-// Marca/desmarca um alerta como falso positivo. Alternar em vez de só
-// marcar: um cuidador que carregue por engano tem de conseguir corrigir a
-// própria correção, senão o dado de treino fica pior do que estava.
+// alterna (não só marca) — um clique por engano tem de poder ser desfeito
 function toggleAlertFalsePositive(alertKey, alertTitle){
   const pid = typeof selectedPatientId !== 'undefined' ? selectedPatientId : null;
   if (isAlertMarkedFalsePositive(alertKey, pid)){
@@ -443,9 +275,7 @@ function toggleAlertFalsePositive(alertKey, alertTitle){
       originalLabel: 'alerta_gerado',
       correctedLabel: 'falso_positivo',
       falsePositive: true,
-      // Não existe comando de bridge para isto (ver o comentário do
-      // módulo) — fica sempre por sincronizar, e a interface diz isso.
-      sentToBridge: false,
+      sentToBridge: false, // sem comando de bridge para isto — fica sempre por sincronizar
     });
   }
   if (typeof currentView !== 'undefined' && currentView) renderView(currentView);
@@ -457,12 +287,7 @@ function removeHitlCorrection(id){
   if (typeof currentView !== 'undefined' && currentView) renderView(currentView);
 }
 
-// Uma linha JSON por rótulo (JSONL), que é o formato que os scripts de
-// ml/ leem sem precisarem de carregar o ficheiro todo em memória. Os
-// nomes dos campos seguem a tabela activity_corrections do bridge
-// (original_category/corrected_category) para que os dois conjuntos de
-// rótulos — os que chegaram ao bridge e os que ficaram só aqui — possam
-// ser concatenados sem tradução de esquema.
+// JSONL (uma linha por rótulo); campos seguem activity_corrections do bridge para poder concatenar sem tradução de esquema
 function buildHitlJsonl(){
   return hitlCorrections.map(c => JSON.stringify({
     id: c.id,
@@ -480,10 +305,7 @@ function buildHitlJsonl(){
 
 function exportHitlCorrections(){
   if (!hitlCorrections.length) return;
-  // Blob + <a download>, a mesma técnica de downloadJson()/
-  // downloadCsvText() em export-clinico.js — aqui à mão porque o tipo
-  // MIME é application/x-ndjson e a extensão .jsonl, e nenhuma das duas
-  // funções existentes permite escolher isso.
+  // Blob + <a download> à mão (MIME/extensão diferentes de downloadJson/downloadCsvText em export-clinico.js)
   const blob = new Blob([buildHitlJsonl() + '\n'], {type: 'application/x-ndjson'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -511,10 +333,7 @@ function exportHitlCorrectionsCsv(){
   downloadCsvText('carewear-rotulos-cuidador', [cab, ...linhas].join('\n'));
 }
 
-// Mapeia a classe do classificador (PT, ver
-// ml/models/activity_classifier_rf_labels.json) para a variável CSS de cor
-// já usada nos blocos de rotina simulados (catMap) — mesma paleta, para a
-// classificação real e a timeline simulada usarem as mesmas cores.
+// classe do classificador -> variável CSS de cor, mesma paleta de catMap (timeline simulada)
 const ACTIVITY_CLASS_COLOR_VAR = {
   'Dormir': 'var(--cat-dormir)',
   'Descanso': 'var(--cat-descanso)',
@@ -530,35 +349,21 @@ function toggleBleConnection(){
   const nextEnabled = liveState.blePaused; // estava pausado -> vamos ligar
   const sent = sendWsCommandWithArgs('set_ble_enabled', {enabled: nextEnabled});
   if (!sent) return; // sem ligação ao bridge — nada a pedir
-  // Otimista: reflete já o pedido na UI, sem esperar pelo próximo
-  // device_status (que pode demorar até ~1s, ver run_device_loop no bridge).
+  // otimista: reflete já o pedido na UI, sem esperar pelo próximo device_status (~1s)
   liveState.blePaused = !nextEnabled;
   if (!nextEnabled) liveState.connected = false;
   updateDeviceStatusUI();
 }
 
-// Converte um valor vindo do bridge (não confiável — canal WebSocket sem
-// autenticação) num número finito, ou null se não for um número válido.
-// Usado antes de guardar em liveState, para nunca acabar em innerHTML.
-//
-// Corrigido 2026-08-06: `v == null` tem de ser verificado ANTES de
-// `Number(v)`, porque `Number(null) === 0` em JavaScript (quirk da
-// linguagem — `Number(undefined)` já dá `NaN`, mas `null` dá 0). O
-// bridge envia `null` de propósito quando spo2/hr não têm leitura nova
-// nesse registo (ver decode_full_plain em ble_bridge.py:531-534,
-// comentário do próprio autor: "o dashboard deve ignorar zeros") — sem
-// este guard, essa conversão explícita para null era desfeita aqui,
-// reintroduzindo o mesmo 0 que o bridge já tinha removido.
+// Valor não confiável do bridge -> número finito ou null. `v == null` tem de vir ANTES de Number(v):
+// Number(null) === 0 em JS, e reintroduziria o zero que o bridge já converteu para null propositadamente.
 function toFiniteNumber(v){
   if (v == null) return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
 
-// Escreve os últimos valores conhecidos (liveState) nos cartões de
-// sinais vitais, se estiverem presentes na vista atualmente renderizada.
-// Chamado tanto quando chega um registo novo como sempre que se navega
-// para uma vista com estes cartões (ver AFTER_RENDER.resumo/vitais).
+// Escreve os últimos valores de liveState nos cartões de sinais vitais (chamado em registo novo e em AFTER_RENDER)
 function applyLiveVitals(){
   if (!liveState.connected) return; // mantém os valores de demonstração já no HTML
 
@@ -569,14 +374,7 @@ function applyLiveVitals(){
   setVal('stat-hr', hrText); setVal('stat-hr-2', hrText);
   setVal('stat-spo2', spo2Text); setVal('stat-spo2-2', spo2Text);
 
-  // Mensagem pedida pela utilizadora (2026-08-06): quando o HR está a
-  // chegar (prova que o sensor tem contacto/dedo — ver
-  // checkFingerPresentBrief() em Ppg.cpp) mas o SpO2 continua nulo, é
-  // provável que o sensor ainda não tenha conseguido um sinal
-  // suficientemente estável para o cálculo de SpO2 especificamente
-  // (mais sensível a movimento/pressão do que o HR). Só aparece nesta
-  // combinação exata — HR presente, SpO2 ausente — não noutros casos
-  // (ex.: os dois nulos, que já é coberto pelo "—" normal dos tiles).
+  // HR chegando mas SpO2 nulo: sinal ainda instável para SpO2 (mais sensível a movimento que HR) — só nesta combinação
   const spo2NeedsHint = liveState.hr != null && liveState.spo2 == null;
   const spo2HintText = spo2NeedsHint
     ? 'A ler HR mas sem SpO2 ainda — tenta manter a placa bem encostada ao pulso, sem mover a mão.'
@@ -588,16 +386,7 @@ function applyLiveVitals(){
     el.style.display = spo2NeedsHint ? '' : 'none';
   });
 
-  // Bug real corrigido aqui (2026-08-06, relatado pela utilizadora com
-  // captura de ecrã: topbar mostrava "Wearable ligado" mas o painel de
-  // Sinais Vitais continuava preso em "Sem ligação ao bridge — liga o
-  // dispositivo primeiro."): esse texto só é escrito por
-  // toggleContinuousHr()/resetPendingCommandButtons() no MOMENTO em que a
-  // ligação cai — nada o repunha depois de a ligação voltar. applyLiveVitals()
-  // só corre com liveState.connected true (ver early return no topo desta
-  // função), por isso este é o sítio certo para repor o hint ao texto
-  // normal — mas só se não houver uma medição/countdown genuíno em curso
-  // (senão apagava "a medir…"/"modo contínuo ativo" por engano).
+  // repõe o hint ao texto normal quando a ligação volta (ficava preso ao texto de "sem ligação"), só se não houver countdown em curso
   const forceHintEl = document.getElementById('forceReadingHint');
   const forceBtnEl = document.getElementById('forceReadingBtn');
   const noCountdownActive = forceReadingIntervalId == null && continuousHrIntervalId == null;
@@ -615,17 +404,10 @@ function handleBridgeMessage(msg){
   if (msg.kind === 'device_status'){
     liveState.connected = !!msg.connected;
     liveState.blePaused = !!msg.paused;
-    // Canal sem autenticação — valida a forma antes de confiar (mesmo
-    // padrão de toFiniteNumber/escapeHtml/allowlist já usado neste
-    // ficheiro), nunca guarda msg.mac tal como vem.
+    // canal não autenticado — valida a forma antes de confiar, nunca guarda msg.mac tal como vem
     liveState.deviceMac = (typeof msg.mac === 'string' && /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/.test(msg.mac))
       ? msg.mac.toUpperCase() : null;
-    // "Reconhecer em qualquer conta" (2026-07-21): assim que o wearable
-    // real se liga, associa-o à conta atualmente selecionada (ver
-    // registeredMacFor/DEVICE_REGISTRY_KEY acima) — assim, mudar de
-    // paciente e voltar a ligar o mesmo dispositivo físico passa a ser
-    // reconhecido nessa conta também, em vez de ficar preso ao mac de
-    // demonstração de um único paciente fixo.
+    // associa o wearable físico à conta atualmente selecionada, para reconhecê-lo também noutras contas
     if (liveState.deviceMac && selectedPatientId) {
       const reg = loadDeviceRegistry();
       if (reg[selectedPatientId] !== liveState.deviceMac) {
@@ -654,15 +436,9 @@ function handleBridgeMessage(msg){
     return;
   }
   if (msg.kind === 'activity_classification'){
-    // Canal não autenticado (ver toFiniteNumber() acima) — "category" é um
-    // enum fechado de 5 valores (ver ACTIVITY_CLASS_COLOR_VAR); qualquer
-    // outra coisa vinda do WebSocket é ignorada em vez de aceite às cegas.
+    // category valida contra enum fechado (ACTIVITY_CLASS_COLOR_VAR); resto do msg é ignorado se não bater certo
     const conf = toFiniteNumber(msg.confidence);
     if (Object.prototype.hasOwnProperty.call(ACTIVITY_CLASS_COLOR_VAR, msg.category) && conf != null){
-      // "indicador de incerteza" (2026-08-05) — 2ª classe mais provável e
-      // a margem até ela (ver UNCERTAINTY_MARGIN_THRESHOLD em
-      // bridge/activity_inference.py). runner_up_category valida contra o
-      // mesmo enum fechado que 'category'; os restantes são só números/bool.
       const runnerUpCat = Object.prototype.hasOwnProperty.call(ACTIVITY_CLASS_COLOR_VAR, msg.runner_up_category)
         ? msg.runner_up_category : null;
       liveState.currentActivity = {
@@ -677,9 +453,7 @@ function handleBridgeMessage(msg){
     return;
   }
   if (msg.kind === 'activity_correction'){
-    // Difundido pelo bridge a TODOS os dashboards ligados (cmd
-    // "correct_activity") — canal não autenticado, mesma allowlist fechada
-    // já usada para "activity_classification" (ACTIVITY_CLASS_COLOR_VAR).
+    // difundido pelo bridge a todos os dashboards, mesma allowlist de "activity_classification"
     if (Object.prototype.hasOwnProperty.call(ACTIVITY_CLASS_COLOR_VAR, msg.category)){
       liveState.activityCorrection = {
         category: msg.category,
@@ -697,11 +471,7 @@ function handleBridgeMessage(msg){
         category: msg.cls,
         durationMin: Math.round(durationMin),
         isAnomaly: !!msg.is_anomaly,
-        // "explicação de alerta" (2026-08-05) — frase já composta pelo
-        // bridge (ml/duration_detector.py::explain_block) com os números
-        // reais (duração observada vs. limites esperados), não só o
-        // veredito booleano. Texto livre vindo do bridge local — sem
-        // HTML própria (só entra via textContent-safe escapeHtml abaixo).
+        // frase composta pelo bridge (explain_block); entra só via escapeHtml() na renderização
         explanation: typeof msg.explanation === 'string' ? msg.explanation : null,
       };
       renderLiveActivityPanel();
@@ -758,9 +528,7 @@ function handleBridgeMessage(msg){
     return;
   }
   if (msg.kind === 'vital_alert'){
-    // Canal não autenticado — 'vital' valida contra o par fechado
-    // conhecido; o resto (value/limit/level) são só números/strings
-    // vindos de escapeHtml() na renderização, nunca HTML cru.
+    // 'vital' valida contra par fechado; resto passa por escapeHtml() na renderização
     if (msg.vital === 'hr' || msg.vital === 'spo2'){
       liveState.vitalAlerts[msg.vital] = msg.cleared ? null : {
         level: msg.level, value: toFiniteNumber(msg.value), limit: toFiniteNumber(msg.limit),
@@ -776,50 +544,14 @@ function handleBridgeMessage(msg){
   }
 }
 
-// Aplica os campos de um registo de sensores (hr/spo2/steps/freefall/
-// inactivity/pacing_index) vindo do bridge a liveState — partilhado por
-// dois canais distintos desde 2026-08-06 (ver PROJECT_STATUS.md, mesma
-// data, para o problema real que motivou a separação):
-//
-//   - 'live_record' (liveSnapshotChar): instantâneo do registo mais
-//     recente do dispositivo, NUNCA atrasado — é a fonte ÚNICA da UI "ao
-//     vivo" (cartões de sinais vitais, gráfico de FC, pacing).
-//   - 'record' (dumpDataChar): fluxo histórico, entrega tudo em ordem
-//     cronológica do mais antigo para o mais recente, sem nunca perder
-//     dados — mas pode estar minutos atrasado face a "agora" se o
-//     dispositivo gravou sem BLE ligado (o problema original reportado
-//     pela utilizadora: "os valores no gráfico estão desfasados 10m").
-//
-// Antes de 2026-08-06 só existia 'record', e por isso o gráfico/cartões
-// mostravam sempre o que estivesse a ser reproduzido do histórico —
-// atrasado sempre que houvesse um backlog por escoar. Agora só
-// 'live_record' atualiza liveState.hr/spo2/steps/freefall/inactivity/
-// pacing e o gráfico (isLive=true); 'record' continua a chegar (o
-// bridge continua a difundi-lo, para uso futuro/depuração) mas já não
-// tem qualquer efeito na UI — nunca compete com o instantâneo ao vivo
-// pelos mesmos campos, mesmo durante um atraso grande a ser escoado.
+// Aplica campos de sensores (hr/spo2/steps/freefall/inactivity/pacing) a liveState.
+// 'live_record' (liveSnapshotChar): instantâneo mais recente, nunca atrasado — única fonte da UI ao vivo.
+// 'record' (dumpDataChar): fluxo histórico cronológico, pode estar minutos atrasado se gravado sem BLE — chega mas
+// já não afeta a UI (só live_record atualiza liveState/gráfico), para nunca competir com o instantâneo ao vivo.
 function applySensorRecordFields(msg, {isLive}){
-  // Espelha o payload real gravado pelo firmware (ImuPpgPayloadV1 /
-  // FullPlain — ver storageTask em main.cpp e Ble.cpp): spo2/hr vêm a
-  // 0 no wire format quando essa amostra em particular não trouxe
-  // leitura nova (ImuPpgPayload.h:45-46), mas o bridge já converte
-  // isso para `null` antes de reencaminhar (decode_full_plain,
-  // ble_bridge.py:531-534) — o JSON que chega aqui já traz null, não
-  // 0. O IMU produz amostras a ~54/s, mas o PPG só atualiza HR/SpO2
-  // esporadicamente, por isso a esmagadora maioria dos registos
-  // trazem hr=null/spo2=null.
-  // O canal do bridge (ws://localhost:8765) não é autenticado (ver
-  // PROJECT_STATUS.md) — qualquer valor vindo de `msg` é tratado como não
-  // confiável e validado como número finito antes de entrar em liveState
-  // (e, dali, em innerHTML), para evitar XSS via WebSocket. `toFiniteNumber`
-  // preserva esse null corretamente desde 2026-08-06 (antes, `Number(null)
-  // === 0` na própria função reintroduzia o zero que o bridge já tinha
-  // removido — ver comentário em toFiniteNumber). hasNewHr/hasNewSpo2
-  // abaixo exigem também `> 0` como rede de segurança extra (0 nunca é uma
-  // leitura fisiológica real de HR/SpO2), no mesmo espírito defensivo de
-  // clampToI16() em main.cpp — não porque ainda seja necessário hoje, mas
-  // para não voltar a depender silenciosamente de null vs. 0 estarem
-  // sempre corretos em todos os pontos do pipeline.
+  // spo2/hr vêm a 0 no wire format quando a amostra não trouxe leitura nova; o bridge já converte para null
+  // (decode_full_plain). toFiniteNumber preserva esse null (Number(null)===0 seria um bug). hasNewHr/hasNewSpo2
+  // exigem também >0 como rede de segurança extra — 0 nunca é uma leitura fisiológica real.
   const hrNum = toFiniteNumber(msg.hr);
   const spo2Num = toFiniteNumber(msg.spo2);
   const stepsNum = toFiniteNumber(msg.steps);
@@ -827,7 +559,7 @@ function applySensorRecordFields(msg, {isLive}){
   const hasNewHr = hrNum != null && hrNum > 0;
   const hasNewSpo2 = spo2Num != null && spo2Num > 0;
 
-  if (!isLive) return; // 'record' (histórico) chega mas não toca na UI — ver comentário da função acima
+  if (!isLive) return; // 'record' (histórico) chega mas não toca na UI
 
   liveState.lastRecordAt = Date.now();
   if (hasNewHr) liveState.hr = hrNum;
@@ -848,10 +580,7 @@ function applySensorRecordFields(msg, {isLive}){
   applyLiveVitals();
 }
 
-// Referência à ligação WebSocket ativa (ou null), para os botões de
-// comando ("Medir agora", "Repor leituras") poderem enviar pedidos ao
-// bridge sem precisar de gerir a sua própria ligação.
-let bridgeWs = null;
+let bridgeWs = null; // ligação WebSocket ativa (ou null), usada pelos botões de comando
 
 function connectBridge(){
   let ws;
@@ -872,10 +601,7 @@ function connectBridge(){
     liveState.connected = false;
     updateDeviceStatusUI();
     resetPendingCommandButtons();
-    // Sem ligação ao bridge deixamos de poder confiar na última
-    // classificação de atividade recebida — limpa o painel para que
-    // volte a mostrar "a aguardar" em vez de ficar preso numa leitura
-    // antiga sem aviso (ver PROJECT_STATUS.md, item 8).
+    // sem ligação, a última classificação deixa de ser fiável — limpa em vez de ficar preso a uma leitura antiga
     liveState.currentActivity = null;
     liveState.lastActivityDurationFlag = null;
     liveState.activityCorrection = null;
@@ -886,59 +612,31 @@ function connectBridge(){
 }
 
 function scheduleReconnect(){
-  // Tenta religar de tempos a tempos — cobre tanto "o bridge ainda não
-  // tinha arrancado" como "o bridge caiu e voltou".
-  setTimeout(connectBridge, 4000);
+  setTimeout(connectBridge, 4000); // cobre tanto "bridge ainda não arrancou" como "bridge caiu e voltou"
 }
 
-// Envia um comando ({"cmd":"..."}) ao bridge, que o traduz numa escrita
-// BLE em dumpCtrlChar (ver ble_bridge.py). Devolve false de imediato se
-// não houver ligação — quem chama deve tratar esse caso (ver
-// onForceReadingClick/confirmReset).
+// Envia {"cmd":"..."} ao bridge (traduz para escrita BLE em dumpCtrlChar). Devolve false sem ligação.
 function sendWsCommand(cmd){
   if (!bridgeWs || bridgeWs.readyState !== WebSocket.OPEN) return false;
   bridgeWs.send(JSON.stringify({cmd}));
   return true;
 }
 
-// Variante que envia campos extra além de "cmd" (ex.: {cmd:"export_csv",
-// hours:24}) — sendWsCommand() sozinho só serve pedidos sem parâmetros.
+// variante com campos extra além de "cmd" (ex.: {cmd:"export_csv", hours:24})
 function sendWsCommandWithArgs(cmd, extra){
   if (!bridgeWs || bridgeWs.readyState !== WebSocket.OPEN) return false;
   bridgeWs.send(JSON.stringify({cmd, ...extra}));
   return true;
 }
 
-/* ------------------------------------------------------------
-   COMANDOS AO VIVO — "Medir agora" (FC+SpO2 forçados) e
-   "Repor leituras" (destrutivo, com modal de confirmação)
------------------------------------------------------------- */
-// Se a ligação ao bridge cair a meio de um pedido ("Medir agora" ou "Repor
-// leituras"), o command_result correspondente nunca chega e os botões
-// ficavam presos em "a carregar" até a página ser recarregada. Chamado a
-// partir de ws.onclose para repor o estado assim que a ligação se perde.
-// Duração real do pedido "Medir agora" no firmware/bridge (ver
-// DUMP_CTRL_FORCE_READING_SECONDS em bridge/ble_bridge.py — mantido em
-// sincronia manualmente, os dois lados não partilham este valor em
-// tempo de execução).
-//
-// BUG CORRIGIDO (2026-07-07, reportado pelo utilizador: "o countdown não
-// funciona"): a 1ª versão parava o countdown assim que chegava o
-// command_result — mas o bridge envia esse command_result LOGO A SEGUIR
-// à escrita GATT (handle_dashboard_command() em ble_bridge.py), não
-// depois da janela real de 15s de medição no dispositivo. Na prática o
-// countdown desaparecia quase instantaneamente (~1s), parecendo não
-// funcionar. Agora o countdown corre sempre até ao fim dos
-// FORCE_READING_SECONDS reais — command_result só interrompe cedo se
-// ok=false (falha real, não há nada por onde esperar).
+// Comandos ao vivo: "Medir agora" (FC+SpO2 forçados) e "Repor leituras" (destrutivo, com modal).
+// Countdown corre até FORCE_READING_SECONDS real, não até o command_result chegar — o bridge envia
+// esse ack logo a seguir à escrita GATT, muito antes da medição de 15s terminar no dispositivo.
+// Duração deve ficar em sincronia manual com DUMP_CTRL_FORCE_READING_SECONDS em bridge/ble_bridge.py.
 const FORCE_READING_SECONDS = 15;
 let forceReadingIntervalId = null;
-// Leitura contínua (pedido explícito do utilizador): sem mudar o firmware
-// nem o bridge, o dashboard reenvia force_reading pouco antes de cada
-// janela de 15s expirar, dando a sensação de "ligado até desligares" —
-// o firmware já limita cada pedido individual a 30s no máximo por desenho
-// (poupança de bateria, ver Ppg.cpp kManualHrMaxDurationMs), por isso
-// reenviar em vez de pedir uma janela única enorme respeita esse limite.
+// Leitura contínua: reenvia force_reading antes de cada janela de 15s expirar, sem mudar firmware/bridge.
+// Firmware limita cada pedido a 30s (Ppg.cpp kManualHrMaxDurationMs) — reenviar respeita esse limite.
 let continuousHrIntervalId = null;
 
 function stopForceReadingCountdown(){
@@ -965,9 +663,7 @@ function startForceReadingCountdown(){
   render();
   forceReadingIntervalId = setInterval(() => {
     remaining -= 1;
-    if (remaining <= 0){
-      // Só chamado a partir de onForceReadingClick() (medição pontual) —
-      // o modo contínuo (toggleContinuousHr()) já não usa este countdown.
+    if (remaining <= 0){ // só chamado por onForceReadingClick() — modo contínuo não usa este countdown
       finishForceReadingCountdown(t('vitais.measurementDoneHint'), false);
       return;
     }
@@ -992,13 +688,7 @@ function toggleContinuousHr(){
     if (hint){ hint.style.color = 'var(--status-warning)'; hint.textContent = t('vitais.noBridgeConnectionHint'); }
     return;
   }
-  // Em modo contínuo NÃO se repete o countdown de "Medir agora" a cada
-  // reenvio (~14 em 14s) — reportado pelo utilizador como sem sentido
-  // (2026-07-22): o countdown existe para uma medição pontual, não faz
-  // sentido reaparecer/reiniciar em loop enquanto o modo contínuo está
-  // ativo. Mostra-se um indicador fixo em vez disso; stopForceReadingCountdown()
-  // continua a existir para o caso de já haver um countdown de uma medição
-  // pontual anterior em curso quando o modo contínuo é ligado.
+  // modo contínuo mostra indicador fixo, não repete o countdown a cada reenvio (~14s)
   const fire = () => {
     sendWsCommand('force_reading');
   };
@@ -1052,32 +742,21 @@ function onForceReadingClick(){
 
 function handleCommandResult(msg){
   if (msg.cmd === 'force_reading'){
-    // Só ok=false interrompe o countdown cedo (falha real confirmada
-    // pelo bridge). ok=true só confirma que o comando FOI ENVIADO — a
-    // medição em si continua a decorrer no dispositivo, por isso o
-    // countdown continua a correr (ver nota acima).
+    // só ok=false interrompe o countdown cedo — ok=true só confirma envio, a medição continua no dispositivo
     if (!msg.ok){
       finishForceReadingCountdown(`Falhou: ${msg.error || 'erro desconhecido'}.`, true);
     }
   }
   if (msg.cmd === 'correct_activity'){
-    // Sucesso não precisa de tratamento aqui: o bridge difunde de volta um
-    // "activity_correction" (ver handleBridgeMessage) que já atualiza o
-    // painel para todos os clientes, incluindo este. Só o erro precisa de
-    // feedback próprio, porque nesse caso não há nenhum broadcast a seguir.
+    // sucesso não precisa de tratamento — o bridge difunde "activity_correction" que já atualiza o painel
     const status = document.getElementById('activityCorrectionStatus');
     if (status && !msg.ok){
       status.textContent = t('resumo.liveActivityCorrectionError', {error: msg.error || '—'});
       status.style.display = '';
       setTimeout(() => { status.style.display = 'none'; }, 4000);
     }
-    // RF-09 (2026-09-07): sendWsCommandWithArgs() só garante que o
-    // comando SAIU pelo WebSocket — o bridge pode recusá-lo a seguir
-    // (limite de taxa, categoria desconhecida, persistência indisponível;
-    // ver os três ramos de erro em ble_bridge.py::correct_activity). Sem
-    // isto, a fila de rotulagem marcava como "enviado ao bridge" um
-    // rótulo que o bridge nunca chegou a gravar — e a exportação para
-    // retreino ficaria a contar duas vezes com dados que só existem aqui.
+    // sendWsCommandWithArgs() só garante que o comando SAIU — o bridge pode recusá-lo a seguir; sem isto a fila
+    // marcava "enviado" um rótulo nunca gravado, e a exportação contaria dados duplicados.
     if (!msg.ok){
       const ultima = hitlCorrections.find(c => c.kind === 'atividade' && c.sentToBridge);
       if (ultima){ ultima.sentToBridge = false; saveHitlCorrections(hitlCorrections); }
@@ -1123,22 +802,7 @@ function confirmReset(){
   status.textContent = 'A apagar…';
 }
 
-/* ------------------------------------------------------------
-   EXPORTAÇÃO CLÍNICA — FHIR (JSON) e PDF (via impressão do browser)
-   ------------------------------------------------------------
-   Pedido do backlog de investigação (item nº7): exportação clínica em
-   formato interoperável. Diferente da exportação de dados brutos acima
-   (que precisa da BD ainda por implementar) — cobre só os alertas,
-   anomalias e identidade do paciente atualmente visíveis nesta sessão.
------------------------------------------------------------- */
-
-// Constrói um "Bundle" FHIR simplificado (Patient + Observation por cada
-// alerta/anomalia atual). NOTA HONESTA: isto usa a FORMA de recursos FHIR
-// (resourceType, campos reconhecíveis) para dar uma base de arranque
-// realista, mas não é uma implementação certificada — não usa códigos
-// LOINC/SNOMED reais (os "code.text" são descrição livre), e não passou
-// por validação contra o standard completo. Serve como ponto de partida
-// para uma integração real, não como substituto dela.
+// Exportação clínica FHIR/PDF (item nº7 do backlog) — cobre só os dados desta sessão, não a BD.
 let resizeRedrawTimer = null;
 window.addEventListener('resize', () => {
   clearTimeout(resizeRedrawTimer);

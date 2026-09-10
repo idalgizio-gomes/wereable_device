@@ -1,14 +1,6 @@
 #!/usr/bin/env python3
-"""
-storage_advanced.py — Serviço de persistência avançado com SQLAlchemy ORM.
-
-Refatoração do storage.py original com:
-  - SQLAlchemy ORM (segurança contra SQL injection, migrations, type hints)
-  - Schema completo (users, patients, devices, medications, etc.)
-  - Queries analíticas (trends, aggregations)
-  - Políticas de retenção automática
-  - Cifra de campos sensíveis (NIF, morada)
-"""
+"""storage_advanced.py — Persistência SQLAlchemy ORM: schema completo, queries
+analíticas, retenção automática, cifra de campos sensíveis (NIF, morada)."""
 
 from __future__ import annotations
 
@@ -30,20 +22,9 @@ from sqlalchemy.exc import IntegrityError
 
 from crypto_utils import decrypt_field, encrypt_field
 
-# ============================================================
-# CONFIGURAÇÃO
-# ============================================================
-
-DB_URL = os.environ.get(
-    "DATABASE_URL",
-    "sqlite:///./carewear.db"  # Local development
-)
-
-# Para SQLite em-memória em testes:
-# DB_URL = "sqlite:///:memory:"
+DB_URL = os.environ.get("DATABASE_URL", "sqlite:///./carewear.db")
 
 if DB_URL.startswith("sqlite"):
-    # SQLite requer configurações especiais para foreign keys
     engine = create_engine(
         DB_URL,
         connect_args={"check_same_thread": False} if "sqlite" in DB_URL else {},
@@ -53,37 +34,17 @@ if DB_URL.startswith("sqlite"):
     def set_sqlite_pragma(dbapi_conn, connection_record):
         cursor = dbapi_conn.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
-        # OTIMIZAÇÃO (Lote C): mesma justificação documentada em
-        # storage.py get_connection() — com o dual-write, os SensorRecord
-        # também são escritos aqui (em lote, ver orm_persistence.py). WAL +
-        # synchronous=NORMAL evita o fsync por commit do modo por omissão
-        # (rollback journal + FULL), que bloquearia o event loop asyncio do
-        # bridge. Num protótipo local de uso pessoal (sem requisitos de
-        # durabilidade contra corte de energia) a troca é adequada. Em
-        # SQLite :memory: (testes) o PRAGMA é inócuo — não há ficheiro -wal.
+        # WAL + synchronous=NORMAL: evita fsync por commit (bloquearia o event loop asyncio do bridge)
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.close()
 else:
-    # PostgreSQL em produção
     engine = create_engine(DB_URL, echo=False, pool_pre_ping=True)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-
-# ============================================================
-# MODELOS ORM
-# ============================================================
-
-# Tabela de associação muitos-para-muitos entre utilizadores (cuidadores) e
-# pacientes — suporta "múltiplos cuidadores com permissões por papel"
-# (item 10 do backlog do dashboard). Faltava por completo (só era
-# referenciada por nome em User.patients via secondary=, sem nenhuma
-# Table/model a definir) — sem isto, configurar qualquer mapper deste
-# ficheiro (User, Patient, ou qualquer outro modelo, porque o SQLAlchemy
-# configura o registo de mappers em conjunto) falha com
-# InvalidRequestError ("patient_caregivers... failed to locate a name").
+# tabela de associação muitos-para-muitos cuidadores<->pacientes
 patient_caregivers = Table(
     "patient_caregivers",
     Base.metadata,
@@ -97,14 +58,25 @@ patient_caregivers = Table(
 
 
 class User(Base):
-    """Utilizador (família, clínico, admin)."""
+    """Utilizador (família, clínico, admin de sistema, admin clínico).
+
+    `admin` = Admin de Sistema (sem acesso livre a dados clínicos); acesso
+    clínico privilegiado é o papel `admin_clinical`, sujeito a motivo
+    obrigatório, concessão temporal (`privileged_access_expires_at`) e
+    auditoria própria — ver `_authorize_patient` em api.py.
+    """
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True)
     uuid = Column(String(36), unique=True, nullable=False)
     email = Column(String(255), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
-    role = Column(String(20), CheckConstraint("role IN ('family', 'clinician', 'admin')"), nullable=False)
+    role = Column(
+        String(20),
+        CheckConstraint("role IN ('family', 'clinician', 'admin', 'admin_clinical')"),
+        nullable=False,
+    )
+    privileged_access_expires_at = Column(DateTime)  # só para admin_clinical; NULL/passado = sem acesso
     name = Column(String(255), nullable=False)
     phone = Column(String(20))
     institution = Column(String(255))
@@ -124,36 +96,14 @@ class Patient(Base):
 
     id = Column(Integer, primary_key=True)
     uuid = Column(String(36), unique=True, nullable=False)
-    # Pseudonimização (RGPD Art. 4(5)): identificador opaco, sem relação
-    # com o nome/data de nascimento, para referenciar o paciente em
-    # contextos que não precisam de saber quem é (exports, ML, logs) sem
-    # ter de expor `name`/`date_of_birth`. Reversível só através desta
-    # tabela (não é anonimização) — get_patient_by_pseudonym() abaixo.
+    # pseudonimização RGPD Art. 4(5): id opaco, reversível só via get_patient_by_pseudonym()
     pseudonym = Column(String(32), unique=True, nullable=False, default=lambda: secrets.token_urlsafe(16))
     name = Column(String(255), nullable=False)
     date_of_birth = Column(DateTime, nullable=False)
-    # Cifrados com AES-256-GCM (chave derivada via Argon2id, ver crypto_utils.py)
-    # através das propriedades nif/address abaixo — nunca atribuir estas duas
-    # colunas *_encrypted diretamente. 512 bytes (não 255) para acomodar o
-    # overhead da cifra (nonce + tag + base64) em moradas mais longas.
+    # AES-256-GCM (chave via Argon2id) através das properties nif/address abaixo; nunca atribuir direto
     nif_encrypted = Column(String(512))  # aprovação obrigatória, ver dashboard
     address_encrypted = Column(String(512))
-    # GDPR-005 (Lote C) — DECISÃO DOCUMENTADA: NÃO estender a cifra de
-    # campo (padrão nif/address, ver propriedades abaixo) a `phone` e aos
-    # `emergency_contact_*` NESTE lote. Motivos concretos:
-    #   1. Ao contrário de nif_encrypted/address_encrypted, estas colunas
-    #      são fixadas por nome no esquema SQL canónico (bridge/schema.sql)
-    #      e por uma migração Alembic já aplicada
-    #      (migrations/versions/daaeabc42ec5_schema_inicial.py) — ficheiros
-    #      FORA do âmbito deste lote. Renomeá-las para *_encrypted aqui
-    #      dessincronizaria o ORM do esquema/migração sem uma migração nova
-    #      correspondente (risco real numa base de dados existente).
-    #   2. Não é a "extensão direta e óbvia" do padrão que o cifrar de
-    #      Strings via propriedade seria em isolamento — arrasta alterações
-    #      coordenadas em 3 ficheiros de esquema para ser correto.
-    # A extensão fica registada como próximo passo a fazer em conjunto com
-    # uma migração Alembic dedicada (rename coluna + backfill cifrado),
-    # não como uma alteração pontual do modelo.
+    # phone/emergency_contact_* ainda não cifrados (fixados no schema.sql/migração Alembic; próximo passo)
     phone = Column(String(20))
     emergency_contact_name = Column(String(255))
     emergency_contact_phone = Column(String(20))
@@ -193,22 +143,14 @@ class Patient(Base):
 
 
 class PatientCondition(Base):
-    """Doença/diagnóstico do paciente — uma linha por entrada (não texto livre agregado).
-
-    Inspirado no recurso `Condition` do HL7 FHIR: `display_text` é o que se vê
-    no dashboard (obrigatório), `code_system`/`code` são opcionais
-    (ex.: "ICD-10"/"E11" para diabetes tipo 2) para permitir cruzamento
-    automático mais tarde sem obrigar o cuidador a conhecer códigos clínicos
-    hoje. Ver PatientAllergy para o motivo de ser uma tabela separada.
-    """
+    """Doença/diagnóstico do paciente — uma linha por entrada. Inspirado no
+    recurso `Condition` do HL7 FHIR (code_system/code opcionais, ex. ICD-10)."""
     __tablename__ = "patient_conditions"
 
     id = Column(Integer, primary_key=True)
     uuid = Column(String(36), unique=True, nullable=False)
     patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False)
-    # Cifrado com o mesmo padrão de nif_encrypted/address_encrypted — é dado
-    # de saúde, categoria especial RGPD.
-    display_text_encrypted = Column(String(512), nullable=False)
+    display_text_encrypted = Column(String(512), nullable=False)  # cifrado, dado de saúde (categoria especial RGPD)
     code_system = Column(String(50))  # ex.: "ICD-10", "SNOMED-CT"
     code = Column(String(50))
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -231,14 +173,9 @@ class PatientCondition(Base):
 
 
 class PatientAllergy(Base):
-    """Alergia do paciente — uma linha por entrada.
-
-    Tabela separada de PatientCondition (não uma só tabela genérica "achados
-    de saúde"): o FHIR trata `AllergyIntolerance` como recurso próprio porque
-    uma alergia é semanticamente distinta de um diagnóstico — no CareWear
-    isso importa em concreto para o caso de uso de emergência (NFC/dashboard
-    devem conseguir listar alergias isoladamente de condições crónicas).
-    """
+    """Alergia do paciente — tabela separada de PatientCondition (FHIR trata
+    `AllergyIntolerance` como recurso próprio; NFC/dashboard precisam listar
+    alergias isoladamente de condições crónicas em emergência)."""
     __tablename__ = "patient_allergies"
 
     id = Column(Integer, primary_key=True)
@@ -381,26 +318,8 @@ class MedicationAdherence(Base):
 
     medication = relationship("Medication", back_populates="adherence")
 
-    # BUG CORRIGIDO: era um Index não-único — nada na base de dados impedia
-    # duas linhas para a mesma (medication_id, scheduled_datetime). A
-    # idempotência "por desenho" documentada em `record_medication_adherence`
-    # (bridge/api.py) era garantida SÓ pela leitura-antes-de-escrever nesse
-    # endpoint (SELECT a verificar se já existe, depois INSERT ou UPDATE) —
-    # uma janela clássica de TOCTOU: dois pedidos concorrentes para a MESMA
-    # dose (ex.: um retry por timeout de rede a coincidir com o pedido
-    # original, ou dois cuidadores a marcar a mesma dose quase ao mesmo
-    # tempo, uma vez que o dashboard/`ble_bridge.py` venham a chamar este
-    # endpoint) podem ambos fazer o SELECT antes de qualquer um dos dois
-    # fazer o INSERT, resultando em duas linhas para a mesma dose (confirmado
-    # por reprodução direta contra `storage_advanced.py`, ver
-    # bridge/tests/test_storage_advanced.py::TestMedicationAdherenceUniqueness).
-    # Isto duplicava entradas de auditoria e inflacionava as métricas de
-    # aderência (`Analytics.medication_adherence_summary` conta `total` por
-    # número de linhas). Só uma constraint a nível da BD impede isto de
-    # forma real sob concorrência — ver também o tratamento de
-    # IntegrityError em `record_medication_adherence` (bridge/api.py), que
-    # converge para um UPDATE quando perde a corrida em vez de deixar a BD
-    # rejeitar o pedido com um erro 500.
+    # UniqueConstraint (não só Index) — impede duplicados sob concorrência (TOCTOU); ver
+    # tratamento de IntegrityError em record_medication_adherence (bridge/api.py)
     __table_args__ = (
         UniqueConstraint(
             "medication_id", "scheduled_datetime",
@@ -461,12 +380,7 @@ class EmergencyAlert(Base):
     confirmation_blocked_until = Column(DateTime)
     notes = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
-    # GDPR-006 (decisão da utilizadora, 2026-07-31): retenção de 8 anos,
-    # soft delete — ver DataRetention.RETENTION_POLICIES["emergency_alerts"]
-    # e SECURITY_STATUS.md. Antes desta coluna existir, a política estava
-    # só documentada, nunca aplicada (ver comentário histórico em
-    # DataRetention.cleanup()).
-    deleted_at = Column(DateTime)
+    deleted_at = Column(DateTime)  # soft delete, retenção 8 anos (GDPR-006)
 
     device = relationship("Device", back_populates="emergency_alerts")
 
@@ -568,11 +482,7 @@ class AuditLog(Base):
 
 
 class Setting(Base):
-    """Par chave/valor de configuração global do bridge (2026-07-26,
-    migração — equivalente à tabela `settings` de storage.py). Hoje só
-    guarda `retention_days` (ver get_retention_days/set_retention_days
-    abaixo), mas fica pensada para outras opções futuras sem precisar de
-    nova tabela."""
+    """Par chave/valor de configuração global do bridge (hoje só `retention_days`)."""
     __tablename__ = "settings"
 
     key = Column(String(100), primary_key=True)
@@ -580,13 +490,7 @@ class Setting(Base):
 
 
 class ActivityCorrection(Base):
-    """Correção manual do cuidador/equipa clínica à classificação de
-    atividade da IA (2026-07-26, migração — equivalente à tabela
-    `activity_corrections` de storage.py). Ligada a `device_id` (ao
-    contrário da versão original em storage.py, que não distinguia
-    dispositivo — irrelevante numa instalação de um só dispositivo, mas
-    correto agora que a fonte de verdade é o esquema multi-dispositivo do
-    ORM)."""
+    """Correção manual do cuidador/equipa clínica à classificação de atividade da IA."""
     __tablename__ = "activity_corrections"
 
     id = Column(Integer, primary_key=True)
@@ -614,30 +518,15 @@ class ConsentRecord(Base):
     expires_at = Column(DateTime)
     notes = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
-    # GDPR-001 — quem consentiu. O público-alvo tem demência e pode não
-    # poder consentir sozinho, por isso distingue-se o próprio utente
-    # ('patient') de um representante legal/procurador ('representative').
-    # CheckConstraint restringe os valores, no mesmo estilo de User.role.
+    # GDPR-001 — quem consentiu: o próprio ('patient') ou um representante legal ('representative')
     given_by = Column(
         String(20),
         CheckConstraint("given_by IN ('patient', 'representative')"),
         nullable=False, default="patient",
     )
-    # Relação do representante com o utente (ex.: "filho(a)", "tutor(a)",
-    # "procurador(a)"). Só preenchido quando given_by == 'representative'.
-    # Texto livre de propósito (sem CheckConstraint rígido): a lista de
-    # relações possíveis é um problema de UX/UI que ainda não existe.
-    representative_relationship = Column(String(50))
-    # Nome do representante que assinou o consentimento. Guardado à parte
-    # de user_id porque nesta fase não há provisioning real de contas
-    # (ver DEFAULT_PATIENT_UUID/comentário em orm_persistence.py) — o
-    # user_id pode não corresponder a uma conta de utilizador real.
+    representative_relationship = Column(String(50))  # ex. "filho(a)", só se given_by='representative'
     representative_name = Column(String(255))
-    # Base legal RGPD do tratamento. 'consent' (Art. 6(1)(a)) é o caso
-    # normal (o próprio ou o representante consentem). 'vital_interest'
-    # (Art. 6(1)(d)) cobre o alerta de emergência/queda em que aguardar
-    # consentimento explícito atrasaria a resposta a um risco de vida.
-    # Não introduzir mais valores sem um caso de uso concreto.
+    # base legal RGPD: 'consent' (Art. 6(1)(a)) normal; 'vital_interest' (Art. 6(1)(d)) p/ emergência
     legal_basis = Column(String(50), nullable=False, default="consent")
 
     __table_args__ = (
@@ -645,13 +534,7 @@ class ConsentRecord(Base):
     )
 
 
-# Âmbitos de consentimento reconhecidos (mesma lista do comentário de
-# `ConsentRecord.scope`, agora como constante para não haver 2 fontes de
-# verdade). 'sensor_data' é o único com um ponto de aplicação real hoje
-# (bootstrap do bridge, `orm_persistence._ensure_consent`); os restantes
-# existem para o dashboard poder gerir consentimento granular por
-# categoria de dado (2026-08-05) — cada operação que os usa decide se
-# bloqueia ou só regista, não há uma regra única para todos os âmbitos.
+# âmbitos de consentimento reconhecidos; só 'sensor_data' tem ponto de aplicação real hoje (orm_persistence._ensure_consent)
 CONSENT_SCOPE_SENSOR_DATA = "sensor_data"
 CONSENT_SCOPE_ANALYTICS = "analytics"
 CONSENT_SCOPE_EXPORT = "export"
@@ -669,23 +552,9 @@ def get_patient_by_pseudonym(db: Session, pseudonym: str) -> Optional[Patient]:
 
 
 def has_valid_consent(db: Session, patient_id: int, scope: str, now: Optional[datetime] = None) -> bool:
-    """A decisão MAIS RECENTE (por id, mesmo critério de desempate de
-    `_next_consent_version`/`get_consent_status` abaixo — não `signed_at`,
-    que pode empatar entre chamadas rápidas) para este paciente+âmbito é
-    granted=True e não está expirada?
-
-    CORREÇÃO 2026-08-05: a versão anterior filtrava `granted.is_(True)`
-    NA PRÓPRIA QUERY antes de escolher "a mais recente" — ou seja,
-    procurava a concessão mais recente entre as concedidas, ignorando por
-    completo qualquer revogação (`granted=False`) posterior. Resultado:
-    depois de UMA concessão, `grant_consent(..., granted=False)` nunca
-    conseguia realmente revogar nada — esta função continuava a devolver
-    True para sempre (a não ser que a linha concedida expirasse por
-    `expires_at`). Só não foi apanhado antes porque o único chamador
-    existente (`_ensure_consent`, scope 'sensor_data') nunca é exercido
-    com um cenário de revogação nos testes. Apanhado ao escrever os
-    testes da revogação por âmbito (2026-08-05) — ver
-    test_has_valid_consent_respects_most_recent_decision."""
+    """A decisão mais recente (por id, não signed_at) é granted=True e não expirou?
+    Nota: escolhe a mais recente ENTRE TODAS as decisões, não só as concedidas —
+    senão uma revogação (granted=False) posterior nunca teria efeito."""
     now = now or datetime.utcnow()
     latest = (
         db.query(ConsentRecord)
@@ -701,11 +570,8 @@ def has_valid_consent(db: Session, patient_id: int, scope: str, now: Optional[da
 
 
 def _next_consent_version(db: Session, patient_id: int, scope: str) -> str:
-    """Cada mudança de consentimento (conceder ou revogar) grava uma LINHA
-    NOVA, nunca reescreve uma anterior — mantém histórico auditável (quem
-    consentiu o quê e quando), no espírito do resto do GDPR-001. A versão
-    é só um contador sequencial por (patient_id, scope), não um número de
-    versão do texto legal do consentimento."""
+    """Cada mudança grava uma linha nova (histórico auditável). Versão = contador
+    sequencial por (patient_id, scope), não o nº de versão do texto legal."""
     last = (
         db.query(ConsentRecord)
         .filter(ConsentRecord.patient_id == patient_id, ConsentRecord.scope == scope)
@@ -717,11 +583,7 @@ def _next_consent_version(db: Session, patient_id: int, scope: str) -> str:
     try:
         return str(int(last.version) + 1)
     except (TypeError, ValueError):
-        # Versão antiga não numérica (ex.: consentimento inicial gravado
-        # manualmente com outro esquema de versão) — não rebenta, só deixa
-        # de conseguir incrementar; carimba com timestamp para garantir
-        # unicidade face à UniqueConstraint(patient_id, scope, version).
-        return f"v-{int(datetime.utcnow().timestamp())}"
+        return f"v-{int(datetime.utcnow().timestamp())}"  # versão antiga não numérica; carimba p/ manter unicidade
 
 
 def grant_consent(
@@ -736,10 +598,8 @@ def grant_consent(
     legal_basis: str = "consent",
     notes: Optional[str] = None,
 ) -> ConsentRecord:
-    """Regista uma decisão de consentimento (conceder OU revogar) para um
-    âmbito. Lança ValueError se `scope` não for um dos CONSENT_SCOPES
-    reconhecidos — evita âmbitos escritos à mão com erro de ortografia que
-    nunca seriam lidos por `has_valid_consent`."""
+    """Regista uma decisão de consentimento (conceder ou revogar). Lança ValueError
+    se `scope` não for reconhecido em CONSENT_SCOPES."""
     if scope not in CONSENT_SCOPES:
         raise ValueError(f"âmbito de consentimento desconhecido: {scope!r} (válidos: {CONSENT_SCOPES})")
     row = ConsentRecord(
@@ -762,12 +622,8 @@ def grant_consent(
 
 
 def get_consent_status(db: Session, patient_id: int) -> dict:
-    """Estado atual (mais recente) de cada âmbito reconhecido, para a
-    utilização do dashboard: `{scope: {granted, signed_at, version,
-    given_by} | None}`. `None` significa "nunca decidido para este
-    âmbito" — distinto de `granted=False` ("decidido, e negado/revogado"),
-    porque o dashboard trata os dois casos de forma diferente (pedir
-    consentimento vs. mostrar que foi recusado)."""
+    """Estado atual de cada âmbito: `{scope: {granted, signed_at, version, given_by} | None}`.
+    None = nunca decidido (distinto de granted=False = recusado/revogado)."""
     status = {}
     for scope in CONSENT_SCOPES:
         latest = (
@@ -789,25 +645,9 @@ def get_consent_status(db: Session, patient_id: int) -> dict:
     return status
 
 
-# ============================================================
-# BASELINE COMPORTAMENTAL PERSONALIZADA (2026-08-05)
-# ------------------------------------------------------------
-# `PersonalizedThreshold` já existia no esquema (ver classe acima) mas sem
-# NENHUMA lógica a lê-la ou escrevê-la em lado nenhum do bridge — os
-# alertas de sinais vitais (FC/SpO2 fora do esperado) que aparecem no
-# dashboard eram só dados de demonstração fixos (EMERGENCY_LOG/alerts em
-# web/dashboard/index.html), nunca calculados a partir de leituras reais.
-# Esta secção liga o esquema já existente a uma avaliação real (ver
-# bridge/vital_alerts.py) e dá ao dashboard forma de o consultar/editar.
-# ============================================================
+# baseline comportamental personalizada — liga PersonalizedThreshold a vital_alerts.py
 
-# Valores por omissão — ponto de partida genérico enquanto o cuidador não
-# definir limiares próprios para este paciente (nunca uma recomendação
-# clínica validada; documentado como tal, mesmo espírito de
-# ACTIVITY_ML_DISCLAIMER em activity_inference.py). FC de repouso adulto
-# típica 60-100bpm (alargada para 50-100 para reduzir falsos positivos
-# num protótipo sem validação clínica); SpO2 normal >=95%, alerta comum a
-# partir de <92% (linha usada em oximetria de pulso doméstica).
+# valores por omissão, não recomendação clínica validada (mesmo espírito de ACTIVITY_ML_DISCLAIMER)
 DEFAULT_THRESHOLDS = {
     "heart_rate_min": 50,
     "heart_rate_max": 100,
@@ -818,9 +658,7 @@ DEFAULT_THRESHOLDS = {
     "steps_target_daily": 3000,
 }
 
-# Limites de sanidade (min, max) por campo — nunca aceitar um valor fora
-# disto, venha do dashboard ou de onde vier (mesmo raciocínio de
-# MIN_RETENTION_DAYS/MAX_RETENTION_DAYS acima).
+# limites de sanidade (min, max) por campo, nunca aceitar valor fora disto
 THRESHOLD_BOUNDS = {
     "heart_rate_min": (20, 150),
     "heart_rate_max": (40, 220),
@@ -833,12 +671,8 @@ THRESHOLD_BOUNDS = {
 
 
 def get_thresholds(db: Session, patient_id: int) -> dict:
-    """Limiares personalizados do paciente, com fallback campo-a-campo para
-    DEFAULT_THRESHOLDS (não só quando a linha inteira não existe — também
-    quando existe mas um campo em concreto nunca foi definido, NULL).
-    Nunca cria uma linha só por ser lida (get, não get-or-create) —
-    'is_default' distingue os dois casos para o dashboard poder mostrar
-    "ainda não personalizado" em vez de fingir que foi uma escolha."""
+    """Limiares personalizados, com fallback campo-a-campo para DEFAULT_THRESHOLDS.
+    Nunca cria linha só por ser lida; 'is_default' indica se ainda não foi personalizado."""
     row = db.query(PersonalizedThreshold).filter_by(patient_id=patient_id).first()
     if row is None:
         return {**DEFAULT_THRESHOLDS, "is_default": True, "updated_at": None}
@@ -852,12 +686,8 @@ def get_thresholds(db: Session, patient_id: int) -> dict:
 
 
 def set_thresholds(db: Session, patient_id: int, **fields) -> dict:
-    """Atualização PARCIAL (get-or-create) — só os campos passados mudam,
-    os restantes mantêm o que já lá estava (ou continuam a usar o
-    fallback por omissão de get_thresholds, se nunca tiverem sido
-    definidos). Lança ValueError se um campo for desconhecido ou estiver
-    fora de THRESHOLD_BOUNDS — nunca grava um limiar fisiologicamente
-    absurdo (ex.: heart_rate_max=5) só porque veio de um formulário."""
+    """Atualização parcial (get-or-create): só os campos passados mudam.
+    Lança ValueError se campo desconhecido ou fora de THRESHOLD_BOUNDS."""
     for field, value in fields.items():
         if field not in DEFAULT_THRESHOLDS:
             raise ValueError(f"limiar desconhecido: {field!r} (válidos: {tuple(DEFAULT_THRESHOLDS)})")
@@ -865,15 +695,8 @@ def set_thresholds(db: Session, patient_id: int, **fields) -> dict:
         if not (lo <= value <= hi):
             raise ValueError(f"{field}={value!r} fora do intervalo de sanidade [{lo}, {hi}]")
 
-    # Busca (sem criar ainda) para poder validar heart_rate_min/max contra
-    # os valores EFETIVOS finais (novo valor se vier nesta chamada, senão o
-    # já gravado, senão o padrão) — não só os dois campos desta chamada.
-    # Sem isto, mudar só heart_rate_min para acima de um heart_rate_max já
-    # gravado passava despercebido. A busca fica ANTES de qualquer
-    # db.add(): uma validação que falha aqui não pode deixar uma linha
-    # NOVA pendurada na sessão (add() sem commit ainda conta para
-    # autoflush — um commit futuro e não relacionado, na mesma sessão de
-    # longa duração do bridge, arrastaria essa linha fantasma).
+    # valida heart_rate_min/max contra os valores efetivos finais (não só os desta chamada);
+    # busca ANTES de qualquer db.add() para não deixar linha fantasma pendurada na sessão
     existing = db.query(PersonalizedThreshold).filter_by(patient_id=patient_id).first()
     effective_hr_min = fields.get(
         "heart_rate_min",
@@ -899,10 +722,6 @@ def set_thresholds(db: Session, patient_id: int, **fields) -> dict:
     return get_thresholds(db, patient_id)
 
 
-# ============================================================
-# INICIALIZAÇÃO
-# ============================================================
-
 def create_all_tables():
     """Cria todas as tabelas (use só para desenvolvimento — em produção use Alembic)."""
     Base.metadata.create_all(bind=engine)
@@ -913,21 +732,13 @@ def get_db_session() -> Session:
     return SessionLocal()
 
 
-# ============================================================
-# QUERIES ANALÍTICAS
-# ============================================================
-
 class Analytics:
     """Helper class para queries analíticas complexas."""
 
     @staticmethod
     def heart_rate_trends(db: Session, device_id: int, days: int = 7) -> dict:
         """Tendência de FC nos últimos N dias."""
-        # datetime.utcnow() é "naive" (sem fuso) mas representa UTC; chamar
-        # .timestamp() nele fá-lo-ia ser interpretado como hora LOCAL do
-        # servidor, desviando o corte por exatamente o offset do fuso —
-        # usa-se datetime.now(timezone.utc), que é "aware" e converte para
-        # epoch corretamente em qualquer servidor.
+        # datetime.now(timezone.utc), não utcnow(): naive.timestamp() seria interpretado como hora local
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         records = db.query(SensorRecord).filter(
             and_(
@@ -976,13 +787,9 @@ class Analytics:
 
     @staticmethod
     def daily_activity_distribution(db: Session, device_id: int, date: datetime) -> dict:
-        """Distribuição de atividades num dia específico.
-
-        `activity_date` é uma coluna DateTime (guarda também a hora); comparar
-        diretamente com `date.date()` nunca encontrava nada (comparação
-        datetime-completo vs. data-nua, mismatch de tipo/formato em SQLite) —
-        usa-se antes um intervalo [início do dia, início do dia seguinte).
-        """
+        """Distribuição de atividades num dia específico. Usa intervalo
+        [início do dia, início do dia seguinte) — activity_date é DateTime completo,
+        comparar direto com date.date() nunca encontrava nada."""
         day_start = datetime(date.year, date.month, date.day)
         day_end = day_start + timedelta(days=1)
         activities = db.query(ActivityWindow).filter(
@@ -1006,19 +813,8 @@ class Analytics:
         return result
 
 
-# ============================================================
-# LEITURA/ESCRITA DO CAMINHO DO DASHBOARD (2026-07-26, migração)
-# ============================================================
-#
-# Funções abaixo substituem storage.py como fonte única de leitura/escrita
-# usada por `ble_bridge.py` (get_history, get_daily_trend, export_csv,
-# retenção configurável, correções de atividade). Antes desta migração,
-# storage.py (SQLite cru) era o caminho primário e storage_advanced.py só
-# recebia uma cópia em segundo plano (dual-write, ver orm_persistence.py).
-# Os dicts devolvidos por get_records_since/export_records_csv usam
-# deliberadamente as MESMAS chaves que storage.py devolvia (ax/ay/az em vez
-# de accel_x/accel_y/accel_z, etc.) para o dashboard não precisar de
-# nenhuma alteração — só a fonte dos dados muda, o formato na rede não.
+# funções usadas por ble_bridge.py (get_history, export_csv, retenção, correções de atividade).
+# dicts devolvidos usam as mesmas chaves que storage.py (ax/ay/az, etc.) para o dashboard não mudar.
 
 DEFAULT_RETENTION_DAYS = 30
 MIN_RETENTION_DAYS = 1
@@ -1027,12 +823,8 @@ RETENTION_DAYS_SETTING_KEY = "retention_days"
 
 
 def get_records_since(db: Session, device_id: int, hours: float) -> list[dict]:
-    """Devolve os registos de sensores das últimas `hours` horas para o
-    dispositivo indicado, mais antigos primeiro — equivalente a
-    storage.get_records_since(). Filtra por `received_at` (instante em que
-    o bridge recebeu o registo), não por `timestamp_utc` (relógio do
-    dispositivo, que pode estar dessincronizado) — mesmo critério que
-    storage.py já usava."""
+    """Registos das últimas `hours` horas, mais antigos primeiro. Filtra por
+    received_at (bridge), não timestamp_utc (dispositivo pode estar dessincronizado)."""
     cutoff = datetime.utcnow() - timedelta(hours=hours)
     rows = (
         db.query(SensorRecord)
@@ -1059,14 +851,12 @@ def _sensor_record_to_dict(r: "SensorRecord") -> dict:
 
 
 def count_records(db: Session, device_id: int) -> int:
-    """Nº total de registos de sensores guardados para o dispositivo —
-    equivalente a storage.count_records()."""
+    """Nº total de registos de sensores guardados para o dispositivo."""
     return db.query(SensorRecord).filter(SensorRecord.device_id == device_id).count()
 
 
 def export_records_csv(db: Session, device_id: int, hours: float) -> str:
-    """Exporta os registos das últimas `hours` horas como texto CSV —
-    equivalente a storage.export_records_csv(), mesmas colunas."""
+    """Exporta os registos das últimas `hours` horas como CSV."""
     import csv
     import io
 
@@ -1085,10 +875,8 @@ def export_records_csv(db: Session, device_id: int, hours: float) -> str:
 
 
 def get_daily_summary(db: Session, device_id: int, days: float = 7) -> list[dict]:
-    """Agrega os registos de sensores por dia civil (UTC) — equivalente a
-    storage.get_daily_summary(). Agregação feita em SQL (não em Python)
-    pela mesma razão documentada em storage.py: uma janela de vários dias
-    pode ter dezenas de milhares de registos (IMU a ~14-52/seg)."""
+    """Agrega os registos de sensores por dia civil (UTC). Agregação em SQL, não Python:
+    uma janela de vários dias pode ter dezenas de milhares de registos (IMU ~14-52Hz)."""
     cutoff = datetime.utcnow() - timedelta(days=days)
     day_expr = func.date(SensorRecord.timestamp_utc, "unixepoch").label("day")
     rows = (
@@ -1119,9 +907,7 @@ def get_daily_summary(db: Session, device_id: int, days: float = 7) -> list[dict
 
 
 def get_retention_days(db: Session) -> float:
-    """Devolve a retenção atualmente configurada (dias), ou
-    DEFAULT_RETENTION_DAYS se nunca tiver sido alterada — equivalente a
-    storage.get_retention_days()."""
+    """Retenção atualmente configurada (dias), ou DEFAULT_RETENTION_DAYS se nunca alterada."""
     row = db.query(Setting).filter_by(key=RETENTION_DAYS_SETTING_KEY).first()
     if row is None:
         return DEFAULT_RETENTION_DAYS
@@ -1132,9 +918,7 @@ def get_retention_days(db: Session) -> float:
 
 
 def set_retention_days(db: Session, days) -> float:
-    """Atualiza a retenção configurada — equivalente a
-    storage.set_retention_days(). Lança ValueError se `days` estiver fora
-    dos limites de sanidade."""
+    """Atualiza a retenção configurada. Lança ValueError se fora dos limites de sanidade."""
     days = float(days)
     if not (MIN_RETENTION_DAYS <= days <= MAX_RETENTION_DAYS):
         raise ValueError(
@@ -1152,8 +936,7 @@ def set_retention_days(db: Session, days) -> float:
 def insert_activity_correction(
     db: Session, device_id: int, original_category: Optional[str], corrected_category: str
 ) -> None:
-    """Grava uma correção manual do cuidador/equipa clínica à classificação
-    de atividade da IA — equivalente a storage.insert_activity_correction()."""
+    """Grava uma correção manual do cuidador/equipa clínica à classificação de atividade da IA."""
     db.add(ActivityCorrection(
         device_id=device_id,
         original_category=original_category,
@@ -1161,10 +944,6 @@ def insert_activity_correction(
     ))
     db.commit()
 
-
-# ============================================================
-# POLÍTICAS DE RETENÇÃO
-# ============================================================
 
 class DataRetention:
     """Gestão automática de retenção de dados."""
@@ -1231,12 +1010,7 @@ class DataRetention:
             db.commit()
         results["medication_adherence"] = count
 
-        # EmergencyAlert (soft delete, mesmo padrão de Alert) — GDPR-006
-        # (decisão da utilizadora, 2026-07-31): 8 anos, já não "para sempre".
-        # Base em created_at (data de ingestão pelo bridge), não em
-        # timestamp_utc (hora do evento no firmware, inteiro epoch) — mesma
-        # base temporal usada por "alerts", suficientemente próxima da hora
-        # real do evento para uma janela de retenção de anos.
+        # EmergencyAlert (soft delete, GDPR-006, 8 anos); base em created_at, não timestamp_utc
         cutoff = cutoff_date - timedelta(days=DataRetention.RETENTION_POLICIES["emergency_alerts"])
         query = db.query(EmergencyAlert).filter(
             and_(EmergencyAlert.created_at < cutoff, EmergencyAlert.deleted_at.is_(None))
@@ -1250,47 +1024,20 @@ class DataRetention:
         return results
 
 
-# ============================================================
-# PERFIL DE EMERGÊNCIA (emergencyProfileChar, ver src/Ble/Ble.cpp) —
-# subconjunto curado de dados de saúde do paciente, servido pelo firmware
-# por leitura BLE só depois de pairing/bonding (ver PROJECT_STATUS.md,
-# 2026-07-31, "Nova characteristic GATT de leitura de emergência"). Função
-# pura (só lê `db`, nunca escreve nada) para ser fácil de testar isolada —
-# quem grava o resultado no dispositivo é `ble_bridge.py`.
-# ============================================================
+# perfil de emergência (emergencyProfileChar, ver src/Ble/Ble.cpp) — servido por BLE após
+# pairing/bonding; função pura (só lê db), quem grava no dispositivo é ble_bridge.py
 
-# Tem de bater certo com EMERGENCY_PROFILE_MAX_LEN em
-# include/Storage/Storage.h (teto do SoftDevice para um atributo GATT de
-# tamanho variável, BLE_GATTS_VAR_ATTR_LEN_MAX) — é o orçamento de bytes
-# usado pela política de corte abaixo.
-EMERGENCY_PROFILE_MAX_LEN = 512
+EMERGENCY_PROFILE_MAX_LEN = 512  # tem de bater com EMERGENCY_PROFILE_MAX_LEN em include/Storage/Storage.h
 
 
 def build_emergency_profile_payload(db: Session, patient_id: int) -> bytes:
-    """Constrói o JSON (UTF-8, <= EMERGENCY_PROFILE_MAX_LEN bytes) escrito
-    em emergencyProfileWriteChar e depois servido por leitura em
-    emergencyProfileChar.
+    """Constrói o JSON (UTF-8, <= EMERGENCY_PROFILE_MAX_LEN bytes) servido em
+    emergencyProfileChar. Chaves: name, ec (contacto emergência), cond/alrg
+    (condições/alergias), med (medicação ativa). Chaves de listas vazias omitidas.
 
-    Chaves: "name" (Patient.name), "ec" (contacto de emergência —
-    Patient.emergency_contact_*, omitido se nenhum dos três campos estiver
-    preenchido), "cond"/"alrg" (PatientCondition/PatientAllergy ativos —
-    `.display_text` já vem decifrado pela property do modelo), "med"
-    (Medication ativa: não soft-deletada e sem end_date já passado).
-    Chaves de listas vazias são omitidas (poupa bytes, e é o que o
-    dashboard/app já vai assumir ao verificar "cond" in perfil).
-
-    Se o JSON completo exceder EMERGENCY_PROFILE_MAX_LEN bytes (paciente
-    com muitas condições/alergias/medicações — não há precedente disto no
-    codebase, política nova), corta-se itens do FIM de "cond", depois
-    "med", depois "alrg" — por esta ordem porque alergias são a informação
-    mais crítica em emergência (risco real de reação a algo administrado
-    pelo socorrista), por isso são a última coisa a perder — até caber, e
-    marca-se "trunc": true para o dashboard/app poder avisar que a lista
-    pode estar incompleta. Nome e contacto de emergência NUNCA são
-    cortados, mesmo que o payload continue a exceder o limite depois de
-    esvaziar as três listas (caso extremo, só possível com um nome/
-    contacto muito longos) — quem escreve isto por BLE (ble_bridge.py)
-    fica sujeito aos limites físicos do protocolo nesse cenário.
+    Se exceder o limite, corta itens do fim de cond, depois med, depois alrg (por
+    esta ordem: alergias são a info mais crítica em emergência, última a perder),
+    marcando "trunc": true. Nome e contacto de emergência nunca são cortados.
     """
     patient = (
         db.query(Patient)
@@ -1330,14 +1077,7 @@ def build_emergency_profile_payload(db: Session, patient_id: int) -> bytes:
     if allergies:
         payload["alrg"] = [a.display_text for a in allergies]
 
-    # Medicação "atual": não soft-deletada e ainda não terminada (end_date
-    # NULL = sem data de fim prevista, ou end_date no futuro/agora).
-    # datetime.utcnow() (naive), não datetime.now(timezone.utc) — mesmo
-    # precedente do resto deste ficheiro (ver Analytics.
-    # medication_adherence_summary/get_records_since acima): só é preciso
-    # a variante "aware" quando se chama .timestamp() a seguir para
-    # comparar contra uma coluna inteira de epoch, o que não é o caso aqui
-    # (Medication.end_date é DateTime nativo).
+    # medicação "atual": não soft-deletada e end_date NULL ou no futuro
     now = datetime.utcnow()
     medications = (
         db.query(Medication)
@@ -1356,22 +1096,13 @@ def build_emergency_profile_payload(db: Session, patient_id: int) -> bytes:
         ]
 
     def _dump(p: dict) -> bytes:
-        # separators sem espaço + ensure_ascii=False: minimiza bytes (o
-        # orçamento é apertado) e mantém acentuação em UTF-8 real em vez de
-        # escapes \uXXXX (que gastariam 6 bytes por carácter acentuado em
-        # vez de 2).
+        # sem espaços + ensure_ascii=False: minimiza bytes, mantém UTF-8 real (não \uXXXX)
         return json.dumps(p, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
     data = _dump(payload)
     if len(data) > EMERGENCY_PROFILE_MAX_LEN:
-        # "trunc": true e' adicionado ANTES do loop de corte (nao depois),
-        # de proposito: e' preciso contar os bytes do proprio marcador no
-        # orcamento enquanto se decide quantos itens cortar, senao o loop
-        # podia parar exatamente no limite e a flag acrescentada a seguir
-        # empurrava o payload de volta para cima de EMERGENCY_PROFILE_MAX_LEN
-        # (bug real, apanhado por
-        # tests/test_storage_advanced.py::TestBuildEmergencyProfilePayload::
-        # test_payload_never_exceeds_max_len_and_sets_trunc_flag).
+        # trunc=True ANTES do loop de corte: tem de contar no orçamento, senão o loop
+        # podia parar no limite e a flag empurrava de volta para cima dele
         payload["trunc"] = True
         data = _dump(payload)
         for key in ("cond", "med", "alrg"):
@@ -1394,39 +1125,15 @@ def build_emergency_profile_payload(db: Session, patient_id: int) -> bytes:
     return data
 
 
-# ============================================================
-# TIMELINE CORRELACIONADA POR EPISÓDIO (2026-08-05)
-# ------------------------------------------------------------
-# Motivação: hoje, quando surge um alerta de emergência (SOS/queda), o
-# cuidador só vê o alerta isolado no dashboard -- não vê o que estava a
-# acontecer nos minutos antes/depois (FC a subir? o paciente estava
-# classificado como "Atividade" ou "Descanso"? houve outro alerta
-# próximo?). Esta secção junta esses dados dispersos (SensorRecord,
-# ActivityWindow, EmergencyAlert) numa timeline única, ordenada no tempo,
-# centrada num alerta de emergência concreto -- sem inventar nenhuma
-# correlação estatística, só reunir o que já existe em tabelas separadas.
-# ============================================================
+# timeline correlacionada por episódio: junta SensorRecord/ActivityWindow/EmergencyAlert
+# numa timeline única centrada num alerta de emergência, sem inventar correlação estatística
 
 
 def _activity_window_epoch_range(window: "ActivityWindow") -> tuple[int, int]:
-    """Reconstrói (start_ts_approx, end_ts_approx), em epoch, a partir de
-    `ActivityWindow.start_time`/`end_time` (MINUTOS DESDE A MEIA-NOITE
-    LOCAL do bridge -- não epoch, ver `insert_activity_window` em
-    orm_persistence.py, que os grava a partir de `time.localtime()` do
-    relógio do bridge) e `activity_date` (a data desse dia).
-
-    APROXIMAÇÃO, não a hora real do dispositivo -- mesmo tipo de limitação
-    já assumida em DAY_SESSION_START_HOUR (bridge/activity_inference.py):
-    os dois campos nasceram em rotinas diferentes e nunca houve unificação
-    de representação de tempo, tal como o comentário de CLASS_TO_DB_CATEGORY
-    (mesmo ficheiro) documenta para o vocabulário de categorias de
-    atividade -- este é o mesmo tipo de inconsistência já assumida no
-    projeto, desta vez de REPRESENTAÇÃO DE TEMPO, não de vocabulário.
-    `time.mktime()` interpreta a hora reconstruída como hora LOCAL do
-    servidor onde o bridge corre (não do dispositivo, que pode estar
-    noutro fuso) -- a melhor aproximação disponível sem alterar o esquema
-    (ver PersonalizedThreshold/ActivityWindow acima, sem coluna de fuso
-    horário nenhuma)."""
+    """Reconstrói (start_ts_approx, end_ts_approx) em epoch a partir de
+    ActivityWindow.start_time/end_time (minutos desde meia-noite LOCAL do bridge,
+    não epoch — ver insert_activity_window em orm_persistence.py) e activity_date.
+    Aproximação via time.mktime() em hora local do servidor, não do dispositivo."""
     day_start_local = datetime.combine(window.activity_date.date(), datetime.min.time())
     start_local = day_start_local + timedelta(minutes=window.start_time or 0)
     end_local = day_start_local + timedelta(minutes=window.end_time or 0)
@@ -1436,39 +1143,19 @@ def _activity_window_epoch_range(window: "ActivityWindow") -> tuple[int, int]:
 
 
 def build_episode_timeline(db: Session, device_id: int, center_ts: int, window_minutes: int = 30) -> dict:
-    """Reúne, numa única estrutura ordenada no tempo, os dados dispersos à
-    volta de um instante `center_ts` (Unix epoch, segundos -- tipicamente o
-    `timestamp_utc` de um `EmergencyAlert`): sinais vitais (downsampled por
-    minuto), blocos de classificação de atividade que se sobrepõem à
-    janela, e outros alertas de emergência próximos. Janela aplicada para
-    AMBOS os lados: [center_ts - window_minutes*60, center_ts +
-    window_minutes*60].
-
-    Nunca lança exceção por "não haver dados" -- uma janela vazia devolve
-    listas vazias, é um resultado válido (ex.: dispositivo sem sensores
-    ligados nesse período, ou sem outros alertas por perto)."""
+    """Reúne, ordenados no tempo, os dados em torno de `center_ts` (epoch, tipicamente
+    timestamp_utc de um EmergencyAlert): sinais vitais downsampled por minuto, blocos
+    de atividade sobrepostos, alertas próximos. Janela: [center_ts - window_minutes*60,
+    center_ts + window_minutes*60]. Nunca lança exceção por falta de dados (janela vazia é válida)."""
     window_start = int(center_ts - window_minutes * 60)
     window_end = int(center_ts + window_minutes * 60)
 
-    # ---- sensor_summary: downsampling por minuto, feito em SQL (não em
-    # Python) pela mesma razão documentada em get_daily_summary() acima --
-    # o IMU grava a ~14-52Hz, uma janela de 60 min podia ter dezenas de
-    # milhares de linhas em bruto. func.avg()/func.count() ignoram NULL
-    # nativamente (semântica SQL padrão), o que dá exatamente "média entre
-    # os registos não-nulos desse minuto" e "ignora minutos sem nenhuma
-    # leitura" sem lógica extra em Python. Filtra por `received_at` (não
-    # `timestamp_utc`) pelo mesmo critério de get_records_since() -- ver o
-    # comentário lá para o porquê.
+    # sensor_summary: downsampling por minuto em SQL (IMU ~14-52Hz, janela de 60min
+    # podia ter dezenas de milhares de linhas). func.avg/count ignoram NULL nativamente.
     received_start = datetime.fromtimestamp(window_start, tz=timezone.utc).replace(tzinfo=None)
     received_end = datetime.fromtimestamp(window_end, tz=timezone.utc).replace(tzinfo=None)
-    # Agrupa por minuto do relógio do DISPOSITIVO (timestamp_utc truncado),
-    # não do bridge (received_at) -- é o timestamp_utc que é diretamente
-    # comparável a center_ts (também um timestamp_utc de EmergencyAlert).
-    # Divisão inteira com "//" (não "/"): o SQLAlchemy insere um CAST para
-    # NUMERIC em "/" sobre colunas Integer (força divisão em vírgula
-    # flutuante, cross-dialect) -- "//" mantém os dois operandos como
-    # inteiros e trunca ao minuto como pretendido (confirmado a correr
-    # contra SQLite real, ver bridge/tests/test_episode_timeline.py).
+    # agrupa por minuto do relógio do dispositivo (timestamp_utc); "//" não "/" mantém inteiros
+    # (SQLAlchemy insere CAST NUMERIC em "/" sobre Integer, forçando float cross-dialect)
     minute_expr = ((SensorRecord.timestamp_utc // 60) * 60).label("minute_ts")
     sensor_rows = (
         db.query(
@@ -1497,14 +1184,8 @@ def build_episode_timeline(db: Session, device_id: int, center_ts: int, window_m
         for r in sensor_rows
     ]
 
-    # ---- activity_blocks: ActivityWindow acumula muito mais devagar que
-    # SensorRecord (poucos blocos por dia, não dezenas por segundo) -- um
-    # pré-filtro largo (+-2 dias) por activity_date evita carregar todo o
-    # histórico do dispositivo, e o filtro exato de sobreposição acontece
-    # depois em Python, sobre os epochs reconstruídos por
-    # _activity_window_epoch_range (só é possível calcular a sobreposição
-    # depois de reconstruir, porque start_time/end_time não são epoch --
-    # ver essa função).
+    # activity_blocks: pré-filtro largo (+-2 dias) por activity_date evita carregar todo
+    # o histórico; sobreposição exata calculada depois em Python sobre epochs reconstruídos
     coarse_start = received_start - timedelta(days=2)
     coarse_end = received_end + timedelta(days=2)
     candidate_windows = (
@@ -1531,12 +1212,8 @@ def build_episode_timeline(db: Session, device_id: int, center_ts: int, window_m
             })
     activity_blocks.sort(key=lambda b: b["start_ts_approx"])
 
-    # ---- nearby_emergency_alerts: todos os EmergencyAlert do mesmo
-    # dispositivo dentro da janela (excluindo soft-deletados, GDPR-006).
-    # Esta função não sabe qual é "o alerta central" (só recebe center_ts,
-    # um número simples) -- a exclusão do próprio alerta central é feita
-    # por get_episode_timeline_for_alert() abaixo, que É quem sabe o
-    # sequence_number a excluir.
+    # nearby_emergency_alerts: exclusão do próprio alerta central fica a cargo de
+    # get_episode_timeline_for_alert() abaixo, que é quem sabe o sequence_number
     alert_rows = (
         db.query(EmergencyAlert)
         .filter(
@@ -1569,12 +1246,9 @@ def build_episode_timeline(db: Session, device_id: int, center_ts: int, window_m
 def get_episode_timeline_for_alert(
     db: Session, device_id: int, sequence_number: int, window_minutes: int = 30
 ) -> dict:
-    """Timeline centrada num EmergencyAlert concreto, identificado por
-    (device_id, sequence_number) -- a mesma chave da UniqueConstraint
-    uq_emergency_device_seq. Lança ValueError se o alerta não existir (ou
-    estiver soft-deletado, GDPR-006) -- ao contrário de
-    build_episode_timeline(), aqui "não encontrado" é um erro do chamador
-    (sequence_number errado), não uma janela vazia legítima."""
+    """Timeline centrada num EmergencyAlert (device_id, sequence_number). Lança
+    ValueError se o alerta não existir/estiver soft-deletado — aqui "não encontrado"
+    é erro do chamador, não uma janela vazia legítima."""
     alert = (
         db.query(EmergencyAlert)
         .filter(
@@ -1589,10 +1263,8 @@ def get_episode_timeline_for_alert(
             f"alerta de emergencia nao encontrado: device_id={device_id} sequence_number={sequence_number}"
         )
     result = build_episode_timeline(db, device_id, alert.timestamp_utc, window_minutes)
-    # Exclui o próprio alerta central de "nearby" -- já vai à parte em
-    # result["alert"]. Comparação por sequence_number (não por identidade
-    # de objeto ORM -- nearby_emergency_alerts já são dicts simples nesta
-    # altura, não instâncias de EmergencyAlert).
+    # exclui o alerta central de "nearby" (já vai em result["alert"]); comparação por
+    # sequence_number pois nearby_emergency_alerts já são dicts, não instâncias ORM
     result["nearby_emergency_alerts"] = [
         a for a in result["nearby_emergency_alerts"] if a["sequence_number"] != sequence_number
     ]
@@ -1604,18 +1276,9 @@ def get_episode_timeline_for_alert(
     return result
 
 
-# ============================================================
-# VERSIONAMENTO E ROLLBACK DO MODELO ML (2026-08-05)
-# ------------------------------------------------------------
-# Motivação: `activity_inference.py::_load_model()` carregava sempre o
-# mesmo caminho fixo (ml/models/activity_classifier_rf.joblib +
-# _labels.json), sem histórico de versões nem forma de voltar atrás se um
-# modelo retreinado se revelar pior. Esta secção guarda o registo de
-# versões NA BASE DE DADOS (não num ficheiro solto ao lado do .joblib) e
-# dá ao bridge/dashboard forma de trocar a versão ativa em runtime — ver
-# activity_inference.py (_load_model/reload_active_model) e ble_bridge.py
-# (cmds "list_model_versions"/"activate_model_version").
-# ============================================================
+# versionamento e rollback do modelo ML: regista versões na BD, permite trocar a
+# ativa em runtime — ver activity_inference.py (_load_model/reload_active_model)
+# e ble_bridge.py (cmds "list_model_versions"/"activate_model_version")
 
 
 class MlModelVersion(Base):
@@ -1641,10 +1304,7 @@ class MlModelVersion(Base):
 
 
 def _ml_model_version_to_dict(row: "MlModelVersion") -> dict:
-    """Formato comum devolvido pelos 4 helpers abaixo — um único sítio a
-    decidir o shape exposto ao bridge/dashboard, mesmo raciocínio do resto
-    do ficheiro (ex. _sensor_record_to_dict). `metrics` é desserializado
-    de volta de `metrics_json` (None se nunca foi passado nenhum)."""
+    """Formato comum devolvido pelos helpers abaixo. `metrics` é desserializado de `metrics_json`."""
     return {
         "id": row.id,
         "model_name": row.model_name,
@@ -1670,17 +1330,9 @@ def register_model_version(
     notes: Optional[str] = None,
     activate: bool = False,
 ) -> dict:
-    """Regista uma nova versão do modelo `model_name`. Lança ValueError se
-    já existir uma versão com o mesmo (model_name, version) — apanha o
-    IntegrityError da UniqueConstraint uq_ml_model_name_version, faz
-    rollback e relança com mensagem clara; nunca deixa o IntegrityError cru
-    do SQLAlchemy propagar até a quem chamou (mesmo padrão de
-    insert_emergency_alert em orm_persistence.py, mas aqui o duplicado É
-    um erro do chamador, não um replay legítimo a ignorar).
-
-    Se `activate=True`, ativa esta versão logo a seguir, reutilizando
-    `activate_model_version` (não duplica a lógica de "só uma ativa de
-    cada vez")."""
+    """Regista uma nova versão do modelo `model_name`. Lança ValueError se já existir
+    (model_name, version) — apanha o IntegrityError da UniqueConstraint e relança com
+    mensagem clara. Se `activate=True`, ativa a versão via activate_model_version."""
     row = MlModelVersion(
         model_name=model_name,
         version=str(version),
@@ -1705,9 +1357,7 @@ def register_model_version(
 
 
 def list_model_versions(db: Session, model_name: str) -> list[dict]:
-    """Todas as versões registadas de `model_name`, mais recentes primeiro
-    (por id — mesmo critério de desempate do resto do ficheiro, ver
-    has_valid_consent/_next_consent_version acima)."""
+    """Todas as versões registadas de `model_name`, mais recentes primeiro (por id)."""
     rows = (
         db.query(MlModelVersion)
         .filter(MlModelVersion.model_name == model_name)
@@ -1718,11 +1368,8 @@ def list_model_versions(db: Session, model_name: str) -> list[dict]:
 
 
 def activate_model_version(db: Session, model_name: str, version: str) -> dict:
-    """Marca a versão pedida como ativa e TODAS as outras do mesmo
-    `model_name` como inativas — nunca podem ficar duas ativas em
-    simultâneo. Feito numa única transação (sem lock explícito — SQLite/o
-    padrão do resto do ficheiro já não usa). Lança ValueError se a versão
-    não existir para este modelo."""
+    """Marca a versão pedida como ativa e todas as outras do mesmo `model_name` como
+    inativas — nunca duas ativas em simultâneo. Lança ValueError se a versão não existir."""
     target = (
         db.query(MlModelVersion)
         .filter(MlModelVersion.model_name == model_name, MlModelVersion.version == str(version))
@@ -1740,10 +1387,8 @@ def activate_model_version(db: Session, model_name: str, version: str) -> dict:
 
 
 def get_active_model_version(db: Session, model_name: str) -> Optional[dict]:
-    """A versão ativa registada para `model_name`, ou None se nenhuma
-    estiver registada ainda — caso do arranque a frio contra uma BD nova,
-    tratado por activity_inference.py::_load_model() como "usa o caminho
-    fixo de sempre e regista essa carga como a versão inicial"."""
+    """A versão ativa registada para `model_name`, ou None se nenhuma ainda registada
+    (arranque a frio — activity_inference.py::_load_model() usa o caminho fixo)."""
     row = (
         db.query(MlModelVersion)
         .filter(MlModelVersion.model_name == model_name, MlModelVersion.is_active.is_(True))
@@ -1752,15 +1397,9 @@ def get_active_model_version(db: Session, model_name: str) -> Optional[dict]:
     return _ml_model_version_to_dict(row) if row is not None else None
 
 
-# ============================================================
-# EXEMPLO DE USO
-# ============================================================
-
 if __name__ == "__main__":
-    # Criar tabelas
     create_all_tables()
 
-    # Exemplo: inserir um utilizador
     db = get_db_session()
     new_user = User(
         uuid="usr-001",
@@ -1772,10 +1411,7 @@ if __name__ == "__main__":
     db.add(new_user)
     db.commit()
 
-    # Exemplo: analytics
     print(Analytics.medication_adherence_summary(db, patient_id=1, days=30))
-
-    # Exemplo: data retention (dry-run)
     print(DataRetention.cleanup(db, dry_run=True))
 
     db.close()

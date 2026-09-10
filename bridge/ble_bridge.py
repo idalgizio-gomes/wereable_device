@@ -1,98 +1,28 @@
 #!/usr/bin/env python3
 """
-ble_bridge.py — Ponte entre o wearable (BLE) e o dashboard web (WebSocket).
+ble_bridge.py — ponte entre o wearable (BLE) e o dashboard web (WebSocket).
 
-CONTEXTO
---------
-O dashboard web (web/dashboard/index.html), quando corrido localmente num
-browser, não consegue ligar-se diretamente ao dispositivo Bluetooth sem
-depender da API "Web Bluetooth" (que só existe no Chrome/Edge e nunca vai
-existir no Safari/iOS — limitação da Apple). Para funcionar em mais
-browsers, e para já termos uma base reutilizável quando houver apps móveis
-nativas, este script faz de intermediário:
+Liga-se ao dispositivo BLE "Wearable", sincroniza a hora (characteristic
+0x2A2B) se ainda estiver em provisioning, depois subscreve dumpDataChar/
+dumpStatusChar e pede o streaming (0x01 em dumpCtrlChar). Remonta os
+fragmentos FullPlain (39 bytes) e reenvia cada registo em JSON via
+WebSocket (ws://localhost:8765). Também subscreve emergencyAlertChar e
+reencaminha alertas de imediato ao dashboard, disparando notifications.py
+(SMS/email + escalonamento) quando as credenciais Twilio/SendGrid e os
+contactos CAREWEAR_CAREGIVER_*/CAREWEAR_EMERGENCY_CONTACT_* estão
+configurados — nunca contacta o 112 (ver notifications.py).
 
-    Wearable (BLE, GATT) <--> este script (Python, bleak) <--> WebSocket
-                                                                    |
-                                                          dashboard web (JS)
+Cifra: desde 2026-07-07 cada FullPlain vai em AES-CTR (nonce de 32 bits
+por registo, ver encryptRecord()/allocateNonce() em src/Ble/Ble.cpp). O
+bridge decifra com a mesma chave, passada em CAREWEAR_AES_KEY_HEX (hex de
+16/24/32 bytes); sem ela, descarta os registos em vez de os interpretar
+como texto simples. Não é troca de chaves segura, só o suficiente para o
+protótipo local; não testado com hardware real.
 
-Este script:
-  1. Procura e liga-se ao dispositivo BLE chamado "Wearable" (ver
-     Bluefruit.setName("Wearable") em src/main.cpp).
-  2. Se ainda estiver na fase de "provisioning" (à espera de hora — ver
-     Ble::ensureTimeSync() em src/Ble/Ble.cpp), escreve automaticamente a
-     hora atual (UTC) na characteristic padrão "Current Time" (0x2A2B).
-     Isto substitui o que antes só era possível fazer manualmente pelo
-     nRF Connect ou pelo bypass de depuração WAKE/SLEEP na porta série.
-  3. Depois de o dispositivo entrar em "modo de dados", subscreve as
-     notificações de dumpDataChar (registos de sensores fragmentados) e
-     dumpStatusChar (estado da transmissão), e pede o início do streaming
-     escrevendo 0x01 em dumpCtrlChar.
-  4. Remonta os fragmentos de cada registo (FullPlain, 39 bytes) e reenvia
-     cada registo já descodificado, em JSON, a todos os clientes WebSocket
-     ligados a este script (por omissão, ws://localhost:8765).
-  5. Subscreve também emergencyAlertChar (módulo firmware Emergency — SOS
-     manual ou queda+inatividade confirmada) e reencaminha o alerta de
-     imediato para o dashboard, sem passar pelo limite de taxa dos
-     registos normais. Desde 2026-07-17 também aciona `notifications.py`
-     (ver `_dispatch_emergency_notifications`/`EscalationManager`) para
-     notificar o(s) cuidador(es) + o contacto de emergência do paciente
-     por SMS/email (Twilio/SendGrid), e escalar ao contacto de emergência
-     se o alerta não for confirmado dentro do prazo E cair dentro do
-     horário declarado de indisponibilidade do cuidador — NUNCA contacta
-     o 112 ou qualquer serviço de emergência real (ver a "DECISÃO
-     DELIBERADA SOBRE O 112" no cabeçalho de notifications.py). Precisa de
-     `CAREWEAR_TWILIO_*`/`CAREWEAR_SENDGRID_*` + `CAREWEAR_CAREGIVER_*`/
-     `CAREWEAR_EMERGENCY_CONTACT_*` no ambiente (ver
-     `_load_notification_recipients_from_env` abaixo); sem isso, degrada
-     para um aviso no log, nunca finge notificar nem bloqueia o alerta ao
-     dashboard.
-
-CIFRA AES-CTR DO "MODO DE DADOS" (2026-07-07)
-----------------------------------------------
-Até 2026-07-07 o registo transmitido no "modo de dados" ia em texto
-simples pelo ar, apesar de o dispositivo já trocar e guardar uma chave
-AES — ver PROJECT_STATUS.md para o histórico. Isso deixou de ser verdade:
-o firmware (src/Ble/Ble.cpp, `encryptRecord()`) cifra agora cada FullPlain
-com AES-CTR (128/192/256 bits, conforme o comprimento da chave) antes de
-fragmentar, usando um nonce de 32 bits por registo (campo novo "nonce" em
-DumpDataPacket) derivado de um contador persistente dedicado no firmware
-(ver allocateNonce()/reserveNonceBatch() em src/Ble/Ble.cpp) — nunca
-reutilizado enquanto a chave não mudar.
-
-Este script decifra usando a MESMA chave, mas **NÃO existe (ainda) nenhuma
-app de provisioning que entregue essa chave ao bridge de forma automática
-e segura** — só o dispositivo a recebe hoje (via nRF Connect/app manual,
-characteristic aesKeyChar, escrita única). Solução honesta desta fase,
-adequada a um protótipo local (o bridge já assume confiança total do
-ambiente onde corre — "Canal não autenticado — só deve ser exposto em
-localhost", ver PROJECT_STATUS.md): quem faz o provisioning do dispositivo
-configura o bridge com a MESMA chave (em hexadecimal) através da variável
-de ambiente `CAREWEAR_AES_KEY_HEX`. Sem essa variável definida, o bridge
-não consegue decifrar os registos — regista um aviso (uma vez) e
-descarta-os em vez de os interpretar como texto simples (o que produziria
-valores de sensores fabricados/sem sentido, ver `_on_dump_data`).
-
-    export CAREWEAR_AES_KEY_HEX=<32/48/64 caracteres hex = 16/24/32 bytes>
-    python ble_bridge.py
-
-**Limitação honesta, por resolver numa fase futura**: isto não é uma troca
-de chaves segura (Diffie-Hellman ou semelhante) nem uma app de
-provisioning real — é a forma mais simples e honesta de fechar o ciclo
-com o que já existe hoje neste protótipo. Não testado com o firmware real
-em hardware (bloqueado pela indisponibilidade atual da placa — ver
-PROJECT_STATUS.md, "Riscos/bloqueios ativos"); o protocolo de
-cifra/decifra foi validado byte a byte com um script Python à parte
-(round-trip determinístico), não com o par firmware↔bridge real.
-
-DEPENDÊNCIAS
--------------
+    export CAREWEAR_AES_KEY_HEX=<hex de 16/24/32 bytes>
     pip install bleak websockets pycryptodome
-
-UTILIZAÇÃO
-----------
     python ble_bridge.py
-    # depois abrir web/dashboard/index.html num browser; a página tenta
-    # ligar-se sozinha a ws://localhost:8765.
+    # abrir web/dashboard/index.html; liga-se sozinho a ws://localhost:8765
 """
 
 from __future__ import annotations
@@ -106,7 +36,7 @@ import time
 from datetime import datetime, time as dt_time, timedelta, timezone
 from pathlib import Path
 from typing import Optional
-from uuid import uuid4  # RF-07: chave publica de cada alerta persistido
+from uuid import uuid4  # chave publica de cada alerta persistido
 
 import websockets
 from bleak import BleakClient, BleakScanner
@@ -114,21 +44,9 @@ from bleak.backends.characteristic import BleakGATTCharacteristic
 from Crypto.Cipher import AES
 
 try:
-    # storage_advanced.py (via este módulo) é, desde 2026-07-26, a ÚNICA
-    # base de dados do bridge — sqlalchemy/argon2-cffi passaram a estar em
-    # requirements.txt (deixaram de ser opcionais, ver requirements.txt).
-    # O try/except mantém-se por segurança (uma instalação desatualizada
-    # sem essas dependências não deve impedir `import ble_bridge` de
-    # suceder), mas agora significa "sem persistência nenhuma", não "sem
-    # dual-write" — ver aviso impresso abaixo e RuntimeError explícito nos
-    # comandos de leitura do dashboard (get_history/get_daily_trend/
-    # export_csv/set_retention_days) quando orm_persistence é None.
+    # storage_advanced.py e' a unica base de dados do bridge; sem ela fica
+    # sem persistencia (historico/export/retencao do dashboard falham).
     import orm_persistence
-    # storage_advanced (aqui "sa", mesmo alias usado por orm_persistence.py)
-    # e' uma dependencia transitiva de orm_persistence — se o import acima
-    # teve sucesso, este tambem tem; importado a parte so' porque
-    # build_emergency_profile_payload() e' chamado diretamente daqui (ver
-    # gatilho em run_device_loop), nao so' através de self.orm.
     import storage_advanced as sa
     import auth_sessions
 except ImportError as exc:
@@ -140,11 +58,7 @@ except ImportError as exc:
     sa = None
     auth_sessions = None
 
-# Valores de recurso para get_retention_days quando o proprio modulo
-# orm_persistence nao importou (caso extremo — sem ele nem sequer as
-# constantes DEFAULT/MIN/MAX_RETENTION_DAYS existem). Identicos aos
-# valores reais em storage_advanced.py; so' usados quando ha' zero
-# persistencia disponivel.
+# fallback quando orm_persistence nao importa; iguais aos valores reais em storage_advanced.py
 _FALLBACK_DEFAULT_RETENTION_DAYS = 30
 _FALLBACK_MIN_RETENTION_DAYS = 1
 _FALLBACK_MAX_RETENTION_DAYS = 3650
@@ -155,49 +69,28 @@ from ws_transport import (
     build_ssl_context as _build_ssl_context,
 )
 
-import vital_alerts  # baseline comportamental personalizada (2026-08-05,
-# ver storage_advanced.py::PersonalizedThreshold) — sem dependências
-# externas (só typing), por isso importado direto, sem try/except: nunca é
-# o elo mais fraco da cadeia de imports opcionais desta secção.
+import vital_alerts  # baseline comportamental personalizada (storage_advanced.py::PersonalizedThreshold)
 
 try:
-    # Notificações externas de alertas de emergência (SMS/email + escalonamento,
-    # ver notifications.py) — não deve exigir twilio/sendgrid instalados só
-    # para importar ble_bridge.py (notifications.py já faz esse import tardio
-    # lá dentro, só quando as credenciais estão de facto configuradas); este
-    # try/except cobre só o caso (improvável) de o próprio ficheiro faltar.
+    # notifications.py faz o import tardio de twilio/sendgrid; este try cobre so' o ficheiro em falta
     import notifications
 except ImportError as exc:
     print(f"[BRIDGE] AVISO: modulo notifications indisponivel ({exc}); notificacoes de emergencia desativadas")
     notifications = None
 
 try:
-    # Classificação de atividade em tempo real sobre o IMU (ver
-    # activity_inference.py, 2026-07-20) — scikit-learn/joblib/pandas só
-    # estão em requirements_db.txt, não no requirements.txt mínimo usado por
-    # start_carewear.bat, por isso este import nunca pode impedir
-    # `import ble_bridge` de suceder numa instalação mínima.
+    # scikit-learn/joblib/pandas so' em requirements_db.txt, nao no minimo usado por start_carewear.bat
     import activity_inference
 except ImportError as exc:
     print(f"[BRIDGE] AVISO: modulo activity_inference indisponivel ({exc}); classificacao de atividade desativada")
     activity_inference = None
 
-# Vocabulário das 5 categorias de atividade (PT), duplicado aqui em vez de
-# lido de activity_inference.CLASS_TO_DB_CATEGORY de propósito: o cuidador
-# tem de conseguir REGISTAR uma correção (cmd "correct_activity", ver
-# handle_dashboard_command) mesmo quando activity_inference não importou
-# (instalação mínima sem scikit-learn/pandas, ver try/except acima) — a
-# classificação automática pode estar desligada sem que a correção manual
-# também tenha de ficar.
+# duplicado de activity_inference.CLASS_TO_DB_CATEGORY para a correcao manual (cmd "correct_activity")
+# continuar a funcionar mesmo sem activity_inference instalado
 ACTIVITY_CORRECTION_CATEGORIES = ("Dormir", "Descanso", "Atividade", "Alimentação", "Higiene")
 
-# Versionamento e rollback do modelo ML (2026-08-05, ver
-# storage_advanced.py::MlModelVersion e activity_inference.DEFAULT_MODEL_NAME)
-# — duplicado aqui em vez de lido de activity_inference de propósito, mesmo
-# raciocínio de ACTIVITY_CORRECTION_CATEGORIES acima: os comandos "listar"/
-# "ativar versão" do dashboard passam só por `sa` (não por
-# self.activity_inference), por isso continuam a funcionar mesmo quando
-# activity_inference não importou (instalação mínima sem scikit-learn/
+# duplicado de activity_inference.DEFAULT_MODEL_NAME pelo mesmo motivo: comandos de versao do
+# dashboard passam so' por `sa`, por isso funcionam mesmo sem activity_inference (ver
 # pandas) — só a troca em tempo real (reload_active_model) é que fica sem
 # efeito nesse caso, ver cmd "activate_model_version" abaixo.
 ML_MODEL_NAME = "activity_classifier_rf"
@@ -320,33 +213,9 @@ async def _ws_process_request(connection, request):
     return await ws_transport.process_request(connection, request, sa=sa, auth_sessions=auth_sessions)
 
 
-# ============================================================
-# RF-02 — AUTORIZACAO POR PERFIL NO CANAL WEBSOCKET (2026-09-07)
-#
-# Ate esta data handle_dashboard_command() despachava os 17 comandos sem
-# consultar identidade nem perfil. A sessao era resolvida em ws_transport
-# mas so' alimentava o campo user_id do registo de auditoria — auditoria
-# nao e' autorizacao. Uma ligacao anonima executava get_history,
-# export_csv, set_consent, set_retention_days e o destrutivo
-# reset_readings.
-#
-# Os perfis abaixo sao os da coluna users.role da base de dados
-# ('family', 'clinician', 'admin'), e NAO os nomes usados no dashboard
-# ('utente', 'clinico', 'admin') — a traducao entre uns e outros e' feita
-# no cliente por API_ROLE_TO_DASHBOARD_ROLE.
-#
-# O mapa nao foi inventado: cada comando foi atribuido ao perfil da vista
-# do dashboard que efetivamente o invoca, levantado ficheiro a ficheiro.
-#   - vitais e tendencia sao vistas do perfil Utente/Familia, e e' de la'
-#     que saem get_thresholds/set_thresholds e get_daily_trend;
-#   - exportar e' vista exclusiva do perfil Medico/Tecnico, e e' o seu
-#     AFTER_RENDER que carrega retencao, consentimento e versoes de modelo;
-#   - dispositivo e' exclusiva do Medico/Tecnico, dai reset_readings.
-#
-# 'admin' nao consta de nenhum comando clinico por decisao ja documentada
-# no cabecalho de web/dashboard/admin-view.js: o administrador navega
-# entre paginas de gestao mas nunca abre o dossie clinico de ninguem.
-# ============================================================
+# autorizacao por perfil no canal WebSocket. Perfis = users.role da BD ('family', 'clinician',
+# 'admin'), nao os nomes do dashboard — traducao em API_ROLE_TO_DASHBOARD_ROLE. Cada comando
+# mapeado ao perfil da vista que o invoca; 'admin' nunca abre dossie clinico.
 _ROLES_CUIDADOR_E_CLINICO = ("family", "clinician")
 _ROLES_SO_CLINICO = ("clinician",)
 
@@ -354,12 +223,6 @@ WS_COMMAND_ROLES = {
     "force_reading":         _ROLES_CUIDADOR_E_CLINICO,
     "set_ble_enabled":       _ROLES_CUIDADOR_E_CLINICO,
     "acknowledge_alert":     _ROLES_CUIDADOR_E_CLINICO,
-    # RF-07/RF-08 (2026-09-07): consultar e confirmar alertas persistidos.
-    # Perfil Utente/Familia + Clinico pela mesma razao de acknowledge_alert
-    # acima — quem recebe o alerta e' quem tem de o poder confirmar, e a
-    # vista "Resumo" onde o botao vive e' do perfil Utente/Familia. 'admin'
-    # continua de fora: um alerta traz titulo, motivo clinico e nota livre
-    # do cuidador, ou seja, e' dossie clinico.
     "get_alerts":            _ROLES_CUIDADOR_E_CLINICO,
     "confirm_alert":         _ROLES_CUIDADOR_E_CLINICO,
     "get_history":           _ROLES_CUIDADOR_E_CLINICO,
@@ -369,8 +232,7 @@ WS_COMMAND_ROLES = {
     "set_thresholds":        _ROLES_CUIDADOR_E_CLINICO,
     "correct_activity":      _ROLES_CUIDADOR_E_CLINICO,
     "export_csv":            _ROLES_CUIDADOR_E_CLINICO,
-    # Exclusivos do perfil clinico: apagam dados, alteram politicas de
-    # governacao ou trocam o modelo de inferencia em producao.
+    # exclusivos do perfil clinico: apagam dados, alteram governacao ou trocam o modelo em producao
     "reset_readings":        _ROLES_SO_CLINICO,
     "get_retention_days":    _ROLES_SO_CLINICO,
     "set_retention_days":    _ROLES_SO_CLINICO,
@@ -380,13 +242,8 @@ WS_COMMAND_ROLES = {
     "activate_model_version": _ROLES_SO_CLINICO,
 }
 
-
-# ============================================================
-# CIFRA AES-CTR (ver cabecalho do ficheiro, "CIFRA AES-CTR DO MODO DE
-# DADOS") — chave lida uma unica vez do ambiente, em hexadecimal, tem de
-# ser EXATAMENTE a mesma chave escrita no dispositivo via aesKeyChar
-# durante o provisioning (16/24/32 bytes = 32/48/64 caracteres hex).
-# ============================================================
+# chave AES lida uma vez do ambiente; tem de ser EXATAMENTE a chave gravada no dispositivo
+# via aesKeyChar durante o provisioning (16/24/32 bytes = 32/48/64 caracteres hex)
 _AES_KEY_HEX_ENV = "CAREWEAR_AES_KEY_HEX"
 
 def _load_aes_key_from_env() -> Optional[bytes]:
@@ -407,45 +264,22 @@ def _load_aes_key_from_env() -> Optional[bytes]:
     print(f"[BRIDGE] chave AES carregada do ambiente ({len(key) * 8} bits)")
     return key
 
-# ============================================================
-# NOTIFICAÇÕES EXTERNAS DE EMERGÊNCIA (SMS/email, ver notifications.py) —
-# mesma convenção de configuração por variável de ambiente usada acima para
-# a chave AES e o TLS opcional. As credenciais Twilio/SendGrid propriamente
-# ditas (CAREWEAR_TWILIO_*, CAREWEAR_SENDGRID_*, CAREWEAR_NOTIFY_FROM_EMAIL,
-# CAREWEAR_ESCALATION_TIMEOUT_MIN) são lidas diretamente por
-# notifications.py — aqui só carregamos QUEM notificar (cuidador(es) +
-# contacto de emergência) e QUANDO o cuidador está tipicamente indisponível
-# (ScheduleWindow), porque isso é específico de cada instalação/paciente,
-# não do provedor de SMS/email. Deliberadamente por variáveis de ambiente
-# (não um novo ficheiro de configuração) para não introduzir mais uma forma
-# de configurar o bridge além da já existente.
-# ============================================================
+# notificacoes externas de emergencia: credenciais Twilio/SendGrid ficam em notifications.py;
+# aqui so' QUEM notificar e QUANDO o cuidador esta indisponivel (especifico da instalacao/paciente)
 _CAREGIVER_NAME_ENV = "CAREWEAR_CAREGIVER_NAME"
 _CAREGIVER_PHONE_ENV = "CAREWEAR_CAREGIVER_PHONE"
 _CAREGIVER_EMAIL_ENV = "CAREWEAR_CAREGIVER_EMAIL"
-# NOTA: o contacto de emergência é sempre uma PESSOA (ex.: vizinho/familiar),
-# nunca um número de emergência real — ver a "DECISÃO DELIBERADA SOBRE O
-# 112" no cabeçalho de notifications.py. Só tem telefone no esquema atual
-# (Patient.emergency_contact_*), sem coluna de email, mas aceitamos
-# CAREWEAR_EMERGENCY_CONTACT_EMAIL na mesma para não bloquear instalações
-# futuras que queiram configurar um email também.
+# contacto de emergencia e' sempre uma PESSOA (vizinho/familiar), nunca o 112 (ver notifications.py)
 _EMERGENCY_CONTACT_NAME_ENV = "CAREWEAR_EMERGENCY_CONTACT_NAME"
 _EMERGENCY_CONTACT_PHONE_ENV = "CAREWEAR_EMERGENCY_CONTACT_PHONE"
 _EMERGENCY_CONTACT_EMAIL_ENV = "CAREWEAR_EMERGENCY_CONTACT_EMAIL"
-# JSON: lista de {"weekday": 0-6 (0=segunda, ver datetime.weekday()),
-# "start": "HH:MM", "end": "HH:MM"}. Ex.:
-#   CAREWEAR_CAREGIVER_SCHEDULE_JSON='[{"weekday":0,"start":"08:00","end":"17:00"}]'
+# JSON: lista de {"weekday": 0-6 (0=segunda), "start": "HH:MM", "end": "HH:MM"}
 _CAREGIVER_SCHEDULE_ENV = "CAREWEAR_CAREGIVER_SCHEDULE_JSON"
 
 
 def _load_notification_recipients_from_env():
-    """Lê do ambiente quem notificar num alerta de emergência real. Sem
-    NENHUMA variável definida, devolve ([], None, None) — o bridge continua
-    a funcionar normalmente, só que `_dispatch_emergency_notifications` não
-    tem ninguém para notificar (regista um aviso uma vez, ver __init__).
-    Nunca levanta exceção: um horário mal formado (JSON inválido, chave em
-    falta) só descarta esse horário especificamente — nunca impede o resto
-    da configuração de carregar nem o arranque do bridge."""
+    """Le' do ambiente quem notificar num alerta real; sem variaveis definidas devolve
+    ([], None, None) — nunca levanta excecao, um horario mal formado so' descarta esse horario."""
     caregivers = []
     name = os.environ.get(_CAREGIVER_NAME_ENV)
     if name:
@@ -486,35 +320,17 @@ def _load_notification_recipients_from_env():
     return caregivers, emergency_contact, schedule
 
 def decrypt_full_plain(key: bytes, nonce: int, ciphertext: bytes) -> bytes:
-    """Decifra um registo FullPlain (39 bytes) cifrado pelo firmware com
-    AES-CTR (ver encryptRecord() em src/Ble/Ble.cpp) — reproduz o MESMO
-    desenho de contador ali usado, byte a byte:
-
-      IV de 16 bytes = [nonce de 32 bits, big-endian (4 bytes)]
-                     + [0x00000000 (4 bytes)]
-                     + [contador de bloco de 8 bytes, comeca em 0]
-
-    so' os ultimos 8 bytes do IV incrementam entre blocos de 16 bytes
-    (equivalente a CTR.setCounterSize(8) no firmware); os primeiros 8
-    bytes ficam fixos como prefixo desta mensagem. Cada bloco de
-    keystream e' AES_ECB(chave, bloco_contador); a cifra e' um XOR simples
-    entre o texto cifrado e o keystream — por isso decifrar e' a MESMA
-    operacao que cifrar (propriedade do modo CTR).
-
-    Implementado com AES em modo ECB "cru" (bloco a bloco), em vez de um
-    modo CTR de alto nivel de alguma biblioteca Python, precisamente para
-    controlar byte a byte a construcao do bloco de contador e garantir que
-    bate certo com o firmware sem depender de convencoes de
-    endianness/prefixo que podem diferir entre bibliotecas.
-    """
+    """Decifra um FullPlain (39 bytes) cifrado com AES-CTR (ver encryptRecord()
+    em src/Ble/Ble.cpp). IV de 16 bytes = nonce (4B big-endian) + zeros (4B)
+    + contador de bloco (8B, so' esta parte incrementa). AES-ECB bloco a bloco
+    + XOR, replicando exatamente o firmware (decifrar == cifrar em CTR)."""
     aes = AES.new(key, AES.MODE_ECB)
     counter = bytearray(16)
     counter[0] = (nonce >> 24) & 0xFF
     counter[1] = (nonce >> 16) & 0xFF
     counter[2] = (nonce >> 8) & 0xFF
     counter[3] = nonce & 0xFF
-    # counter[4:8] fica a zero (resto do prefixo fixo); counter[8:16]
-    # (contador de bloco) tambem comeca a zero.
+    # counter[4:16] comeca a zero (prefixo + contador de bloco)
 
     out = bytearray(len(ciphertext))
     offset = 0
@@ -525,9 +341,7 @@ def decrypt_full_plain(key: bytes, nonce: int, ciphertext: bytes) -> bytes:
             out[offset + i] = ciphertext[offset + i] ^ keystream_block[i]
         offset += take
 
-        # Incrementa counter[8:16] como um inteiro big-endian (byte 15 e'
-        # o menos significativo), sem propagar carry para o prefixo
-        # (counter[0:8]) — mesma logica do CTR.cpp do firmware.
+        # incrementa counter[8:16] big-endian sem propagar carry para o prefixo
         idx = 16
         carry = 1
         while idx > 8 and carry:
@@ -554,30 +368,15 @@ def decode_full_plain(raw: bytes) -> dict:
         "steps": steps,
         "freefall": bool(ff),
         "inactivity": bool(inact),
-        # spo2/hr chegam como 0 quando não há leitura nova nesse instante
-        # (ver storageTask em main.cpp) — o dashboard deve ignorar zeros.
+        # spo2/hr chegam a 0 quando nao ha leitura nova (ver storageTask em main.cpp)
         "spo2": spo2 if spo2 != 0 else None,
         "hr": hr if hr != 0 else None,
-        # Indice 0-100 de "pacing"/curvas apertadas via giroscopio (ver
-        # Imu::detectPacing em Imu.cpp) — 0 e' um valor real possivel (sem
-        # curvas apertadas na ultima janela), nao um sentinela de "sem
-        # leitura" como spo2/hr, por isso nao e' convertido para None aqui.
+        # 0-100, "pacing"/curvas apertadas via giroscopio (Imu::detectPacing); 0 e' valor real, nao sentinela
         "pacing_index": pacing_index,
     }
 
-# Limites de plausibilidade física para um registo FullPlain decifrado
-# (2026-07-07, correcao de bug reportado pelo utilizador: dashboard a
-# mostrar FC/SpO2/aceleracao "malucos", a variar em loop). Causa raiz
-# confirmada: a chave AES em device_key.env ja nao bate certo com a
-# chave gravada na flash do dispositivo (aesKeyChar so aceita a
-# primeira escrita — um reprovisionamento nao teve efeito porque a
-# flash ja tinha uma chave guardada), por isso decrypt_full_plain()
-# produz, na pratica, ruido aleatorio reinterpretado como floats/ints.
-# Nao ha' forma de corrigir a chave remotamente sem apagar a flash do
-# dispositivo (acao destrutiva, decisao do utilizador) — por isso este
-# filtro so' pode REJEITAR o lixo antes de chegar ao dashboard/BD, nunca
-# "corrigir" os valores. Limites com folga generosa acima de qualquer
-# leitura humana plausivel (não são limiares clínicos).
+# limites de plausibilidade fisica para rejeitar registos com chave AES errada (ruido reinterpretado
+# como floats/ints); folga generosa, nao sao limiares clinicos
 _MAX_ACCEL_G = 20.0       # IMU nunca deveria exceder ~16g em uso normal
 _MAX_GYRO_DPS = 3000.0    # LSM6DS3 satura bem abaixo disto
 _MAX_STEPS = 200_000_000  # contador de passos plausivel (anos de uso)
@@ -650,40 +449,18 @@ class BleBridge:
         # RF-02: perfil resolvido no handshake, usado por WS_COMMAND_ROLES.
         self.ws_user_roles: dict[websockets.ServerConnection, Optional[str]] = {}
         self._pending_fragments: dict[int, dict] = {}
-        # Dicionário PRÓPRIO para o instantâneo ao vivo (liveSnapshotChar,
-        # 2026-08-06) — deliberadamente separado de _pending_fragments, ver
-        # _on_live_snapshot() para o porquê (mesmo rec_seq pode aparecer nos
-        # dois canais, dicionários separados evitam contaminação cruzada).
+        # dicionario separado do liveSnapshotChar: mesmo rec_seq pode aparecer nos dois canais
         self._live_pending_fragments: dict[int, dict] = {}
         self.connected_device_name: Optional[str] = None
         self.connected_device_mac: Optional[str] = None
         self.last_record_ts: Optional[int] = None
-        # *** LIMITE DE TAXA PARA O DASHBOARD ***: o IMU produz ate ~52
-        # registos/seg, mas a interface web nao precisa de redesenhar a
-        # essa velocidade — e, em testes reais, enviar ao ritmo total
-        # (~14 msgs/seg observadas ja fragmentadas/remontadas) causava
-        # desconexoes repetidas da ligacao WebSocket no browser. Registos
-        # "normais" (sem leitura nova de HR/SpO2) sao amostrados para no
-        # maximo RECORD_BROADCAST_MIN_INTERVAL_S; registos com HR/SpO2
-        # novos sao sempre enviados de imediato (sao raros e importantes).
+        # limite de taxa para o dashboard: IMU produz ate ~52 registos/seg, enviar ao ritmo total
+        # causava desconexoes WebSocket; registos com HR/SpO2 novo sao sempre enviados de imediato
         self._last_broadcast_monotonic = 0.0
-        # true assim que a subscricao a liveSnapshotChar tiver sucesso nesta
-        # ligacao (ver run_device_loop) — usado para decidir ONDE avaliar
-        # os alertas de sinais vitais (ver comentario junto de
-        # _maybe_broadcast_vital_alert() nos dois callbacks de dados).
+        # true apos subscricao a liveSnapshotChar ter sucesso (decide onde avaliar alertas de vitais)
         self._live_snapshot_available = False
-        # Referencia ao cliente BLE atualmente ligado (ou None), para que
-        # comandos vindos do dashboard (ver ws_handler) possam escrever em
-        # dumpCtrlChar sem precisar de re-ligar. So e' valida enquanto
-        # run_device_loop() estiver dentro do "async with BleakClient(...)".
+        # cliente BLE atualmente ligado, para comandos do dashboard escreverem em dumpCtrlChar
         self.current_client: Optional[BleakClient] = None
-        # Persistência (storage_advanced.py via orm_persistence.py) — desde
-        # 2026-07-26 é a ÚNICA base de dados do bridge (storage.py foi
-        # removido). Construído dentro de try/except porque uma falha aqui
-        # (BD indisponível, esquema em migração, etc.) nunca deve impedir o
-        # streaming BLE ao vivo de arrancar — mas, ao contrário da fase de
-        # dual-write, agora significa mesmo "sem histórico/export/retenção"
-        # para esta execução, não "sem cópia secundária".
         self.orm = None
         if orm_persistence is not None:
             try:
@@ -692,22 +469,11 @@ class BleBridge:
                 print(f"[BRIDGE] AVISO GRAVE: persistencia (storage_advanced.py) indisponivel: {exc}. "
                       f"Streaming ao vivo continua; historico/export/retencao do dashboard vao falhar.")
                 self.orm = None
-        # Chave AES para decifrar o "modo de dados" (ver
-        # "CIFRA AES-CTR DO MODO DE DADOS" no cabeçalho deste ficheiro) —
-        # None se CAREWEAR_AES_KEY_HEX não estiver configurada.
         self.aes_key = _load_aes_key_from_env()
         self._missing_key_warned = False
         self._implausible_record_warned = False
-        # Notificações externas de alertas de emergência REAIS (SMS/email +
-        # escalonamento condicional ao contacto de emergência — ver
-        # notifications.py e _dispatch_emergency_notifications abaixo).
-        # Mesma lógica de degradação do self.orm acima: uma instância por
-        # processo do bridge; se notifications.py não estiver disponível
-        # (import falhou, ver topo do ficheiro) ou a configuração do
-        # timeout de escalonamento for inválida, self.escalation_manager
-        # fica None e _on_emergency_alert simplesmente não notifica
-        # ninguém — nunca impede o arranque do bridge nem o broadcast do
-        # alerta ao dashboard, que é o caminho crítico de segurança.
+        # se notifications nao importou, escalation_manager fica None e nunca notifica ninguem,
+        # sem impedir o arranque do bridge nem o broadcast do alerta ao dashboard
         self.escalation_manager = None
         self.notify_caregivers: list = []
         self.notify_emergency_contact = None
@@ -725,28 +491,13 @@ class BleBridge:
                 print(f"[BRIDGE] AVISO: nenhum cuidador/contacto de emergencia configurado "
                       f"({_CAREGIVER_NAME_ENV}/{_EMERGENCY_CONTACT_NAME_ENV}) — alertas de "
                       f"emergencia reais nao vao notificar ninguem fora do dashboard.")
-        # Ver WRITE_COMMAND_MIN_INTERVAL_S abaixo — ultimo instante
-        # (time.monotonic()) em que cada comando de escrita foi aceite,
-        # por nome de comando. Global (nao por-cliente WebSocket) de
-        # proposito: varios separadores do dashboard ligados ao mesmo
-        # bridge partilham o mesmo dispositivo BLE fisico, por isso um
-        # limite por-cliente seria trivial de contornar abrindo outra
-        # ligacao WebSocket.
+        # ultimo instante de cada comando de escrita aceite, por nome. Global (nao por-cliente):
+        # varios separadores do dashboard partilham o mesmo BLE fisico
         self._last_write_command_monotonic: dict[str, float] = {}
-        # Controlo manual da ligacao BLE (pedido do dashboard, ver
-        # handle_dashboard_command "set_ble_enabled"). True = run_device_loop
-        # procura/mantem a ligacao normalmente (comportamento de sempre).
-        # False = o dashboard pediu para largar a ligacao ao wearable (ex.:
-        # libertar o radio/porta serie para outra ferramenta, gravar
-        # firmware novo, ou so' parar de transmitir sinais vitais por
-        # privacidade) — run_device_loop desliga o cliente atual se estiver
-        # ligado e para de tentar reconectar ate' voltar a True. Nao afeta o
-        # WebSocket dashboard<->bridge, que continua ligado normalmente.
+        # True = run_device_loop procura/mantem a ligacao BLE normalmente. False (pedido do
+        # dashboard) = larga a ligacao e para de reconectar ate' voltar a True; WebSocket continua
         self.ble_enabled = True
-        # Classificação de atividade em tempo real (ver activity_inference.py)
-        # — mesmo padrão degradável do self.orm acima: uma falha aqui (modelo
-        # em falta, scikit-learn não instalado) nunca deve impedir o arranque
-        # do bridge nem o streaming BLE, só desativa a classificação.
+        # falha aqui (modelo em falta, scikit-learn nao instalado) nunca impede o arranque
         self.activity_inference = None
         if activity_inference is not None:
             try:
@@ -759,69 +510,25 @@ class BleBridge:
                 print(f"[BRIDGE] AVISO: falha ao inicializar activity_inference: {exc}")
                 self.activity_inference = None
 
-        # Baseline comportamental personalizada (2026-08-05, ver
-        # vital_alerts.py) — último ESTADO (não valor) difundido por sinal
-        # vital, para só notificar o dashboard numa MUDANÇA (entrar/sair de
-        # alerta), nunca a cada leitura individual. None = dentro dos
-        # limiares (ou ainda sem nenhuma leitura avaliada nesta ligação).
+        # ultimo ESTADO (nao valor) difundido por sinal vital, so' notifica o dashboard numa MUDANCA
         self._vital_alert_state: dict[str, Optional[str]] = {"hr": None, "spo2": None}
 
-        # RF-05 (2026-09-07) — deteção de não-uso do dispositivo. Ver o
-        # cabeçalho de vital_alerts.WearDetector: alimentado pelo
-        # instantâneo ao vivo (_on_live_snapshot) e reposto quando a
-        # ligação BLE cai (run_device_loop), para nunca confundir
-        # "retirado do pulso" com "deixou de comunicar".
+        # deteta nao-uso do dispositivo; alimentado por _on_live_snapshot, reposto quando a ligacao cai
         self.wear_detector = vital_alerts.WearDetector()
 
     RECORD_BROADCAST_MIN_INTERVAL_S = 0.25  # no maximo ~4 atualizacoes/seg
-    # Intervalo entre limpezas automaticas de sensor_records (ver
-    # OrmPersistence.purge em orm_persistence.py) - nao precisa de ser
-    # frequente, e' so' para a base de dados nao crescer sem limite num
-    # bridge deixado a correr por muito tempo.
-    RETENTION_CHECK_INTERVAL_S = 6 * 3600
-    # Intervalo da limpeza de retenção do ORM (GDPR-006, ver
-    # periodic_orm_retention_task/DataRetention.cleanup em
-    # storage_advanced.py) — políticas em ANOS, não faz sentido correr com
-    # a mesma cadência de RETENTION_CHECK_INTERVAL_S (6h); uma vez por dia
-    # chega e sobra.
-    ORM_RETENTION_INTERVAL_S = 86400
-    # *** LIMITE DE TAXA PARA COMANDOS DE ESCRITA DO DASHBOARD ***
-    # (2026-07-08, rotina de auditoria de segurança). O canal WebSocket nao
-    # e' autenticado (ver docstring do modulo/handle_dashboard_command) —
-    # ate agora so' o broadcast de leitura tinha um limite de taxa
-    # (RECORD_BROADCAST_MIN_INTERVAL_S); os comandos de escrita
-    # (force_reading, reset_readings, set_retention_days) podiam ser
-    # enviados em loop sem nenhuma limitacao. O caso mais grave e'
-    # "reset_readings": destroi de forma irreversivel os registos guardados
-    # no ring buffer do dispositivo (ver DUMP_CTRL_RESET_READINGS acima) —
-    # qualquer processo local com acesso ao WebSocket podia apagar o
-    # historico do wearable repetidamente, sem limite, so' por enviar a
-    # mesma mensagem JSON em loop. Isto nao substitui autenticacao (fora do
-    # ambito desta correcao — ver PROJECT_STATUS.md/SECURITY_STATUS.md),
-    # mas reduz o dano de um cliente descontrolado/malicioso na rede local.
+    RETENTION_CHECK_INTERVAL_S = 6 * 3600  # limpeza de sensor_records (orm.purge)
+    ORM_RETENTION_INTERVAL_S = 86400  # limpeza GDPR-006 do ORM, politicas em anos
+    # limite de taxa para comandos de escrita do dashboard (canal WebSocket nao autenticado); sem isto
+    # reset_readings podia ser enviado em loop e apagar o historico do wearable repetidamente
     WRITE_COMMAND_MIN_INTERVAL_S = 2.0
-    # BUG CORRIGIDO (2026-07-07, rotina cloud): um registo cujos fragmentos
-    # BLE se percam (notify() nao e' um transporte com confirmacao) ficava
-    # para sempre em _pending_fragments — nunca recebia todos os
-    # fragmentos, por isso nunca era removido em _on_dump_data. A ~14-52
-    # registos/seg, mesmo uma perda de pacotes pequena acumula milhares de
-    # entradas orfas numa sessao de varias horas (fuga de memoria real num
-    # processo pensado para correr continuamente). Qualquer entrada mais
-    # velha do que isto e' considerada perdida e descartada.
+    # fragmentos BLE perdidos (notify() sem confirmacao) ficavam para sempre em _pending_fragments;
+    # entradas mais velhas que isto sao consideradas perdidas e descartadas
     PENDING_FRAGMENT_TIMEOUT_S = 5.0
 
     async def periodic_retention_task(self) -> None:
-        """Aplica a politica de retencao configuravel (ver
-        storage_advanced.get_retention_days/set_retention_days, chamadas
-        via self.orm) uma vez no arranque e depois a cada
-        RETENTION_CHECK_INTERVAL_S enquanto o bridge estiver a correr. So'
-        apaga sensor_records - o registo de emergencias nunca e' apagado
-        automaticamente. Le' o valor configurado a cada ciclo (em vez de o
-        guardar numa variavel) para uma alteracao feita pelo dashboard a
-        meio da execucao (ver handle_dashboard_command, comando
-        set_retention_days) ter efeito no proximo ciclo sem precisar de
-        reiniciar o bridge. Sem self.orm (persistencia indisponivel), nao
-        ha nada para limpar - o ciclo so' regista isso uma vez por ronda."""
+        """Aplica a politica de retencao configuravel (storage_advanced.get/set_retention_days via
+        self.orm) no arranque e a cada RETENTION_CHECK_INTERVAL_S. So' apaga sensor_records."""
         while True:
             try:
                 if self.orm:
@@ -837,17 +544,10 @@ class BleBridge:
             await asyncio.sleep(self.RETENTION_CHECK_INTERVAL_S)
 
     async def periodic_orm_retention_task(self) -> None:
-        """GDPR-006: aplica as políticas de retenção FIXAS do ORM
-        (`DataRetention.cleanup`, ver storage_advanced.py — sensor_records,
-        activity_windows, alerts, anomaly_detections, medication_adherence;
-        emergency_alerts nunca é apagado de propósito) uma vez no arranque e
-        depois a cada `ORM_RETENTION_INTERVAL_S`. Distinta de
-        `periodic_retention_task` acima: essa só cobre SensorRecord com a
-        retenção CONFIGURÁVEL do dashboard (orm.purge); esta
-        cobre as restantes tabelas do ORM que, antes desta task existir,
-        nunca eram processadas em runtime (só no exemplo `__main__` de
-        storage_advanced.py). Mesmo padrão de try/except amplo por
-        iteração: uma falha num ciclo não pode matar a task para sempre."""
+        """GDPR-006: aplica as politicas de retencao FIXAS do ORM (DataRetention.cleanup —
+        sensor_records, activity_windows, alerts, anomaly_detections, medication_adherence;
+        emergency_alerts nunca e' apagado). Distinta de periodic_retention_task, que so' cobre
+        a retencao CONFIGURAVEL do dashboard."""
         while True:
             try:
                 if self.orm:
@@ -864,15 +564,8 @@ class BleBridge:
         if not self.ws_clients:
             return
         message = json.dumps(payload)
-        # Envia a todos os clientes ligados; remove os que já desligaram.
-        # BUG CORRIGIDO (2026-07-07, rotina cloud): iterar diretamente sobre
-        # self.ws_clients (um set partilhado) enquanto este método está
-        # suspenso num `await ws.send(...)` corria a par de ws_handler a
-        # fazer add()/discard() no mesmo set (ligação/desligação de outro
-        # separador do dashboard a meio de um broadcast) — "RuntimeError:
-        # Set changed size during iteration", reproduzido diretamente.
-        # Iterar sobre uma cópia (`list(...)`) torna o broadcast imune a
-        # mutações concorrentes do set original.
+        # itera sobre copia da lista: iterar direto sobre o set causava "RuntimeError: Set changed
+        # size during iteration" quando ws_handler faz add()/discard() a meio de um broadcast
         dead = set()
         for ws in list(self.ws_clients):
             try:
@@ -882,18 +575,8 @@ class BleBridge:
         self.ws_clients -= dead
 
     def _prune_stale_fragments(self) -> None:
-        """BUG CORRIGIDO (2026-07-07, rotina cloud): entradas de
-        _pending_fragments para registos com um ou mais fragmentos BLE
-        perdidos (notify() não tem confirmação/retransmissão) nunca eram
-        removidas — só o eram quando TODOS os fragmentos chegavam. A
-        ~14-52 registos/seg, mesmo uma perda de pacotes pequena acumulava
-        milhares de entradas órfãs numa sessão de várias horas (fuga de
-        memória real). Além disso, uma entrada antiga ainda pendente podia
-        um dia ser reaproveitada por um rec_seq reciclado (o mesmo
-        problema de ordem de grandeza do desgaste do nonce de 32 bits, já
-        documentado), misturando fragmentos de dois registos distintos.
-        Chamado a cada fragmento incompleto recebido; custo desprezável
-        (o dicionário fica sempre pequeno na prática)."""
+        """Remove entradas orfas de _pending_fragments (fragmentos BLE perdidos, notify() sem
+        retransmissao) para evitar fuga de memoria e mistura com rec_seq reciclado."""
         now = time.monotonic()
         stale = [seq for seq, e in self._pending_fragments.items()
                  if now - e["created_at"] > self.PENDING_FRAGMENT_TIMEOUT_S]
@@ -901,9 +584,7 @@ class BleBridge:
             del self._pending_fragments[seq]
 
     def _prune_stale_live_fragments(self) -> None:
-        """Mesma lógica de `_prune_stale_fragments()`, mas sobre
-        `_live_pending_fragments` (canal do instantâneo ao vivo,
-        deliberadamente separado — ver `_on_live_snapshot`)."""
+        """Mesma logica de _prune_stale_fragments(), mas sobre _live_pending_fragments."""
         now = time.monotonic()
         stale = [seq for seq, e in self._live_pending_fragments.items()
                  if now - e["created_at"] > self.PENDING_FRAGMENT_TIMEOUT_S]
@@ -911,34 +592,11 @@ class BleBridge:
             del self._live_pending_fragments[seq]
 
     def _on_live_snapshot(self, _char: BleakGATTCharacteristic, data: bytearray) -> None:
-        """Callback de notificação da characteristic liveSnapshotChar
-        (2026-08-06, ver Ble.cpp::sendLiveSnapshot()) — mesmo formato de
-        fragmento (DumpDataPacket) e cifra do dump histórico
-        (_on_dump_data), mas um "instantâneo" independente do registo
-        mais recente do ring buffer do dispositivo, sem consumir nada
-        dele.
-
-        Existe para resolver um problema real (ver PROJECT_STATUS.md,
-        2026-08-06): o dump histórico (UUID_DUMP_DATA/_on_dump_data)
-        entrega tudo em ordem cronológica, do mais antigo para o mais
-        recente, sem nunca perder dados — mas isso significa que, se o
-        dispositivo gravou muito tempo sem BLE ligado, o dashboard só
-        via dados de minutos atrás, nunca "agora". Este canal dá acesso
-        imediato ao mais recente, em paralelo, sem interferir com o
-        histórico.
-
-        Deliberadamente NÃO participa na persistência (`insert_sensor_
-        record`) nem na classificação de atividade (que precisa de
-        janelas contínuas de ~10s, não de instantâneos avulsos e
-        possivelmente repetidos) — o dump histórico continua a ser a
-        ÚNICA fonte de verdade gravada em `sensor_records`; este canal
-        só difunde ao dashboard como "isto é agora". A reassemblagem
-        usa um dicionário PRÓPRIO (`_live_pending_fragments`),
-        deliberadamente separado de `_pending_fragments` — os dois
-        canais referem-se ao mesmo ring buffer de origem e podem, por
-        coincidência, usar o mesmo rec_seq em momentos próximos;
-        dicionários separados evitam qualquer contaminação cruzada.
-        """
+        """Callback de liveSnapshotChar (Ble.cpp::sendLiveSnapshot()): mesmo formato/cifra do dump
+        historico, mas instantaneo independente do registo mais recente, sem consumir o ring buffer.
+        Da acesso imediato ao "agora" enquanto o dump historico entrega cronologicamente do mais
+        antigo. Nao persiste nem alimenta a classificacao de atividade — so' difunde ao dashboard;
+        usa dicionario proprio (_live_pending_fragments) para nao contaminar _pending_fragments."""
         if len(data) < 12:
             return
         _type, frag_idx, frag_total, chunk_len = data[0], data[1], data[2], data[3]
@@ -976,22 +634,15 @@ class BleBridge:
             return
 
         if self.aes_key is None:
-            return  # já avisado uma vez pelo caminho histórico (_on_dump_data)
+            return  # ja avisado pelo caminho historico (_on_dump_data)
 
         full = decrypt_full_plain(self.aes_key, record_nonce, cipher_full)
         record = decode_full_plain(full)
 
         if not is_plausible_full_plain(record):
-            # Ver is_plausible_full_plain()/_on_dump_data para o porquê
-            # (quase sempre chave/nonce errada) — já avisado uma vez pelo
-            # caminho histórico, não repete o aviso aqui.
-            return
+            return  # chave/nonce errada, ja avisado pelo caminho historico
 
-        # Avalia os alertas de sinais vitais AQUI, não no dump histórico
-        # (ver comentário junto de _maybe_broadcast_vital_alert() em
-        # _on_dump_data para o bug real que isto corrige) — este
-        # instantâneo é sempre o mais recente disponível no dispositivo,
-        # por isso é a fonte certa para "o paciente está bem AGORA?".
+        # avaliado aqui (nao no dump historico) porque este instantaneo e' sempre o mais recente
         if self.orm:
             has_new_vital = record["hr"] is not None or record["spo2"] is not None
             if has_new_vital:
@@ -1004,27 +655,16 @@ class BleBridge:
                 except Exception as exc:  # noqa: BLE001 - nunca deve travar o streaming
                     print(f"[BRIDGE] erro na avaliacao de sinais vitais (instantaneo ao vivo): {exc}")
 
-        # RF-05 (2026-09-07) — não-uso do dispositivo. Avaliado SÓ aqui, no
-        # instantâneo ao vivo, e nunca no dump histórico (_on_dump_data):
-        # o dump reproduz registos gravados enquanto o BLE esteve em baixo,
-        # e esses registos são exatamente o caso "o wearable não estava a
-        # comunicar" que o requisito manda distinguir de "foi retirado".
-        # Alimentá-lo com o backlog produziria "dispositivo removido"
-        # sempre que houvesse uma reconexão com histórico acumulado.
+        # nao-uso do dispositivo: so' aqui, nunca no dump historico (registos gravados sem BLE
+        # ligado dariam falso "dispositivo removido" numa reconexao com backlog)
         self._observe_wear_state(record)
 
         asyncio.create_task(self.broadcast({"kind": "live_record", "rec_seq": rec_seq, **record}))
 
     def _on_dump_data(self, _char: BleakGATTCharacteristic, data: bytearray) -> None:
-        """Callback de notificação da characteristic dumpDataChar.
-
-        Cada notificação é um fragmento (DumpDataPacket, 20 bytes, ver
-        Ble.cpp): type, frag_idx, frag_total, chunk_len, rec_seq (uint32),
-        nonce (uint32, 2026-07-07 — ver "CIFRA AES-CTR DO MODO DE DADOS"),
-        chunk[8]. Um FullPlain (39 bytes), CIFRADO, chega dividido em até 5
-        fragmentos; aqui remontamos por rec_seq até termos todos os bytes,
-        depois decifra-se o registo completo antes de o descodificar.
-        """
+        """Callback de dumpDataChar. Cada notificacao e' um fragmento (DumpDataPacket, 20 bytes):
+        type, frag_idx, frag_total, chunk_len, rec_seq (u32), nonce (u32), chunk[8]. Um FullPlain
+        (39 bytes) cifrado chega em ate 5 fragmentos; remonta por rec_seq antes de decifrar."""
         if len(data) < 12:
             return
         _type, frag_idx, frag_total, chunk_len = data[0], data[1], data[2], data[3]
@@ -1032,13 +672,7 @@ class BleBridge:
         nonce = struct.unpack_from("<I", data, 8)[0]
         chunk = bytes(data[12:12 + chunk_len])
 
-        # frag_idx tem de ser um índice válido dentro de [0, frag_total) —
-        # um único byte corrompido no ar (bit-flip de BLE, já visto noutras
-        # partes deste projeto, ex.: o nonce AES-CTR) podia produzir um
-        # frag_idx fora deste intervalo; sem esta validação, len(parts)
-        # podia atingir "total" com um índice em falta (ex.: 0,1,5 para
-        # total=3), e o join() abaixo rebentava com KeyError não tratado
-        # dentro do callback de notificação BLE.
+        # valida frag_idx contra bit-flip BLE, evitando KeyError no join() abaixo
         if frag_total == 0 or not (0 <= frag_idx < frag_total):
             print(f"[BRIDGE] fragmento com frag_idx={frag_idx} invalido "
                   f"(frag_total={frag_total}, rec_seq={rec_seq}) — descartado")
@@ -1053,14 +687,11 @@ class BleBridge:
             self._prune_stale_fragments()
             return  # ainda faltam fragmentos deste registo
 
-        # Todos os fragmentos chegaram — remonta pela ordem correta.
+        # todos os fragmentos chegaram — remonta pela ordem correta
         try:
             cipher_full = b"".join(entry["parts"][i] for i in range(entry["total"]))
         except KeyError:
-            # len(parts) == total mas os índices não cobrem 0..total-1
-            # (ex.: um frag_idx duplicado ocupou o lugar de outro) — descarta
-            # este registo em vez de deixar a exceção subir para o callback
-            # de notificação do bleak (que pararia o processamento).
+            # indices nao cobrem 0..total-1 (ex.: frag_idx duplicado); descarta em vez de propagar
             print(f"[BRIDGE] rec_seq={rec_seq}: fragmentos completos em contagem "
                   f"mas com indices em falta — registo descartado")
             del self._pending_fragments[rec_seq]
@@ -1086,11 +717,7 @@ class BleBridge:
         record = decode_full_plain(full)
 
         if not is_plausible_full_plain(record):
-            # Ver is_plausible_full_plain() para o porquê: quase sempre
-            # chave/nonce AES errada, nunca um valor real de sensor.
-            # Rejeitar aqui em vez de deixar passar evita mostrar no
-            # dashboard "FC=-18019, passos=2955050482" etc. (bug
-            # reportado pelo utilizador) — mas NAO resolve a causa raiz.
+            # quase sempre chave/nonce AES errada; rejeitar evita mostrar valores absurdos no dashboard
             if not self._implausible_record_warned:
                 self._implausible_record_warned = True
                 print(f"[BRIDGE] AVISO: registo rec_seq={rec_seq} decifrado com valores "
@@ -1103,23 +730,11 @@ class BleBridge:
 
         self.last_record_ts = record["ts"]
 
-        # Persiste TODOS os registos na base de dados (storage_advanced.py,
-        # via self.orm), independentemente do limite de taxa aplicado ao
-        # broadcast por WebSocket logo a seguir — o histórico real não
-        # deve perder amostras só porque o browser não precisa de as ver
-        # todas em tempo real. insert_sensor_record acumula em buffer e faz
-        # flush em lote (não 1 commit/registo) e é tolerante a falha por
-        # dentro; sem self.orm (persistência indisponível), o registo
-        # segue para o dashboard ao vivo na mesma, só não fica guardado.
+        # persiste TODOS os registos, independente do limite de taxa do broadcast a seguir
         if self.orm:
             self.orm.insert_sensor_record(record)
 
-        # Classificação de atividade em tempo real (ver activity_inference.py)
-        # — alimentada por TODOS os registos, não só os que sobrevivem ao
-        # limite de taxa do broadcast abaixo (a janela de 10s precisa do
-        # sinal completo, não de uma amostragem esparsa pensada só para o
-        # browser). Devolve None na maioria das chamadas (ainda a acumular a
-        # janela); só produz um resultado a cada ~10s.
+        # janela de 10s de activity_inference precisa do sinal completo, nao da amostra do broadcast
         if self.activity_inference is not None:
             try:
                 activity_result = self.activity_inference.add_sample(record)
@@ -1130,10 +745,7 @@ class BleBridge:
                 asyncio.create_task(self.broadcast(activity_result))
                 closed = activity_result.get("closed_block")
                 if closed:
-                    # Só persiste em activity_windows quando um BLOCO fecha
-                    # (classe/sessão mudou) — activity_result chega a cada
-                    # ~10s, mas o esquema (start_time/end_time/duration_minutes)
-                    # descreve blocos agregados, não janelas individuais.
+                    # so' persiste quando um bloco fecha (classe/sessao mudou), nao a cada ~10s
                     if self.orm:
                         self.orm.insert_activity_window(closed)
                     asyncio.create_task(self.broadcast({
@@ -1200,12 +812,7 @@ class BleBridge:
         if alert:
             payload.update(alert)
             payload["explanation"] = vital_alerts.explain_vital_alert(alert)
-            # RF-07 (2026-09-07): o alerta deixa de ser só uma mensagem
-            # efémera no WebSocket e passa a ter uma linha na tabela
-            # `alerts` — com severidade, motivo textual e um uuid estável
-            # que o dashboard usa depois para o confirmar (cmd
-            # "confirm_alert") e que o escalonamento por tempo usa para o
-            # subir de nível se ninguém o confirmar.
+            # persiste em `alerts` com uuid estavel para confirmacao (confirm_alert) e escalonamento
             severity = vital_alerts.severity_for_vital_alert(alert)
             payload["severity"] = severity
             alert_uuid = self._persist_alert(
@@ -1221,40 +828,11 @@ class BleBridge:
             payload["explanation"] = vital_alerts.explain_vital_cleared(vital_key, thresholds)
         asyncio.create_task(self.broadcast(payload))
 
-    # ============================================================
-    # RF-07 / RF-08 (2026-09-07) — ALERTAS PERSISTIDOS, CONFIRMAÇÃO E
-    # ESCALONAMENTO POR TEMPO
-    # ------------------------------------------------------------
-    # A tabela `alerts` (bridge/schema.sql, storage_advanced.py::Alert)
-    # existia desde a migração inicial com TODAS as colunas de que estes
-    # dois requisitos precisam — severity, read_by_user_id/read_at,
-    # escalated_to_severity/escalated_at, resolved_by_user_id/resolved_at/
-    # resolution_note — e nenhuma linha de código alguma vez escreveu ou
-    # leu uma única delas. Os métodos abaixo fecham esse gap.
-    #
-    # Porque é que estas escritas não estão em orm_persistence.py, ao lado
-    # de insert_emergency_alert(): esse ficheiro está fora do conjunto de
-    # ficheiros desta alteração (outra frente de trabalho a mexer nele em
-    # paralelo). Usam self.orm.session/self.orm.device_id diretamente, que
-    # é a mesma sessão SQLAlchemy — com o mesmo padrão de commit imediato
-    # + rollback tolerante a falha, para que um erro de base de dados
-    # nunca derrube o callback BLE ou o WebSocket de onde são chamados.
-    # ============================================================
-
-    # Minutos sem confirmação a partir dos quais um alerta sobe um nível na
-    # escada de severidade (RF-07: "sem confirmação ao fim de N minutos").
-    # 15 min é o compromisso escolhido: curto o suficiente para um alerta
-    # ignorado não ficar horas no nível de entrada, longo o suficiente para
-    # não escalar enquanto o cuidador ainda está a caminho do dashboard.
-    ALERT_ESCALATION_MINUTES = 15
-    # Cadência com que periodic_alert_escalation_task() reavalia. Não tem
-    # de ser igual ao prazo acima — só suficientemente fina para o atraso
-    # entre "passaram os 15 min" e "o dashboard vê o novo nível" ser
-    # pequeno face ao próprio prazo.
-    ALERT_ESCALATION_CHECK_INTERVAL_S = 60
-    # Nº máximo de alertas devolvidos pelo cmd "get_alerts" — a tabela tem
-    # retenção de 7 anos (GDPR-006), não se serve isso tudo a um browser.
-    ALERT_LIST_MAX = 100
+    # alertas persistidos, confirmacao e escalonamento por tempo. Escritas diretas em
+    # self.orm.session (nao em orm_persistence.py) — mesma sessao SQLAlchemy, commit + rollback
+    ALERT_ESCALATION_MINUTES = 15  # sem confirmacao ao fim disto, sobe um nivel de severidade
+    ALERT_ESCALATION_CHECK_INTERVAL_S = 60  # cadencia de reavaliacao de periodic_alert_escalation_task
+    ALERT_LIST_MAX = 100  # get_alerts nao serve os 7 anos de retencao (GDPR-006) a um browser
 
     def _persist_alert(
         self,
@@ -1264,9 +842,8 @@ class BleBridge:
         description: str,
         raw_data: Optional[dict] = None,
     ) -> Optional[str]:
-        """Grava um alerta em `alerts` e devolve o seu uuid (ou None se a
-        persistência estiver indisponível/falhar — o alerta segue à mesma
-        para o dashboard ao vivo, só não fica confirmável nem escalável)."""
+        """Grava um alerta em `alerts` e devolve o uuid (None se a persistencia falhar; o alerta
+        segue na mesma ao dashboard ao vivo, so' nao fica confirmavel/escalavel)."""
         if not self.orm or getattr(self.orm, "session", None) is None or self.orm.disabled:
             return None
         if sa is None:
@@ -1295,10 +872,8 @@ class BleBridge:
 
     @staticmethod
     def _alert_to_dict(row) -> dict:
-        """Serializa uma linha de `alerts` para o dashboard. `severity` é
-        sempre o nível ORIGINAL e `effective_severity` o nível a mostrar
-        (já escalado, se foi) — o dashboard precisa dos dois para poder
-        dizer "subiu de aviso para sério", não só mostrar o valor final."""
+        """Serializa uma linha de `alerts`. `severity` e' o nivel original, `effective_severity`
+        o atual (ja escalado, se foi) — o dashboard precisa dos dois para mostrar a subida."""
         def _iso(value):
             return value.isoformat() if value is not None else None
 
@@ -1309,9 +884,7 @@ class BleBridge:
             "severity": row.severity,
             "effective_severity": effective,
             "title": row.title,
-            # `description` é o "motivo textual legível" exigido pelo RF-07:
-            # a frase composta por vital_alerts/explain_wear_state com os
-            # números reais que dispararam o alerta.
+            # frase composta por vital_alerts/explain_wear_state com os numeros que dispararam o alerta
             "reason": row.description,
             "created_at": _iso(row.created_at),
             "read_at": _iso(row.read_at),
@@ -1320,9 +893,7 @@ class BleBridge:
             "escalated_at": _iso(row.escalated_at),
             "resolved_at": _iso(row.resolved_at),
             "resolved_by_user_id": row.resolved_by_user_id,
-            # RF-08: ação tomada + nota livre. A ação fica no início da nota
-            # com um prefixo estável (ver _format_resolution_note) para o
-            # histórico do dashboard as poder separar outra vez.
+            # acao + nota livre, prefixo estavel (_format_resolution_note) para o dashboard separar
             "resolution_note": row.resolution_note,
         }
 
@@ -1341,32 +912,15 @@ class BleBridge:
 
     @staticmethod
     def _format_resolution_note(action: str, note: str) -> str:
-        """RF-08: a ação escolhida e a nota livre partilham a mesma coluna
-        (`resolution_note`) — o esquema não tem coluna própria para a ação
-        e este trabalho não altera o esquema. O prefixo "[ação] " é
-        estável e é o que o dashboard usa para voltar a separar as duas
-        partes no histórico. A nota NÃO é sanitizada aqui de propósito: é
-        texto livre e é guardada tal como foi escrita; quem a mostra é que
-        tem de a escapar (ver escapeHtml() no dashboard)."""
+        """Acao e nota livre partilham a coluna resolution_note; prefixo "[acao] " estavel para o
+        dashboard separar. Nota NAO e' sanitizada aqui — quem a mostra escapa (ver escapeHtml())."""
         note = (note or "").strip()
         return f"[{action}] {note}" if note else f"[{action}]"
 
     async def _escalate_overdue_alerts(self, now: Optional[datetime] = None) -> list:
-        """RF-07: sobe um nível a todos os alertas que continuam sem
-        confirmação ALERT_ESCALATION_MINUTES depois do último marco
-        (criação, ou o escalonamento anterior), registando
-        `escalated_to_severity` e `escalated_at`. Devolve os alertas
-        escalados nesta passagem, já serializados.
-
-        Regras deliberadas:
-          - um alerta confirmado (resolved_at) ou lido (read_at) NUNCA
-            escala — confirmar é exatamente o que o requisito diz que
-            trava o escalonamento;
-          - 'critical' não escala (não há nível acima), por isso o
-            mecanismo nunca "corre em frente" indefinidamente;
-          - a escada é a de vital_alerts.SEVERITY_LADDER, partilhada com o
-            resto do sistema em vez de reimplementada aqui.
-        """
+        """Sobe um nivel os alertas sem confirmacao ha' ALERT_ESCALATION_MINUTES desde o ultimo
+        marco. Alertas confirmados/lidos nunca escalam; 'critical' nao escala (sem nivel acima);
+        escada partilhada com vital_alerts.SEVERITY_LADDER. Devolve os alertas escalados, serializados."""
         if not self.orm or getattr(self.orm, "session", None) is None or self.orm.disabled or sa is None:
             return []
         now = now or datetime.utcnow()
@@ -1404,10 +958,8 @@ class BleBridge:
         return [self._alert_to_dict(r) for r in escalated]
 
     async def _handle_confirm_alert(self, ws, cmd: str, msg: dict) -> None:
-        """RF-07 + RF-08: confirma um alerta (trava o escalonamento) e
-        regista a ação tomada + nota livre. Extraído de
-        handle_dashboard_command só por tamanho — a autorização por perfil
-        já correu lá, antes de chegar aqui (ver WS_COMMAND_ROLES)."""
+        """Confirma um alerta (trava o escalonamento) e regista a acao + nota. Extraido de
+        handle_dashboard_command por tamanho; autorizacao ja correu em WS_COMMAND_ROLES."""
         wait_s = self._check_write_rate_limit(cmd)
         if wait_s is not None:
             await ws.send(json.dumps({
@@ -1460,12 +1012,7 @@ class BleBridge:
                     "error": "alerta desconhecido",
                 }))
                 return
-            # Confirmar é idempotente na parte que importa (o alerta fica
-            # confirmado), mas a PRIMEIRA confirmação é a que conta para o
-            # escalonamento — por isso read_at/resolved_at só são escritos
-            # se ainda estiverem vazios, e uma segunda confirmação só
-            # atualiza a nota (o cuidador pode corrigir o que escreveu sem
-            # reescrever a hora em que de facto viu o alerta).
+            # so' a primeira confirmacao conta para o escalonamento; a segunda so' atualiza a nota
             if row.read_at is None:
                 row.read_at = agora
                 row.read_by_user_id = user_id
@@ -1497,18 +1044,12 @@ class BleBridge:
         await ws.send(json.dumps({
             "kind": "confirm_alert_result", "ok": True, "alert_uuid": alert_uuid, "alert": alerta,
         }))
-        # Difundido a TODOS os dashboards ligados (mesmo raciocínio de
-        # "activity_correction"): se dois cuidadores estão a ver o mesmo
-        # alerta, o segundo tem de deixar de ver o botão de confirmar
-        # assim que o primeiro confirma.
+        # difunde a todos: se dois cuidadores veem o mesmo alerta, o segundo perde o botao confirmar
         asyncio.create_task(self.broadcast({"kind": "alert_confirmed", "alert": alerta}))
 
     async def periodic_alert_escalation_task(self) -> None:
-        """Corre _escalate_overdue_alerts() a cada
-        ALERT_ESCALATION_CHECK_INTERVAL_S e difunde cada subida de nível a
-        todos os dashboards ligados. Mesmo padrão das outras tasks
-        periódicas (periodic_retention_task): try/except por iteração, uma
-        falha num ciclo nunca mata a task para sempre."""
+        """Corre _escalate_overdue_alerts() a cada ALERT_ESCALATION_CHECK_INTERVAL_S e difunde
+        cada subida de nivel."""
         while True:
             try:
                 for alerta in await self._escalate_overdue_alerts():
@@ -1519,14 +1060,9 @@ class BleBridge:
                 print(f"[BRIDGE] erro na task de escalonamento de alertas: {exc}")
             await asyncio.sleep(self.ALERT_ESCALATION_CHECK_INTERVAL_S)
 
-    # ============================================================
-    # RF-05 (2026-09-07) — NÃO-USO DO DISPOSITIVO
-    # ============================================================
     def _observe_wear_state(self, record: dict) -> None:
-        """Alimenta o WearDetector com um registo ao vivo e, em mudança de
-        estado, difunde "wear_status" + persiste um alerta quando o estado
-        novo é "removido". Chamado do callback BLE, por isso nunca pode
-        levantar: qualquer erro fica aqui e não interrompe o streaming."""
+        """Alimenta o WearDetector; em mudanca de estado difunde "wear_status" e persiste um
+        alerta se "removido". Chamado do callback BLE — nunca pode levantar excecao."""
         try:
             evento = self.wear_detector.observe(record)
         except Exception as exc:  # noqa: BLE001
@@ -1554,19 +1090,9 @@ class BleBridge:
         asyncio.create_task(self.broadcast({"kind": "wear_status", **evento}))
 
     def _on_dump_status(self, _char: BleakGATTCharacteristic, data: bytearray) -> None:
-        """Callback de notificação da characteristic dumpStatusChar
-        (DumpStatusPacket, 20 bytes desde 2026-07-21 — antes 16, ver bump
-        de formato em Ble.cpp): type, state, reason, data_loss_flag,
-        seq, sent_records, acked_records, ring_count — ver Ble.cpp para o
-        significado de cada "reason". 'data_loss_flag' (2026-07-03):
-        0=normal, 1=ring buffer quase cheio (aviso antecipado, ainda sem
-        perdas), 2=já a substituir registos antigos não consumidos.
-        'ring_count' (2026-07-21): quantos registos continuam por enviar
-        no ring buffer NESTE INSTANTE — permite ao dashboard calcular uma
-        percentagem real de progresso da transferência (sent_records vs.
-        sent_records + ring_count), em vez de só uma contagem acumulada
-        sem noção de "quanto falta".
-        """
+        """Callback de dumpStatusChar (DumpStatusPacket, 20 bytes): type, state, reason,
+        data_loss_flag (0=normal, 1=ring quase cheio, 2=ja a substituir registos), seq,
+        sent_records, acked_records, ring_count (permite calcular % de progresso real)."""
         if len(data) < 20:
             return
         _type, state, reason, data_loss_flag, seq, sent, acked, ring_count = struct.unpack_from(
@@ -1580,11 +1106,8 @@ class BleBridge:
         }))
 
     def _on_battery_level(self, _char: BleakGATTCharacteristic, data: bytearray) -> None:
-        """Callback de notificação da Battery Level (0x2A19, Battery
-        Service 0x180F padrão) — 1 byte, 0-100 (ver Ble::updateBatteryLevel()
-        em src/Ble/Ble.cpp, publicada a cada 60s pelo firmware). Percentagem
-        aproximada, não uma leitura de precisão — ver PROJECT_STATUS.md,
-        secção "Nível de bateria reportado por BLE"."""
+        """Callback da Battery Level (0x2A19, Battery Service 0x180F) — 1 byte 0-100, publicada
+        a cada 60s pelo firmware (Ble::updateBatteryLevel()); percentagem aproximada."""
         if not data:
             return
         percent = data[0]
@@ -1593,47 +1116,22 @@ class BleBridge:
         asyncio.create_task(self.broadcast({"kind": "battery", "percent": percent}))
 
     def _on_emergency_alert(self, _char: BleakGATTCharacteristic, data: bytearray) -> None:
-        """Callback de notificação de emergencyAlertChar — disparada pelo
-        módulo firmware Emergency ao confirmar um SOS manual (3 cliques)
-        ou uma queda + inatividade prolongada (ver Emergency.cpp). Reenvia
-        de imediato ao dashboard, sem o limite de taxa usado para os
-        registos normais de sensores (é raro e crítico)."""
+        """Callback de emergencyAlertChar — SOS manual (3 cliques) ou queda+inatividade
+        (Emergency.cpp). Reenvia de imediato, sem o limite de taxa dos registos normais."""
         if len(data) < EMERGENCY_ALERT_STRUCT.size:
             return
         alert = decode_emergency_alert(bytes(data[:EMERGENCY_ALERT_STRUCT.size]))
         print(f"[BRIDGE] ALERTA DE EMERGENCIA recebido: {alert['alert_name']} (seq={alert['seq']})")
-        # Escrita imediata do alerta em storage_advanced.py (via self.orm),
-        # com dedup por (device, seq) — ver insert_emergency_alert() em
-        # orm_persistence.py. Tolerante a falha por dentro; não bloqueia o
-        # broadcast do alerta ao dashboard, que é o caminho crítico.
         if self.orm:
-            self.orm.insert_emergency_alert(alert)
+            self.orm.insert_emergency_alert(alert)  # dedup por (device, seq)
         asyncio.create_task(self.broadcast({"kind": "emergency_alert", **alert}))
-        # Notificações externas (SMS/email ao(s) cuidador(es) + escalonamento
-        # condicional ao contacto de emergência — ver notifications.py) NUNCA
-        # podem atrasar/bloquear o broadcast acima, que é o caminho crítico
-        # de segurança: o dashboard tem de ver o alerta de imediato, mesmo
-        # que a Twilio/SendGrid estejam lentas, em baixo, ou nem configuradas.
-        # Por isso corre como uma task asyncio SEPARADA (não um await direto
-        # aqui), criada DEPOIS da task de broadcast, com qualquer erro
-        # apanhado por dentro de _dispatch_emergency_notifications em vez de
-        # poder propagar para este callback de notificação BLE.
+        # task separada: notificacoes externas nunca podem atrasar o broadcast acima
         asyncio.create_task(self._dispatch_emergency_notifications(alert))
 
     async def _dispatch_emergency_notifications(self, alert: dict) -> None:
-        """Aciona o EscalationManager (ver notifications.py) para um alerta
-        de emergência REAL vindo do wearable: notifica de imediato o(s)
-        cuidador(es) + o contacto de emergência, e agenda um escalonamento
-        automático SÓ se o alerta cair dentro do horário declarado de
-        indisponibilidade do cuidador e não for confirmado dentro do prazo
-        (`acknowledge_alert`, ver handle_dashboard_command) — nunca contacta
-        o 112 ou qualquer serviço de emergência real (ver a "DECISÃO
-        DELIBERADA SOBRE O 112" no cabeçalho de notifications.py; o
-        escalonamento é sempre uma mensagem mais urgente a um HUMANO, nunca
-        uma chamada automatizada). `alert_id` combina tipo+seq para ficar
-        estável o suficiente para `acknowledge_alert` cancelar o
-        escalonamento certo, mesmo que 'seq' (uint16) eventualmente dê a
-        volta numa sessão muito longa."""
+        """Aciona o EscalationManager (notifications.py): notifica cuidador(es) + contacto de
+        emergencia, escala so' se cair no horario de indisponibilidade do cuidador e nao for
+        confirmado a tempo. Nunca contacta o 112 (ver notifications.py). alert_id = tipo+seq."""
         if self.escalation_manager is None:
             return
         alert_id = f"{alert['alert_type']}-{alert['seq']}"
@@ -1650,37 +1148,11 @@ class BleBridge:
             print(f"[BRIDGE] erro ao acionar notificacoes de emergencia: {exc}")
 
     async def _ensure_paired(self, client: BleakClient) -> None:
-        """Garante bonding/pairing BLE antes de aceder as characteristics
-        agora protegidas (Fase A de seguranca — ver SECURITY_STATUS.md
-        BLE-001/002/004/006 e Ble.cpp, setPermission(..., SECMODE_ENC_NO_MITM,
-        ...)).
-
-        Confirmado no backend WinRT do bleak (Windows, ver bleak/__init__.py
-        e bleak/backends/winrt/client.py instalados neste ambiente):
-        BleakClient NAO empareia sozinho ao ligar (pair=False por omissao)
-        nem no primeiro acesso GATT — um read/write a uma characteristic
-        ENC_NO_MITM sem pairing previo devolve GattCommunicationStatus.
-        ACCESS_DENIED e o bleak levanta BleakError, em vez de desencadear
-        pairing por si so' (isso so' e' automatico no backend CoreBluetooth/
-        macOS). Por isso e' preciso chamar client.pair() explicitamente aqui,
-        ANTES de qualquer read/write/start_notify as characteristics
-        protegidas (ver run_device_loop() logo a seguir a "async with
-        BleakClient(...)").
-
-        Na primeira ligacao a um dispositivo ainda nao bonded, este pair()
-        pode acionar o dialogo/notificacao de emparelhamento do proprio
-        Windows (fora do controlo deste processo Python) — nas ligacoes
-        seguintes device_information.pairing.is_paired ja e' True e o bleak
-        devolve de imediato, sem UI nenhuma.
-
-        Tolerante a falhas (mesmo padrao de _maybe_send_time acima e de
-        orm_persistence.py/notifications.py/activity_inference.py): se o
-        pairing falhar (ex.: utilizador recusou no Windows, timeout) ou nao
-        for suportado pelo backend em uso (ex.: NotImplementedError num
-        backend tipo CoreBluetooth), regista o erro e deixa o resto da
-        ligacao prosseguir — os reads/writes as characteristics protegidas
-        e' que vao falhar com Access Denied a partir daqui, nao o bridge
-        inteiro."""
+        """Garante bonding/pairing BLE antes de aceder as characteristics SECMODE_ENC_NO_MITM
+        (ver SECURITY_STATUS.md BLE-001/002/004/006). No backend WinRT do bleak, BleakClient nao
+        empareia sozinho ao ligar — read/write sem pairing previo devolve ACCESS_DENIED. Na
+        primeira ligacao pode acionar o dialogo de emparelhamento do Windows. Tolerante a
+        falhas: um erro aqui so' faz os reads/writes protegidos falharem depois, nao o bridge."""
         try:
             await client.pair()
             print("[BRIDGE] pairing/bonding BLE confirmado")
@@ -1708,11 +1180,7 @@ class BleBridge:
         ligação, e volta a tentar automaticamente se cair."""
         while True:
             if not self.ble_enabled:
-                # Pedido do dashboard (ver handle_dashboard_command,
-                # "set_ble_enabled") para largar a ligacao BLE — nao
-                # procura nem liga enquanto isto nao voltar a True.
-                # broadcast ja' foi feito no ponto onde ble_enabled passou
-                # a False (ver abaixo); aqui so' aguardamos, sem repetir.
+                # pedido do dashboard (set_ble_enabled) para largar a ligacao BLE
                 while not self.ble_enabled:
                     await asyncio.sleep(1)
                 continue
@@ -1733,39 +1201,20 @@ class BleBridge:
                     self.connected_device_name = DEVICE_NAME
                     self.connected_device_mac = str(device.address)
                     self.current_client = client
-                    # "mac" (2026-07-21): permite ao dashboard confirmar que o
-                    # wearable realmente ligado é o mesmo registado para o
-                    # paciente selecionado (PATIENTS[].mac), antes de trocar
-                    # dados de demonstração por dados ao vivo na vista
-                    # "Dispositivo & firmware" — ver TEMPLATES.dispositivo.
+                    # mac: permite ao dashboard confirmar que o wearable ligado e' o do paciente selecionado
                     await self.broadcast({
                         "kind": "device_status", "connected": True,
                         "mac": self.connected_device_mac,
                     })
-                    # RF-05: reconexão repõe o detetor em 'unknown' — nunca
-                    # em 'worn'. Só a primeira amostra recebida é que diz
-                    # alguma coisa sobre o pulso do utente (ver o cabeçalho
-                    # de vital_alerts.WearDetector).
+                    # reconexao repoe o detetor em 'unknown', nunca 'worn'
                     evento_uso = self.wear_detector.on_link_restored()
                     if evento_uso:
                         await self.broadcast({"kind": "wear_status", **evento_uso})
 
-                    # Fase A de seguranca BLE (2026-07-20): pairing/bonding
-                    # tem de acontecer ANTES de qualquer read/write/
-                    # start_notify as characteristics agora
-                    # SECMODE_ENC_NO_MITM (ver _ensure_paired acima e
-                    # Ble.cpp::begin()) — por isso corre aqui, logo a
-                    # seguir a ligacao, antes do bloco de dual-write/audit.
+                    # pairing/bonding antes de qualquer acesso a characteristics SECMODE_ENC_NO_MITM
                     await self._ensure_paired(client)
 
-                    # Dual-write (Lote C): regista o MAC real do dispositivo
-                    # (device.address do bleak) e audita o INÍCIO da sessão
-                    # de ingestão. DECISÃO DOCUMENTADA (GDPR-003): audita-se
-                    # UMA entrada por ligação BLE (session_start/session_end),
-                    # nunca por registo de sensor — a ~52 registos/s um audit
-                    # por registo inundaria audit_log e tornaria a auditoria
-                    # inútil. O que importa registar é que uma sessão de
-                    # ingestão de dados de saúde começou/terminou.
+                    # uma entrada de auditoria por ligacao BLE (nao por registo, a ~52/s inundaria audit_log)
                     if self.orm:
                         self.orm.update_device_mac(device.address)
                         self.orm.audit(
@@ -1777,24 +1226,8 @@ class BleBridge:
 
                     await self._maybe_send_time(client)
 
-                    # Perfil de emergencia (emergencyProfileChar, ver
-                    # PROJECT_STATUS.md 2026-07-31): envia o subconjunto
-                    # curado de dados de saude (nome, condicoes, alergias,
-                    # medicacao atual, contacto de emergencia) para o
-                    # firmware guardar/servir por leitura BLE apos pairing.
-                    # Feito logo a seguir a ligacao/pairing, ANTES das
-                    # subscricoes de notify abaixo — o perfil deve estar
-                    # disponivel assim que a ligacao estabiliza, sem
-                    # depender do streaming de sensores ter arrancado.
-                    # response=True (nao False, ao contrario de
-                    # dumpCtrlChar): e' o unico modo com Long Write
-                    # (Prepare/Execute Write) no protocolo ATT, necessario
-                    # porque o payload pode exceder o MTU. Guard extra
-                    # (disabled/session/patient_id) segue o padrao universal
-                    # de orm_persistence.py — evita gerar uma excecao
-                    # "normal" a cada ligacao quando a persistencia esta
-                    # degradada, apesar de estar dentro do try de qualquer
-                    # forma.
+                    # perfil de emergencia (nome, condicoes, alergias, medicacao, contacto): enviado
+                    # antes dos notify() abaixo, response=True porque payload pode exceder o MTU
                     if (
                         self.orm
                         and not self.orm.disabled
@@ -1812,19 +1245,14 @@ class BleBridge:
                         except Exception as exc:  # noqa: BLE001 - nao bloqueia o resto da ligacao
                             print(f"[BRIDGE] nao foi possivel enviar emergencyProfileWriteChar: {exc}")
 
-                    # Subscreve notificacoes de dados e de estado.
+                    # subscreve notificacoes de dados e de estado
                     await client.start_notify(UUID_DUMP_DATA, self._on_dump_data)
                     await client.start_notify(UUID_DUMP_STATUS, self._on_dump_status)
                     try:
                         await client.start_notify(UUID_EMERGENCY_ALERT, self._on_emergency_alert)
                     except Exception as exc:  # noqa: BLE001 - nao bloqueia o resto da ligacao
                         print(f"[BRIDGE] nao foi possivel subscrever emergencyAlertChar: {exc}")
-                    # liveSnapshotChar (2026-08-06) — so existe em firmware a
-                    # partir desta data; tolerante a falha para nao quebrar a
-                    # ligacao com firmware mais antigo (mesmo padrao que
-                    # Battery Level abaixo). Sem isto, o dashboard continua a
-                    # funcionar normalmente, so sem o "instantaneo ao vivo"
-                    # (fica limitado ao dump historico, ver PROJECT_STATUS.md).
+                    # so existe em firmware mais recente; sem isto so' fica sem "instantaneo ao vivo"
                     try:
                         await client.start_notify(UUID_LIVE_SNAPSHOT, self._on_live_snapshot)
                         self._live_snapshot_available = True
@@ -1832,13 +1260,7 @@ class BleBridge:
                         self._live_snapshot_available = False
                         print(f"[BRIDGE] nao foi possivel subscrever liveSnapshotChar "
                               f"(normal em firmware antigo sem esta characteristic): {exc}")
-                    # Battery Level (0x2A19) — so existe em firmware a partir de
-                    # 2026-07-19 (ver Battery.h/Ble.cpp); tolerante a falha para
-                    # nao quebrar a ligacao com firmware mais antigo que ainda
-                    # nao publica este servico. Le o valor atual de imediato
-                    # (nao espera pela primeira notificacao periodica do
-                    # firmware, que so' acontece 60s depois de ligar) e depois
-                    # subscreve para as atualizacoes seguintes.
+                    # le o valor atual antes de subscrever (1ª notificacao periodica so' vem 60s depois)
                     try:
                         initial_battery = await client.read_gatt_char(UUID_BATTERY_LEVEL)
                         self._on_battery_level(None, initial_battery)
@@ -1846,9 +1268,7 @@ class BleBridge:
                     except Exception as exc:  # noqa: BLE001 - nao bloqueia o resto da ligacao
                         print(f"[BRIDGE] nivel de bateria indisponivel (normal em firmware antigo): {exc}")
 
-                    # Pede explicitamente o inicio do streaming (o
-                    # firmware so aceita este comando em modo de dados —
-                    # ver dumpCtrlCallback em Ble.cpp).
+                    # firmware so aceita este comando em modo de dados
                     try:
                         await client.write_gatt_char(UUID_DUMP_CTRL, DUMP_CTRL_START, response=False)
                         print("[BRIDGE] pedido de start enviado (dumpCtrlChar)")
@@ -1857,8 +1277,6 @@ class BleBridge:
                               f"(normal se ainda em provisioning): {exc}")
 
                     print("[BRIDGE] ligado e a receber dados. Ctrl+C para parar.")
-                    # Mantem a ligacao viva ate ela cair sozinha OU o
-                    # dashboard pedir para desligar (ble_enabled -> False).
                     while client.is_connected and self.ble_enabled:
                         await asyncio.sleep(1)
                     if not self.ble_enabled and client.is_connected:
@@ -1871,10 +1289,7 @@ class BleBridge:
             self.connected_device_name = None
             self.connected_device_mac = None
             self.current_client = None
-            # Dual-write (Lote C): garante que o buffer de sensores pendente
-            # é comprometido ao fim da sessão (não fica perdido à espera do
-            # próximo flush por tamanho/tempo) e audita o FIM da sessão de
-            # ingestão (par do session_start acima).
+            # flush do buffer pendente e auditoria de fim de sessao (par do session_start acima)
             if self.orm:
                 self.orm.flush()
                 self.orm.audit(
@@ -1883,29 +1298,18 @@ class BleBridge:
                     resource_id=self.orm.device_id,
                 )
             await self.broadcast({"kind": "device_status", "connected": False, "paused": not self.ble_enabled})
-            # RF-05: a ausência de registos a partir daqui é falta de
-            # ligação, NÃO evidência de que o dispositivo foi retirado —
-            # o detetor apaga os seus contadores para não acumular 30 min
-            # de "silêncio" que na verdade é a ligação em baixo, e o
-            # dashboard passa a mostrar uma mensagem diferente.
+            # ausencia de registos aqui e' falta de ligacao, nao evidencia de dispositivo retirado
             evento_uso = self.wear_detector.on_link_lost()
             if evento_uso:
                 await self.broadcast({"kind": "wear_status", **evento_uso})
             if not self.ble_enabled:
-                # Desligado a pedido do dashboard — nao ha' motivo para
-                # tentar reconectar, o topo do loop vai ficar a aguardar
-                # ble_enabled voltar a True (ver inicio de run_device_loop).
-                continue
+                continue  # desligado a pedido do dashboard, nao tenta reconectar
             print("[BRIDGE] desligado — a tentar reconectar em 3s")
             await asyncio.sleep(3)
 
     def _check_write_rate_limit(self, name: str) -> Optional[float]:
-        """Ver WRITE_COMMAND_MIN_INTERVAL_S. Devolve None e regista o
-        instante atual se o comando `name` puder prosseguir agora, ou o
-        nº de segundos que falta esperar caso contrário (sem registar
-        nada — uma tentativa rejeitada não deve empurrar a janela de
-        limite mais para a frente, senão um cliente em loop apertado
-        conseguiria manter o comando bloqueado para sempre)."""
+        """None se o comando puder prosseguir (regista o instante), senão os segundos a esperar
+        (sem registar nada — um cliente em loop nao pode manter o bloqueio para sempre)."""
         now = time.monotonic()
         last = self._last_write_command_monotonic.get(name, 0.0)
         elapsed = now - last
@@ -1972,10 +1376,7 @@ class BleBridge:
             return
         cmd = msg.get("cmd") if isinstance(msg, dict) else None
 
-        # RF-02: autorizacao por perfil, antes de qualquer efeito. Ver o
-        # cabecalho de WS_COMMAND_ROLES. Um comando desconhecido nao chega
-        # aqui a ser recusado por perfil — cai nos ramos seguintes e e'
-        # ignorado silenciosamente, como sempre foi.
+        # autorizacao por perfil (WS_COMMAND_ROLES), antes de qualquer efeito
         if cmd in WS_COMMAND_ROLES:
             role = self._ws_user_role(ws)
             if role not in WS_COMMAND_ROLES[cmd]:
@@ -2003,31 +1404,14 @@ class BleBridge:
             await self.send_command(ws, cmd)
             return
         if cmd == "set_ble_enabled":
-            # Ligar/desligar manualmente a ligacao BLE ao wearable (botao
-            # do dashboard) — nao e' uma escrita ao dispositivo (so' um
-            # flag local que run_device_loop respeita), por isso nao passa
-            # pelo rate limit de comandos de escrita (_check_write_rate_limit)
-            # nem precisa de payload BLE. Ver self.ble_enabled no __init__.
+            # flag local que run_device_loop respeita; nao passa pelo rate limit de escrita
             self.ble_enabled = bool(msg.get("enabled", True))
             state = "ativada" if self.ble_enabled else "desativada"
             print(f"[BRIDGE] ligacao BLE {state} pelo dashboard")
-            # A desconexao real (se estava ligado) e' tratada por
-            # run_device_loop, que ve' ble_enabled cair a False no seu
-            # proximo ciclo (ate' 1s depois) e chama client.disconnect().
             await ws.send(json.dumps({"kind": "command_result", "cmd": cmd, "ok": True, "enabled": self.ble_enabled}))
             return
         if cmd == "acknowledge_alert":
-            # Confirmação manual de um alerta de emergência (ver
-            # notifications.py, EscalationManager.acknowledge) — cancela o
-            # escalonamento automático pendente ao contacto de emergência,
-            # se houver um agendado para este alert_id. 'alert_id' usa o
-            # mesmo formato "{alert_type}-{seq}" produzido em
-            # _dispatch_emergency_notifications; o dashboard já recebe
-            # 'alert_type' e 'seq' no payload "emergency_alert" e pode
-            # construir o mesmo id. Sem escalation_manager disponível ou
-            # sem alert_id, devolve ok=False sem rebentar — canal não
-            # autenticado, mesmo aviso de sempre (ver docstring deste
-            # método).
+            # cancela o escalonamento automatico pendente; alert_id = "{alert_type}-{seq}"
             alert_id = msg.get("alert_id")
             if self.escalation_manager is None or not alert_id:
                 await ws.send(json.dumps({
@@ -2041,10 +1425,7 @@ class BleBridge:
             }))
             return
         if cmd == "get_alerts":
-            # RF-07/RF-08 (2026-09-07): lista de alertas persistidos com
-            # severidade, motivo, escalonamento e ação registada. Só
-            # responde a quem pediu (não é broadcast) — mesmo padrão de
-            # get_history.
+            # so' responde a quem pediu, nao broadcast (mesmo padrao de get_history)
             try:
                 limit = int(msg.get("limit", self.ALERT_LIST_MAX))
             except (TypeError, ValueError):
@@ -2067,17 +1448,11 @@ class BleBridge:
             }))
             return
         if cmd == "confirm_alert":
-            # RF-07 (confirmação que trava o escalonamento) + RF-08 (ação
-            # tomada e nota livre). Uma única transição: quem confirma um
-            # alerta está simultaneamente a declarar que o viu (read_at) e
-            # a fechá-lo com uma ação (resolved_at + resolution_note).
+            # confirmar = travar escalonamento (read_at) + fechar com acao (resolved_at + nota)
             await self._handle_confirm_alert(ws, cmd, msg)
             return
         if cmd == "get_history":
-            # Pedido de histórico real (ver storage_advanced.py, via
-            # self.orm) — "hours" é opcional, por omissão 24h. Responde só
-            # ao cliente que pediu, não a todos os ligados (ao contrário de
-            # broadcast()).
+            # "hours" opcional, por omissao 24h; responde so' ao cliente que pediu
             hours = msg.get("hours", 24)
             try:
                 hours = float(hours)
@@ -2096,8 +1471,6 @@ class BleBridge:
                 await ws.send(json.dumps({"kind": "history", "records": [], "total_records": 0, "error": str(exc)}))
                 return
             await ws.send(json.dumps({"kind": "history", "records": records, "total_records": total, "hours": hours}))
-            # GDPR-003 (Lote C, lado bridge): auditar o acesso a dados de
-            # paciente. O lado API pertence ao Lote B (api.py) — não mexido.
             if self.orm:
                 self.orm.audit(
                     action="sensor_records.read",
@@ -2108,11 +1481,7 @@ class BleBridge:
                 )
             return
         if cmd == "get_daily_trend":
-            # Histórico REAL agregado por dia (ver
-            # storage_advanced.get_daily_summary, via self.orm) para a
-            # vista "Tendência semanal" do dashboard — leve o suficiente
-            # para não sobrecarregar o WebSocket/browser, ao contrário de
-            # "get_history" (registos em bruto).
+            # agregado por dia, para nao sobrecarregar o browser (ao contrario de get_history)
             days = msg.get("days", 7)
             try:
                 days = float(days)
@@ -2141,10 +1510,7 @@ class BleBridge:
                 )
             return
         if cmd == "export_csv":
-            # Exportação CSV (2026-07-03, pedido do utilizador) — devolve
-            # o texto CSV diretamente, o dashboard trata de o transformar
-            # num download no browser (mesma técnica já usada para o FHIR
-            # JSON, ver exportFhirSummary() em web/dashboard/index.html).
+            # devolve o texto CSV direto; o dashboard trata do download
             hours = msg.get("hours", 24)
             try:
                 hours = float(hours)
@@ -2170,9 +1536,6 @@ class BleBridge:
                 )
             return
         if cmd == "get_retention_days":
-            # Retenção configurável pelo utilizador (ver
-            # storage_advanced.get_retention_days, via self.orm) em vez de
-            # constante fixa no código.
             if self.orm:
                 days = self.orm.get_retention_days()
             elif orm_persistence is not None:
@@ -2220,10 +1583,6 @@ class BleBridge:
                 )
             return
         if cmd == "get_consent_status":
-            # Consentimento granular por âmbito (2026-08-05, ver
-            # orm_persistence.get_consent_status/set_consent) — devolve o
-            # estado atual de cada âmbito reconhecido (sa.CONSENT_SCOPES)
-            # para a UI de consentimento do dashboard.
             if not self.orm:
                 await ws.send(json.dumps({"kind": "consent_status", "status": {}, "error": "persistencia indisponivel"}))
                 return
@@ -2235,11 +1594,6 @@ class BleBridge:
             await ws.send(json.dumps({"kind": "consent_status", "status": status}))
             return
         if cmd == "set_consent":
-            # Concede/revoga consentimento para UM âmbito (ex.: {"cmd":
-            # "set_consent", "scope": "export", "granted": true}). Mesmo
-            # rate limit de escrita que set_retention_days/correct_activity
-            # — canal não autenticado, sem isto um cliente em loop podia
-            # gravar linhas de consentimento sem fim.
             wait_s = self._check_write_rate_limit(cmd)
             if wait_s is not None:
                 await ws.send(json.dumps({
@@ -2271,19 +1625,12 @@ class BleBridge:
             await ws.send(json.dumps({"kind": "consent_result", "ok": True, **result}))
             return
         if cmd == "get_thresholds":
-            # Baseline comportamental personalizada (2026-08-05, ver
-            # storage_advanced.get_thresholds/set_thresholds via self.orm)
-            # — devolve os limiares atuais do paciente (ou os valores por
-            # omissão, com is_default=True) para a UI de "Vitais".
             thresholds = self.orm.get_thresholds() if self.orm else dict(
                 sa.DEFAULT_THRESHOLDS, is_default=True, updated_at=None
             ) if sa is not None else {"is_default": True, "updated_at": None}
             await ws.send(json.dumps({"kind": "thresholds", "thresholds": thresholds}))
             return
-        if cmd == "set_thresholds":
-            # Atualização PARCIAL dos limiares (ex.: {"cmd": "set_thresholds",
-            # "heart_rate_max": 110}). Mesmo rate limit de escrita que
-            # set_consent/set_retention_days.
+        if cmd == "set_thresholds":  # atualizacao parcial, ex.: {"heart_rate_max": 110}
             wait_s = self._check_write_rate_limit(cmd)
             if wait_s is not None:
                 await ws.send(json.dumps({
@@ -2307,11 +1654,7 @@ class BleBridge:
             print(f"[BRIDGE] limiares personalizados atualizados pelo dashboard: {fields}")
             await ws.send(json.dumps({"kind": "thresholds_result", "ok": True, "thresholds": result}))
             return
-        if cmd == "list_model_versions":
-            # Versionamento do modelo ML (2026-08-05, ver storage_advanced.py
-            # MlModelVersion/list_model_versions) — sem parâmetros, é sempre
-            # sobre ML_MODEL_NAME (o único modelo hoje). Só leitura, sem rate
-            # limit, mesmo padrão de get_thresholds/get_episode_timeline.
+        if cmd == "list_model_versions":  # sem parametros: sempre sobre ML_MODEL_NAME
             if sa is None:
                 await ws.send(json.dumps({
                     "kind": "model_versions", "versions": [],
@@ -2329,12 +1672,7 @@ class BleBridge:
                 db.close()
             await ws.send(json.dumps({"kind": "model_versions", "versions": versions}))
             return
-        if cmd == "activate_model_version":
-            # Troca a versão ATIVA do modelo em runtime (ex.: {"cmd":
-            # "activate_model_version", "version": "2"}) — mecanismo de
-            # rollback/promoção sem reiniciar o bridge. Escrita -> mesmo
-            # rate limit de set_thresholds/set_consent/set_retention_days
-            # (canal WebSocket não autenticado).
+        if cmd == "activate_model_version":  # troca a versao ativa em runtime, sem reiniciar o bridge
             wait_s = self._check_write_rate_limit(cmd)
             if wait_s is not None:
                 await ws.send(json.dumps({
@@ -2352,9 +1690,7 @@ class BleBridge:
             db = sa.get_db_session()
             try:
                 activated = sa.activate_model_version(db, ML_MODEL_NAME, version)
-            except ValueError as exc:
-                # Versão inexistente para este modelo — erro do chamador,
-                # não uma falha de infraestrutura.
+            except ValueError as exc:  # versao inexistente, erro do chamador
                 await ws.send(json.dumps({"kind": "model_version_result", "ok": False, "version": version, "error": str(exc)}))
                 return
             except Exception as exc:  # noqa: BLE001
@@ -2363,14 +1699,8 @@ class BleBridge:
                 return
             finally:
                 db.close()
-            # A ativação na BD já teve sucesso nesta altura (linha acima).
-            # reload_active_model() troca o modelo em MEMÓRIA nesta
-            # instância do bridge — só é chamado se self.activity_inference
-            # existir; se não existir, a ativação na BD continua válida
-            # (fica pronta para a próxima vez que o bridge arrancar com
-            # activity_inference disponível), só a classificação em tempo
-            # real É QUE não é afetada por não estar disponível de todo
-            # nesta instância (não é um motivo para bloquear a ativação).
+            # ativacao na BD ja teve sucesso; reload_active_model troca o modelo em memoria so'
+            # se activity_inference existir (senao a ativacao na BD fica valida na mesma)
             reloaded = False
             note = None
             if self.activity_inference is not None:
@@ -2398,13 +1728,7 @@ class BleBridge:
                 )
             return
         if cmd == "get_episode_timeline":
-            # Timeline correlacionada por episódio (2026-08-05, ver
-            # storage_advanced.build_episode_timeline/get_episode_timeline_for_alert
-            # via self.orm) — junta sinais vitais, blocos de atividade e
-            # outros alertas próximos à volta de UM EmergencyAlert concreto
-            # ("sequence_number", obrigatório), para a UI de detalhe de
-            # alerta do dashboard. Só leitura, mesmo padrão de
-            # get_history/get_daily_trend — sem rate limit de escrita.
+            # junta sinais vitais, blocos de atividade e alertas proximos a um EmergencyAlert
             if not self.orm:
                 await ws.send(json.dumps({
                     "kind": "episode_timeline", "timeline": None,
@@ -2445,15 +1769,7 @@ class BleBridge:
                 user_id=self._ws_user_id(ws),
                 )
             return
-        if cmd == "correct_activity":
-            # Correção manual do cuidador/equipa clínica à classificação de
-            # atividade da IA (2026-07-22, pedido do utilizador: "falta o
-            # botão para contradizer o que a ia acredita que o utente está
-            # a fazer"). 'category' é validado por allowlist fechada (ver
-            # ACTIVITY_CORRECTION_CATEGORIES) — canal não autenticado, o
-            # mesmo padrão de validação de sempre neste método. Fica
-            # disponível mesmo com activity_inference/self.orm indisponível
-            # (ver comentário junto a ACTIVITY_CORRECTION_CATEGORIES).
+        if cmd == "correct_activity":  # correcao manual a classificacao de atividade da IA
             wait_s = self._check_write_rate_limit(cmd)
             if wait_s is not None:
                 await ws.send(json.dumps({
@@ -2490,9 +1806,7 @@ class BleBridge:
                     ip=_ws_remote_ip(ws),
                 user_id=self._ws_user_id(ws),
                 )
-            # Difundido a TODOS os dashboards ligados (não só quem corrigiu)
-            # — todas as vistas ao vivo (Resumo, área médica) devem refletir
-            # a mesma correção, não só o browser que a fez.
+            # difundido a todos: todas as vistas ao vivo devem refletir a mesma correcao
             asyncio.create_task(self.broadcast({
                 "kind": "activity_correction",
                 "category": category,
@@ -2521,22 +1835,13 @@ class BleBridge:
             print(f"[BRIDGE] dashboard desligado ({len(self.ws_clients)} ativo(s))")
 
     def _ws_user_id(self, ws) -> Optional[int]:
-        # Mesma dupla fonte de _ws_user_role() abaixo (alinhado 2026-09-07,
-        # ao ligar `resolved_by_user_id` do RF-08): o dicionario e'
-        # preenchido por ws_handler(), mas o atributo ja' existe desde o
-        # handshake (ws_transport.process_request). Ler o atributo como
-        # alternativa torna a identificacao valida tambem antes de
-        # ws_handler correr — sem isto, "quem confirmou o alerta" podia
-        # ficar a None numa corrida no arranque da ligacao.
+        # dicionario preenchido por ws_handler(); atributo existe desde o handshake, antes disso
         if ws in self.ws_user_ids:
             return self.ws_user_ids[ws]
         return getattr(ws, "_carewear_user_id", None)
 
     def _ws_user_role(self, ws) -> Optional[str]:
-        # O dicionario e' preenchido por ws_handler(); o atributo e' escrito
-        # antes disso, no handshake, por ws_transport.process_request(). Sao
-        # a mesma fonte de verdade, e ler o atributo como alternativa torna a
-        # verificacao valida mesmo antes de ws_handler correr.
+        # mesma dupla fonte de _ws_user_id() acima
         if ws in self.ws_user_roles:
             return self.ws_user_roles[ws]
         return getattr(ws, "_carewear_user_role", None)
@@ -2555,10 +1860,7 @@ async def main() -> None:
     async with server:
         asyncio.create_task(bridge.periodic_retention_task())
         asyncio.create_task(bridge.periodic_orm_retention_task())
-        # RF-07 (2026-09-07): escalonamento por falta de confirmação. Corre
-        # em paralelo com o ciclo BLE de propósito — um alerta tem de subir
-        # de nível ao fim de N minutos mesmo que o wearable entretanto se
-        # tenha desligado (aliás, sobretudo nesse caso).
+        # em paralelo com o ciclo BLE: um alerta tem de escalar mesmo com o wearable desligado
         asyncio.create_task(bridge.periodic_alert_escalation_task())
         await bridge.run_device_loop()
 

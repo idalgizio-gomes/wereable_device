@@ -208,18 +208,22 @@ class TestSegurancaRelatorioSemanal:
         client.get(f"/api/patients/{patient.id}/weekly-report", headers=intruder.headers)
         assert db.query(sa.AuditLog).filter(sa.AuditLog.action == "weekly_report.read").count() == 0
 
-    def test_admin_nao_precisa_de_associacao(self, db, client, cenario):
-        """`_authorize_patient` dá acesso total ao papel 'admin'. Este teste
-        documenta esse comportamento no endpoint novo — a decisão de o
-        dashboard NUNCA mostrar dados clínicos a um administrador é do lado
-        do cliente (ver cabeçalho de web/dashboard/admin-view.js), não desta
-        camada."""
+    def test_admin_de_sistema_nao_acede_ao_relatorio(self, db, client, cenario):
+        """CORRIGIDO a 2026-09-07 (dois perfis de administrador).
+
+        A versão anterior deste teste (`test_admin_nao_precisa_de_associacao`)
+        afirmava que o papel 'admin' tinha acesso total ao relatório, e
+        remetia a proteção para o lado do cliente. Isso era o problema, não
+        o comportamento correto: esconder um botão no dashboard não impede
+        ninguém de chamar o endpoint. O Admin de Sistema leva agora 404,
+        e o acesso justificado é do papel `admin_clinical` (test_admin_profiles.py).
+        """
         patient, _, _ = cenario
         admin = _make_user(db, email="admin@example.com", role="admin", name="Admin")
         key = _issue_key(db, admin)
         response = client.get(f"/api/patients/{patient.id}/weekly-report",
                               headers={"X-API-Key": key})
-        assert response.status_code == 200
+        assert response.status_code == 404
 
 
 class TestConteudoRelatorioSemanal:

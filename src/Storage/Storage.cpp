@@ -1,21 +1,10 @@
-// =============================================================================
-// Storage.cpp
-// -----------------------------------------------------------------------------
-// Implementação do módulo Storage (ver Storage.h para a documentação da API
-// pública). Aqui os dados (calibração do IMU, chave AES, contador BLE,
-// perfil de emergência) são guardados como ficheiros binários simples
-// dentro do LittleFS, um sistema
-// de ficheiros que corre sobre a flash interna do nRF52840. Cada "tipo" de
-// dado tem o seu próprio ficheiro, identificado por um caminho fixo.
-// =============================================================================
-
+// Storage.cpp - calibracao IMU, chave AES, contador BLE e perfil de emergencia guardados como ficheiros binarios no LittleFS (flash interna)
 #include "Storage/Storage.h"
 #include <Adafruit_LittleFS.h>
 #include <InternalFileSystem.h>
 
 using namespace Adafruit_LittleFS_Namespace;
 
-// Caminhos fixos dos ficheiros usados para guardar cada tipo de dado.
 static const char *PATH_CALIB = "/calib.bin";
 static const char *PATH_AES   = "/aes.bin";
 static const char *PATH_COUNT = "/counter.bin";
@@ -23,9 +12,6 @@ static const char *PATH_EMERG = "/emerg.bin";
 
 namespace Storage {
 
-// Monta o sistema de ficheiros interno. Tem de ser chamada antes de
-// qualquer leitura/escrita; se falhar (ex.: flash danificada ou não
-// formatada), nenhuma outra função deste módulo deve ser usada.
 bool begin() {
   if (!InternalFS.begin()) {
     Serial.println("[Storage] InternalFS.begin() failed");
@@ -38,17 +24,12 @@ bool begin() {
 // ---------------- Calibration ----------------
 
 bool saveCalibration(const ImuCalibration &cal) {
-  // Remove primeiro o ficheiro antigo (se existir) para garantir que a
-  // escrita seguinte cria um ficheiro "limpo", em vez de sobrepor um
-  // ficheiro maior e deixar bytes antigos no fim.
-  InternalFS.remove(PATH_CALIB);
+  InternalFS.remove(PATH_CALIB); // remove antes de escrever, senao sobrepoe um ficheiro maior e deixa bytes antigos no fim
   File f(InternalFS);
   if (!f.open(PATH_CALIB, FILE_O_WRITE)) {
     Serial.println("[Storage] failed to open calib for write");
     return false;
   }
-  // Escreve a struct inteira "tal como está" na memória (cópia binária
-  // byte a byte), em vez de gravar campo a campo.
   size_t n = f.write(reinterpret_cast<const uint8_t *>(&cal), sizeof(cal));
   f.close();
   return n == sizeof(cal);
@@ -57,7 +38,6 @@ bool saveCalibration(const ImuCalibration &cal) {
 bool loadCalibration(ImuCalibration &cal) {
   File f(InternalFS);
   if (!f.open(PATH_CALIB, FILE_O_READ)) return false;
-  // Lê os bytes do ficheiro diretamente para dentro da struct "cal".
   size_t n = f.read(reinterpret_cast<uint8_t *>(&cal), sizeof(cal));
   f.close();
   return n == sizeof(cal);
@@ -66,10 +46,7 @@ bool loadCalibration(ImuCalibration &cal) {
 bool hasCalibration() {
   File f(InternalFS);
   if (!f.open(PATH_CALIB, FILE_O_READ)) return false;
-  // Não é preciso ler o conteúdo: basta confirmar que o ficheiro existe
-  // e tem exatamente o tamanho esperado da struct (deteta ficheiros
-  // corrompidos/truncados sem gastar tempo a copiar dados).
-  bool ok = f.size() == sizeof(ImuCalibration);
+  bool ok = f.size() == sizeof(ImuCalibration); // so tamanho, deteta corrupcao/truncamento sem copiar dados
   f.close();
   return ok;
 }
@@ -81,9 +58,6 @@ bool clearCalibration() {
 // ---------------- AES key ----------------
 
 bool saveAesKey(const uint8_t *key, size_t len) {
-  // Recusa gravar chaves com tamanho fora do intervalo válido para
-  // AES-128/256, evitando guardar dados que depois não seriam
-  // utilizáveis pela camada de cifra.
   if (len < AES_KEY_MIN_LEN || len > AES_KEY_MAX_LEN) return false;
   InternalFS.remove(PATH_AES);
   File f(InternalFS);
@@ -101,14 +75,10 @@ bool loadAesKey(uint8_t *buf, size_t bufLen, size_t &outLen) {
   File f(InternalFS);
   if (!f.open(PATH_AES, FILE_O_READ)) return false;
   size_t sz = f.size();
-  // Protege contra um ficheiro corrompido ou gravado incorretamente,
-  // cujo tamanho já não corresponda a uma chave AES válida.
   if (sz < AES_KEY_MIN_LEN || sz > AES_KEY_MAX_LEN) {
     f.close();
     return false;
   }
-  // Protege contra overflow: não escreve mais bytes do que o buffer do
-  // chamador consegue receber.
   if (sz > bufLen) {
     f.close();
     return false;
@@ -119,19 +89,13 @@ bool loadAesKey(uint8_t *buf, size_t bufLen, size_t &outLen) {
 }
 
 bool removeAesKey() {
-  // InternalFS.remove() devolve true tanto se apagou como se o ficheiro
-  // já não existia (ver Adafruit_LittleFS) — tratamos os dois casos como
-  // sucesso, já que o estado desejado ("sem chave guardada") foi
-  // atingido em ambos.
-  InternalFS.remove(PATH_AES);
+  InternalFS.remove(PATH_AES); // devolve true tanto se apagou como se ja nao existia; os dois sao sucesso aqui
   return !hasAesKey();
 }
 
 bool hasAesKey() {
   File f(InternalFS);
   if (!f.open(PATH_AES, FILE_O_READ)) return false;
-  // Só considera que "existe chave" se o tamanho gravado estiver dentro
-  // do intervalo aceite; caso contrário trata-se como se não existisse.
   bool ok = f.size() >= AES_KEY_MIN_LEN && f.size() <= AES_KEY_MAX_LEN;
   f.close();
   return ok;
@@ -139,22 +103,8 @@ bool hasAesKey() {
 
 // ---------------- Persistent counter ----------------
 
-// BUG CORRIGIDO (2026-07-07, rotina cloud, revisao dirigida a cifra
-// AES-CTR): o formato anterior gravava so os 8 bytes crus do contador.
-// counter_save() faz remove()+open()+write() (nao e uma transacao atomica
-// do filesystem) e counter_load() tratava QUALQUER falha de leitura
-// (ficheiro em falta OU tamanho errado, ex.: escrita cortada por perda de
-// energia a meio de counter_save(), ~1x a cada ~21min de streaming
-// continuo) da MESMA forma que "nunca guardado" - reserveNonceBatch()
-// (Ble.cpp) interpretava isso como "comeca do zero", reutilizando nonces
-// ja usados com a mesma chave AES (nunca rotacionada sem apagar a flash
-// inteira) e quebrando a confidencialidade do CTR silenciosamente. Um
-// magic number + checksum simples permite distinguir "ficheiro nunca
-// criado" (primeiro arranque genuino, seguro comecar do zero) de
-// "ficheiro existe mas esta corrompido" (NAO seguro assumir zero) via o
-// parametro de saida opcional 'corrupted'.
 namespace {
-constexpr uint32_t kCounterMagic = 0x434E5452UL; // "CNTR", so para detetar corrupcao/versao antiga
+constexpr uint32_t kCounterMagic = 0x434E5452UL; // "CNTR"
 struct CounterRecord {
   uint32_t magic;
   uint64_t counter;
@@ -168,23 +118,7 @@ uint32_t counterChecksum(uint32_t magic, uint64_t counter) {
 }
 } // namespace
 
-// BUG CORRIGIDO (revisao dirigida a cifra AES-CTR): esta funcao fazia
-// remove()+open()+write(), tal como as restantes save*() deste ficheiro.
-// Para o contador de nonce isso e um defeito de seguranca, nao so de
-// robustez: entre o remove() e o write() existe uma janela em que o
-// ficheiro NAO EXISTE. Uma perda de energia nessa janela (que ocorre a
-// cada lote de nonces, ~1x por cada 21min de streaming continuo, ver
-// reserveNonceBatch() em BleGattDump.cpp) deixa /counter.bin ausente, e
-// counter_load() trata "ausente" como primeiro arranque genuino
-// (corrupted=false, counter=0) — o magic+checksum acrescentado antes so
-// deteta um ficheiro EXISTENTE e corrompido, nunca um ficheiro apagado.
-// Resultado: o contador recomeca do zero com a MESMA chave AES e os
-// nonces ja usados sao reemitidos (quebra real do CTR).
-// Agora escreve-se por cima do ficheiro existente (seek(0)+write+truncate,
-// sem o apagar antes; FILE_O_WRITE abre em modo append, dai o seek), pelo
-// que o ficheiro nunca deixa de existir: uma perda de energia a meio
-// deixa-o com o valor ANTERIOR ja commitado (que e sempre >= a todos os
-// nonces ja usados), nunca ausente.
+// escreve por cima do ficheiro existente (seek(0)+write+truncate, sem remove antes) para o ficheiro nunca deixar de existir; um remove()+write() como nas outras save*() deixaria uma janela em que /counter.bin nao existe, e uma perda de energia nessa janela faria counter_load() assumir "primeiro arranque" e reutilizar nonces ja usados com a mesma chave AES (quebra do CTR)
 bool counter_save(uint64_t counter) {
   CounterRecord rec{kCounterMagic, counter, counterChecksum(kCounterMagic, counter)};
   File f(InternalFS);
@@ -198,11 +132,7 @@ bool counter_save(uint64_t counter) {
     return false;
   }
   size_t n = f.write(reinterpret_cast<const uint8_t *>(&rec), sizeof(rec));
-  // Trunca para o tamanho exato do registo: cobre o caso de existir em
-  // flash um ficheiro maior de um formato anterior, que de outra forma
-  // deixaria bytes antigos no fim e falharia a validacao de tamanho em
-  // counter_load().
-  const bool truncated = f.truncate(sizeof(rec));
+  const bool truncated = f.truncate(sizeof(rec)); // cobre o caso de sobrar um ficheiro maior de um formato anterior
   f.close();
   return n == sizeof(rec) && truncated;
 }
@@ -218,10 +148,7 @@ bool counter_load(uint64_t &counter, bool *corrupted) {
   f.close();
   if (!sizeOk || n != sizeof(rec) || rec.magic != kCounterMagic ||
       rec.checksum != counterChecksum(rec.magic, rec.counter)) {
-    // Existe um ficheiro, mas nao bate certo (corrompido, escrita cortada,
-    // ou formato antigo pre-2026-07-07) - distinto de "nunca guardado".
-    // Quem chama NAO deve assumir counter=0 neste caso (ver
-    // reserveNonceBatch() em Ble.cpp).
+    // ficheiro existe mas nao bate certo (corrompido/escrita cortada/formato antigo) - distinto de "nunca guardado"; quem chama NAO deve assumir counter=0 aqui
     if (corrupted) *corrupted = true;
     return false;
   }
@@ -232,8 +159,6 @@ bool counter_load(uint64_t &counter, bool *corrupted) {
 // ---------------- Emergency profile (JSON) ----------------
 
 bool saveEmergencyProfile(const uint8_t *data, size_t len) {
-  // Recusa gravar payloads acima do teto que emergencyProfileChar
-  // consegue depois servir por leitura BLE (ver EMERGENCY_PROFILE_MAX_LEN).
   if (len > EMERGENCY_PROFILE_MAX_LEN) return false;
   InternalFS.remove(PATH_EMERG);
   File f(InternalFS);
@@ -251,14 +176,10 @@ bool loadEmergencyProfile(uint8_t *buf, size_t bufLen, size_t &outLen) {
   File f(InternalFS);
   if (!f.open(PATH_EMERG, FILE_O_READ)) return false;
   size_t sz = f.size();
-  // Protege contra um ficheiro maior do que o que alguma vez poderia ter
-  // sido gravado por saveEmergencyProfile() (corrupção/versão antiga).
   if (sz > EMERGENCY_PROFILE_MAX_LEN) {
     f.close();
     return false;
   }
-  // Protege contra overflow: não escreve mais bytes do que o buffer do
-  // chamador consegue receber.
   if (sz > bufLen) {
     f.close();
     return false;
@@ -271,34 +192,23 @@ bool loadEmergencyProfile(uint8_t *buf, size_t bufLen, size_t &outLen) {
 bool hasEmergencyProfile() {
   File f(InternalFS);
   if (!f.open(PATH_EMERG, FILE_O_READ)) return false;
-  // Ao contrário de hasCalibration()/hasAesKey(), não há um tamanho fixo
-  // esperado (o JSON varia de paciente para paciente) — basta confirmar
-  // que o ficheiro abre.
-  f.close();
+  f.close(); // sem tamanho fixo esperado (JSON varia por paciente), basta confirmar que abre
   return true;
 }
 
 // ---------------- Utility ----------------
 
 bool clearAll() {
-  // Tenta remover os quatro ficheiros; cada remove() devolve true só se o
-  // ficheiro existia e foi apagado. Usa-se "||" (não "&&") porque é
-  // normal que nem todos os ficheiros existam (ex.: sem calibração
-  // ainda feita) — o objetivo é reportar se pelo menos algo foi limpo.
   bool a = InternalFS.remove(PATH_CALIB);
   bool b = InternalFS.remove(PATH_AES);
   bool c = InternalFS.remove(PATH_COUNT);
   bool d = InternalFS.remove(PATH_EMERG);
-  return a || b || c || d;
+  return a || b || c || d; // "||" porque e normal nem todos existirem
 }
 
 // ---------------- Validation ----------------
 
 bool validate() {
-  // Percorre cada tipo de dado guardado e confirma que, quando existe,
-  // consegue mesmo ser lido de volta. Não corrige nem apaga nada — só
-  // reporta o estado por Serial, para ajudar a diagnosticar problemas
-  // de flash/filesystem durante o desenvolvimento.
   bool ok = true;
   Serial.println("[Storage] validation: start");
 

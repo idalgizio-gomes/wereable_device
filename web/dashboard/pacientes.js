@@ -2,7 +2,7 @@
 
 const PATIENTS = [
   {
-    id:'p1', name:'Maria Silva', age:72, deviceName:'Wearable', mac:'E6:ED:42:57:1F:20', lastSync:'há 4 min', status:'good',
+    id:'p1', dbUuid:null, name:'Maria Silva', age:72, deviceName:'Wearable', mac:'E6:ED:42:57:1F:20', lastSync:'há 4 min', status:'good',
     battery:92, ringBufferUsed:2843, ringBufferTotal:16384,
     alerts: [
       {key:'hr-alta', sev:'critical', title:'Frequência cardíaca elevada', desc:'92 bpm sustentados durante 6 min em repouso (referência: 58–78 bpm).', time:'há 6 min',
@@ -32,7 +32,7 @@ const PATIENTS = [
     ],
   },
   {
-    id:'p2', name:'António Ferreira', age:79, deviceName:'Wearable', mac:'C1:4A:9B:02:D3:6E', lastSync:'há 3h', status:'warn',
+    id:'p2', dbUuid:null, name:'António Ferreira', age:79, deviceName:'Wearable', mac:'C1:4A:9B:02:D3:6E', lastSync:'há 3h', status:'warn',
     battery:34, ringBufferUsed:9120, ringBufferTotal:16384,
     alerts: [
       {key:'sono-curto', sev:'warning', title:'Sono abaixo do habitual', desc:'4h20min de sono estimado esta noite (média das últimas 2 semanas: 6h50min).', time:'há 3h',
@@ -51,7 +51,7 @@ const PATIENTS = [
     ],
   },
   {
-    id:'p3', name:'Isabel Costa', age:68, deviceName:'Wearable', mac:'A8:2F:11:9C:44:B7', lastSync:'há 1 dia', status:'off',
+    id:'p3', dbUuid:null, name:'Isabel Costa', age:68, deviceName:'Wearable', mac:'A8:2F:11:9C:44:B7', lastSync:'há 1 dia', status:'off',
     battery:8, ringBufferUsed:16384, ringBufferTotal:16384,
     alerts: [],
     anomalyLog: [
@@ -60,12 +60,7 @@ const PATIENTS = [
     medications: [
       {id:'m1', name:'Quetiapina', dose:'25 mg', times:['21:00']},
     ],
-    // CONTRADIÇÃO REAL corrigida (2026-07-21, reportada pelo utilizador):
-      // '01/07' aqui e o anomalyLog acima ('01/07/2026 09:15', dispositivo
-      // desligado 12h+) eram a mesma data com pct:100 — mesmo bug do
-      // gerador (ver withDeviceOffGaps() em scripts/generate-demo-data.js),
-      // corrigido aqui também porque este array é o fallback usado antes
-      // de demo-data.js carregar.
+    // '01/07' com pct:null/deviceOff: coerente com o anomalyLog acima (dispositivo desligado 12h+ nesse dia)
     adherenceHistory: [
       {day:'27/06', pct:100}, {day:'28/06', pct:100}, {day:'29/06', pct:100},
       {day:'30/06', pct:100}, {day:'01/07', pct:null, deviceOff:true}, {day:'02/07', pct:100},
@@ -73,11 +68,36 @@ const PATIENTS = [
   },
 ];
 
-// Sobrepõe alerts/anomalyLog/adherenceHistory (os campos "datados") com a
-// versão regenerada diariamente (demo-data.js, ver <script src> no topo do
-// ficheiro), quando disponível. Os literais acima em PATIENTS ficam como
-// fallback natural (não vazio) se demo-data.js faltar/estiver desatualizado
-// — mais seguro do que remover os campos e depender só do ficheiro gerado.
+// ids 'p1'/'p2'/'p3' são de demonstração; ligação à BD real é via `dbUuid` (Patient.uuid), nunca adivinhada do número do id.
+// `dbId` é DERIVADO do uuid por resolvePatientDbIds() via GET /api/patients/directory, nunca escrito à mão.
+// hoje dbUuid é sempre null (sem BD real por trás), por isso dbId fica indefinido e o relatório semanal usa dados locais — deliberado.
+async function resolvePatientDbIds(){
+  if (typeof apiFetch !== 'function') return 0;
+  let directory;
+  try {
+    const res = await apiFetch('/api/patients/directory');
+    if (!res.ok) return 0;
+    directory = await res.json();
+  } catch (e) {
+    return 0;  // API em baixo: fica-se nos dados locais, como antes
+  }
+  const byUuid = new Map();
+  (directory && directory.patients ? directory.patients : []).forEach(row => {
+    if (row && row.uuid) byUuid.set(String(row.uuid), row);
+  });
+  let resolved = 0;
+  PATIENTS.forEach(p => {
+    if (!p.dbUuid) { delete p.dbId; return; } // sem dbUuid não há resolução — nunca cai para o número do id
+    const row = byUuid.get(String(p.dbUuid));
+    if (!row) { delete p.dbId; return; }  // uuid desconhecido nesta base
+    p.dbId = row.id;
+    p.dbPseudonym = row.pseudonym || null;
+    resolved++;
+  });
+  return resolved;
+}
+
+// sobrepõe campos "datados" com a versão regenerada diariamente (demo-data.js); os literais acima ficam como fallback
 if (typeof DEMO_PATIENT_DYNAMIC !== 'undefined') {
   PATIENTS.forEach(p => {
     const dyn = DEMO_PATIENT_DYNAMIC[p.id];
@@ -85,21 +105,7 @@ if (typeof DEMO_PATIENT_DYNAMIC !== 'undefined') {
   });
 }
 
-/* ------------------------------------------------------------
-   ADICIONAR PACIENTE (2026-07-15, pedido do utilizador — área de
-   técnico)
-   ------------------------------------------------------------
-   Antes não havia nenhuma forma de acrescentar um paciente novo à conta
-   — PATIENTS era uma lista fixa de 3. addPatient() constrói um objeto
-   com a mesma forma dos 3 pacientes de demonstração (alerts/anomalyLog
-   vazios, adesão vazia) e faz PATIENTS.push() diretamente — como
-   PATIENTS é `const` mas continua um array mutável, todo o código
-   existente que já faz PATIENTS.find()/PATIENTS.map() passa a ver o
-   novo paciente sem precisar de nenhum outro ajuste. Persistido em
-   localStorage (só a lista mínima de campos, não o objeto completo, para
-   não duplicar dados quando as séries geradas diariamente mudam) e
-   "replay" ao carregar a página, logo a seguir a este bloco.
------------------------------------------------------------- */
+// addPatient() faz PATIENTS.push() (array mutável, apesar do const) — persiste só campos mínimos em localStorage, "replay" ao carregar
 const ADDED_PATIENTS_KEY = 'carewear_added_patients';
 
 function loadAddedPatients(){
@@ -122,16 +128,7 @@ function buildPatientRecord({id, name, age, deviceName, mac}){
     adherenceHistory: [],
   };
 }
-// BUG DE MODELO CORRIGIDO (2026-07-16, reportado pelo utilizador): a
-// área clínica deixou de poder inventar pacientes do zero — um médico/
-// técnico só pode "registar" (associar-se a) um utente que já se
-// registou como Utente/Família (ver submitSignup() → registerOwnPatient()
-// abaixo). addPatient() passa a ser só o primitivo de criação (usado
-// unicamente pelo signup); devolve o registo criado (ou null se
-// inválido) em vez de true/false, para o autor da chamada decidir a
-// que conta ligar o paciente novo — deixou de decidir isso sozinho
-// (antes atribuía sempre à conta clínica atual, o que já não faz
-// sentido sem o formulário "Adicionar paciente").
+// área clínica não inventa pacientes; addPatient() é o primitivo usado só pelo signup (submitSignup() -> registerOwnPatient()), devolve o registo (ou null) p/ o chamador decidir a atribuição
 function addPatient(name, age, deviceName, mac){
   name = (name || '').trim();
   deviceName = (deviceName || 'Wearable').trim();
@@ -146,41 +143,14 @@ function addPatient(name, age, deviceName, mac){
   if (currentView) renderView(currentView);
   return record;
 }
-// Replay dos pacientes adicionados em sessões anteriores — corre uma
-// única vez ao carregar o script, depois de PATIENTS estar definido.
+// replay dos pacientes adicionados em sessões anteriores
 loadAddedPatients().forEach(record => PATIENTS.push(buildPatientRecord(record)));
 
-/* ------------------------------------------------------------
-   ATRIBUIÇÃO PACIENTE ↔ CONTA CLÍNICA (2026-07-16, pedido do utilizador)
-   ------------------------------------------------------------
-   Bug de acesso reportado: qualquer conta Médico/Técnico conseguia ver
-   e trocar livremente entre TODOS os pacientes, sem nenhuma associação
-   entre a conta e os pacientes de que é responsável — bastava trocar o
-   "paciente selecionado" na lista para consultar/diagnosticar qualquer
-   um. Não existe backend real (login aceita qualquer email/password,
-   ver login()), por isso a "conta" aqui é só o email escrito no login.
-   ADMIN_EMAIL identifica a conta de Administrador (2026-08-06,
-   corrigido a pedido explícito da utilizadora: a administradora é a
-   Dra. Ana Correia — antes este email tinha o nome "Ana Silva", sem
-   nenhum perfil próprio, e o botão de login de admin nem existia; ver
-   também DEFAULT_CLINICIAN_EMAIL abaixo para o Dr. Ricardo, que é
-   médico, não administrador — os dois papéis tinham ficado confundidos
-   num turno anterior desta sessão). Só entra com o botão de login
-   "Administrador" (ver setLoginRole()/login() em auth-navegacao.js).
-   Qualquer outro email de médico só vê os pacientes atribuídos a ele —
-   atribuição guardada em localStorage (protótipo, sem backend), com
-   auto-atribuição ao criar um paciente novo (addPatient()) para o
-   técnico que o criou não ficar sem acesso ao que acabou de registar.
------------------------------------------------------------- */
+// atribuição paciente <-> conta clínica: sem backend real, "conta" é só o email do login (localStorage, protótipo)
+// ADMIN_EMAIL = Dra. Ana Correia, entra só pelo botão "Administrador" (setLoginRole()/login() em auth-navegacao.js)
 const ADMIN_EMAIL = 'ana.correia@carewear.pt';
 
-// Conta clínica "principal" de demonstração (Dr. Ricardo Alves, ver
-// loadProfile() em auth-navegacao.js) — usada só para dar um valor por
-// omissão sensato a loadClinicianAssignments()/allCliniciansList() (ver
-// mais abaixo e admin-view.js) num browser onde ninguém ainda se
-// registou como médico: sem isto, a vista de Administração mostrava
-// sempre "0 médicos" e "todos os pacientes sem médico", o que não
-// refletia a realidade da demonstração (reportado pela utilizadora).
+// conta clínica de demonstração (Dr. Ricardo) usada como valor por omissão para loadClinicianAssignments()/allCliniciansList()
 const DEFAULT_CLINICIAN_EMAIL = 'ricardo.alves@exemplo.pt';
 const CLINICIAN_ASSIGNMENTS_KEY = 'carewear_clinician_assignments';
 let currentUserEmail = '';
@@ -193,11 +163,7 @@ function loadClinicianAssignments(){
     const raw = localStorage.getItem(CLINICIAN_ASSIGNMENTS_KEY);
     if (raw) return JSON.parse(raw);
   } catch (e) { /* localStorage indisponível ou dados corrompidos - ignora */ }
-  // Valor por omissão (2026-08-06, ver comentário junto de
-  // DEFAULT_CLINICIAN_EMAIL acima): sem nenhuma atribuição gravada ainda
-  // (browser novo), o Dr. Ricardo fica associado a todos os pacientes de
-  // demonstração — evita a vista de Administração mostrar "0 médicos"/
-  // "todos sem médico" só porque ninguém preencheu isto à mão ainda.
+  // sem atribuição gravada ainda, o Dr. Ricardo fica associado a todos — evita "0 médicos" na vista de Administração
   return { [DEFAULT_CLINICIAN_EMAIL]: PATIENTS.map(p => p.id) };
 }
 function saveClinicianAssignments(map){
@@ -210,8 +176,7 @@ function assignedPatientIds(){
   const map = loadClinicianAssignments();
   return map[currentUserEmail.trim().toLowerCase()] || [];
 }
-// Pacientes que a conta atual pode ver/selecionar — usar sempre isto em
-// vez de PATIENTS diretamente nas vistas da área clínica.
+// usar sempre isto em vez de PATIENTS diretamente nas vistas da área clínica
 function accessiblePatients(){
   if (isAdminUser()) return PATIENTS;
   const ids = assignedPatientIds();
@@ -226,16 +191,7 @@ function assignPatientToCurrentUser(patientId){
   saveClinicianAssignments(map);
 }
 
-/* ------------------------------------------------------------
-   LIGAÇÃO UTENTE ↔ PRÓPRIO PACIENTE (2026-07-16, pedido do utilizador)
-   ------------------------------------------------------------
-   Distinto da atribuição clínico↔paciente acima: um utente/família não
-   "escolhe" entre vários pacientes, é sempre o mesmo — o que criou ao
-   registar-se (ver registerOwnPatient(), chamada por submitSignup()).
-   Guardado à parte (não reaproveita CLINICIAN_ASSIGNMENTS_KEY) porque
-   são conceitos diferentes: um é "que pacientes este clínico pode
-   consultar", o outro é "qual é o paciente desta conta utente".
------------------------------------------------------------- */
+// ligação utente <-> próprio paciente: distinto da atribuição clínico<->paciente, guardado à parte por serem conceitos diferentes
 const UTENTE_PATIENT_LINK_KEY = 'carewear_utente_patient_link';
 
 function loadUtentePatientLink(){
@@ -249,10 +205,7 @@ function saveUtentePatientLink(map){
   try { localStorage.setItem(UTENTE_PATIENT_LINK_KEY, JSON.stringify(map)); }
   catch (e) { /* quota excedida ou localStorage indisponível - fica só em memória */ }
 }
-// Chamada só por submitSignup() (perfil Utente/Família) — cria o
-// paciente real (deixa de ser só uma simulação de "conta criada") e
-// liga-o ao email indicado no registo, para login() conseguir
-// resolver qual é "o meu paciente" da próxima vez que esta conta entrar.
+// chamada só por submitSignup(); cria o paciente e liga-o ao email p/ login() resolver "o meu paciente" depois
 function registerOwnPatient(name, age, email){
   const record = addPatient(name, age, 'Wearable', '—');
   if (!record || !email) return record;
@@ -265,11 +218,7 @@ function registerOwnPatient(name, age, email){
 const SELECTED_PATIENT_KEY = 'carewear_selected_patient_id';
 
 function loadSelectedPatientId(){
-  // Utente: vê sempre o paciente ligado à própria conta (se já se
-  // registou assim — ver registerOwnPatient()); sem ligação, cai no
-  // primeiro paciente de demonstração, para o login sem signup prévio
-  // (ex.: a conta admin de demonstração) continuar a funcionar como
-  // sempre funcionou.
+  // utente: vê sempre o paciente ligado à própria conta; sem ligação, cai no primeiro de demonstração
   if (currentRole === 'utente') {
     const link = loadUtentePatientLink();
     const linked = currentUserEmail ? link[currentUserEmail.trim().toLowerCase()] : null;
@@ -285,14 +234,7 @@ function loadSelectedPatientId(){
 }
 let selectedPatientId = null; // resolvido em login(), depois de se saber currentUserEmail/currentRole
 
-// Placeholder devolvido por selectedPatient() quando a conta atual não
-// tem NENHUM paciente atribuído — sem isto, o antigo fallback final
-// "|| PATIENTS[0]" mostrava sempre os dados reais da Maria Silva a
-// qualquer conta sem atribuições assim que navegasse para uma vista
-// além de "Pacientes" (essa vista já tinha guarda própria, as outras
-// não). Todos os campos usados nas várias vistas ficam vazios/neutros
-// em vez de ausentes, para nenhum template rebentar a tentar ler
-// p.name/p.alerts/etc.
+// placeholder de selectedPatient() quando a conta não tem paciente atribuído; evita o fallback "|| PATIENTS[0]" vazar dados da Maria Silva
 const NO_ACCESS_PATIENT = {
   id: 'none', name: 'Nenhum paciente atribuído', age: 0,
   deviceName: '—', mac: '—', lastSync: '—', status: 'off',
@@ -306,17 +248,7 @@ function selectedPatient(){
   return accessible.length ? accessible[0] : NO_ACCESS_PATIENT;
 }
 
-/* ------------------------------------------------------------
-   APAGAR ALERTAS — histórico/página de alertas (2026-07-03, pedido do
-   utilizador)
-   ------------------------------------------------------------
-   Antes, "marcar como lida" só trocava o botão por um ✓ mas o alerta
-   continuava visível na mesma lista. Agora: ler um alerta remove-o da
-   área "Alertas recentes"/"Alertas por severidade" (ver
-   unreadActiveAlerts()) e ele passa a viver só na vista "Histórico de
-   alertas", onde o médico pode apagá-lo individualmente ou limpar tudo
-   (mesma lógica do Registo de emergências).
------------------------------------------------------------- */
+// ler um alerta remove-o de "Alertas recentes"/"por severidade" (unreadActiveAlerts()); passa a viver só no Histórico
 function eraseAllLocalData(){
   Object.keys(localStorage)
     .filter(k => k.startsWith('carewear_'))
@@ -324,18 +256,8 @@ function eraseAllLocalData(){
   location.reload();
 }
 
-// Substituem as antigas constantes globais 'alerts'/'anomalyLog' (fixas
-// na Maria Silva) — todas as vistas devem chamar estas funções, nunca
-// usar dados de um paciente diretamente, para mudar de paciente refletir
-// sempre em todo o lado. 'currentAlerts()' exclui alertas apagados (mas
-// inclui lidos, para a página de Histórico de alertas); 'unreadActiveAlerts()'
-// (ver mais abaixo) é o que "Alertas recentes"/"Alertas por severidade"
-// devem usar.
 function selectPatient(id){
-  // Defesa em profundidade: mesmo que o botão "Selecionar" de um paciente
-  // não atribuído nunca devesse aparecer na UI (ver TEMPLATES.pacientes),
-  // esta função continua a recusar a troca — não depende só de esconder
-  // o botão. Ver comentário em accessiblePatients() acima.
+  // defesa em profundidade: recusa a troca mesmo que o botão nunca devesse aparecer na UI
   if (!accessiblePatients().some(p => p.id === id)) return;
   selectedPatientId = id;
   try { localStorage.setItem(SELECTED_PATIENT_KEY, id); }
@@ -352,20 +274,8 @@ function updateClinicoPatientLabel(){
   if (label) label.textContent = `${p.name} · ${p.age} anos`;
 }
 
-/* ------------------------------------------------------------
-   REGISTO DE EMERGÊNCIAS — SOS manual / queda+inatividade
-   ------------------------------------------------------------
-   Corresponde ao módulo firmware `Emergency` (src/Emergency/) e ao
-   alerta BLE `emergencyAlertChar` — ver PROJECT_STATUS.md. O bridge
-   ainda não escuta essa characteristic (backlog pendente), por isso os
-   eventos aqui são dados de demonstração, tal como o resto do
-   dashboard antes de haver dados reais ligados.
-   Pedido do utilizador (2026-07-03): um alerta de emergência ativo tem
-   de poder ser cancelado (ex.: se o relógio ficar sem resposta a meio de
-   um falso positivo), mas isso é uma ação de segurança crítica — exige
-   uma confirmação reforçada, ao estilo de verificação em duas etapas,
-   antes de ser aceite. Ver openEmergencyCancelModal()/confirmEmergencyCancel().
------------------------------------------------------------- */
+// registo de emergências (SOS/queda+inatividade) corresponde ao módulo firmware Emergency + emergencyAlertChar BLE
+// cancelar emergência ativa exige confirmação reforçada — ver openEmergencyCancelModal()/confirmEmergencyCancel()
 const DEVICE_REGISTRY_KEY = 'carewear_device_registry';
 function loadDeviceRegistry(){
   try {
@@ -378,9 +288,7 @@ function saveDeviceRegistry(map){
   try { localStorage.setItem(DEVICE_REGISTRY_KEY, JSON.stringify(map)); }
   catch (e) { /* quota excedida ou localStorage indisponível - fica só em memória */ }
 }
-// Devolve o MAC "reconhecido" para este paciente: o que foi registado por
-// uma ligação real anterior, se existir, senão o mac de demonstração fixo
-// do próprio PATIENTS[].
+// MAC registado por uma ligação real anterior, senão o de demonstração fixo
 function registeredMacFor(patientId, demoMac){
   const reg = loadDeviceRegistry();
   return reg[patientId] || demoMac;

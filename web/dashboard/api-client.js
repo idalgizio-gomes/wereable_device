@@ -43,7 +43,7 @@ async function apiLogout(){
   try {
     await apiFetch('/api/auth/logout', { method: 'POST' });
   } catch (e) {
-    // sem rede — a sessão local é limpa de qualquer forma abaixo
+    //sem rede
   }
   clearAuthToken();
 }

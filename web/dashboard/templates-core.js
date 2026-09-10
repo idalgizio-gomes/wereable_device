@@ -1,6 +1,3 @@
-/* ============================================================
-   AUXILIARES DE UI
-============================================================ */
 function iconFor(type){
   const M = {
     heart:'<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/>',
@@ -19,11 +16,7 @@ function pillHtml(sev, label){
   return `<span class="pill ${sev}">${iconFor(sev==='critical'?'warn':sev==='warning'?'warn':'zap')}${label}</span>`;
 }
 
-// Escapa texto livre introduzido pelo utilizador (nome de medicamento,
-// valor de campo de perfil, etc.) antes de o inserir em innerHTML — mesmo
-// padrão já usado em renderCaregiverNotes()/nome de cuidador, extraído
-// aqui para reutilizar nos pontos que ainda inseriam texto livre sem
-// escaping (bug de XSS real, corrigido 2026-07-07).
+//escapa texto livre do utilizador antes de inserir em innerHTML
 function escapeHtml(str){
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
@@ -33,14 +26,10 @@ function fmtMin(m){
   return `${String(h).padStart(2,'0')}:${mm}`;
 }
 
-// Formata uma duração em minutos como "Xh Ym" (ou só "Ym" se < 1h).
 function fmtDuration(totalMinutes){
   const h = Math.floor(totalMinutes/60), m = totalMinutes%60;
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-/* ============================================================
-   TEMPLATES — VISTA "UTENTE / FAMÍLIA"
-============================================================ */
 const TEMPLATES = {};
 const AFTER_RENDER = {};

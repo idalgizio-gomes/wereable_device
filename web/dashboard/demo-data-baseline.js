@@ -1,20 +1,4 @@
-/* ============================================================
-   DADOS DE EXEMPLO
-   ------------------------------------------------------------
-   As leituras "vitais" (FC, SpO2, passos, quedas, inatividade)
-   correspondem exatamente ao payload que o firmware grava
-   (ImuPpgPayloadV1: steps, freefall, inactivity, spo2, hr_x10)
-   e por isso são apresentadas como reais/plausíveis.
-
-   As categorias de rotina diária (Dormir/Descanso/Atividade/
-   Alimentação/Higiene) seguem o template de 21 passos descrito
-   no artigo científico do projeto (classificador XGBoost +
-   deteção de anomalias por LSTM Autoencoder + regras de duração)
-   — esse classificador ainda não está embarcado no firmware,
-   por isso estes blocos são DADOS SIMULADOS, claramente
-   assinalados, e servem de maquete para quando o pipeline de
-   HAR estiver disponível.
-============================================================ */
+//Dados de exemplo — vitais seguem o payload real do firmware (ImuPpgPayloadV1); rotina é simulada (classificador HAR ainda não embarcado)
 const ROUTINE_CATS = [
   {key:'dormir',      label:'Dormir',       color:'var(--cat-dormir)'},
   {key:'descanso',    label:'Descanso',     color:'var(--cat-descanso)'},
@@ -43,19 +27,7 @@ function buildRoutine(seed, anomalous){
   }
   return blocks;
 }
-// Preferem os dados regenerados diariamente (demo-data.js, ver <script src>
-// acima) quando disponíveis; caem para as funções build*() originais
-// (sempre presentes neste ficheiro) se demo-data.js faltar ou for antigo —
-// nunca parte a página, só deixa de ter dados "frescos".
-// BUG CORRIGIDO (2026-07-15, reportado pelo utilizador): antes disto,
-// currentRoutineToday()/currentRoutineAnomaly() (e as 5 séries irmãs mais abaixo — currentTrendData(),
-// currentHeatmapData(), currentNightEvents(), currentPacingTrend(), currentHrSeries()) eram UMA SÓ constante
-// global, igual para os 3 pacientes — trocar de paciente em "Pacientes"
-// atualizava o nome/perfil mostrado mas os gráficos continuavam a mostrar
-// sempre a mesma série, dando a impressão de "dados trocados" entre
-// pacientes. Agora cada série é um mapa por paciente (chave = PATIENTS[i].id)
-// e as vistas leem-na através de current*() (ver mais abaixo), que resolve
-// sempre pelo selectedPatientId atual.
+//Usa demo-data.js se disponível, senão cai para build*() locais; mapa por paciente (chave PATIENTS[i].id), resolvido via current*()
 const ROUTINE_TODAY_BY_PATIENT = (typeof DEMO_ROUTINE_TODAY !== 'undefined') ? DEMO_ROUTINE_TODAY : {p1: buildRoutine(7, false), p2: buildRoutine(17, false), p3: buildRoutine(27, false)};
 const ROUTINE_ANOMALY_BY_PATIENT = (typeof DEMO_ROUTINE_ANOMALY !== 'undefined') ? DEMO_ROUTINE_ANOMALY : {p1: buildRoutine(7, true), p2: buildRoutine(17, true), p3: buildRoutine(27, true)};
 function currentRoutineToday(){ return ROUTINE_TODAY_BY_PATIENT[selectedPatientId] || ROUTINE_TODAY_BY_PATIENT.p1; }
@@ -74,18 +46,7 @@ function buildTrend(seed){
 const TREND_DATA_BY_PATIENT = (typeof DEMO_TREND_DATA !== 'undefined') ? DEMO_TREND_DATA : {p1: buildTrend(3), p2: buildTrend(13), p3: buildTrend(23)};
 function currentTrendData(){ return TREND_DATA_BY_PATIENT[selectedPatientId] || TREND_DATA_BY_PATIENT.p1; }
 
-// BUG CORRIGIDO (2026-09-07): buildHr()/currentHrSeries() perderam-se na
-// divisão do <script> único de index.html por ficheiros — o comentário
-// acima já listava currentHrSeries() entre as 7 séries por-paciente, e
-// scripts/generate-demo-data.js continua a gerar DEMO_HR_SERIES para ela,
-// mas a função nunca chegou a ser recriada em nenhum dos ficheiros novos.
-// Consequência real: drawHrSeries() (canvas-graficos.js) chama-a sempre
-// que o bridge NÃO está ligado (o caso normal de demonstração), lançando
-// ReferenceError e abortando todo o AFTER_RENDER.vitais a meio — o gráfico
-// de FC ficava em branco e applyLiveVitals()/requestThresholds()/
-// renderVitalAlertsPanel(), que corriam a seguir, nunca chegavam a correr.
-// buildHrSeries() é a mesma função buildHr() que o gerador documenta (48
-// amostras de meia em meia hora, base 72 bpm de dia / 58 à noite).
+//48 amostras de meia em meia hora, base 72 bpm de dia / 58 à noite
 function buildHrSeries(seed){
   const rnd = seedRand(seed);
   return Array.from({length: 48}, (_, i) => {
@@ -97,31 +58,13 @@ function buildHrSeries(seed){
 const HR_SERIES_BY_PATIENT = (typeof DEMO_HR_SERIES !== 'undefined') ? DEMO_HR_SERIES : {p1: buildHrSeries(5), p2: buildHrSeries(15), p3: buildHrSeries(25)};
 function currentHrSeries(){ return HR_SERIES_BY_PATIENT[selectedPatientId] || HR_SERIES_BY_PATIENT.p1; }
 
-/* ============================================================
-   LIMIARES PERSONALIZADOS POR PESSOA (protótipo)
-   ------------------------------------------------------------
-   Backlog de investigação #3 (PROJECT_STATUS.md). A literatura revista
-   (Iaboni et al. 2022, "Wearable multimodal sensors... personalized
-   machine learning models"; revisões de "adaptive reference ranges" em
-   monitorização remota) mostra consistentemente que um limiar de alerta
-   igual para todos gera mais falsos positivos/negativos do que um
-   limiar calculado a partir da própria linha de base da pessoa.
-   Esta secção calcula essa linha de base (média + desvio-padrão) a
-   partir do histórico de tendência disponível (`currentTrendData()`, 7 dias) —
-   hoje sintético, porque ainda não existe o serviço de persistência
-   (ver PROJECT_STATUS.md, "Base de dados"); quando esse serviço
-   existir, a mesma função passa a receber histórico real sem precisar
-   de alterações. NÃO é ainda um modelo de ML treinado por pessoa (isso
-   exige histórico real acumulado) — é o primeiro passo honesto nessa
-   direção: um limiar estatístico adaptado ao indivíduo, em vez de um
-   valor de referência populacional fixo.
-============================================================ */
+//Limiares personalizados: baseline (média+desvio-padrão) a partir de currentTrendData(), hoje sintético; não é ainda ML treinado por pessoa
 function mean(arr){ return arr.reduce((s,v) => s+v, 0) / arr.length; }
 function stdDev(arr){
   const m = mean(arr);
   return Math.sqrt(mean(arr.map(v => (v-m)**2)));
 }
-const PERSONAL_THRESHOLD_K = 2; // média + 2×desvio-padrão ~ 95% dos dias dentro do intervalo (aprox. normal)
+const PERSONAL_THRESHOLD_K = 2; //média ± 2×desvio-padrão ~ 95% dos dias (aprox. normal)
 function computePersonalBaseline(){
   const fc = currentTrendData().map(d => d.fc);
   const sono = currentTrendData().map(d => d.sono);
@@ -132,45 +75,17 @@ function computePersonalBaseline(){
     passos: { mean: mean(passos), sd: stdDev(passos) },
   };
 }
-// BUG CORRIGIDO (2026-07-16, regressão introduzida ao tornar trendData
-// por-paciente): isto era `const personalBaseline = computePersonalBaseline();`,
-// avaliado imediatamente à leitura do <script> — funcionava enquanto
-// currentTrendData() dependia só de dados já disponíveis nesse ponto do
-// ficheiro. Passou a chamar selectedPatientId, que só é declarado muito
-// mais abaixo (~linha 1434) — TDZ (ReferenceError "Cannot access
-// 'selectedPatientId' before initialization"), que interrompia TODO o
-// resto da execução do <script> a meio, partindo a navegação da app
-// inteira. computePersonalBaseline() já existia como função; só faltava
-// não a chamar de imediato — cada leitura chama-a de novo (mesmo padrão
-// "lazy getter" já usado por currentTrendData()/currentAnomalyLog()).
+//Chamar computePersonalBaseline() de imediato dava TDZ em selectedPatientId; cada leitura chama-a de novo (lazy getter)
 
 function getAlertMode(){
   return localStorage.getItem('carewear_alert_mode') || 'populacional';
 }
 function setAlertMode(mode){
   localStorage.setItem('carewear_alert_mode', mode);
-  // Ver o mesmo bug corrigido em applyI18n() (2026-07-17): currentView é
-  // fiável para qualquer vista, ao contrário do lookup por .nav-item.active.
   if (currentView) renderView(currentView);
 }
 
-/* ------------------------------------------------------------
-   CONSENTIMENTO E PARTILHA DE DADOS (item nº8 do backlog de investigação)
-   ------------------------------------------------------------
-   A capacidade de consentir é eticamente sensível em cuidados de
-   demência (ver PMC11990963 no backlog de investigação) — este cartão
-   dá ao Utente/Família controlo explícito sobre o que a equipa clínica
-   vê. Persistido em localStorage, com timestamp da última alteração
-   (para uma auditoria mínima de quando o consentimento mudou).
-   LIMITAÇÃO HONESTA: aplica-se só a esta conta/navegador (protótipo sem
-   backend) — um sistema real precisaria de aplicar isto também do lado
-   do servidor, não só esconder na interface.
------------------------------------------------------------- */
+//Consentimento e partilha de dados — controlo do Utente/Família sobre o que a equipa clínica vê; só nesta conta/navegador (sem backend)
 const CONSENT_KEY = 'carewear_consent';
 
-// Namespaced por paciente (bug corrigido: antes era uma única chave global,
-// por isso o consentimento de um paciente aplicava-se a TODOS na vista
-// Médico/Técnico multi-paciente — trocar de paciente não mudava o
-// resultado do bloqueio de partilha). Mesma convenção já usada para
-// medicationLog/alertOccurrences: um único item em localStorage guardando
-// um objeto indexado por patientId.
+//Namespaced por paciente (objeto indexado por patientId em localStorage)

@@ -1,55 +1,11 @@
-/* ============================================================
-   RF-13 (Should) — TIMELINE UNIFICADA MULTIMODAL (2026-09-07)
-   ------------------------------------------------------------
-   Critério de aceitação: uma vista única que cruza atividade, sinais
-   vitais, alertas e medicação sobre o MESMO eixo temporal, com zoom por
-   período.
+// RF-13: timeline unificada — atividade, sinais vitais, alertas e medicação no mesmo eixo X, com zoom por janela.
+// Canvas 2D (padrão canvas-graficos.js), sem libs externas (CSP default-src 'none').
+// Quatro faixas empilhadas, não eixos y sobrepostos: bpm/passos/alertas/doses não partilham unidade.
+// Zoom = janela (início+largura) sobre o canvas, não ctx.scale(), para não distorcer linhas/texto.
+// Tabela por baixo replica tudo em texto (RNF-08/WCAG 1.1.1 — canvas não é lido por leitores de ecrã).
 
-   PORQUE É QUE ISTO EXISTE: na revisão de literatura do projeto, a
-   dimensão "Visualização" está a 0 de 20 estudos — nenhum trabalho do
-   corpus apresenta visualização integrada dos vários sinais. Todos
-   mostram um sinal de cada vez. É o ponto de diferenciação do CareWear,
-   e é também o que um cuidador precisa para responder à pergunta que as
-   vistas atuais não respondem: "a frequência cardíaca disparou às 15h —
-   o que é que ela estava a fazer, e tinha tomado a medicação?".
-
-   ESTADO ANTERIOR: cada sinal tinha a sua vista isolada — Rotina diária
-   (blocos), Sinais vitais (FC), Histórico de alertas (lista), Medicação
-   (lista). Nenhuma partilhava eixo com outra, e as listas nem sequer
-   tinham posição temporal desenhada.
-
-   DECISÕES DE DESENHO
-   -------------------
-   1. Canvas 2D, no mesmo padrão de canvas-graficos.js (setupCanvas/
-      showTip/resolveVar/canvasFont). Nenhuma biblioteca externa: a CSP
-      do index.html é `default-src 'none'` com script-src 'self', e nada
-      vindo de fora carrega — nem sequer falharia de forma visível.
-   2. Quatro faixas empilhadas, NÃO quatro eixos y sobrepostos. Passos,
-      bpm, "houve alerta" e "tomou o comprimido" não partilham unidade
-      nenhuma; desenhá-los na mesma área obrigaria a normalizações que
-      sugerem correlações que os dados não suportam. O que se partilha —
-      e é o ponto todo do requisito — é o eixo X.
-   3. O zoom é uma JANELA sobre o dia (início + largura em minutos), não
-      uma transformação de escala do canvas. Assim os rótulos, a
-      espessura das linhas e os marcadores mantêm o tamanho legível em
-      qualquer nível de ampliação, em vez de ficarem gigantes ou
-      microscópicos (que é o que acontece com ctx.scale()).
-   4. Tudo o que o canvas mostra existe também em texto, na tabela por
-      baixo (RNF-08 / WCAG SC 1.1.1): um canvas é, para um leitor de
-      ecrã, um retângulo vazio.
-============================================================ */
-
-/* ------------------------------------------------------------
-   ESTADO DA JANELA TEMPORAL
-   ------------------------------------------------------------
-   Módulo com âmbito global partilhado (são classic scripts): todos os
-   nomes daqui são prefixados `tl`/`TL_` para não colidirem com os das
-   outras vistas.
------------------------------------------------------------- */
+// Nomes prefixados tl/TL_ (classic scripts, âmbito global partilhado).
 const TL_DAY_MINUTES = 1440;
-// Larguras de janela oferecidas, em minutos. "Dia inteiro" primeiro
-// porque é o enquadramento por omissão: só depois de ver o dia todo é
-// que faz sentido ampliar uma hora concreta.
 const TL_WINDOWS = [
   {min: 1440, label: 'Dia inteiro'},
   {min: 720,  label: '12 h'},
@@ -59,35 +15,16 @@ const TL_WINDOWS = [
 ];
 let tlWindowMin = TL_DAY_MINUTES;   // largura da janela visível
 let tlWindowStart = 0;              // minuto do dia onde a janela começa
-// Bloco de atividade selecionado para correção (RF-09) — null quando o
-// seletor de categoria está fechado.
-let tlSelectedBlock = null;
-// Estado do arrasto para deslocar a janela com o rato.
-let tlDragFrom = null;
+let tlSelectedBlock = null; // bloco selecionado para correção (RF-09), null = seletor fechado
+let tlDragFrom = null; // estado do arrasto da janela com o rato
 
 const TL_CANVAS_ID = 'cvTimelineUnificada';
 const TL_HEIGHT = 268;
 
-/* ------------------------------------------------------------
-   ADAPTADORES DE DADOS
-   ------------------------------------------------------------
-   Cada faixa lê a MESMA fonte que a vista isolada correspondente já
-   usava — nenhuma série nova foi inventada para esta vista. O trabalho
-   aqui é só converter cada uma para "minuto do dia", que é a unidade
-   comum do eixo X.
------------------------------------------------------------- */
+// Adaptadores: cada faixa lê a mesma fonte da vista isolada correspondente, só converte para "minuto do dia".
 
-// Converte as várias formas de "quando" que os dados de demonstração
-// usam num minuto do dia (0-1439), ou null se o evento não for de hoje.
-//   "há 6 min" / "há 41 min"  -> relativo, em minutos
-//   "há 2h" / "há 3h12min"    -> relativo, em horas (+minutos)
-//   "há 1 dia"                -> não é de hoje -> null
-//   "07/09/2026 07:22"        -> absoluto; só conta se a data for hoje
-//   "10:57"                   -> hora do dia, direto
-// NOTA HONESTA: as horas relativas dos alertas de demonstração são
-// relativas ao momento em que a página é aberta, por isso a posição
-// destes marcadores muda ao longo do dia. É o comportamento correto para
-// dados de demonstração assim datados — não é um bug de posicionamento.
+// "há 6 min"/"há 2h"/"há 1 dia"(->null)/"07/09/2026 07:22"(só se hoje)/"10:57" -> minuto do dia (0-1439) ou null.
+// Horas relativas são relativas ao momento em que a página abre — os marcadores deslocam-se ao longo do dia, de propósito.
 function tlToMinuteOfDay(quando){
   if (!quando) return null;
   const s = String(quando).trim();
@@ -118,8 +55,7 @@ function tlToMinuteOfDay(quando){
   return null;
 }
 function tlClampDay(min){
-  // Um evento "há 3h" às 01:00 cai no dia anterior — fica preso às 00:00
-  // em vez de aparecer no fim do dia, que seria uma leitura errada.
+  // evita "há 3h" às 01:00 cair no dia anterior em vez do fim do dia
   return Math.max(0, Math.min(TL_DAY_MINUTES - 1, min));
 }
 
@@ -127,10 +63,7 @@ function tlActivityBlocks(){
   return (typeof currentRoutineToday === 'function' ? currentRoutineToday() : []) || [];
 }
 
-// Sinais vitais: buffer REAL do bridge quando há ligação ao vivo (mesma
-// regra já usada por drawHrSeries em canvas-graficos.js), série simulada
-// caso contrário. A distinção nunca é escondida — é dita no subtítulo do
-// cartão e no rótulo da faixa.
+// buffer real do bridge se ao vivo (mesma regra de drawHrSeries), senão série simulada
 function tlVitals(){
   const aoVivo = typeof liveState !== 'undefined' && liveState.connected
     && typeof liveHrBuffer !== 'undefined' && liveHrBuffer.length >= 2;
@@ -175,23 +108,14 @@ const TL_DOSE_COLOR = {
   pendente: 'var(--text-muted)',
 };
 
-/* ------------------------------------------------------------
-   ZOOM E DESLOCAMENTO
-   ------------------------------------------------------------
-   Todas as alterações de janela passam por tlSetWindow(), que é o único
-   sítio que valida os limites — ampliar junto à meia-noite não pode
-   deixar a janela sair do dia.
------------------------------------------------------------- */
+// Todas as mudanças de janela passam por aqui — único sítio que valida os limites do dia.
 function tlSetWindow(start, largura){
   tlWindowMin = Math.max(30, Math.min(TL_DAY_MINUTES, Math.round(largura)));
   tlWindowStart = Math.max(0, Math.min(TL_DAY_MINUTES - tlWindowMin, Math.round(start)));
   tlRefresh();
 }
 
-// Amplia/reduz mantendo fixo o instante que estiver debaixo do cursor
-// (ou o centro da janela, quando vem de um botão) — sem isto, ampliar
-// "perde" o sítio que se estava a olhar, que é a queixa clássica de
-// gráficos com zoom por botão.
+// Amplia/reduz mantendo fixo o ponto debaixo do cursor (ou o centro da janela, vindo de um botão).
 function tlZoomTo(larguraNova, ancoraMin){
   const ancora = ancoraMin != null ? ancoraMin : tlWindowStart + tlWindowMin / 2;
   const fracao = (ancora - tlWindowStart) / tlWindowMin;
@@ -206,11 +130,7 @@ function tlResetWindow(){
   tlSetWindow(0, TL_DAY_MINUTES);
 }
 
-/* ------------------------------------------------------------
-   DESENHO
------------------------------------------------------------- */
-// Espaçamento das linhas verticais de grelha, escolhido para nunca haver
-// mais de ~12 marcas no eixo seja qual for o nível de ampliação.
+// Espaçamento da grelha vertical, para nunca passar de ~12 marcas seja qual for o zoom.
 function tlGridStep(){
   if (tlWindowMin > 720) return 180;
   if (tlWindowMin > 360) return 120;
@@ -225,9 +145,7 @@ function drawUnifiedTimeline(){
   const {ctx, w, h} = S;
   ctx.clearRect(0, 0, w, h);
 
-  // Goteira à esquerda para os nomes das faixas — escritos no canvas e
-  // não em HTML ao lado, para ficarem sempre alinhados com as faixas
-  // mesmo quando a janela do browser muda de tamanho.
+  // goteira à esquerda para os nomes das faixas, desenhados no canvas para ficarem sempre alinhados
   const padL = 92, padR = 12;
   const plotW = Math.max(40, w - padL - padR);
   const xAt = (min) => padL + ((min - tlWindowStart) / tlWindowMin) * plotW;
@@ -247,9 +165,7 @@ function drawUnifiedTimeline(){
 
   S.tlHits = [];
 
-  /* --- grelha vertical + rótulos de hora, comuns a TODAS as faixas.
-         É esta grelha única que materializa "o mesmo eixo temporal": as
-         quatro faixas são cortadas exatamente pelas mesmas linhas. --- */
+  // grelha vertical + rótulos de hora, comuns às quatro faixas (mesmo eixo temporal)
   const passo = tlGridStep();
   const primeira = Math.ceil(tlWindowStart / passo) * passo;
   ctx.font = canvasFont(10);
@@ -260,12 +176,10 @@ function drawUnifiedTimeline(){
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(x, faixas.atividade.y - 8); ctx.lineTo(x, eixoY - 6); ctx.stroke();
     ctx.fillStyle = corTexto;
-    // fmtMin(1440) devolve "24:00", que é o rótulo certo para o fim do
-    // dia — não é preciso reduzir a 00:00.
-    ctx.fillText(fmtMin(m), x - 14, eixoY);
+    ctx.fillText(fmtMin(m), x - 14, eixoY); // fmtMin(1440) = "24:00", rótulo certo do fim do dia
   }
 
-  /* --- nomes das faixas --- */
+  // nomes das faixas
   ctx.textBaseline = 'middle';
   ctx.font = canvasFont(11, '600');
   Object.values(faixas).forEach(f => {
@@ -273,7 +187,7 @@ function drawUnifiedTimeline(){
     ctx.fillText(f.nome, 0, f.y + f.h / 2);
   });
 
-  /* --- FAIXA 1: atividade (blocos de rotina classificados) --- */
+  // faixa 1: atividade (blocos de rotina classificados)
   const catMap = Object.fromEntries(ROUTINE_CATS.map(c => [c.key, c]));
   ctx.fillStyle = resolveVar('--bg-surface-2');
   roundRect(ctx, padL, faixas.atividade.y, plotW, faixas.atividade.h, 5); ctx.fill();
@@ -285,10 +199,7 @@ function drawUnifiedTimeline(){
     const cat = catMap[b.cat];
     ctx.fillStyle = colorOf(cat ? cat.color : 'var(--text-muted)');
     ctx.fillRect(x0, faixas.atividade.y + 2, Math.max(2, x1 - x0), faixas.atividade.h - 4);
-    // Nome da categoria dentro do bloco, mas só quando lá cabe — a partir
-    // de ~6h de janela os blocos ficam largos e o texto ajuda; no dia
-    // inteiro ficaria tudo sobreposto e ilegível.
-    if (x1 - x0 > 64 && cat){
+    if (x1 - x0 > 64 && cat){ // nome da categoria só quando cabe no bloco
       ctx.fillStyle = resolveVar('--bg-page');
       ctx.font = canvasFont(10, '600');
       ctx.fillText(cat.label, x0 + 6, faixas.atividade.y + faixas.atividade.h / 2);
@@ -299,15 +210,12 @@ function drawUnifiedTimeline(){
     });
   });
 
-  /* --- FAIXA 2: sinais vitais (frequência cardíaca) --- */
+  // faixa 2: sinais vitais (frequência cardíaca)
   const vitais = tlVitals();
   const visiveis = vitais.pontos.filter(p => p.min >= tlWindowStart - 30 && p.min <= tlWindowStart + tlWindowMin + 30);
   if (visiveis.length >= 2){
     const valores = visiveis.map(p => p.hr);
-    // Escala calculada a partir dos valores REALMENTE visíveis, e não do
-    // dia inteiro: ao ampliar uma hora, uma escala fixa achataria a linha
-    // numa reta e o zoom não mostraria nada de novo. Mesma lição já
-    // aprendida em drawHrSeries() (eixo fixo 50-105 escondia leituras).
+    // escala calculada dos valores visíveis, não do dia inteiro (mesma lição de drawHrSeries)
     let vmin = Math.min(...valores), vmax = Math.max(...valores);
     const folga = Math.max(4, (vmax - vmin) * 0.2);
     vmin = Math.floor((vmin - folga) / 5) * 5;
@@ -333,9 +241,7 @@ function drawUnifiedTimeline(){
     ctx.strokeStyle = resolveVar('--status-good');
     ctx.lineWidth = 2; ctx.lineJoin = 'round';
     ctx.save();
-    // Recorte para a linha não escapar para a goteira dos nomes quando a
-    // janela corta a série a meio.
-    ctx.beginPath(); ctx.rect(padL, faixas.vitais.y - 2, plotW, faixas.vitais.h + 4); ctx.clip();
+    ctx.beginPath(); ctx.rect(padL, faixas.vitais.y - 2, plotW, faixas.vitais.h + 4); ctx.clip(); // recorta para não escapar para a goteira
     ctx.stroke();
     ctx.restore();
 
@@ -347,7 +253,7 @@ function drawUnifiedTimeline(){
     S.tlVitais = null;
   }
 
-  /* --- FAIXA 3: alertas (losangos, cor = gravidade) --- */
+  // faixa 3: alertas (losangos, cor = gravidade)
   ctx.strokeStyle = corGrelha; ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(padL, faixas.alertas.y + faixas.alertas.h / 2);
@@ -359,10 +265,7 @@ function drawUnifiedTimeline(){
     const falso = typeof isAlertMarkedFalsePositive === 'function' && isAlertMarkedFalsePositive(a.key);
     ctx.save();
     ctx.translate(x, y); ctx.rotate(Math.PI / 4);
-    // Marcado como falso positivo (RF-09) fica em contorno vazado: o
-    // alerta continua desenhado — apagá-lo esconderia que o sistema o
-    // gerou —, mas deixa de competir visualmente com os que valem.
-    if (falso){
+    if (falso){ // falso positivo (RF-09) fica em contorno vazado, não apagado — o sistema gerou-o na mesma
       ctx.strokeStyle = colorOf(SEV_COLOR[a.sev] || 'var(--text-muted)');
       ctx.lineWidth = 1.6; ctx.setLineDash([2, 2]);
       ctx.strokeRect(-6, -6, 12, 12);
@@ -375,7 +278,7 @@ function drawUnifiedTimeline(){
     S.tlHits.push({x0: x - 9, x1: x + 9, y0: y - 9, y1: y + 9, tipo: 'alerta', dados: a});
   });
 
-  /* --- FAIXA 4: medicação (círculos, cor = estado da dose) --- */
+  // faixa 4: medicação (círculos, cor = estado da dose)
   ctx.strokeStyle = corGrelha;
   ctx.beginPath();
   ctx.moveTo(padL, faixas.medicacao.y + faixas.medicacao.h / 2);
@@ -387,15 +290,14 @@ function drawUnifiedTimeline(){
     ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2);
     ctx.fillStyle = colorOf(TL_DOSE_COLOR[d.estado] || 'var(--text-muted)');
     ctx.fill();
-    if (d.estado === 'pendente'){
-      // Dose ainda por tomar: só contorno, para não parecer confirmada.
+    if (d.estado === 'pendente'){ // só contorno, para não parecer confirmada
       ctx.fillStyle = resolveVar('--bg-surface');
       ctx.beginPath(); ctx.arc(x, y, 3.4, 0, Math.PI * 2); ctx.fill();
     }
     S.tlHits.push({x0: x - 9, x1: x + 9, y0: y - 9, y1: y + 9, tipo: 'medicacao', dados: d});
   });
 
-  /* --- interação --- */
+  // interação
   S.cv.onmousemove = (e) => {
     const r = S.cv.getBoundingClientRect();
     const mx = e.clientX - r.left, my = e.clientY - r.top;
@@ -412,9 +314,7 @@ function drawUnifiedTimeline(){
       showTip(e.clientX, e.clientY, tlTooltipHtml(alvo));
       return;
     }
-    // Fora de qualquer marcador, mas dentro da faixa de sinais vitais:
-    // mostra a leitura mais próxima no tempo. Sem isto, a única faixa
-    // contínua da vista era a única sem informação ao passar o rato.
+    // fora de qualquer marcador mas dentro da faixa de vitais: mostra a leitura mais próxima no tempo
     if (S.tlVitais && my >= faixas.vitais.y && my <= faixas.vitais.y + faixas.vitais.h && mx >= padL){
       const alvoMin = minAt(mx);
       let melhor = null, dist = Infinity;
@@ -438,7 +338,7 @@ function drawUnifiedTimeline(){
   S.cv.onmouseleave = () => { hideTip(); tlDragFrom = null; };
 
   S.cv.onmousedown = (e) => {
-    if (tlWindowMin >= TL_DAY_MINUTES) return; // nada para deslocar
+    if (tlWindowMin >= TL_DAY_MINUTES) return;
     const r = S.cv.getBoundingClientRect();
     tlDragFrom = {x: e.clientX - r.left, start: tlWindowStart};
     S.cv.style.cursor = 'grabbing';
@@ -455,10 +355,7 @@ function drawUnifiedTimeline(){
     }
   };
 
-  // Roda do rato = ampliar/reduzir centrado no cursor. passive:false
-  // porque é preciso preventDefault para a página não deslizar ao mesmo
-  // tempo; onwheel (propriedade) seria registado como passivo em alguns
-  // motores e o preventDefault seria ignorado.
+  // roda = zoom centrado no cursor; passive:false porque precisa de preventDefault
   S.cv.addEventListener('wheel', (e) => {
     e.preventDefault();
     const r = S.cv.getBoundingClientRect();
@@ -466,10 +363,7 @@ function drawUnifiedTimeline(){
     tlZoomTo(e.deltaY > 0 ? tlWindowMin * 1.35 : tlWindowMin / 1.35, ancora);
   }, {passive: false});
 
-  // TECLADO (RNF-08, SC 2.1.1): o canvas é focável (tabindex="0" no
-  // template) e responde às mesmas ações que o rato. Sem isto, o zoom e
-  // o deslocamento — a parte que torna esta vista útil — só existiam
-  // para quem usa rato.
+  // teclado (RNF-08/SC 2.1.1): canvas focável, mesmas ações do rato
   S.cv.onkeydown = (e) => {
     const teclas = {
       ArrowLeft:  () => tlPan(-0.25),
@@ -518,21 +412,9 @@ function tlTooltipHtml(hit){
   `;
 }
 
-/* ------------------------------------------------------------
-   RF-09 dentro da timeline — corrigir a classificação de um bloco
-   ------------------------------------------------------------
-   Clicar num bloco de atividade abre o seletor das 5 categorias. A
-   correção fica na fila de rotulagem (ver bridge-exportacao.js).
-
-   PORQUE É QUE ISTO **NÃO** ENVIA "correct_activity" AO BRIDGE: esse
-   comando corrige a classificação do momento ATUAL — o bridge lê
-   activity_inference.current_category() como categoria original e grava
-   o par (original, corrigida) com o carimbo temporal da receção. Enviá-lo
-   para um bloco das 09:30 gravaria esse rótulo como se fosse sobre o que
-   a pessoa está a fazer AGORA, corrompendo os dados de retreino. Um
-   comando novo com carimbo temporal explícito é o que falta do lado do
-   bridge; está descrito no relatório da tarefa.
------------------------------------------------------------- */
+// RF-09 dentro da timeline: clicar num bloco abre o seletor de categoria; correção vai para a fila (bridge-exportacao.js).
+// Não envia "correct_activity" ao bridge — esse comando corrige a classificação do momento ATUAL, não um bloco passado
+// (corromperia os dados de retreino). Falta um comando com carimbo temporal explícito; ver relatório da tarefa.
 function tlRenderBlockCorrection(){
   const host = document.getElementById('tlBlockCorrection');
   if (!host) return;
@@ -574,22 +456,14 @@ function tlCorrectSelectedBlock(categoria){
     originalLabel: cat ? cat.label : b.cat,
     correctedLabel: categoria,
     falsePositive: true,
-    sentToBridge: false, // ver o comentário do bloco acima
+    sentToBridge: false, // ver comentário acima — não há comando de bridge para isto
   });
   tlSelectedBlock = null;
   tlRefresh();
   tlRenderBlockCorrection();
 }
 
-/* ------------------------------------------------------------
-   ALTERNATIVA TEXTUAL (RNF-08 / WCAG SC 1.1.1)
-   ------------------------------------------------------------
-   O canvas não expõe nada a um leitor de ecrã. Esta tabela lista os
-   mesmos eventos da janela visível, em texto, e é atualizada em conjunto
-   com o desenho. Não está escondida com .sr-only de propósito: para um
-   cuidador que prefere ler horas exatas em vez de interpretar um
-   gráfico, é a leitura principal, não uma versão "para deficientes".
------------------------------------------------------------- */
+// Alternativa textual (RNF-08/WCAG 1.1.1): mesmos eventos da janela visível, em texto. Não é .sr-only — é leitura principal para quem preferir.
 function tlRenderEventsTable(){
   const host = document.getElementById('tlEventsBody');
   if (!host) return;
@@ -654,16 +528,8 @@ function tlRenderEventsTable(){
   `;
 }
 
-/* ------------------------------------------------------------
-   REDESENHO
-   ------------------------------------------------------------
-   tlRefresh() atualiza SÓ o que depende da janela (canvas, rótulo,
-   estado dos botões, tabela). Não chama renderView(): isso reconstruiria
-   a vista inteira, perdia o scroll da página a cada passo de zoom, e —
-   mais importante — renderView() é o caminho que escreve no histórico de
-   navegação. A regra do histórico é "só quando a vista muda"; ampliar um
-   gráfico não é mudar de vista.
------------------------------------------------------------- */
+// Atualiza só o que depende da janela (canvas, rótulo, botões, tabela). Não chama renderView() —
+// reconstruiria a vista, perderia o scroll e escreveria no histórico de navegação a cada zoom.
 function tlRefresh(){
   drawUnifiedTimeline();
   const lbl = document.getElementById('tlWindowLabel');
@@ -682,9 +548,6 @@ function tlRefresh(){
   tlRenderEventsTable();
 }
 
-/* ------------------------------------------------------------
-   TEMPLATE DA VISTA
------------------------------------------------------------- */
 TEMPLATES.timeline = () => `
   <div class="card">
     <div class="card-head">
@@ -711,10 +574,7 @@ TEMPLATES.timeline = () => `
     </div>
 
     <div class="tl-canvas-wrap">
-      <!-- tabindex="0" + role="img": focável por teclado (as teclas estão
-           em S.cv.onkeydown, ver drawUnifiedTimeline) e anunciado como
-           imagem com descrição, já que o conteúdo em si é pixels. A
-           descrição completa está na tabela por baixo. -->
+      <!-- tabindex="0" + role="img": focável (ver S.cv.onkeydown) e anunciado como imagem; descrição completa na tabela abaixo -->
       <canvas id="${TL_CANVAS_ID}" height="${TL_HEIGHT}" tabindex="0" role="img"
               aria-label="Timeline unificada: atividade, frequência cardíaca, alertas e medicação no mesmo eixo temporal. Use as setas para deslocar e ampliar; a lista de eventos do período está na tabela abaixo."></canvas>
     </div>
@@ -756,10 +616,7 @@ AFTER_RENDER.timeline = () => {
   tlRenderBlockCorrection();
 };
 
-// Redesenha ao redimensionar a janela: setupCanvas() calcula a largura a
-// partir do elemento pai, por isso um canvas desenhado antes de o
-// utilizador maximizar a janela ficava com o conteúdo esticado. Só age se
-// a vista aberta for esta.
+// Redesenha ao redimensionar (setupCanvas mede o elemento pai), só se esta vista estiver aberta.
 window.addEventListener('resize', () => {
   if (typeof currentView !== 'undefined' && currentView === 'timeline') tlRefresh();
 });

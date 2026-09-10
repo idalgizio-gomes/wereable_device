@@ -1,6 +1,4 @@
-// Constrói o campo HTML de um dado sensível (morada, NIF): se houver uma
-// alteração pendente de aprovação, mostra-a claramente em vez do campo
-// editável normal, para não parecer que a alteração já foi aplicada.
+// campo sensível (morada, NIF): mostra alteração pendente de aprovação em vez do input normal
 function sensitiveProfileFieldHtml(role, field, label, currentValue, inputType){
   const pending = loadPendingProfileChanges();
   const pendingChange = pending[role] && pending[role][field];
@@ -21,16 +19,7 @@ function sensitiveProfileFieldHtml(role, field, label, currentValue, inputType){
     </div>`;
 }
 
-// BUG DE XSS CORRIGIDO (2026-09-07): os campos do próprio perfil são texto
-// livre escrito pelo utilizador (ver submitProfileForm(), que grava
-// el.value.trim() tal e qual em localStorage) e entravam sem escaping
-// dentro de value="..." — um nome como  Maria" onfocus="…" autofocus x="
-// fecha o atributo e executa código ao voltar a abrir a vista Perfil. Este
-// mesmo ficheiro já usava escapeHtml() nos dois sítios em texto (valor
-// pendente e tabela de aprovações), e vista-definicoes-ajuda.js já o usa
-// exatamente neste padrão value="${escapeHtml(...)}" — faltava só aqui.
-// escapeHtml() escapa " (mas não '), por isso os atributos têm de
-// continuar delimitados por aspas duplas, como estão.
+// campos são texto livre do utilizador; escapeHtml() obrigatório em value="..." (atributos com aspas duplas)
 TEMPLATES.perfil = () => {
   const isUtente = currentRole === 'utente';
   const role = isUtente ? 'utente' : 'clinico';
@@ -155,15 +144,7 @@ TEMPLATES.exportar = () => `
     <p class="empty-hint">${t('exportar.fhirNoteEmpty')}</p>
   </div>
 
-  <!-- RF-12 (2026-09-07) — Relatório semanal automático.
-       Texto em português literal (não passa por t()/i18n-strings.js) por
-       decisão de âmbito: o ficheiro de traduções está a ser alterado por
-       outro trabalho em paralelo e acrescentar chaves lá daria conflito.
-       Passar estas 4 strings para i18n é trabalho por fazer, registado no
-       relatório do requisito.
-       O botão chama exportWeeklyReportPdf() (web/dashboard/export-clinico.js),
-       que reutiliza a MESMA folha de impressão #clinicalPrintSheet no fim
-       deste template — não há um segundo mecanismo de exportação. -->
+  <!-- RF-12: texto literal em PT, ainda não passa por t()/i18n; usa exportWeeklyReportPdf() -->
   <div class="card print-hide">
     <div class="card-head"><div><h3>Relatório semanal</h3><div class="card-sub">Rotina, sinais vitais, alertas e adesão à medicação dos últimos 7 dias, num só PDF.</div></div></div>
     <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">

@@ -1,5 +1,3 @@
-/* Gestao de versoes do modelo de ML - extraido de bridge-exportacao.js */
-
 function requestModelVersions(){
   const hint = document.getElementById('modelVersionsHint');
   renderModelVersionsList();
@@ -41,10 +39,7 @@ function handleModelVersionResult(msg){
     hint.style.color = msg.reloaded ? 'var(--status-good)' : 'var(--status-warning)';
     hint.textContent = msg.reloaded ? t('modeloVersao.activatedHint') : t('modeloVersao.reloadFailedHint');
   }
-  // Pede o estado completo de novo — a base de dados é sempre a fonte de
-  // verdade, mesmo raciocínio de handleConsentResultMessage/
-  // handleThresholdsSaveResult acima.
-  sendWsCommand('list_model_versions');
+  sendWsCommand('list_model_versions'); //estado completo de novo, BD é a fonte de verdade
 }
 
 function renderModelVersionsList(){
@@ -68,11 +63,4 @@ function renderModelVersionsList(){
   `;
 }
 
-/* ------------------------------------------------------------
-   HISTÓRICO REAL NA VISTA "TENDÊNCIA SEMANAL" — ligado à BD SQLite do
-   bridge (bridge/storage.py::get_daily_summary), pedido de
-   PROJECT_STATUS.md ("Base de dados" — próximo passo natural depois de
-   `get_history`/CSV). Deliberadamente um cartão SEPARADO do gráfico
-   `currentTrendData()` (sempre sintético) em vez de misturado na mesma linha —
-   evita qualquer ambiguidade sobre o que é real e o que é simulado.
------------------------------------------------------------- */
+//histórico real (BD SQLite) em cartão separado do gráfico currentTrendData() (sintético)

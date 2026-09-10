@@ -48,11 +48,7 @@ TEMPLATES.rotina = () => `
     <p class="empty-hint">${t('rotina.anomHint')}</p>
   </div>
 
-  <!-- RF-09 (2026-09-07) — human-in-the-loop. Colocado na vista "Rotina
-       diária" e não numa vista nova: é aqui que o cuidador já olha para o
-       que o sistema CLASSIFICOU (blocos de rotina + anomalias logo
-       acima), por isso é aqui que faz sentido contradizê-lo. Ver o módulo
-       "ROTULAGEM HUMAN-IN-THE-LOOP" em bridge-exportacao.js. -->
+  <!-- RF-09 human-in-the-loop: ver "ROTULAGEM HUMAN-IN-THE-LOOP" em bridge-exportacao.js -->
   <div class="card" id="hitlReviewCard"></div>
 `;
 AFTER_RENDER.rotina = () => {
@@ -65,21 +61,7 @@ AFTER_RENDER.rotina = () => {
   renderHitlReviewCard('hitlReviewCard');
 };
 
-/* ------------------------------------------------------------
-   RF-09 — CARTÃO DE REVISÃO DE CLASSIFICAÇÕES (2026-09-07)
-   ------------------------------------------------------------
-   Duas metades, deliberadamente no mesmo cartão:
-     1. O que ainda se PODE marcar — os alertas ativos deste paciente,
-        cada um com um botão de "falso positivo" que alterna.
-     2. O que JÁ foi marcado — a fila de rótulos acumulada, com quem a
-        criou, se chegou ao bridge, e a exportação para o ciclo de
-        retreino.
-   Separá-las em dois cartões esconderia a consequência da ação: hoje o
-   cuidador carrega no botão e não vê para onde é que aquilo vai. O
-   requisito é precisamente que a marcação "fique disponível para o
-   próximo ciclo de retreino" — mostrar a fila é o que torna isso
-   verificável por quem usa, e não só por quem lê o código.
------------------------------------------------------------- */
+//RF-09 — cartão de revisão: alertas marcáveis como falso positivo + fila de rótulos já marcados
 function renderHitlReviewCard(hostId){
   const host = document.getElementById(hostId);
   if (!host) return;
@@ -149,25 +131,15 @@ function renderHitlReviewCard(hostId){
   `;
 }
 
-/* ------------------------------------------------------------
-   NOTAS DO CUIDADOR
-   ------------------------------------------------------------
-   Ideia vinda diretamente da pesquisa de plataformas semelhantes
-   (CarePredict e outras): a funcionalidade mais pedida em quase todas
-   as fontes revistas é um diário/notas do cuidador ligado à timeline —
-   fecha o fosso entre os dados passivos dos sensores e o contexto
-   humano que só uma pessoa consegue registar ("recusou o almoço",
-   "esteve agitada"). Protótipo: persistido em localStorage (só neste
-   browser) — passar para a base de dados SQL quando essa existir.
------------------------------------------------------------- */
+//NOTAS DO CUIDADOR — protótipo em localStorage; passar para BD SQL futuramente
 const NOTES_STORAGE_KEY = 'carewear_caregiver_notes';
 
 function loadCaregiverNotes(){
   try {
     const raw = localStorage.getItem(NOTES_STORAGE_KEY);
     if (raw) return JSON.parse(raw);
-  } catch (e) { /* localStorage indisponível ou dados corrompidos - ignora */ }
-  // Notas de exemplo, só na primeira utilização (nada ainda guardado).
+  } catch (e) { /* localStorage indisponível ou dados corrompidos */ }
+  //Notas de exemplo, só na primeira utilização
   return [
     {text: 'Recusou o pequeno-almoço, comeu só uma torrada.', authorKey: 'rotina.noteAuthorFamily', ts: Date.parse('2026-07-02T08:35:00')},
     {text: 'Esteve mais agitada do que o habitual antes do jantar.', authorKey: 'rotina.noteAuthorCaregiver', ts: Date.parse('2026-07-02T18:50:00')},
@@ -175,7 +147,7 @@ function loadCaregiverNotes(){
 }
 function saveCaregiverNotes(notes){
   try { localStorage.setItem(NOTES_STORAGE_KEY, JSON.stringify(notes)); }
-  catch (e) { /* quota excedida ou localStorage indisponível - nota fica só em memória */ }
+  catch (e) { /* localStorage indisponível */ }
 }
 let caregiverNotes = loadCaregiverNotes();
 
@@ -212,9 +184,7 @@ document.addEventListener('click', (e) => {
   renderActivityDetail(selectedActivityCat);
 });
 
-// Gera minutos totais por dia (7 dias) para uma categoria, de forma
-// reprodutível (mesma categoria -> mesma "semente" -> mesmos valores),
-// centrado num valor tipico plausivel por categoria.
+//Minutos por dia (7 dias) por categoria, reprodutível via seed
 function buildCategoryWeekly(catKey){
   const typical = {dormir: 480, descanso: 300, atividade: 90, alimentacao: 60, higiene: 25}[catKey] || 60;
   let seed = 0; for (const ch of catKey) seed += ch.charCodeAt(0);
@@ -290,9 +260,7 @@ function drawCategoryWeeklyBar(id, weekly, color){
   S.cv.onmouseleave = hideTip;
 }
 
-// Linha simples com pontos + tooltip, no mesmo estilo de setupCanvas/
-// colorOf já usado em drawCategoryWeeklyBar — usada para a tendência de
-// 7 dias do índice de pacing (ver buildPacingTrend()).
+//Tendência de 7 dias do índice de pacing
 function drawPacingTrend(id, data){
   const S = setupCanvas(id, 110);
   if (!S) return;
@@ -300,7 +268,7 @@ function drawPacingTrend(id, data){
   ctx.clearRect(0,0,w,h);
   const padL=6, padR=6, top=10, bottom=20;
   const plotW=w-padL-padR, plotH=h-top-bottom;
-  const max = 100; // índice é sempre 0-100, eixo fixo para leitura consistente entre visitas
+  const max = 100; //índice é sempre 0-100
   const stepX = plotW / (data.length - 1);
   const col = colorOf('var(--accent)');
 

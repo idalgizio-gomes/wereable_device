@@ -1,38 +1,8 @@
 /* Alertas, anomalias e emergencias - extraido de pacientes-alertas-medicacao.js */
 
-
-// Cada alerta tem, além da descrição técnica ("desc"), um campo "plain":
-// uma explicação em linguagem simples, pensada para um familiar sem
-// formação clínica — o que aconteceu, se é normalmente preocupante, e o
-// que costuma justificar este tipo de leitura. É mostrada/escondida pelo
-// botão "O que significa isto?" em alertRow() (ver mais abaixo). Esta
-// funcionalidade corresponde ao item nº1 do backlog de investigação em
-// PROJECT_STATUS.md — a explicação em linguagem simples é o que a
-// literatura revista aponta como o que traz mais valor percebido às
-// famílias, mais do que apenas mostrar scores técnicos.
-/* ------------------------------------------------------------
-   PACIENTES DO MÉDICO/TÉCNICO (protótipo, dados fictícios)
-   ------------------------------------------------------------
-   Um médico/técnico tem, na realidade, vários pacientes/wearables
-   emparelhados na mesma conta. Cada paciente tem os seus PRÓPRIOS
-   alertas, registo de anomalias e estatísticas de dispositivo (bateria,
-   ocupação do ring buffer) — BUG CORRIGIDO (2026-07-03, reportado pelo
-   utilizador): antes, mudar de paciente na vista "Pacientes" não mudava
-   os dados mostrados no "Registo de anomalias" nem em "Dispositivo &
-   firmware", que continuavam sempre a mostrar os valores fixos da Maria
-   Silva. Agora `alerts`/`anomalyLog`/estado do dispositivo vêm sempre de
-   `selectedPatient()` (ver currentAlerts()/currentAnomalyLog() abaixo).
-   NOTA HONESTA: RAM/flash de programa (.data/.bss e tamanho do binário)
-   são os MESMOS para todos os pacientes de propósito — é o mesmo
-   firmware instalado em todos os wearables, por isso esses dois valores
-   não deviam variar por paciente (só bateria e ocupação do ring buffer,
-   que dependem do uso real de cada dispositivo, fazem sentido variar).
-   LIMITAÇÃO HONESTA (continua a aplicar-se): selecionar aqui muda a
-   identidade/dados apresentados nesta conta, mas a ligação BLE real
-   continua limitada a um único dispositivo físico de cada vez — o
-   bridge (ble_bridge.py) ainda não suporta escolher/alternar entre
-   vários dispositivos por MAC (ver PROJECT_STATUS.md, backlog).
------------------------------------------------------------- */
+// alerta.plain = explicação em linguagem simples p/ familiares, mostrada por "O que significa isto?" em alertRow()
+// alerts/anomalyLog/estado do dispositivo vêm sempre de selectedPatient() (currentAlerts()/currentAnomalyLog())
+// LIMITAÇÃO: selecionar paciente aqui não troca a ligação BLE real, que serve um único dispositivo de cada vez (ble_bridge.py)
 const DELETED_ALERTS_KEY = 'carewear_deleted_alerts';
 
 function loadDeletedAlerts(){
@@ -48,9 +18,7 @@ function saveDeletedAlerts(map){
 }
 let deletedAlertsMap = loadDeletedAlerts();
 function isAlertDeleted(fullKey){ return !!deletedAlertsMap[fullKey]; }
-// Bug de permissão corrigido (2026-07-16): mesmo motivo dos guards em
-// deleteAnomaly()/deleteEmergencyRecord() abaixo — apagar não é decisão
-// do utente/família, só da equipa clínica.
+// apagar não é decisão do utente/família, só da equipa clínica
 function deleteAlert(fullKey){
   if (currentRole === 'utente') return;
   deletedAlertsMap[fullKey] = true;
@@ -66,15 +34,7 @@ function clearAllAlertsForPatient(){
   if (currentView) renderView(currentView);
 }
 
-/* ------------------------------------------------------------
-   APAGAR ANOMALIAS E EMERGÊNCIAS INDIVIDUALMENTE (2026-07-15)
-   ------------------------------------------------------------
-   Mesmo padrão de "apagar por chave, filtrar na leitura" já usado para
-   alertas (ver DELETED_ALERTS_KEY acima) — nunca se remove do array de
-   dados de origem (PATIENTS/EMERGENCY_LOG ou demo-data.js), só se marca
-   como apagado num mapa em localStorage, para sobreviver a
-   re-renderizações e a trocas de dados diárias do simulador.
------------------------------------------------------------- */
+// apagar anomalias/emergências: mesmo padrão de "marcar em localStorage" de DELETED_ALERTS_KEY, nunca remove dos dados de origem
 const DELETED_ANOMALIES_KEY = 'carewear_deleted_anomalies';
 const DELETED_EMERGENCIES_KEY = 'carewear_deleted_emergencies';
 
@@ -92,14 +52,7 @@ function saveDeletedMap(key, map){
 let deletedAnomaliesMap = loadDeletedMap(DELETED_ANOMALIES_KEY);
 let deletedEmergenciesMap = loadDeletedMap(DELETED_EMERGENCIES_KEY);
 
-// Bug de permissão corrigido (2026-07-16, reportado pelo utilizador):
-// apagar o próprio registo de anomalias/emergências não é uma decisão
-// que caiba ao utente/família — só a equipa clínica deve poder fazê-lo.
-// Os botões já estavam escondidos para utente na maior parte dos casos
-// (ver TEMPLATES.anomalias/emergencias), mas o botão individual de
-// apagar emergência tinha escapado a essa guarda. Em vez de confiar só
-// em esconder o botão, estas funções recusam agora diretamente
-// (defesa em profundidade — mesmo padrão já usado em selectPatient()).
+// defesa em profundidade: recusa diretamente, não confia só em esconder o botão
 function deleteAnomaly(anomalyId){
   if (currentRole === 'utente') return;
   const fullKey = `${selectedPatientId}:${anomalyId}`;
@@ -114,10 +67,7 @@ function deleteEmergencyRecord(emergencyId){
   saveDeletedMap(DELETED_EMERGENCIES_KEY, deletedEmergenciesMap);
   if (currentView) renderView(currentView);
 }
-// "Limpar tudo" — mesmo padrão de clearAllAlertsForPatient(), pedido do
-// utilizador depois de reparar que só existia para alertas. Emergências
-// ativas ficam de fora (mesma regra de segurança de deleteEmergencyRecord:
-// têm de ser canceladas primeiro, não apagadas diretamente).
+// mesmo padrão de clearAllAlertsForPatient(); emergências ativas ficam de fora, têm de ser canceladas primeiro
 function clearAllAnomaliesForPatient(){
   if (currentRole === 'utente') return;
   currentAnomalyLog().forEach(a => { deletedAnomaliesMap[`${selectedPatientId}:${a.id}`] = true; });
@@ -131,40 +81,12 @@ function clearAllEmergenciesForPatient(){
   if (currentView) renderView(currentView);
 }
 
-/* ------------------------------------------------------------
-   DIREITO AO ESQUECIMENTO (RGPD art. 17) — apagar dados locais
-   ------------------------------------------------------------
-   Antes desta função não havia nenhuma forma de apagar de uma vez os
-   dados pessoais que este dashboard guarda no localStorage do browser
-   (perfil com NIF/morada, consentimento, medicação, notas de
-   cuidadores, alertas lidos/apagados/silenciados) — logout() só troca
-   de ecrã, nunca limpou nada. Varre por prefixo em vez de listar
-   chaves à mão, para não ficar desatualizada quando surgir uma chave
-   nova (ex.: 'carewear_adherence_analytics_<patientId>', sufixo
-   dinâmico por paciente, em medication-reminders.js). Âmbito
-   deliberadamente limitado a este browser: não apaga o histórico do
-   bridge (bridge/carewear_history.db, ver "Retenção de dados" na vista
-   Exportar) nem os registos guardados no próprio dispositivo (ver
-   "Repor leituras" abaixo) — quem quiser apagar tudo tem de usar as
-   três opções.
------------------------------------------------------------- */
-/* ------------------------------------------------------------
-   RF-07 (2026-09-07) — ALERTAS REAIS VINDOS DA BASE DE DADOS
-   ------------------------------------------------------------
-   Até esta data, TODOS os alertas que este dashboard mostrava eram
-   entradas fixas de demonstração (PATIENTS[i].alerts). O bridge grava
-   agora cada alerta na tabela `alerts` (severidade, motivo, escalonamento
-   e ação registada — ver ble_bridge.py, cmd "get_alerts"), e estes são
-   fundidos com os de demonstração na MESMA lista, para não haver duas
-   secções de alertas a competir pela atenção do cuidador.
-   Distinguem-se por `live: true`, que também é o que faz `alertField()`
-   escapar o texto (ver abaixo): o texto de demonstração é constante
-   escrita neste repositório, o do bridge não é.
------------------------------------------------------------- */
+// RGPD art. 17: apaga dados locais por prefixo (não afeta bridge/carewear_history.db nem o próprio dispositivo)
+
+// RF-07: alertas reais da tabela `alerts` do bridge (cmd "get_alerts"), fundidos com os de demonstração; distinguem-se por live:true
 let bridgeAlerts = [];
 
-// Converte um alerta da base de dados para a forma que alertRow() e a
-// tabela de histórico já sabem desenhar.
+// converte um alerta da BD para a forma que alertRow()/tabela de histórico desenham
 function bridgeAlertToRow(raw){
   const criadoMs = raw.created_at ? Date.parse(raw.created_at + 'Z') : null;
   const escaladoMs = raw.escalated_at ? Date.parse(raw.escalated_at + 'Z') : null;
@@ -188,31 +110,21 @@ function bridgeAlertToRow(raw){
   };
 }
 
-// Alertas reais + de demonstração, sem os apagados. Os reais vêm
-// primeiro por serem sempre mais recentes do que as entradas fixas.
+// reais + demonstração, sem apagados; reais primeiro por serem mais recentes
 function currentAlerts(){
   const reais = bridgeAlerts.filter(a => !isAlertDeleted(patientAlertKey(selectedPatientId, a.key)));
   const demo = selectedPatient().alerts.filter(a => !isAlertDeleted(patientAlertKey(selectedPatientId, a.key)));
   return reais.concat(demo);
 }
 
-// RF-07 — "motivo textual legível que explique porque foi gerado".
-// Para alertas reais é a frase composta pelo bridge com os números que
-// dispararam a regra (vital_alerts.explain_vital_alert /
-// explain_wear_state). Para os de demonstração, que não têm campo
-// próprio, usa-se a descrição técnica, que é exatamente isso — o que foi
-// medido e contra que referência.
+// alertas reais: frase composta pelo bridge (explain_vital_alert/explain_wear_state); demonstração: usa a descrição técnica
 function alertReasonText(a){
   if (!a) return '';
   if (a.reason) return a.reason;
   return alertField(a, 'desc') || '';
 }
 
-// Ponte entre um alerta desta lista e o `alert_id` que o
-// EscalationManager do bridge usa ("{alert_type}-{seq}", ver
-// _dispatch_emergency_notifications em ble_bridge.py). Só os alertas de
-// emergência REAIS têm um — os restantes devolvem null e a confirmação
-// fica-se pelo registo em `alerts`.
+// mapeia para o alert_id ("{alert_type}-{seq}") do EscalationManager do bridge; só emergências reais têm um
 function liveEmergencyAlertIdFor(fullKey){
   if (!fullKey) return null;
   const chave = String(fullKey).split('::').pop();
@@ -223,17 +135,7 @@ function currentAnomalyLog(){
   return selectedPatient().anomalyLog.filter(a => !deletedAnomaliesMap[`${selectedPatientId}:${a.id}`]);
 }
 
-/* ------------------------------------------------------------
-   TRADUÇÃO DE ALERTAS/ANOMALIAS/EMERGÊNCIAS (pedido do utilizador:
-   "Quero que as mensagens de emergência e alertas sempre traduzidos")
-   ------------------------------------------------------------
-   Os dados de demonstração (PATIENTS[i].alerts/anomalyLog, EMERGENCY_LOG)
-   continuam a guardar o texto em português tal como sempre existiu — é
-   usado como fallback (ver t()) se faltar a entrada traduzida. As
-   funções abaixo resolvem o texto de facto mostrado a partir de uma
-   chave estável (a.key / a.id / e.type) num namespace I18N dedicado, em
-   vez de ler os campos de texto diretamente.
------------------------------------------------------------- */
+// tradução de alertas/anomalias/emergências: resolve texto via chave estável (a.key/a.id/e.type) num namespace i18n, com fallback para o PT-fixo dos dados de demonstração
 const ALERT_KEY_TO_I18N_SEGMENT = {
   'hr-alta': 'hrAlta', 'inatividade-prolongada': 'inatividadeProlongada', 'rotina-alterada': 'rotinaAlterada',
   'spo2-limite': 'spo2Limite', 'sono-curto': 'sonoCurto',
@@ -273,27 +175,12 @@ function emergencyNoteText(e){
   return val === i18nKey ? e.resolvedNote : val;
 }
 
-// Alertas ainda não lidos e não apagados — o que aparece em "Alertas
-// recentes" (Resumo) e "Alertas por severidade" (Pacientes). Ler um
-// alerta (markAlertRead()) remove-o desta lista; ele continua acessível
-// em "Histórico de alertas" até ser apagado.
+// alertas não lidos/não apagados — usado em "Alertas recentes" e "Alertas por severidade"
 function unreadActiveAlerts(){
   return currentAlerts().filter(a => !isAlertRead(patientAlertKey(selectedPatientId, a.key)));
 }
 
-// Nº de alertas "ativos" de um paciente = não silenciados (ver
-// muteAlert()) E não lidos, neste momento. Calculado, não guardado à
-// parte, para nunca poder ficar dessincronizado do que a tabela de
-// alertas mostra.
-// BUG CORRIGIDO (2026-07-16, reportado pelo utilizador): antes só
-// filtrava por "não silenciado" — um médico que já tinha lido/tratado
-// todos os alertas de um paciente continuava a ver "N ativos" nesta
-// pill (ex.: "4 ativos"), mas ao entrar em "Alertas por severidade"
-// (que já filtrava por não-lido) via sempre a mensagem de vazio "Sem
-// alertas novos" — parecia que a secção estava sempre vazia
-// independentemente do paciente. As duas áreas usam agora o mesmo
-// critério (não silenciado E não lido), para o número na tabela nunca
-// prometer algo que a secção de severidade não mostra.
+// nº de alertas "ativos" = não silenciado E não lido; calculado, não guardado, para nunca dessincronizar da tabela
 function activeAlertsCount(patient){
   return patient.alerts.filter(a =>
     !alertMutedUntil(patientAlertKey(patient.id, a.key)) &&
@@ -301,11 +188,6 @@ function activeAlertsCount(patient){
   ).length;
 }
 
-// Chamada pelo botão "Selecionar" em cada linha da tabela de pacientes
-// (TEMPLATES.pacientes). Atualiza a seleção, persiste em localStorage, e
-// re-renderiza a vista + os rótulos ligados ao paciente selecionado (nav
-// lateral). Ver limitação honesta no comentário acima — isto não troca a
-// ligação BLE real.
 const EMERGENCY_LOG = {
   p1: [
     {id:'E-204', type:'fall', label:'Queda + inatividade prolongada', time:'02/07/2026 21:14', status:'resolvido', resolvedNote:'Confirmado falso alarme pela família por telefone.'},
@@ -321,29 +203,19 @@ function currentEmergencyLog(){
   return (EMERGENCY_LOG[selectedPatientId] || []).filter(e => !deletedEmergenciesMap[`${selectedPatientId}:${e.id}`]);
 }
 
-// Mapeia EmergencyAlertType (Ble.h: 1=SOS manual, 2=queda+inatividade —
-// ver alert_name já traduzido pelo bridge em ble_bridge.py) para as
-// mesmas categorias usadas nas entradas de demonstração acima.
+// mapeia EmergencyAlertType (Ble.h: 1=SOS manual, 2=queda+inatividade) para as categorias de demonstração
 const EMERGENCY_ALERT_TYPE_TO_LOG = {
   sos_manual: { type: 'sos', label: 'SOS manual (cliques)' },
   fall_inactivity: { type: 'fall', label: 'Queda + inatividade prolongada' },
 };
 
-// Chamado por handleBridgeMessage() quando chega um alerta real via
-// emergencyAlertChar (ver ble_bridge.py). Regista o evento no registo de
-// emergências do paciente atualmente selecionado.
-// LIMITAÇÃO HONESTA (já documentada para o seletor de paciente): o bridge
-// só liga a UM dispositivo físico de cada vez — o alerta é sempre
-// atribuído ao paciente selecionado na interface no momento em que chega,
-// não a um paciente identificado pelo próprio hardware.
+// chamado por handleBridgeMessage() ao chegar alerta via emergencyAlertChar; atribuído ao paciente selecionado (limitação: 1 dispositivo físico)
 function onLiveEmergencyAlert(msg){
   const seq = toFiniteNumber(msg.seq);
   const p = selectedPatient();
   const log = EMERGENCY_LOG[p.id] || (EMERGENCY_LOG[p.id] = []);
 
-  // A notificação BLE pode chegar duplicada (reconexão do bridge, retry
-  // da pilha) — 'seq' incrementa no firmware a cada alerta novo, por
-  // isso serve para deduplicar sem depender de tempo.
+  // dedup por 'seq' (incrementa no firmware), não por tempo — notificação BLE pode chegar duplicada
   if (seq != null && log.some(e => e.liveSeq === seq)) return;
 
   const meta = EMERGENCY_ALERT_TYPE_TO_LOG[msg.alert_name]
@@ -361,10 +233,7 @@ function onLiveEmergencyAlert(msg){
     status: 'ativo',
     liveSeq: seq,
     live: true,
-    // "explicação de alerta" (2026-08-05) — mecanismo de deteção composto
-    // pelo bridge (ver EMERGENCY_ALERT_EXPLANATIONS em ble_bridge.py), não
-    // um valor medido (o EmergencyAlertPacket não traz waveform/amplitude,
-    // só o tipo já decidido pelo firmware).
+    // explicação composta pelo bridge (EMERGENCY_ALERT_EXPLANATIONS), não um valor medido
     explanation: typeof msg.explanation === 'string' ? msg.explanation : null,
   });
 
@@ -372,11 +241,7 @@ function onLiveEmergencyAlert(msg){
   if (currentView === 'emergencias') renderView('emergencias');
 }
 
-// Mostra/esconde a barra crítica de emergência em direto consoante haja
-// ou não alertas 'ativo' de origem real (live: true) para o paciente
-// selecionado. Chamada ao chegar um alerta novo e ao cancelar/resolver um
-// existente (ver confirmEmergencyCancel()), para desaparecer assim que já
-// não há nenhuma emergência em direto por resolver.
+// mostra/esconde a barra de emergência em direto consoante alertas 'ativo' reais do paciente selecionado
 function updateLiveEmergencyBanner(){
   const el = document.getElementById('emergencyLiveBanner');
   if (!el) return;
@@ -388,25 +253,10 @@ function updateLiveEmergencyBanner(){
     <span><b>${t('emergencyLive.bannerTitle')}</b> — ${label} (${escapeHtml(selectedPatient().name)}). <a href="#" onclick="renderView('emergencias'); return false;">${t('emergencyLive.viewLogLink')}</a></span>`;
 }
 
-// Estado do modal de cancelamento — o código gerado (6 dígitos) é
-// guardado só em memória (nunca em localStorage), e nunca é enviado a
-// lado nenhum: neste protótipo é mostrado na própria página, porque não
-// existe (ainda) integração real com SMS/email (ver PROJECT_STATUS.md,
-// decisão pendente do provedor). Serve para demonstrar o FLUXO de
-// confirmação reforçada exigido, não uma verificação de posse de um
-// segundo dispositivo real — isso só existiria com um provedor de SMS
-// real a enviar o código para o telemóvel do responsável, fora do
-// alcance desta sessão (precisa de credenciais do utilizador).
+// código de 6 dígitos só em memória, nunca enviado — não há integração SMS/email real, demonstra só o FLUXO de confirmação reforçada
 let emergencyCancelState = null;
 
-// Constantes de segurança do código de confirmação — alinhadas com
-// práticas reais de OTP por SMS (pesquisa 2026-07-03): TTL curto (aqui
-// 5 min, valor comum na indústria — Twilio/Plivo) e limite de tentativas
-// que efetivamente BLOQUEIA a ação (não é só uma mensagem de aviso; ver
-// bug corrigido logo abaixo). Isto também segue o princípio de "break
-// glass" de acesso de emergência em sistemas de saúde: exceção rara,
-// nunca um bypass de rotina, e sempre com registo de quem/quando (ver
-// 'resolvedNote' em confirmEmergencyCancel()).
+// TTL curto + limite de tentativas que bloqueia mesmo (padrão OTP por SMS)
 const EMERGENCY_CODE_TTL_MS = 5 * 60 * 1000;
 const EMERGENCY_MAX_ATTEMPTS = 3;
 
@@ -425,14 +275,7 @@ function closeEmergencyCancelModal(){
   emergencyCancelState = null;
 }
 
-/* ------------------------------------------------------------
-   TIMELINE CORRELACIONADA POR EPISÓDIO (2026-08-05)
-   ------------------------------------------------------------
-   Pede ao bridge (cmd "get_episode_timeline") os sinais vitais/blocos de
-   atividade/outros alertas à volta de UM alerta de emergência real (só
-   disponível para entradas com liveSeq — as de demonstração não têm
-   sequence_number nenhum na base de dados do bridge para pesquisar).
-------------------------------------------------------------- */
+// pede ao bridge (cmd "get_episode_timeline") sinais vitais/atividade/alertas à volta de UM alerta real (só entradas com liveSeq)
 function openEpisodeTimelineModal(sequenceNumber){
   const body = document.getElementById('episodeTimelineBody');
   document.getElementById('episodeTimelineOverlay').style.display = 'flex';
@@ -458,9 +301,7 @@ function handleEpisodeTimelineResult(msg){
   renderEpisodeTimeline(msg.timeline, body);
 }
 
-// Junta sensor_summary + activity_blocks + nearby_emergency_alerts numa
-// única lista ordenada no tempo, cada item com um "tipo" e um rótulo —
-// mais fácil de ler numa timeline única do que 3 secções separadas.
+// junta sensor_summary + activity_blocks + nearby_emergency_alerts numa lista única ordenada no tempo
 function renderEpisodeTimeline(timeline, body){
   const centerLabel = new Date(timeline.center_ts * 1000).toLocaleString(currentLang, {
     day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
@@ -509,12 +350,7 @@ function confirmEmergencyCancel(){
   const status = document.getElementById('emergencyCancelStatus');
   if (!emergencyCancelState) return;
 
-  // BUG CORRIGIDO (2026-07-03, aplicando pesquisa sobre rate-limiting de
-  // OTP): ao atingir o limite de tentativas, a versão anterior só
-  // ACRESCENTAVA uma frase ao aviso, mas continuava a aceitar tentativas
-  // novas indefinidamente — o "bloqueio" era só visual. Agora bloqueia
-  // mesmo (return antes de validar o código), e o código também expira
-  // ao fim de 5 min mesmo sem esgotar as tentativas, tal como um OTP real.
+  // bloqueia mesmo (return antes de validar) — não só um aviso visual
   if (emergencyCancelState.attempts >= EMERGENCY_MAX_ATTEMPTS) {
     status.className = 'modal-status err';
     status.textContent = 'Demasiadas tentativas incorretas — fecha e reabre para gerar um novo código.';
@@ -555,19 +391,244 @@ function confirmEmergencyCancel(){
   setTimeout(() => { closeEmergencyCancelModal(); if (currentView) renderView(currentView); }, 1200);
 }
 
-/* ------------------------------------------------------------
-   LEMBRETES DE MEDICAÇÃO (item 9 do backlog de investigação)
-   ------------------------------------------------------------
-   `patient.medications` e `patient.adherenceHistory` (ver PATIENTS acima)
-   são dados de exemplo por paciente (nome, dose, horários; adesão dos
-   últimos dias). O que é real neste protótipo é o registo de toma de
-   HOJE: cada clique em "Marcar como tomado" fica em localStorage
-   (namespaced por paciente + dia + medicamento + horário), sobrevive a
-   recarregar a página. Histórico anterior a hoje só existirá a sério
-   depois do serviço de persistência (Prioridade 4, ver PROJECT_STATUS.md).
-   "Correlacionado com atividade/vitais" (pedido no backlog): mostrado
-   como uma nota simples que aponta os dias com adesão incompleta para
-   serem comparados manualmente com a vista "Tendência semanal" — uma
-   correspondência de datas, não uma análise estatística automática (não
-   fabricamos uma correlação numérica sem dados reais para a sustentar).
------------------------------------------------------------- */
+// medications/adherenceHistory são exemplo; só a toma de HOJE é real (localStorage, namespaced por paciente+dia+medicamento+horário)
+
+// embrulha handleBridgeMessage() (declarada em bridge-exportacao.js) com os kinds novos do RF-05/07/08, em vez de editar esse ficheiro
+// só pode embrulhar depois de 'load': este script corre antes de bridge-exportacao.js, handleBridgeMessage ainda não existe
+
+// cadência de reconsulta ao bridge; serve também de recuperação após queda de ligação
+const BRIDGE_ALERTS_REFRESH_MS = 30000;
+
+// minutos até o bridge escalar por falta de confirmação; o servidor manda, isto é só o valor assumido antes de ele responder
+let bridgeEscalationMinutes = null;
+
+function requestBridgeAlerts(){
+  if (typeof sendWsCommandWithArgs !== 'function') return false;
+  // limite explícito em vez de depender do default do bridge (ALERT_LIST_MAX)
+  return sendWsCommandWithArgs('get_alerts', {limit: 100});
+}
+
+// substitui/insere um alerta local a partir da forma serializada pelo bridge (_alert_to_dict)
+function upsertBridgeAlert(raw){
+  if (!raw || !raw.uuid) return;
+  const linha = bridgeAlertToRow(raw);
+  const i = bridgeAlerts.findIndex(a => a.alertUuid === raw.uuid);
+  if (i >= 0) bridgeAlerts[i] = linha; else bridgeAlerts.unshift(linha);
+}
+
+// RF-05: bridge difunde {kind:"wear_status",...} só quando o estado MUDA (evento, não polling) — guardado aqui p/ sobreviver a re-renderização
+// distinção 'removed' (recolocar) vs 'link_lost' (aproximar/carregar) é intencional: ações diferentes p/ o cuidador
+let wearState = null;
+
+// estado -> apresentação; paleta é a de templates-core.js (SEV_COLOR/SEV_BG usam 'good', não 'info')
+const WEAR_STATE_UI = {
+  worn:      {palette:'good',    icon:'heart', label:'Dispositivo a ser usado'},
+  removed:   {palette:'warning', icon:'warn',  label:'Dispositivo removido'},
+  link_lost: {palette:'serious', icon:'zap',   label:'Ligação ao wearable perdida'},
+  unknown:   {palette:'good',    icon:'zap',   label:'Estado de uso ainda desconhecido'},
+};
+
+function wearStateUi(state){ return WEAR_STATE_UI[state] || WEAR_STATE_UI.unknown; }
+
+// texto p/ o cuidador (o que fazer); `explanation` do bridge diz o que foi medido — os dois aparecem juntos
+const WEAR_STATE_HINT = {
+  worn: 'Há sinal cutâneo e/ou movimento — a monitorização está a decorrer normalmente.',
+  removed: 'O wearable continua ligado ao bridge, por isso não é uma falha de comunicação: está a comunicar mas não está no pulso. Volte a colocá-lo para retomar a monitorização de sinais vitais.',
+  link_lost: 'Não é o mesmo que "removido": aqui o wearable deixou simplesmente de comunicar, e sem dados não é possível saber se está ou não no pulso. Verifique a distância ao bridge, a bateria e se o Bluetooth está ligado.',
+  unknown: 'Ainda não há observações suficientes desde o arranque para classificar o estado de uso.',
+};
+
+function renderWearStatusCard(){
+  const host = document.getElementById('wearStatusPanel');
+  if (!host) return;
+  const estado = wearState ? wearState.state : 'unknown';
+  const ui = wearStateUi(estado);
+  const cor = SEV_COLOR[ui.palette], fundo = SEV_BG[ui.palette];
+
+  // escapado: 'explanation' vem do bridge, canal sem autenticação
+  const motivo = wearState && wearState.explanation
+    ? '<div class="alert-reason" style="font-size:.82rem;color:var(--text-secondary);margin-top:6px;"><b>Motivo:</b> ' + escapeHtml(wearState.explanation) + '</div>'
+    : '';
+
+  const desde = wearState && Number.isFinite(wearState.atMs)
+    ? '<div class="alert-mute-note">Desde ' + escapeHtml(new Date(wearState.atMs).toLocaleString(currentLang, {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})) + '</div>'
+    : '';
+
+  // contadores só existem em 'removed'; em 'link_lost' o bridge manda null (sem amostras)
+  const semPele = wearState && wearState.secondsWithoutSkin != null
+    ? Math.round(wearState.secondsWithoutSkin / 60) : null;
+  const semMovimento = wearState && wearState.secondsWithoutMotion != null
+    ? Math.round(wearState.secondsWithoutMotion / 60) : null;
+  const contadores = (semPele != null || semMovimento != null)
+    ? '<div class="activity-stat-row">'
+      + '<div class="activity-stat"><div class="n tabular">' + (semPele != null ? semPele + ' min' : '—') + '</div><div class="l">Sem sinal cutâneo (PPG/SpO2)</div></div>'
+      + '<div class="activity-stat"><div class="n tabular">' + (semMovimento != null ? semMovimento + ' min' : '—') + '</div><div class="l">Sem movimento (acelerómetro)</div></div>'
+      + '</div>'
+    : '';
+
+  host.innerHTML =
+    '<div class="alert-row ' + ui.palette + '">'
+    + '<span class="alert-icon" style="background:' + fundo + ';color:' + cor + '">' + iconFor(ui.icon) + '</span>'
+    + '<div class="body">'
+    + '<div class="title">' + escapeHtml(ui.label) + ' <span class="pill ' + ui.palette + '" style="background:' + fundo + ';color:' + cor + '">' + escapeHtml(ui.label) + '</span></div>'
+    + '<div class="desc">' + escapeHtml(WEAR_STATE_HINT[estado] || WEAR_STATE_HINT.unknown) + '</div>'
+    + motivo + contadores + desde
+    + '</div></div>';
+}
+
+// separada de renderWearStatusCard() para poder ser chamada/testada sem DOM
+function applyWearStatus(msg){
+  const estados = ['worn', 'removed', 'link_lost', 'unknown'];
+  // canal sem autenticação: valida a forma antes de confiar
+  if (!msg || estados.indexOf(msg.state) === -1) return;
+  wearState = {
+    state: msg.state,
+    previousState: estados.indexOf(msg.previous_state) >= 0 ? msg.previous_state : null,
+    explanation: typeof msg.explanation === 'string' ? msg.explanation : '',
+    secondsWithoutSkin: toFiniteNumber(msg.seconds_without_skin),
+    secondsWithoutMotion: toFiniteNumber(msg.seconds_without_motion),
+    alertUuid: typeof msg.alert_uuid === 'string' ? msg.alert_uuid : null,
+    atMs: Date.now(),
+  };
+  renderWearStatusCard();
+}
+
+// RF-08: histórico consultável sem voltar ao alerta de origem; reúne alertas reais resolvidos (bridge) + de demonstração (alertConfirmations)
+
+// separa ação/nota: o bridge grava ambas na mesma coluna com prefixo "[ação] " (_format_resolution_note)
+function parseResolutionNote(nota){
+  if (!nota) return {action: null, note: ''};
+  const m = /^\[([a-z_]+)\]\s?([\s\S]*)$/.exec(String(nota));
+  if (!m) return {action: null, note: String(nota)};
+  return {action: m[1], note: m[2] || ''};
+}
+
+// todas as ações registadas, mais recentes primeiro
+function alertActionsHistory(){
+  const entradas = [];
+  bridgeAlerts.forEach(a => {
+    if (!a.resolvedAt || !a.resolutionNote) return;
+    const partes = parseResolutionNote(a.resolutionNote);
+    const ms = Date.parse(a.resolvedAt + 'Z');
+    entradas.push({
+      title: a.title, live: true, action: partes.action, note: partes.note,
+      atMs: Number.isFinite(ms) ? ms : null, by: '',
+    });
+  });
+  // chave inclui o paciente — filtra pelo selecionado para não misturar históricos
+  const prefixo = selectedPatientId + '::';
+  Object.keys(alertConfirmations || {}).forEach(fullKey => {
+    if (fullKey.indexOf(prefixo) !== 0) return;
+    const c = alertConfirmations[fullKey];
+    const chave = fullKey.slice(prefixo.length);
+    if (chave.indexOf('live-') === 0) return; // já entrou acima pela BD, evita duplicar
+    const alerta = (selectedPatient().alerts || []).find(a => a.key === chave);
+    entradas.push({
+      title: alerta ? alertField(alerta, 'title') : chave,
+      live: false, action: c.action, note: c.note || '',
+      atMs: c.at || null, by: c.by || '',
+    });
+  });
+  return entradas.sort((a, b) => (b.atMs || 0) - (a.atMs || 0));
+}
+
+function renderAlertActionsHistory(){
+  const host = document.getElementById('alertActionsHistory');
+  if (!host) return;
+  const entradas = alertActionsHistory();
+  if (!entradas.length){
+    host.innerHTML = '<p class="empty-hint">Ainda não foi registada nenhuma ação. Assim que confirmar um alerta indicando o que fez, fica aqui.</p>';
+    return;
+  }
+  // escapeHtml() em tudo: nota é texto livre, título vem do bridge (ou de i18n, mas escapa-se na mesma)
+  host.innerHTML =
+    '<div class="activity-blocks-list">'
+    + entradas.map(e =>
+        '<div class="activity-block-row" style="align-items:flex-start;">'
+        + '<span class="tabular">' + (e.atMs ? escapeHtml(new Date(e.atMs).toLocaleString(currentLang, {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})) : '—') + '</span>'
+        + '<span style="flex:1;">'
+        + '<b>' + escapeHtml(e.title || 'Alerta') + '</b> — ' + escapeHtml(alertActionLabel(e.action))
+        + (e.live ? '' : ' <span class="sim-flag">demonstração</span>')
+        + (e.note ? '<div class="alert-mute-note">' + escapeHtml(e.note) + '</div>' : '')
+        + (e.by ? '<div class="alert-mute-note">Registado por ' + escapeHtml(e.by) + '</div>' : '')
+        + '</span></div>').join('')
+    + '</div>';
+}
+
+// só re-renderiza a vista inteira se estiver montada — mensagens do bridge chegam a qualquer momento
+function refreshAlertViews(){
+  renderWearStatusCard();
+  renderAlertActionsHistory();
+  if (typeof updateNotificationBadge === 'function') updateNotificationBadge();
+  if (typeof currentView !== 'undefined' && currentView && typeof renderView === 'function') renderView(currentView);
+}
+
+// ramos novos de handleBridgeMessage
+function handleAlertsBridgeMessage(msg){
+  if (!msg) return false;
+
+  if (msg.kind === 'alerts'){
+    // substitui, não funde — a BD é fonte de verdade, um alerta apagado (deleted_at) tem de desaparecer daqui
+    bridgeAlerts = Array.isArray(msg.alerts) ? msg.alerts.map(bridgeAlertToRow) : [];
+    const min = toFiniteNumber(msg.escalation_minutes);
+    if (min != null) bridgeEscalationMinutes = min;
+    refreshAlertViews();
+    return true;
+  }
+
+  if (msg.kind === 'alert_escalated'){
+    // decidido no servidor (periodic_alert_escalation_task) — aqui só reflete escalated_to_severity/escalated_at
+    upsertBridgeAlert(msg.alert);
+    refreshAlertViews();
+    return true;
+  }
+
+  if (msg.kind === 'confirm_alert_result'){
+    // numa recusa NÃO se toca no estado local — melhor não mostrar nada do que mostrar confirmado algo recusado
+    if (msg.ok && msg.alert){
+      upsertBridgeAlert(msg.alert);
+      refreshAlertViews();
+    } else if (!msg.ok){
+      console.warn('[CareWear] confirmacao de alerta recusada pelo bridge:', msg.error);
+    }
+    return true;
+  }
+
+  if (msg.kind === 'wear_status'){
+    applyWearStatus(msg);
+    return true;
+  }
+
+  if (msg.kind === 'vital_alert' || msg.kind === 'emergency_alert'){
+    // já tratados pelo handler original; falta só repedir a lista p/ a linha em `alerts` (não se fabrica uuid aqui)
+    requestBridgeAlerts();
+    return false;
+  }
+
+  if (msg.kind === 'device_status' && msg.connected){
+    requestBridgeAlerts();
+    return false;
+  }
+
+  return false;
+}
+
+// flag evita instalar duas vezes: 'load' pode disparar mais que uma vez com bfcache
+let alertsBridgeHookInstalled = false;
+
+function installAlertsBridgeHook(){
+  if (alertsBridgeHookInstalled) return;
+  if (typeof handleBridgeMessage !== 'function') return;
+  alertsBridgeHookInstalled = true;
+  const original = handleBridgeMessage;
+  handleBridgeMessage = function(msg){
+    // handler original corre sempre primeiro — um alerta mal formado não pode afetar os dados ao vivo
+    original(msg);
+    try { handleAlertsBridgeMessage(msg); }
+    catch (e) { console.warn('[CareWear] erro a tratar alerta do bridge:', e); }
+  };
+  requestBridgeAlerts();
+  setInterval(requestBridgeAlerts, BRIDGE_ALERTS_REFRESH_MS);
+}
+
+window.addEventListener('load', installAlertsBridgeHook);
