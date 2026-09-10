@@ -1,33 +1,5 @@
 #!/usr/bin/env python3
-"""activity_inference.py — Classificação de atividade em tempo real sobre o
-stream real do IMU/PPG, usando o Random Forest já treinado em `ml/`.
-
-CONTEXTO (2026-07-20): até agora o pipeline de ML (`ml/`) existia treinado e
-avaliado, mas nunca era invocado fora dessa pasta — o dashboard mostrava
-sempre dados simulados (`chore(dashboard): dados simulados do dia ...`),
-nunca uma classificação real. Este módulo fecha essa lacuna, seguindo o
-mesmo padrão degradável já usado por `orm_persistence.py`/`notifications.py`:
-qualquer falha aqui (scikit-learn não instalado, modelo em falta, etc.)
-nunca deve impedir o streaming BLE nem o resto do bridge — só desativa a
-classificação.
-
-AVISO ÉTICO, REPETIDO DE PROPÓSITO (ver também ml/README.md e a UI do
-dashboard, que mostra `ACTIVITY_ML_DISCLAIMER` para cada resultado): o
-classificador (`ml/models/activity_classifier_rf.joblib`) foi treinado
-inteiramente sobre dados SINTÉTICOS (`ml/synthetic_data.py`) — nunca
-validado com comportamento humano real. O resultado devolvido aqui não é
-uma medição clínica; é um sinal experimental, mostrado ao cuidador sempre
-com aviso explícito, e serve também para acumular dados reais rotulados por
-categoria prevista (não rótulo verdadeiro) para uma futura validação.
-
-O detetor de duração (`ml/duration_detector.py`, regra determinística, não
-treinada) é aplicado sobre os blocos de classes consecutivas — mesma lógica
-de agrupamento usada em `ml/combined_pipeline_report.py`, adaptada para
-avaliar bloco a bloco à medida que chegam, não sobre um dataset já completo.
-Herda a mesma limitação já documentada nesse ficheiro: os limites
-[d_min, d_max] usados são os do próprio gerador sintético, não uma
-calibração feita sobre dados reais.
-"""
+"""Classificação de atividade em tempo real sobre o stream do IMU/PPG, usando o Random Forest treinado em ml/."""
 
 from __future__ import annotations
 
@@ -39,72 +11,32 @@ from typing import Optional
 
 import numpy as np
 
-# storage_advanced.py (sqlalchemy + crypto_utils) é uma dependência HARD do
-# bridge desde 2026-07-26 (ver requirements.txt: "deixou de ser opcional")
-# — ao contrário de joblib/pandas/sklearn (importados tardiamente abaixo,
-# só dentro de métodos), por isso este import direto no topo do módulo não
-# introduz nenhuma dependência nova que já não fosse exigida por
-# orm_persistence.py. Se AINDA ASSIM falhar (instalação muito mínima),
-# `import activity_inference` falha por inteiro — já é o comportamento
-# existente (ver `import numpy as np` acima, também sem try/except) e já é
-# tratado por ble_bridge.py (try/except ImportError -> activity_inference
-# = None), por isso não precisa de proteção extra aqui.
 import storage_advanced as sa
 
 _ML_DIR = Path(__file__).resolve().parent.parent / "ml"
 if str(_ML_DIR) not in sys.path:
     sys.path.insert(0, str(_ML_DIR))
 
-FS_HZ = 52  # taxa real do IMU — tem de bater certo com ml/synthetic_data.py
-WINDOW_SECONDS = 10  # mesma janela usada no treino (ver ml/synthetic_data.py)
+FS_HZ = 52  # taxa real do IMU, tem de bater certo com ml/synthetic_data.py
+WINDOW_SECONDS = 10  # mesma janela usada no treino
 WINDOW_MS = WINDOW_SECONDS * 1000
-# Uma janela de 10s a 52Hz devia ter ~520 amostras; com perdas de pacotes
-# BLE (notify() sem confirmação, ver ble_bridge.py) isso nunca é garantido.
-# Abaixo deste mínimo a janela é descartada (não classificada) em vez de
-# alimentar o classificador com um sinal demasiado esparso para ser fiável.
-MIN_SAMPLES_PER_WINDOW = 20
+MIN_SAMPLES_PER_WINDOW = 20  # abaixo disto a janela é descartada, não classificada
 
-# Acima desta idade (segundos, relógio do dispositivo), uma leitura de FC
-# guardada em _last_hr deixa de ser reutilizada — ver bug real corrigido em
-# _classify_window (2026-07-21). Em funcionamento normal, measureSpo2() do
-# firmware corre a cada SPO2_INTERVAL_MS=30s (ver ml/../src/Ppg/Ppg.cpp) e
-# devolve HR como subproduto sempre que há dedo/pulso; 90s (3x esse
-# intervalo) dá margem para uma medição falhada isolada sem reagir de
-# imediato a um único soluço, mas não deixa uma FC antiga a ser tratada
-# como atual minutos depois de o dispositivo ter deixado de medir.
-HR_STALE_AFTER_S = 90
+HR_STALE_AFTER_S = 90  # idade máxima de uma FC reutilizada de _last_hr
 
 ACTIVITY_ML_DISCLAIMER = (
     "Classificador treinado apenas com dados sintéticos (ver ml/README.md) "
     "— não validado clinicamente. Não usar como diagnóstico."
 )
 
-# "Indicador de incerteza" (2026-08-05, funcionalidade derivada da revisão
-# PRISMA). `confidence` (proba[pred_idx], top-1) sozinho esconde uma
-# distinção importante: 0.42 vs. um runner-up a 0.40 é uma decisão "à
-# justa" entre 2 classes; 0.42 vs. um runner-up a 0.05 é uma decisão clara
-# apesar do mesmo top-1 baixo (as restantes 3 classes é que ficaram cada
-# uma com um bocadinho). A MARGEM entre a 1ª e a 2ª classe mais provável
-# distingue os dois casos — vocabulário de "incerteza por margem", comum
-# em active learning/uncertainty sampling.
-# Limiar heurístico, não calibrado contra dados reais (o classificador em
-# si também não está — ver ACTIVITY_ML_DISCLAIMER acima): abaixo desta
-# margem, a decisão entre a classe prevista e a runner-up é assinalada
-# como "incerta" para o dashboard não a apresentar com falsa segurança.
+# margem entre top-1 e runner-up; abaixo disto a previsão é marcada "incerta"
 UNCERTAINTY_MARGIN_THRESHOLD = 0.15
 
-# Aproximação de "sessão dia/noite" por hora do relógio local do bridge —
-# ml/synthetic_data.py define sessões por duração (16h dia + 8h noite), não
-# por hora real do dia; isto é a nossa melhor aproximação ao mundo real, não
-# um valor extraído do gerador. Documentado como limitação assumida.
+# aproximação de sessão dia/noite por hora do relógio local
 DAY_SESSION_START_HOUR = 7
 DAY_SESSION_END_HOUR = 22  # exclusivo
 
-# Mapa entre as 5 classes do classificador (PT, ver
-# ml/models/activity_classifier_rf_labels.json) e as categorias aceites pelo
-# esquema SQL de bridge/storage_advanced.py (activity_windows.activity_category,
-# CheckConstraint em inglês) — os dois vocabulários nasceram em rotinas
-# diferentes do projeto e nunca foram unificados.
+# classes do modelo (PT) -> categorias aceites por storage_advanced.py (activity_windows.activity_category, em inglês)
 CLASS_TO_DB_CATEGORY = {
     "Dormir": "sleep",
     "Descanso": "rest",
@@ -113,24 +45,14 @@ CLASS_TO_DB_CATEGORY = {
     "Higiene": "hygiene",
 }
 
-# Versionamento e rollback do modelo ML (2026-08-05, ver
-# storage_advanced.py::MlModelVersion/register_model_version/
-# activate_model_version/get_active_model_version). `DEFAULT_MODEL_NAME` é
-# o identificador usado na tabela `ml_model_versions` — hoje há um único
-# modelo, por isso um valor fixo (não parametrizado por instância); os
-# dois caminhos abaixo são os mesmos de sempre, agora só usados como
-# FALLBACK (BD sem nenhuma versão registada ainda) e como conteúdo do
-# get-or-create da versão inicial "1" — ver _resolve_active_model_paths.
+# versionamento/rollback do modelo (ver storage_advanced.py MlModelVersion)
 DEFAULT_MODEL_NAME = "activity_classifier_rf"
 DEFAULT_MODEL_FILE_PATH = "models/activity_classifier_rf.joblib"
 DEFAULT_MODEL_LABELS_PATH = "models/activity_classifier_rf_labels.json"
 
 
 class ActivityInference:
-    """Acumula amostras cruas do IMU/PPG numa janela deslizante (tumbling,
-    não sobreposta) e, a cada `WINDOW_SECONDS` completos, classifica com o
-    Random Forest treinado em `ml/` e aplica o detetor de duração sobre a
-    sequência de blocos resultante."""
+    """Acumula amostras numa janela deslizante e classifica a cada WINDOW_SECONDS completos."""
 
     def __init__(self) -> None:
         self._buffer: list[dict] = []
@@ -144,49 +66,19 @@ class ActivityInference:
         self._load_model()
 
     def _load_model(self) -> None:
-        """Chamado só pelo `__init__`. Resolve os caminhos do modelo ATIVO
-        (BD, com fallback para o caminho fixo — ver
-        _resolve_active_model_paths) e carrega-os (ver
-        _load_model_from_paths, partilhado com reload_active_model())."""
         file_path, labels_path = self._resolve_active_model_paths()
         self._load_model_from_paths(file_path, labels_path)
 
     def reload_active_model(self) -> bool:
-        """Repete a lógica de `_load_model()`, mas pode ser chamado a
-        qualquer momento (não só no `__init__`) — é o mecanismo de
-        ROLLBACK/promoção em runtime: depois de o dashboard chamar
-        `sa.activate_model_version` (ver ble_bridge.py, cmd
-        "activate_model_version"), este método troca de facto o modelo em
-        memória sem reiniciar o bridge.
-
-        Devolve True se conseguiu carregar com sucesso, False caso
-        contrário — NUNCA lança. Numa falha (ex. `file_path` inválido
-        registado por engano), `self._model`/`self._classes` do modelo
-        ANTERIOR (ainda a funcionar) não são tocados — ver
-        _load_model_from_paths, que só substitui os atributos depois de
-        confirmar que o carregamento teve sucesso. Quem chama decide o que
-        fazer com o False (ex. avisar o dashboard sem derrubar o bridge)."""
+        """Troca o modelo em memória em runtime, após ativação de outra versão pelo dashboard. Nunca lança."""
         file_path, labels_path = self._resolve_active_model_paths()
         return self._load_model_from_paths(file_path, labels_path)
 
     def _resolve_active_model_paths(self) -> tuple[str, str]:
-        """Consulta `sa.get_active_model_version` para descobrir que
-        ficheiros carregar — devolve (file_path, labels_path) RELATIVOS a
-        `ml/` (_ML_DIR), nunca caminhos absolutos. NUNCA lança: qualquer
-        falha a consultar a BD (tabela `ml_model_versions` ainda não
-        existe numa BD nova, BD indisponível, etc.) degrada para os
-        caminhos fixos de sempre (DEFAULT_MODEL_FILE_PATH/LABELS_PATH).
-
-        Caso especial — nenhuma versão registada ainda (primeira vez que
-        este código corre contra esta BD): além de degradar para o
-        caminho fixo, tenta registar essa carga como a versão "1", já
-        ativa (get-or-create de um registo histórico — não obriga a
-        retreinar nada). Se esse auto-registo falhar por qualquer razão
-        (ex. BD indisponível), não impede a classificação de funcionar —
-        só fica por registar, com um aviso."""
+        """Consulta sa.get_active_model_version; devolve caminhos relativos a ml/. Degrada para os fixos em qualquer falha."""
         try:
             db = sa.get_db_session()
-        except Exception as exc:  # noqa: BLE001 - nunca impede a classificação de arrancar
+        except Exception as exc:  # noqa: BLE001
             print(f"[ACTIVITY_INFERENCE] AVISO: nao foi possivel abrir sessao de BD "
                   f"para consultar a versao ativa do modelo ({exc}); a usar o caminho fixo")
             return DEFAULT_MODEL_FILE_PATH, DEFAULT_MODEL_LABELS_PATH
@@ -196,10 +88,7 @@ class ActivityInference:
             if active is not None:
                 return active["file_path"], active["labels_path"]
 
-            # Nenhuma versão registada ainda — arranque a frio contra esta
-            # BD. Comporta-se como sempre (caminho fixo) e regista essa
-            # carga como a versão inicial, já ativa, para que a próxima
-            # consulta (ou reload_active_model()) já encontre algo.
+            # nenhuma versão registada ainda: usa o caminho fixo e regista-o como versão "1" ativa
             try:
                 sa.register_model_version(
                     db, DEFAULT_MODEL_NAME, version="1",
@@ -208,12 +97,12 @@ class ActivityInference:
                           "sistema de versionamento (2026-08-05)",
                     activate=True,
                 )
-            except Exception as exc:  # noqa: BLE001 - registo histórico, nunca bloqueia a classificação
+            except Exception as exc:  # noqa: BLE001
                 print(f"[ACTIVITY_INFERENCE] AVISO: falha ao auto-registar a versao inicial "
                       f"do modelo em MlModelVersion ({exc}); classificacao continua a usar "
                       f"o caminho fixo, sem versionamento registado")
             return DEFAULT_MODEL_FILE_PATH, DEFAULT_MODEL_LABELS_PATH
-        except Exception as exc:  # noqa: BLE001 - qualquer outro erro de BD degrada da mesma forma
+        except Exception as exc:  # noqa: BLE001
             print(f"[ACTIVITY_INFERENCE] AVISO: erro ao consultar a versao ativa do modelo "
                   f"em BD ({exc}); a usar o caminho fixo")
             return DEFAULT_MODEL_FILE_PATH, DEFAULT_MODEL_LABELS_PATH
@@ -221,14 +110,7 @@ class ActivityInference:
             db.close()
 
     def _load_model_from_paths(self, file_path: str, labels_path: str) -> bool:
-        """Núcleo de carregamento partilhado por `_load_model()`/
-        `reload_active_model()` — `file_path`/`labels_path` são RELATIVOS a
-        `ml/` (_ML_DIR), como guardados em MlModelVersion. Carrega para
-        variáveis locais primeiro e só atribui a `self._model`/
-        `self._classes`/`self._feature_cols` depois de AMBOS os ficheiros
-        carregarem com sucesso — uma falha a meio (ex. .joblib existe mas o
-        .json não) nunca deixa o modelo anterior num estado inconsistente
-        nem o apaga."""
+        """Só substitui self._model/_classes/_feature_cols depois de ambos os ficheiros carregarem com sucesso."""
         try:
             import joblib  # import tardio: só falha aqui, nunca ao importar este módulo
 
@@ -239,7 +121,7 @@ class ActivityInference:
                 labels = json.load(f)
             classes = labels["classes"]
             feature_cols = labels["feature_cols"]
-        except Exception as exc:  # noqa: BLE001 - degradação silenciosa, ver docstring do módulo
+        except Exception as exc:  # noqa: BLE001
             self.load_error = str(exc)
             return False
 
@@ -254,18 +136,10 @@ class ActivityInference:
         return self._model is not None
 
     def current_category(self) -> Optional[str]:
-        """Última classe (PT) em curso no bloco aberto, ou None se ainda
-        não houve nenhuma classificação nesta sessão de ligação — usado
-        pelo bridge para saber o que a IA achava no momento em que o
-        cuidador corrigiu manualmente (ver cmd "correct_activity" em
-        ble_bridge.py)."""
         return self._current_block["cls"] if self._current_block else None
 
     def add_sample(self, record: dict) -> Optional[dict]:
-        """Acumula um registo já descodificado (ver decode_full_plain em
-        ble_bridge.py: ts, ax..gz, hr, ...). Devolve um dict de resultado
-        quando uma janela de WINDOW_SECONDS fica completa, ou None enquanto
-        ainda está a acumular (ou se a inferência estiver indisponível)."""
+        """Acumula um registo descodificado; devolve resultado quando a janela fecha, None enquanto acumula."""
         if not self.available:
             return None
 
@@ -274,19 +148,7 @@ class ActivityInference:
             self._last_hr_ts = record["ts"]
 
         self._buffer.append(record)
-        # BUG REAL corrigido (2026-07-20, apanhado em teste com hardware real):
-        # record["ts"] é o "device_timestamp" gravado por storage.py — Unix
-        # epoch em SEGUNDOS (ver schema.sql "Unix timestamp (segundos)" e
-        # storage.py::insert_record, que grava record["ts"] tal e qual em
-        # device_timestamp), não millis() nem já em ms como este módulo
-        # assumia. Sem o *1000, span_ms nunca atingia WINDOW_MS=10000 num
-        # stream real (precisaria de ~2.8h de span) — a janela nunca fechava
-        # e activity_classification nunca era emitido, apesar de
-        # sensor_records estar a encher normalmente. Confirmado em
-        # bridge/tests/test_activity_inference.py, que alimentava ts já em
-        # ms (consistente com este bug, não com o formato real) — os testes
-        # unitários passavam apesar do bug porque partilhavam a mesma
-        # assunção errada; só o teste com o dispositivo real o expôs.
+        # record["ts"] está em segundos (Unix epoch), daí o *1000 para span_ms
         span_ms = (self._buffer[-1]["ts"] - self._buffer[0]["ts"]) * 1000
         if span_ms < WINDOW_MS:
             return None
@@ -301,40 +163,14 @@ class ActivityInference:
 
         hr_values = [r["hr"] for r in window if r["hr"] is not None]
         if not hr_values and self._last_hr is not None:
-            # BUG REAL corrigido (2026-07-21, achado com hardware real):
-            # este ramo usava self._last_hr indefinidamente, sem nunca
-            # expirar — se a FC parasse de chegar (pulso retirado, sensor
-            # solto, sinal perdido), o último valor real continuava a ser
-            # reutilizado para sempre, como se fosse uma leitura atual.
-            # Combinado com o classificador nunca comunicar "sem sinal",
-            # isto produzia classificações confiantes sobre uma pessoa que
-            # pode já nem ter o dispositivo vestido. Agora só se usa
-            # self._last_hr enquanto a idade dessa leitura (medida no
-            # relógio do próprio dispositivo, não no relógio de parede,
-            # para não repetir o bug de mistura de relógios já corrigido
-            # noutro sítio deste ficheiro) não ultrapassar HR_STALE_AFTER_S.
+            # reutiliza a última FC real só enquanto não expirar (HR_STALE_AFTER_S), medido no relógio do dispositivo
             age_s = window[-1]["ts"] - self._last_hr_ts
             if age_s <= HR_STALE_AFTER_S:
                 hr_values = [self._last_hr]
             else:
                 return None
         elif not hr_values:
-            # BUG REAL corrigido (2026-07-21, achado com hardware real):
-            # quando nunca chegou nenhuma leitura de FC, este ramo
-            # alimentava o classificador com um valor inventado (70bpm,
-            # "plausível de repouso"). Isso introduz um viés real: a FC é
-            # uma feature do modelo, e um valor de repouso empurra
-            # sistematicamente a previsão para classes de baixa atividade
-            # (Descanso/Dormir) mesmo quando o movimento real não
-            # corresponde a isso. Confirmado ao vivo: utilizador com a
-            # placa no pulso o tempo todo, SpO2 válido (dedo/contacto
-            # confirmado pelo firmware), mas measureSpo2() devolveu hr=0
-            # (vHr=0 do algoritmo Maxim) nessa janela — e a app mostrava
-            # "Dormir" com confiança, calculada sobre uma FC 100%
-            # fabricada. Em vez de classificar sobre dados inventados,
-            # esta janela fica por classificar (mesmo tratamento que uma
-            # janela demasiado esparsa — ver add_sample) até chegar pelo
-            # menos uma leitura real de FC nesta sessão.
+            # sem FC real nenhuma: não classifica (evita viés de FC inventada)
             return None
 
         feat_window = {
@@ -356,8 +192,6 @@ class ActivityInference:
         cls = self._classes[pred_idx]
         confidence = float(proba[pred_idx])
 
-        # Ver UNCERTAINTY_MARGIN_THRESHOLD acima — 2ª classe mais provável
-        # e a margem até ela, não só o top-1.
         sorted_idx = np.argsort(proba)[::-1]
         runner_up_idx = int(sorted_idx[1]) if len(sorted_idx) > 1 else None
         runner_up_category = self._classes[runner_up_idx] if runner_up_idx is not None else None
@@ -365,9 +199,7 @@ class ActivityInference:
         confidence_margin = confidence - runner_up_confidence
         is_uncertain = confidence_margin < UNCERTAINTY_MARGIN_THRESHOLD
 
-        now = time.time()  # relógio real do bridge — ver storage.py (record["ts"]
-        # é um contador relativo do dispositivo, não sincronizado a epoch real;
-        # usado aqui só para medir a DURAÇÃO do bloco, nunca como hora absoluta)
+        now = time.time()  # relógio real do bridge, só para medir duração do bloco
         session = self._session_for(now)
         duration_flag = self._update_block(
             cls, session, window[0]["ts"], window[-1]["ts"], now, confidence,
@@ -402,12 +234,7 @@ class ActivityInference:
         self, cls: str, session: str, start_device_ts: int, end_device_ts: int,
         wall_clock_s: float, confidence: float,
     ) -> Optional[dict]:
-        """Agrupa janelas consecutivas da mesma classe+sessão num bloco.
-        Quando a classe (ou a sessão) muda, fecha o bloco anterior e aplica
-        `duration_detector.evaluate_block` sobre a sua duração — devolve o
-        veredito do bloco FECHADO (None enquanto o bloco atual continua),
-        pronto a persistir em activity_windows (start_time/end_time em
-        minutos desde a meia-noite local, como o esquema espera)."""
+        """Agrupa janelas consecutivas da mesma classe+sessão num bloco; ao mudar, fecha o anterior e avalia a duração."""
         from duration_detector import evaluate_block, explain_block  # ml/duration_detector.py
 
         if self._current_block is None:
@@ -426,7 +253,6 @@ class ActivityInference:
             return None
 
         prev = self._current_block
-        # device_ts em segundos (ver correção acima em add_sample) -> minutos = /60, não /60000.
         duration_min = (prev["end_device_ts"] - prev["start_device_ts"]) / 60.0
         is_anomaly, reason = evaluate_block(prev["session"], prev["cls"], duration_min)
         explanation = explain_block(prev["session"], prev["cls"], duration_min, is_anomaly, reason)

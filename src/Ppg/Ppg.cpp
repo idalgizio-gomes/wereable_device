@@ -1,18 +1,4 @@
-// ============================================================================
-// Ppg.cpp
-// ----------------------------------------------------------------------------
-// Implementacao do modulo PPG (ver Ppg.h para a visao geral e a API
-// publica). Aqui vivem:
-//   - A configuracao de baixo nivel do sensor MAX3010x para os dois modos
-//     de operacao que usamos (modo SpO2 vs modo HR).
-//   - O pipeline de filtros digitais que transforma o sinal bruto do canal
-//     verde em batimentos cardiacos (BPM).
-//   - A task do FreeRTOS (ppgTask) que decide, a cada iteracao, se deve
-//     medir SpO2 (uma vez por minuto) e/ou HR (enquanto o utilizador
-//     estiver parado, segundo o IMU), e que respeita pedidos de
-//     suspensao/desligar vindos do resto do firmware.
-// ============================================================================
-
+// Ppg.cpp - sensor MAX3010x: config SpO2 vs HR, pipeline de filtros (canal verde -> BPM), task FreeRTOS que alterna SpO2 (1/min) e HR (enquanto inativo, via IMU).
 #include "Ppg/Ppg.h"
 
 #include "Imu/Imu.h"
@@ -24,117 +10,61 @@
 #include <math.h>
 #include <stdio.h>
 
-// PPG externo ligado em D4/D5 => usar apenas o barramento Wire externo.
-#define PPG_USE_EXTERNAL_WIRE_ONLY 1
+#define PPG_USE_EXTERNAL_WIRE_ONLY 1 // PPG externo em D4/D5
 
-// Captura de diagnostico do sinal PPG em bruto (raw/low/high/diff +
-// deteção), por série, durante os primeiros DEBUG_HR_RAW_CAPTURE_SAMPLES
-// de streaming de HR — usada em 2026-07-22 para confirmar (com captura
-// real em hardware) a hipótese já registada em PROJECT_STATUS.md ("HR —
-// detetor a contar ruído como batimentos extra", 2026-07-07) antes de
-// alterar o algoritmo, e para validar o limiar de amplitude mínima
-// resultante (kMinBeatPeakAmplitude, ver detectHeartbeat() abaixo).
-// Mantido desligado por omissão (0) — ativar só para uma nova
-// investigação pontual do sinal em bruto, nunca para deixar ligado em
-// produção (sem custo de flash/RAM quando desligado: os blocos #if ficam
-// completamente fora do binário).
+// captura de sinal raw (raw/low/high/diff+deteccao) para diagnostico pontual do detetor de HR; sem custo quando desligado (#if remove do binario)
 #define DEBUG_HR_RAW_CAPTURE 0
-#define DEBUG_HR_RAW_CAPTURE_SAMPLES 800  // ~8s a 100Hz, cobre varios ciclos cardiacos
+#define DEBUG_HR_RAW_CAPTURE_SAMPLES 800  // ~8s a 100Hz
 
 
 namespace {
 
-MAX30105 g_sensor;             // Driver/objeto do sensor MAX30105 (biblioteca SparkFun).
-bool g_started = false;        // true depois de begin() inicializar o sensor com sucesso.
-TaskHandle_t g_taskHandle = nullptr;   // Handle da task FreeRTOS de leitura (ppgTask).
-volatile bool g_taskRunning = false;   // true enquanto ppgTask() estiver a correr (usado por isTaskRunning()).
-Ppg::Metrics g_latest = {};    // Ultimo snapshot de metricas calculado; protegido por secoes criticas.
-TwoWire *g_ppgBus = nullptr;   // Barramento I2C onde o sensor foi encontrado (Wire ou Wire1).
-const char *g_ppgBusName = "N/A"; // Nome do barramento, apenas para logs.
+MAX30105 g_sensor;
+bool g_started = false;
+TaskHandle_t g_taskHandle = nullptr;
+volatile bool g_taskRunning = false;
+Ppg::Metrics g_latest = {}; // protegido por secoes criticas
+TwoWire *g_ppgBus = nullptr;
+const char *g_ppgBusName = "N/A";
 
-// --- Parametros de temporizacao/configuracao da task ---
-constexpr uint32_t SPO2_INTERVAL_MS = 30000;        // Intervalo entre medicoes de SpO2 (30 s).
-constexpr uint32_t HR_SAMPLE_INTERVAL_MS = 10;       // Intervalo minimo entre amostras sucessivas do pipeline de HR.
-constexpr uint32_t TASK_LOOP_DELAY_IDLE_MS = 200;    // Pausa da task quando nao ha streaming de HR ativo (poupa CPU/energia).
-constexpr uint32_t TASK_LOOP_DELAY_HR_MS = 2;        // Pausa da task quando o streaming de HR esta ativo (precisa de amostrar rapido, ~100 Hz).
-constexpr uint32_t HR_STREAM_STOP_HOLDOFF_MS = 3000; // Tempo de tolerancia apos deixar de haver "inactivity" antes de desligar o streaming de HR (evita ligar/desligar aos saltos).
-constexpr uint32_t kManualHrMaxDurationMs = 30000;   // Limite superior para requestManualHr(), para nao gastar bateria indefinidamente por um pedido esquecido.
-// *** OTIMIZAÇÃO DE RAM (2ª ronda, com dados reais de hardware) ***:
-// reduzido de 1152 para 640 words (-2048 bytes / -3584 bytes face ao
-// valor original de 1536). Justificação: captura real de
-// uxTaskGetStackHighWaterMark() em 2026-07-03 (ver DEBUG_STACK_WATERMARKS
-// em main.cpp e PROJECT_STATUS.md) mostrou apenas ~160 words realmente
-// usadas de 1152 reservadas (free=992/1152, ~86% livre) durante ~30s de
-// uso normal (streaming BLE ativo, sem forçar HR/SpO2). 640 words mantém
-// ainda ~3x de margem sobre esse uso observado (640-160=480 words livres
-// esperadas). Este é o corte mais apertado dos três (storage_task e
-// ble_gatt_dump_task ficam com mais margem) porque a task chama o driver
-// MAX30105 e o algoritmo de SpO2 da Maxim (maxim_heart_rate_and_
-// oxygen_saturation), cuja profundidade de chamadas internas é mais
-// difícil de estimar sem medir — os arrays grandes (g_irBuffer/
-// g_redBuffer, 100 amostras cada) já estão fora da stack (globais/
-// estáticos), não contam aqui. Ainda por confirmar em hardware real com
-// este novo valor — reativar DEBUG_STACK_WATERMARKS e validar que
-// free_words continua confortável acima de 0, incluindo durante uma
-// medição de SpO2 completa (ramo mais pesado desta task).
-constexpr uint16_t PPG_TASK_STACK_WORDS = 640;       // Tamanho da stack (em palavras) atribuida a ppgTask.
-constexpr uint32_t FINGER_THRESHOLD = 50000;         // Valor minimo de luz IR refletida para se considerar que ha um dedo sobre o sensor.
-constexpr int32_t SPO2_BUFFER_LEN = 100;             // Numero de amostras (IR+Red) recolhidas para cada calculo de SpO2 (exigido pelo algoritmo da Maxim).
+constexpr uint32_t SPO2_INTERVAL_MS = 30000;
+constexpr uint32_t HR_SAMPLE_INTERVAL_MS = 10;
+constexpr uint32_t TASK_LOOP_DELAY_IDLE_MS = 200;
+constexpr uint32_t TASK_LOOP_DELAY_HR_MS = 2;
+constexpr uint32_t HR_STREAM_STOP_HOLDOFF_MS = 3000; // tolerancia apos fim de inactivity antes de desligar HR
+constexpr uint32_t kManualHrMaxDurationMs = 30000;
+constexpr uint16_t PPG_TASK_STACK_WORDS = 640; // reduzido de 1152 apos medir uxTaskGetStackHighWaterMark() real (~160/1152 usadas)
+constexpr uint32_t FINGER_THRESHOLD = 50000;
+constexpr int32_t SPO2_BUFFER_LEN = 100; // exigido pelo algoritmo Maxim
 
-// Intervalo entre verificacoes de presenca real de dedo/pulso durante o
-// streaming continuo de HR (ver checkFingerPresentBrief() e o bug que isto
-// corrige, descrito junto de g_hrFingerPresent abaixo). 2s e' um bom
-// compromisso: rapido o suficiente para deixar de aceitar batimentos
-// pouco depois do dedo sair, sem interromper o pipeline de deteccao a
-// cada amostra (10ms).
-constexpr uint32_t HR_FINGER_CHECK_INTERVAL_MS = 2000;
-constexpr byte HR_FINGER_CHECK_IR_AMPLITUDE = 60;    // Mesmo brilho usado em setupForSpo2() (ledBrightness).
+constexpr uint32_t HR_FINGER_CHECK_INTERVAL_MS = 2000; // compromisso: deteta dedo fora rapido sem interromper amostragem a 10ms
+constexpr byte HR_FINGER_CHECK_IR_AMPLITUDE = 60; // mesmo brilho de setupForSpo2()
 
-uint32_t g_irBuffer[SPO2_BUFFER_LEN];   // Buffer de amostras do canal infravermelho, usado so' no calculo de SpO2.
-uint32_t g_redBuffer[SPO2_BUFFER_LEN];  // Buffer de amostras do canal vermelho, usado so' no calculo de SpO2.
-bool g_hrStreaming = false;             // true quando o sensor esta configurado no modo continuo de HR (LEDs Red+IR+Green).
-uint32_t g_lastHrSampleMs = 0;          // Timestamp da ultima amostra de HR processada (para respeitar HR_SAMPLE_INTERVAL_MS).
+uint32_t g_irBuffer[SPO2_BUFFER_LEN];
+uint32_t g_redBuffer[SPO2_BUFFER_LEN];
+bool g_hrStreaming = false;
+uint32_t g_lastHrSampleMs = 0;
 
-// Bug real corrigido aqui (2026-08-06, relatado pela utilizadora: "já
-// retirei do pulso e mesmo assim está repleto de falsas leituras"): o
-// streaming continuo de HR usa so' o LED verde (ver setupForHr(), que
-// desliga Red/IR de proposito, por eficiencia/sinal) e processHrSample()
-// nunca verificava presenca real de dedo — qualquer ruido/luz ambiente
-// periodica dentro da gama fisiologica plausivel (30-200bpm) e com
-// amplitude suficiente (kMinBeatPeakAmplitude) era aceite como batimento
-// valido, mesmo com a placa fora do pulso. g_hrFingerPresent guarda o
-// resultado da ultima verificacao real (IR, ver checkFingerPresentBrief())
-// e passa a ser exigido antes de aceitar qualquer batimento — ver uso em
-// ppgTask() no ramo wantHr.
+// streaming de HR so usa LED verde (sem gate de IR); g_hrFingerPresent guarda a ultima verificacao real (checkFingerPresentBrief) exigida antes de aceitar um batimento, senao ruido/luz ambiente era aceite como batimento com a placa fora do pulso
 bool g_hrFingerPresent = false;
 uint32_t g_lastHrFingerCheckMs = 0;
-uint32_t g_inactOffSinceMs = 0;         // Timestamp de quando a "inactivity" deixou de ser verdadeira (usado no holdoff antes de parar o streaming de HR).
-volatile bool g_shutdownRequested = false;     // true depois de prepareForSystemOff(): a task deixa de medir definitivamente.
-volatile bool g_suspendForPowerCheck = false;  // true durante um long-press do botao de power em validacao: a task pausa temporariamente.
-volatile uint32_t g_manualHrDeadlineMs = 0;    // millis() ate quando um pedido requestManualHr() ainda esta ativo (0 = nenhum pedido pendente).
-volatile bool g_manualSpo2Requested = false;   // true depois de requestManualSpo2(): forca uma medicao de SpO2 na proxima iteracao da task, sem esperar por SPO2_INTERVAL_MS.
+uint32_t g_inactOffSinceMs = 0;
+volatile bool g_shutdownRequested = false;
+volatile bool g_suspendForPowerCheck = false;
+volatile uint32_t g_manualHrDeadlineMs = 0; // 0 = nenhum pedido pendente
+volatile bool g_manualSpo2Requested = false;
 #if DEBUG_HR_RAW_CAPTURE
-uint32_t g_hrRawCaptureCount = 0;       // Diagnostico temporario (ver DEBUG_HR_RAW_CAPTURE acima) - amostras ja impressas neste streaming.
+uint32_t g_hrRawCaptureCount = 0;
 #endif
 
-// Formata a data/hora atual (vinda do modulo Clock) numa string, para usar
-// em mensagens de log. Se o relogio ainda nao estiver disponivel, escreve
-// uma data "zero" em vez de deixar a string vazia/lixo.
 void stampDateTime(char *out, size_t outLen) {
   if (!Clock::formatDateTime(out, outLen)) {
     snprintf(out, outLen, "00/00/0000 00:00:00");
   }
 }
 
-// --- Recuperacao do barramento I2C externo (SDA/SCL) ---
-// Por vezes, se o firmware reiniciar a meio de uma transacao I2C, um
-// escravo (o sensor) pode ficar "preso" a segurar a linha SDA em LOW,
-// bloqueando todo o barramento. As duas funcoes seguintes verificam esse
-// estado e tentam desbloquear manualmente o barramento (gerando pulsos de
-// clock e uma condicao STOP) antes de o inicializar como I2C normal.
+// recuperacao do I2C externo: se o firmware reiniciar a meio de uma transacao, o escravo pode prender SDA em LOW
 #if defined(PIN_WIRE_SDA) && defined(PIN_WIRE_SCL)
-// Verifica se as linhas SDA e SCL estao ambas em HIGH (repouso), como
-// seria de esperar num barramento I2C livre/saudavel.
 bool externalBusLinesHigh() {
   pinMode(PIN_WIRE_SDA, INPUT_PULLUP);
   pinMode(PIN_WIRE_SCL, INPUT_PULLUP);
@@ -148,11 +78,7 @@ bool externalBusLinesHigh() {
   return (sda == HIGH) && (scl == HIGH);
 }
 
-// Tenta desbloquear manualmente o barramento I2C externo, caso alguma
-// linha esteja presa em LOW. Gera ate 18 pulsos de clock em SCL (o
-// suficiente para um escravo terminar qualquer byte que estivesse a meio
-// de transmitir) e depois forca uma condicao STOP manual, devolvendo o
-// controlo das linhas ao periferico I2C normal.
+// gera ate 18 pulsos de clock + condicao STOP manual para libertar o barramento preso
 bool recoverExternalI2cBus() {
   if (externalBusLinesHigh()) return true;
 
@@ -170,7 +96,6 @@ bool recoverExternalI2cBus() {
     delayMicroseconds(10);
   }
 
-  // Forca uma condicao STOP.
   pinMode(PIN_WIRE_SDA, OUTPUT);
   digitalWrite(PIN_WIRE_SDA, LOW);
   delayMicroseconds(10);
@@ -183,46 +108,25 @@ bool recoverExternalI2cBus() {
 }
 #endif
 
-// Estado interno do pipeline de deteccao de batimento (bloco de funcoes
-// logo abaixo). Antes desta correcao, cada variavel vivia isolada como
-// "static" dentro da propria funcao (lowPassFilter/highPassFilter/
-// derivative/detectHeartbeat/computeBPM/smoothBPM) — o que as tornava
-// impossiveis de reiniciar em conjunto. Bug real: startHrStreaming()/
-// stopHrStreaming() alternam com frequencia (nao so' em sentar/levantar:
-// a medicao periodica de SpO2, a cada SPO2_INTERVAL_MS, interrompe sempre
-// o streaming de HR em curso - ver Passo 2 de ppgTask), sem nunca repor
-// nenhuma destas variaveis. Em particular, computeBPM() guardava
-// lastBeatTime/bpm de uma sessao de streaming anterior: apos o reinicio,
-// se o primeiro dt calculado caisse fora da janela 300-2000ms (garantido
-// sempre que passa mais de 1 medicao de SpO2 entre batimentos), a funcao
-// devolvia o "bpm" antigo tal como estava - um valor fisiologico de um
-// contexto diferente (ex.: de um episodio de movimento) apresentado como
-// leitura nova e valida (hr_valid=true, timestamp atual), incluindo a sua
-// contaminacao da media movel seguinte em smoothBPM(). Corrigido: todo o
-// estado passa a viver aqui, com resetHrFilterState() a repo-lo por
-// completo sempre que um streaming de HR novo comeca (ver
-// startHrStreaming()).
+// estado do pipeline de deteccao de batimento, unificado para poder ser reiniciado em bloco (resetHrFilterState); antes vivia disperso em statics locais e nao era reposto entre streamings, contaminando o BPM seguinte com o valor de uma sessao anterior
 struct HrFilterState {
-  float lpPrevY = 0;          // lowPassFilter
-  float hpPrevX = 0;          // highPassFilter
-  float hpPrevY = 0;          // highPassFilter
-  float derivPrev = 0;        // derivative
-  float beatPrevDiff = 0;     // detectHeartbeat
-  unsigned long beatLastMs = 0;      // detectHeartbeat (anti-rebote)
-  float beatPeakAbsHigh = 0;         // detectHeartbeat (gate de amplitude minima, ver kMinBeatPeakAmplitude)
-  unsigned long bpmLastBeatTime = 0; // computeBPM
-  float bpmValue = 0;                // computeBPM
-  float smoothBuf[5] = {0, 0, 0, 0, 0}; // smoothBPM
-  int smoothIdx = 0;                    // smoothBPM
-  bool smoothFilled = false;            // smoothBPM
-  float smoothSum = 0;                  // smoothBPM
+  float lpPrevY = 0;
+  float hpPrevX = 0;
+  float hpPrevY = 0;
+  float derivPrev = 0;
+  float beatPrevDiff = 0;
+  unsigned long beatLastMs = 0;
+  float beatPeakAbsHigh = 0;         // gate de amplitude minima, ver kMinBeatPeakAmplitude
+  unsigned long bpmLastBeatTime = 0;
+  float bpmValue = 0;
+  float smoothBuf[5] = {0, 0, 0, 0, 0};
+  int smoothIdx = 0;
+  bool smoothFilled = false;
+  float smoothSum = 0;
 };
 
 HrFilterState g_hrFilter;
 
-// Repoe todo o pipeline de deteccao de batimento para o estado inicial.
-// Chamada por startHrStreaming() no inicio de cada streaming de HR novo -
-// ver comentario de HrFilterState acima para a razao concreta.
 void resetHrFilterState() {
   g_hrFilter = HrFilterState{};
 #if DEBUG_HR_RAW_CAPTURE
@@ -230,29 +134,18 @@ void resetHrFilterState() {
 #endif
 }
 
-// Reduz a corrente de todos os LEDs do sensor (vermelho/IR/verde) para
-// zero, sem o colocar em shutdown. Usado antes de desligar o sensor por
-// completo ou ao alternar entre os modos SpO2/HR.
 void ledsOff() {
   g_sensor.setPulseAmplitudeRed(0);
   g_sensor.setPulseAmplitudeIR(0);
   g_sensor.setPulseAmplitudeGreen(0);
 }
 
-// Coloca o sensor em repouso: apaga os LEDs e entra em shutdown (modo de
-// baixo consumo do proprio MAX3010x, mas ainda contactavel por I2C).
-// E' o estado "normal" entre medicoes, para poupar energia.
 void sensorIdle() {
   ledsOff();
   g_sensor.shutDown();
 }
 
-// Garante, de forma imediata e sem depender do estado interno da task,
-// que os LEDs ficam desligados e o sensor em shutdown. Ao contrario de
-// sensorIdle(), acorda o sensor primeiro (wakeUp) para assegurar que os
-// comandos de "apagar LED" sao mesmo aplicados, e tambem desliga o LED de
-// proximidade. Usada em suspendForPowerCheck()/prepareForSystemOff(), que
-// podem ser chamadas a qualquer momento, fora do fluxo normal da task.
+// wakeUp primeiro para garantir que "apagar LED" e mesmo aplicado; usada fora do fluxo normal da task (suspendForPowerCheck/prepareForSystemOff)
 void forceLedsOffNow() {
   if (!g_started) return;
   g_sensor.wakeUp();
@@ -263,22 +156,8 @@ void forceLedsOffNow() {
   g_sensor.shutDown();
 }
 
-// ----------------------------------------------------------------------------
-// Pipeline de deteccao de batimento cardiaco (canal verde)
-// ----------------------------------------------------------------------------
-// O sinal bruto do LED verde (raw) contem: uma componente continua/lenta
-// (variacoes de perfusao, movimento, luz ambiente) e uma componente
-// periodica rapida causada pelos batimentos cardiacos (a "onda de pulso").
-// As funcoes abaixo aplicam, em sequencia, um pipeline classico de deteccao
-// de batimentos:
-//   raw -> passa-baixo (remove ruido de alta frequencia)
-//        -> passa-alto  (remove a deriva/offset lento, so' sobra a pulsacao)
-//        -> derivada    (realca as subidas/descidas rapidas do pulso)
-//        -> deteccao de cruzamento por zero (identifica o pico do batimento)
-// Cada filtro mantem o seu proprio estado em variaveis "static", por isso
-// so' deve haver uma "instancia logica" deste pipeline a correr de cada
-// vez (o que e' o caso: so' a ppgTask os chama).
-// === LOW PASS FILTER 1º Order (Fc ~ 5 Hz, Fs = 100 Hz) ===
+// pipeline: raw -> passa-baixo -> passa-alto -> derivada -> deteccao de cruzamento por zero (pico do batimento)
+// LOW PASS 1a ordem, Fc~5Hz, Fs=100Hz
 float lowPassFilter(float x) {
   static float Fs = 100.0;
   static float Ts = 1.0 / Fs;
@@ -290,7 +169,7 @@ float lowPassFilter(float x) {
   return y;
 }
 
-// === HIGH PASS FILTER 1º Order (Fc ~ 0.5 Hz, Fs = 100 Hz) ===
+// HIGH PASS 1a ordem, Fc~0.5Hz, Fs=100Hz
 float highPassFilter(float x) {
   static float Fs = 100.0;
   static float Ts = 1.0 / Fs;
@@ -303,33 +182,16 @@ float highPassFilter(float x) {
   return y;
 }
 
-// Derivada discreta simples: diferenca entre a amostra atual e a anterior.
-// Transforma o sinal filtrado numa curva que cruza o zero exatamente no
-// pico de cada batimento, o que facilita a deteccao a seguir.
 float derivative(float x) {
   const float y = x - g_hrFilter.derivPrev;
   g_hrFilter.derivPrev = x;
   return y;
 }
 
-// Amplitude minima (valor absoluto do sinal "high", pos-filtro passa-alto)
-// exigida num ciclo antes de aceitar um cruzamento por zero como batimento
-// real. Ver captura de sinal em bruto de 2026-07-22 (PROJECT_STATUS.md,
-// "HR — deteção de amplitude mínima"): sem este limiar, ruído de baixa
-// amplitude (tipicamente <20 nesta captura) e artefactos de movimento
-// produziam cruzamentos por zero a um ritmo de ~160-190 "bpm" implausível
-// em repouso — detectHeartbeat() não distinguia isso de um batimento real.
-// Valor de partida conservador (bem acima do ruído tipicamente observado),
-// não uma constante clinicamente validada — a afinar com mais capturas.
+// abaixo disto, ruido/artefacto de movimento era aceite como cruzamento por zero valido (~160-190 "bpm" implausivel em repouso); valor conservador, a afinar com mais capturas
 constexpr float kMinBeatPeakAmplitude = 40.0f;
 
-// Deteta um batimento cardiaco quando a derivada do sinal passa de
-// positiva para negativa/zero (um pico foi ultrapassado) E a amplitude do
-// sinal "high" nesse ciclo atingiu kMinBeatPeakAmplitude (rejeita ruído de
-// baixa amplitude, ver constante acima). Inclui tambem um "anti-rebote"
-// temporal: ignora deteccoes a menos de 300 ms da anterior, o que
-// corresponde a um limite fisiologico de 200 BPM (batimentos mais rapidos
-// do que isso sao tratados como ruido/artefacto, nao um batimento real).
+// pico POS->NEG + amplitude minima do ciclo + anti-rebote de 300ms (200 BPM max)
 bool detectHeartbeat(float diff, float high) {
   bool beatDetected = false;
 
@@ -338,42 +200,34 @@ bool detectHeartbeat(float diff, float high) {
     g_hrFilter.beatPeakAbsHigh = absHigh;
   }
 
-  // Zero crossing POS -> NEG
   if (g_hrFilter.beatPrevDiff > 0 && diff <= 0) {
     unsigned long now = millis();
 
-    // Anti-rebote (< 300ms = 200 BPM max) + amplitude minima do ciclo.
     if (now - g_hrFilter.beatLastMs > 300 && g_hrFilter.beatPeakAbsHigh >= kMinBeatPeakAmplitude) {
       beatDetected = true;
       g_hrFilter.beatLastMs = now;
     }
-    g_hrFilter.beatPeakAbsHigh = 0; // reinicia o pico para o proximo ciclo
+    g_hrFilter.beatPeakAbsHigh = 0;
   }
 
   g_hrFilter.beatPrevDiff = diff;
   return beatDetected;
 }
 
-// Converte o intervalo de tempo entre dois batimentos consecutivos (dt, em
-// ms) numa frequencia cardiaca instantanea em BPM (60000 ms / dt). So'
-// aceita valores de dt fisiologicamente plausiveis (entre 300 e 2000 ms,
-// ou seja 30-200 BPM); fora desse intervalo mantem o ultimo valor calculado.
+// dt fora de 300-2000ms (30-200 BPM) mantem o ultimo valor calculado
 float computeBPM() {
   unsigned long now = millis();
-  int dt = now - g_hrFilter.bpmLastBeatTime;
+  int deltaMs = now - g_hrFilter.bpmLastBeatTime;
 
-  if (dt > 300 && dt < 2000) { // 30–200 BPM
-    g_hrFilter.bpmValue = 60000.0 / dt;
+  if (deltaMs > 300 && deltaMs < 2000) {
+    g_hrFilter.bpmValue = 60000.0 / deltaMs;
   }
 
   g_hrFilter.bpmLastBeatTime = now;
   return g_hrFilter.bpmValue;
 }
 
-// Suaviza o valor de BPM com uma media movel simples das ultimas N=5
-// leituras, para reduzir a oscilacao batimento-a-batimento e apresentar um
-// valor mais estavel ao utilizador.
-// === MOVING AVERAGE FOR BPM ===
+// media movel simples, N=5
 float smoothBPM(float bpm) {
   const int N = 5;
 
@@ -394,12 +248,7 @@ float smoothBPM(float bpm) {
   return g_hrFilter.smoothSum / N;
 }
 
-// Configura o MAX3010x para o modo usado na medicao de SpO2: acorda o
-// sensor e liga os LEDs vermelho+IR (ledMode=2) com brilho e taxa de
-// amostragem adequados ao algoritmo maxim_heart_rate_and_oxygen_saturation
-// (que precisa de amostras sincronizadas de Red e IR). Estes parametros
-// (brilho, media de amostras, largura de pulso, gama do ADC) seguem os
-// valores recomendados pela biblioteca/exemplos da SparkFun/Maxim.
+// modo SpO2: Red+IR (ledMode=2), parametros recomendados pela lib/exemplos SparkFun/Maxim
 void setupForSpo2() {
   g_sensor.wakeUp();
   const byte ledBrightness = 60;
@@ -411,29 +260,8 @@ void setupForSpo2() {
   g_sensor.setup(ledBrightness, sampleAverage, ledMode, sampleRate, pulseWidth, adcRange);
 }
 
-// Configura o MAX3010x para o modo usado na medicao continua de HR:
-// acorda o sensor e ativa os 3 LEDs (Red+IR+Green, ledMode=3), mas de
-// seguida desliga explicitamente Red e IR, deixando apenas o LED verde
-// ativo. O canal verde e' o preferido para deteccao de batimento porque
-// tem melhor relacao sinal/ruido para variacoes de volume sanguineo na
-// pele e consome menos energia do que manter os tres LEDs ligados.
-//
-// sampleAverage=1 (nao 8, como estava antes e como o test/HR.cpp de
-// referencia tambem usa): o registo FIFO_CONFIG (SMP_AVE) do MAX3010x
-// faz a media de N amostras do ADC por CADA entrada nova na FIFO,
-// dividindo a taxa efetiva de novas amostras por N (confirmado no
-// datasheet Maxim/SparkFun: "reduce the amount of data throughput by
-// averaging and decimating adjacent samples"). Com sampleAverage=8 e
-// sampleRate=100, a FIFO so' recebia uma amostra nova a cada ~80ms
-// (~12.5 Hz reais), nao a cada 10ms (100 Hz) como lowPassFilter()/
-// highPassFilter() (Fs=100 fixo) e HR_SAMPLE_INTERVAL_MS (10ms)
-// assumem — um desfasamento de 8x entre a taxa real e a taxa suposta
-// pelo pipeline de filtros. sampleAverage=1 alinha a taxa real da FIFO
-// com essa suposicao (o ruido extra da amostra unica, sem media no
-// chip, e' precisamente o que o passa-baixo por software de 5Hz ja
-// existe para filtrar). Suspeita direta (nao confirmada em hardware,
-// bloqueado por USB — ver PROJECT_STATUS.md) para o "HR nunca detetado"
-// da sessao de hardware de 2026-07-03.
+// modo HR continuo: liga os 3 LEDs e desliga Red/IR, so verde fica ativo (melhor SNR para volume sanguineo, menos energia)
+// sampleAverage=1 (nao 8): FIFO_CONFIG faz media de N amostras por entrada na FIFO, dividindo a taxa efetiva por N; com 8 a FIFO so recebia amostra nova a ~12.5Hz, nao 100Hz como o pipeline (Fs=100 fixo, HR_SAMPLE_INTERVAL_MS=10ms) assume
 void setupForHr() {
   g_sensor.wakeUp();
   const byte ledBrightness = 0x5F;
@@ -447,33 +275,16 @@ void setupForHr() {
   g_sensor.setPulseAmplitudeIR(0);
 }
 
-// Forward declaration: definida mais abaixo (usada tambem por
-// measureSpo2()), mas checkFingerPresentBrief() aqui precisa dela antes
-// dessa definicao aparecer no ficheiro.
 bool waitSampleAvailable(uint32_t timeoutMs);
 
-// Verificacao breve e real de presenca de dedo/pulso, para usar durante o
-// streaming continuo de HR (que normalmente corre so' com o LED verde,
-// sem nenhum gate de IR — ver g_hrFingerPresent acima). Liga o LED de IR
-// por um instante, espera estabilizar por algumas amostras, le o valor,
-// e desliga o IR outra vez (repondo o modo so'-verde de setupForHr()) —
-// interrupcao curta o suficiente (poucos ms) para nao atrapalhar
-// visivelmente a amostragem continua do canal verde.
+// liga IR por um instante, descarta amostras residuais (gravadas so com verde antes do IR ligar, senao davam sempre falso-negativo), le, desliga IR outra vez
 bool checkFingerPresentBrief() {
   g_sensor.setPulseAmplitudeIR(HR_FINGER_CHECK_IR_AMPLITUDE);
 
-  // Bug real corrigido aqui (2026-08-06): a FIFO do sensor pode ja ter
-  // amostras por consumir de ANTES do IR ligar (gravadas so' com o LED
-  // verde, logo com IR=0) — ler a primeira amostra "disponivel" sem
-  // descartar essas dava sempre "sem dedo" (falso negativo), mesmo com a
-  // placa no pulso. Descarta ate 4 amostras residuais antes de confiar no
-  // valor lido (a 100Hz, 4 amostras = 40ms, tempo mais do que suficiente
-  // para esvaziar o que ja estava na FIFO e chegar a uma amostra genuina
-  // com o IR ja ligado).
   for (int i = 0; i < 4; i++) {
     if (!waitSampleAvailable(50)) break;
     g_sensor.check();
-    g_sensor.nextSample(); // descarta — nao interessa o valor desta
+    g_sensor.nextSample();
   }
 
   uint32_t ir = 0;
@@ -481,31 +292,21 @@ bool checkFingerPresentBrief() {
     g_sensor.check();
     ir = g_sensor.getIR();
   }
-  g_sensor.setPulseAmplitudeIR(0); // repoe modo so'-verde para o streaming continuar
+  g_sensor.setPulseAmplitudeIR(0);
   return ir >= FINGER_THRESHOLD;
 }
 
-// Liga o "streaming" continuo de HR (se ainda nao estiver ligado):
-// configura o sensor no modo HR (LED verde) e reinicia o temporizador de
-// amostragem. Chamada pela task quando o IMU reporta inatividade.
 void startHrStreaming() {
   if (g_hrStreaming) return;
   setupForHr();
   resetHrFilterState();
   g_hrStreaming = true;
   g_lastHrSampleMs = 0;
-  // Forca uma verificacao de dedo imediata na proxima amostra, em vez de
-  // esperar HR_FINGER_CHECK_INTERVAL_MS — sem isto, os primeiros ~2s de
-  // cada streaming novo aceitavam batimentos sem nenhuma verificacao.
-  g_lastHrFingerCheckMs = 0;
+  g_lastHrFingerCheckMs = 0; // forca verificacao de dedo imediata, senao os 1os ~2s aceitavam sem verificar
   g_hrFingerPresent = false;
   Serial.println("[PPG] HR stream ON");
 }
 
-// Desliga o streaming de HR: coloca o sensor em repouso (sensorIdle) e
-// reinicia os contadores associados. Chamada quando vai comecar uma
-// medicao de SpO2, quando o utilizador deixa de estar inativo (apos o
-// holdoff) ou quando a task e' suspensa/desligada.
 void stopHrStreaming() {
   if (!g_hrStreaming) return;
   sensorIdle();
@@ -515,15 +316,11 @@ void stopHrStreaming() {
   Serial.println("[PPG] HR stream OFF");
 }
 
-// Espera (fazendo polling nao bloqueante via vTaskDelay, para nao
-// monopolizar o CPU/scheduler) ate o sensor ter uma nova amostra
-// disponivel na FIFO, ou ate se esgotar o timeout indicado. Retorna false
-// em caso de timeout (por exemplo, sensor desligado ou sem resposta).
 bool waitSampleAvailable(uint32_t timeoutMs) {
-  const uint32_t t0 = millis();
+  const uint32_t startMs = millis();
   while (!g_sensor.available()) {
     g_sensor.check();
-    if ((millis() - t0) >= timeoutMs) {
+    if ((millis() - startMs) >= timeoutMs) {
       return false;
     }
     vTaskDelay(pdMS_TO_TICKS(1));
@@ -531,20 +328,7 @@ bool waitSampleAvailable(uint32_t timeoutMs) {
   return true;
 }
 
-// Executa uma medicao completa de SpO2 (e, como subproduto, de HR vindo
-// do mesmo algoritmo). Fluxo:
-//   1) configura o sensor no modo SpO2 e verifica se ha um dedo presente
-//      (comparando a leitura de IR com FINGER_THRESHOLD);
-//   2) se houver dedo, recolhe SPO2_BUFFER_LEN (100) pares de amostras
-//      Red/IR, uma de cada vez, respeitando timeouts e voltando a
-//      verificar a presenca do dedo a cada amostra (se o dedo for
-//      retirado a meio, a medicao e' abortada);
-//   3) corre o algoritmo oficial da Maxim (maxim_heart_rate_and_oxygen_
-//      saturation) sobre os buffers recolhidos, que devolve SpO2 e HR
-//      juntamente com flags de validade;
-//   4) desliga sempre o sensor no fim (via o lambda 'finish', que garante
-//      sensorIdle() em todos os caminhos de saida, sucesso ou falha).
-// Retorna true apenas se o SpO2 calculado for valido.
+// medicao completa e bloqueante (~1s): modo SpO2, dedo, 100 pares Red/IR, algoritmo Maxim; sensor sempre desligado no fim (finish)
 bool measureSpo2(int32_t &spo2, bool &validSpo2, int32_t &hr, bool &validHr, bool &fingerPresent) {
   auto finish = [&](bool ret) {
     sensorIdle();
@@ -583,9 +367,6 @@ bool measureSpo2(int32_t &spo2, bool &validSpo2, int32_t &hr, bool &validHr, boo
 
   int8_t vSpo2 = 0;
   int8_t vHr = 0;
-  // Algoritmo de referencia da Maxim: analisa as 100 amostras Red/IR e
-  // devolve SpO2 (%), HR (BPM) e um indicador de validade (vSpo2/vHr) para
-  // cada um, com base na qualidade/periodicidade do sinal.
   maxim_heart_rate_and_oxygen_saturation(
       g_irBuffer, SPO2_BUFFER_LEN, g_redBuffer,
       &spo2, &vSpo2, &hr, &vHr);
@@ -595,18 +376,10 @@ bool measureSpo2(int32_t &spo2, bool &validSpo2, int32_t &hr, bool &validHr, boo
   return finish(validSpo2);
 }
 
-// Processa uma unica amostra do canal verde atraves do pipeline de
-// deteccao de batimento (lowPass -> highPass -> derivative ->
-// detectHeartbeat). Se um batimento for detetado, calcula o BPM
-// instantaneo e a sua versao suavizada, aceitando-o apenas se estiver
-// dentro da gama fisiologica plausivel (30-200 BPM). Retorna true apenas
-// quando um batimento valido foi detetado nesta chamada (chamada
-// repetidamente pela task, uma vez por amostra).
+// pipeline completo sobre 1 amostra verde; devolve true so quando um batimento valido (30-200 BPM) e detetado
 bool processHrSample(float &bpmOut, bool &validOut, bool &fingerPresent) {
   validOut = false;
-  // Alinhado com test/HR.cpp: pipeline HR sem gate de IR/finger.
-  // O getGreen() internamente ja tenta obter nova amostra via FIFO.
-  fingerPresent = true;
+  fingerPresent = true; // pipeline HR sem gate de IR proprio; o gate real e feito fora, via g_hrFingerPresent
   long raw = g_sensor.getGreen();
   float low = lowPassFilter(raw);
   float high = highPassFilter(low);
@@ -646,45 +419,16 @@ bool processHrSample(float &bpmOut, bool &validOut, bool &fingerPresent) {
   return false;
 }
 
-// ----------------------------------------------------------------------------
-// ppgTask: task FreeRTOS que corre em loop infinito e concentra toda a
-// logica de escalonamento das leituras do sensor PPG. E' criada por
-// startTask() e nunca termina (so' "pausa" quando suspensa/desligada).
-//
-// A cada iteracao do loop decide, por esta ordem:
-//   1) Se ha um pedido de suspensao (long-press do botao) ou de desligar
-//      definitivo (System Off): se sim, garante o sensor em repouso e
-//      "dorme" um pouco antes de voltar a verificar (nao faz mais nada).
-//   2) Se ja passou SPO2_INTERVAL_MS desde a ultima medicao de SpO2: faz
-//      uma medicao completa (bloqueante, ~1s) e guarda o resultado.
-//   3) Consulta o IMU: se o utilizador esta "inativo" (parado), mantem/
-//      inicia o streaming continuo de HR e processa uma amostra por
-//      iteracao (respeitando HR_SAMPLE_INTERVAL_MS). Se deixou de estar
-//      inativo, so' desliga o streaming de HR apos um periodo de
-//      tolerancia (HR_STREAM_STOP_HOLDOFF_MS), para nao cortar a leitura
-//      por pequenas oscilacoes de movimento.
-//   4) Ajusta o proprio ritmo do loop: dorme pouco (2 ms) quando esta a
-//      fazer streaming de HR, para amostrar a alta frequencia, e dorme
-//      mais (200 ms) quando esta parado, para poupar energia/CPU.
-// Todas as escritas a g_latest (o snapshot partilhado lido por
-// getLatest()) sao protegidas por taskENTER_CRITICAL()/taskEXIT_CRITICAL()
-// para evitar leituras inconsistentes a partir de outras tasks.
-// ----------------------------------------------------------------------------
+// loop infinito: suspensao/shutdown -> SpO2 periodico -> HR continuo se inativo -> ritmo adaptativo
 void ppgTask(void *arg) {
   (void)arg;
   g_taskRunning = true;
-  // Forca primeira tentativa de SpO2 logo no arranque da task.
-  uint32_t lastSpo2Ms = millis() - SPO2_INTERVAL_MS;
+  uint32_t lastSpo2Ms = millis() - SPO2_INTERVAL_MS; // forca 1a tentativa de SpO2 no arranque
   uint32_t lastStatusMs = 0;
 
   Serial.println("[PPG] task iniciada");
 
   while (true) {
-    // --- Passo 1: respeitar pedidos de suspensao/desligar ---
-    // Enquanto o dispositivo estiver a validar um long-press de power-off
-    // (g_suspendForPowerCheck) ou ja tiver sido pedido o desligar
-    // definitivo (g_shutdownRequested), nao fazemos nenhuma medicao: so'
-    // garantimos que o sensor fica em repouso e voltamos a dormir.
     if (g_shutdownRequested || g_suspendForPowerCheck) {
       if (g_hrStreaming) {
         stopHrStreaming();
@@ -700,24 +444,15 @@ void ppgTask(void *arg) {
     const bool hasImu = Imu::getLatestSample(imuSample);
     const bool inactivity = hasImu && imuSample.inactivity;
 
-    // Pedido manual de HR (ver requestManualHr()/dumpCtrlChar em Ble.cpp):
-    // trata-se como equivalente a "inactivity" para efeitos de streaming,
-    // enquanto o prazo nao expirar. Isto permite medir mesmo em movimento
-    // quando pedido explicitamente, sabendo que a leitura pode ser menos
-    // fiavel (ver aviso em Ppg.h).
+    // pedido manual (requestManualHr) equivale a inactivity enquanto o prazo nao expira
     const uint32_t manualDeadline = g_manualHrDeadlineMs;
     const bool manualHrActive = manualDeadline != 0 && (int32_t)(manualDeadline - nowMs) > 0;
     if (manualDeadline != 0 && !manualHrActive) {
-      g_manualHrDeadlineMs = 0; // prazo expirado - limpa o pedido
+      g_manualHrDeadlineMs = 0;
     }
     const bool wantHr = inactivity || manualHrActive;
 
-    // --- Passo 2: medicao periodica de SpO2 (ou forcada por pedido manual) ---
-    // Uma vez a cada SPO2_INTERVAL_MS, interrompe temporariamente o
-    // streaming de HR (o sensor nao consegue fazer os dois modos ao
-    // mesmo tempo) e faz uma medicao completa e bloqueante de SpO2.
-    // g_manualSpo2Requested (ver requestManualSpo2()) antecipa esta
-    // medicao sem esperar pelo intervalo normal.
+    // SpO2: sensor nao faz os 2 modos ao mesmo tempo, interrompe HR se ativo
     if ((nowMs - lastSpo2Ms) >= SPO2_INTERVAL_MS || g_manualSpo2Requested) {
       g_manualSpo2Requested = false;
       if (g_hrStreaming) {
@@ -754,12 +489,6 @@ void ppgTask(void *arg) {
       lastSpo2Ms = nowMs;
     }
 
-    // --- Passo 3: streaming continuo de HR, quando inativo OU pedido manual ---
-    // So' faz sentido medir frequencia cardiaca com fiabilidade quando o
-    // utilizador esta parado (o IMU reporta inactivity); movimento
-    // introduz artefactos que o pipeline de filtros nao consegue separar
-    // de um batimento real. wantHr tambem fica true durante uma janela
-    // pedida explicitamente via requestManualHr(), mesmo em movimento.
     if (wantHr) {
       g_inactOffSinceMs = 0;
 
@@ -767,11 +496,6 @@ void ppgTask(void *arg) {
         startHrStreaming();
       }
 
-      // Verificacao periodica de dedo/pulso REAL (ver checkFingerPresentBrief()
-      // e g_hrFingerPresent acima) — corrige o bug de "falsas leituras com a
-      // placa fora do pulso" (2026-08-06). So' repete a cada
-      // HR_FINGER_CHECK_INTERVAL_MS, nao a cada amostra de 10ms, para nao
-      // andar a ligar/desligar o IR constantemente.
       if ((nowMs - g_lastHrFingerCheckMs) >= HR_FINGER_CHECK_INTERVAL_MS) {
         g_lastHrFingerCheckMs = nowMs;
         g_hrFingerPresent = checkFingerPresentBrief();
@@ -779,10 +503,7 @@ void ppgTask(void *arg) {
         g_latest.finger_present = g_hrFingerPresent;
         taskEXIT_CRITICAL();
         if (!g_hrFingerPresent) {
-          // Sem dedo: reinicia o pipeline de filtros para descartar
-          // qualquer estado acumulado (ex.: um "pico" a meio de deteccao)
-          // que pudesse gerar um batimento falso mal o dedo voltasse.
-          resetHrFilterState();
+          resetHrFilterState(); // sem dedo: descarta estado acumulado que pudesse gerar batimento falso ao voltar
         }
       }
 
@@ -792,10 +513,6 @@ void ppgTask(void *arg) {
         float hrBpm = 0.0f;
         bool validHr = false;
         bool finger = false;
-        // processHrSample() devolve sempre fingerPresent=true (pipeline HR
-        // sem gate de IR proprio) — por isso o gate real e' feito acima,
-        // via g_hrFingerPresent (checkFingerPresentBrief()), nao com este
-        // valor de retorno.
         const bool gotBeat = processHrSample(hrBpm, validHr, finger);
 
         if (gotBeat && validHr && g_hrFingerPresent) {
@@ -815,9 +532,7 @@ void ppgTask(void *arg) {
         }
       }
     } else if (g_hrStreaming) {
-      // O utilizador deixou de estar inativo, mas so' desligamos o
-      // streaming de HR apos HR_STREAM_STOP_HOLDOFF_MS de tolerancia,
-      // para nao interromper a leitura por breves oscilacoes do IMU.
+      // so desliga HR apos HR_STREAM_STOP_HOLDOFF_MS de tolerancia, para nao cortar por oscilacoes curtas do IMU
       if (g_inactOffSinceMs == 0) {
         g_inactOffSinceMs = nowMs;
       } else if ((nowMs - g_inactOffSinceMs) >= HR_STREAM_STOP_HOLDOFF_MS) {
@@ -826,9 +541,6 @@ void ppgTask(void *arg) {
       }
     }
 
-    // Snapshot periodico apenas para eventual inspecao/debug local; o
-    // valor lido nao e' usado, mas a copia mantem o padrao de acesso
-    // protegido a g_latest.
     if ((nowMs - lastStatusMs) >= 5000) {
       lastStatusMs = nowMs;
       Ppg::Metrics snap = {};
@@ -837,9 +549,6 @@ void ppgTask(void *arg) {
       taskEXIT_CRITICAL();
     }
 
-    // --- Passo 4: ritmo adaptativo do loop ---
-    // Amostra rapido (2 ms, ~100 Hz) enquanto esta a captar HR em
-    // continuo; caso contrario dorme mais (200 ms) para poupar energia.
     const uint32_t delayMs = g_hrStreaming ? TASK_LOOP_DELAY_HR_MS : TASK_LOOP_DELAY_IDLE_MS;
     vTaskDelay(pdMS_TO_TICKS(delayMs));
   }
@@ -849,12 +558,7 @@ void ppgTask(void *arg) {
 
 namespace Ppg {
 
-// Ver documentacao completa em Ppg.h.
-// Procura o sensor MAX3010x nos barramentos I2C candidatos (por defeito
-// so' o Wire externo, ver PPG_USE_EXTERNAL_WIRE_ONLY), tentando recuperar
-// o barramento se este estiver preso, sondando o endereco I2C 0x57 e so'
-// depois chamando o begin() da biblioteca do sensor. Ao encontrar o
-// sensor, deixa-o em repouso (sensorIdle) e marca o modulo como iniciado.
+// procura o sensor nos buses candidatos (por defeito so Wire externo), recupera o bus se preso, sonda 0x57, so depois chama begin() da lib
 bool begin() {
   if (g_started) return true;
   struct CandidateBus {
@@ -890,8 +594,7 @@ bool begin() {
     bus.begin();
     bus.setClock(100000);
 #if defined(WIRE_HAS_TIMEOUT)
-    // Evita bloqueio indefinido em transacoes I2C quando o sensor nao responde.
-    bus.setWireTimeout(25000, true);
+    bus.setWireTimeout(25000, true); // evita bloqueio indefinido se o sensor nao responder
 #endif
 
     Serial.print("[PPG] begin: probe 0x57 em ");
@@ -939,9 +642,6 @@ bool begin() {
   return true;
 }
 
-// Garante que o sensor esta inicializado (chamando begin() se necessario)
-// e, se a task ainda nao existir, cria-a com xTaskCreate. Se a task ja
-// estiver a correr, e' uma chamada sem efeito (idempotente).
 bool startTask() {
   if (!g_started && !begin()) return false;
   if (g_taskHandle != nullptr) return true;
@@ -967,9 +667,6 @@ bool isTaskRunning() {
   return g_taskRunning && (g_taskHandle != nullptr);
 }
 
-// Copia atomica do ultimo snapshot de metricas (protegida por secao
-// critica porque g_latest e' escrito pela task ppgTask e lido por
-// quem chama esta funcao, potencialmente em tasks/contexto diferentes).
 bool getLatest(Metrics &out) {
   if (!g_started) return false;
   taskENTER_CRITICAL();
@@ -978,32 +675,18 @@ bool getLatest(Metrics &out) {
   return true;
 }
 
-// Chamada assim que se deteta o inicio de um long-press no botao de
-// power: apaga os LEDs imediatamente (forceLedsOffNow, sem esperar pela
-// proxima iteracao da task) e sinaliza a flag que faz a task entrar em
-// modo de espera (ver Passo 1 de ppgTask). Isto evita continuar a gastar
-// energia com o sensor enquanto se aguarda a confirmacao do long-press.
 void suspendForPowerCheck() {
   g_suspendForPowerCheck = true;
   forceLedsOffNow();
 }
 
-// Cancela a suspensao pedida por suspendForPowerCheck(), mas apenas se
-// entretanto nao tiver sido pedido um desligar definitivo
-// (g_shutdownRequested); isso garante que, uma vez confirmado o System
-// Off, nada consegue "reanimar" a task por engano.
+// so cancela se nao tiver havido shutdown definitivo entretanto
 void resumeAfterPowerCheck() {
   if (!g_shutdownRequested) {
     g_suspendForPowerCheck = false;
   }
 }
 
-// Chamada quando o dispositivo vai mesmo entrar em System Off. Marca os
-// dois pedidos (shutdown definitivo + suspensao) para que a task nunca
-// mais tente medir, reinicia o estado de streaming de HR (para o caso de
-// o dispositivo acordar mais tarde por reset e reiniciar tudo do zero) e
-// forca os LEDs a desligar imediatamente e o sensor a entrar em shutdown,
-// para minimizar o consumo residual antes do corte de energia.
 void prepareForSystemOff() {
   g_shutdownRequested = true;
   g_suspendForPowerCheck = true;
@@ -1015,24 +698,17 @@ void prepareForSystemOff() {
   forceLedsOffNow();
 }
 
-// Ver Ppg.h. Limita durationMs a kManualHrMaxDurationMs e ignora o
-// pedido se o dispositivo ja estiver a desligar — nao faz sentido ligar
-// o sensor mesmo antes do System Off.
 void requestManualHr(uint32_t durationMs) {
   if (g_shutdownRequested) return;
   if (durationMs > kManualHrMaxDurationMs) durationMs = kManualHrMaxDurationMs;
   g_manualHrDeadlineMs = millis() + durationMs;
 }
 
-// Ver Ppg.h. Marca um pedido que a task consome (e limpa) na proxima
-// iteracao do seu loop — nao ha necessidade de prazo, a medicao de SpO2
-// e' unica e bloqueante, nao um streaming continuo como o HR.
 void requestManualSpo2() {
   if (g_shutdownRequested) return;
   g_manualSpo2Requested = true;
 }
 
-// *** DIAGNOSTICO TEMPORARIO (otimizacao de RAM) *** — ver Ppg.h.
 uint32_t taskStackHighWaterMarkWords() {
   if (g_taskHandle == nullptr) return 0;
   return static_cast<uint32_t>(uxTaskGetStackHighWaterMark(g_taskHandle));

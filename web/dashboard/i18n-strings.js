@@ -1,26 +1,5 @@
-/* ============================================================
-   INTERNACIONALIZAÇÃO (i18n) — DICIONÁRIO DE STRINGS
-   ------------------------------------------------------------
-   Extraído de index.html (2026-08-06) para reduzir o tamanho do
-   <script> inline principal (~8400 linhas num único ficheiro tornava
-   difícil trabalhar/perceber — pedido explícito do utilizador). Ficheiro
-   clássico (não é módulo ES): carregado antes do <script> principal via
-   <script src="i18n-strings.js">, por isso `const I18N` fica disponível
-   no escopo global tal como antes, sem quebrar nada que já dependesse
-   dele (incluindo t()/applyI18n() no script principal).
-
-   Cobre a INTERFACE FIXA (menus, botões, cabeçalhos, rótulos comuns) —
-   conteúdo gerado/dinâmico (descrições de alertas, dados de exemplo,
-   nomes de pacientes) continua em português nesta fase, por decisão
-   explícita do utilizador (traduzir tudo seria um esforço muito maior,
-   sem benefício imediato enquanto os dados ainda são maioritariamente
-   de demonstração). Ver PROJECT_STATUS.md.
-
-   Uso: t('chave') devolve o texto no idioma atual (ver função em
-   index.html); elementos estáticos no HTML usam o atributo
-   data-i18n="chave" e são preenchidos por applyI18n(), chamada uma vez
-   no arranque e sempre que o idioma muda.
-============================================================ */
+// Dicionário i18n (extraído de index.html) — carregado como script clássico, expõe `const I18N` global
+// Cobre só a interface fixa; conteúdo dinâmico fica em pt. Uso: t('chave')
 const I18N = {
   pt: {
     'app.title': 'CareWear · Monitorização de Rotina',
@@ -34,7 +13,7 @@ const I18N = {
     'signup.institution': 'Instituição / clínica', 'signup.license': 'Nº de cédula profissional',
     'signup.submit': 'Criar conta', 'signup.haveAccount': 'Já tens conta?', 'signup.login': 'Iniciar sessão',
     'nav.summary': 'Resumo', 'nav.routine': 'Rotina diária', 'nav.vitals': 'Sinais vitais',
-    'nav.trend': 'Tendência semanal', 'nav.settings': 'Definições', 'nav.help': 'Ajuda', 'nav.logout': 'Terminar sessão', 'nav.emergencies': 'Registo de emergências', 'nav.profile': 'Perfil', 'nav.medication': 'Medicação', 'nav.alertHistory': 'Histórico de alertas',
+    'nav.trend': 'Tendência semanal', 'nav.settings': 'Definições', 'nav.help': 'Ajuda', 'nav.logout': 'Terminar sessão', 'nav.emergencies': 'Registo de emergências', 'nav.profile': 'Perfil', 'nav.medication': 'Medicação', 'nav.alertHistory': 'Histórico de alertas', 'nav.timeline': 'Timeline unificada',
     'nav.patients': 'Pacientes', 'nav.device': 'Dispositivo & firmware', 'nav.anomalies': 'Anomalias detetadas',
     'nav.limits': 'Limites de duração', 'nav.export': 'Exportar dados',
     'topbar.connecting': 'A ligar ao bridge…', 'topbar.connected': 'Wearable ligado · dados em direto',
@@ -86,18 +65,18 @@ const I18N = {
     'ajuda.aboutRepoLabel': 'Repositório', 'ajuda.aboutHardwareLabel': 'Hardware', 'ajuda.aboutAuthorLabel': 'Autor', 'ajuda.aboutStatusLabel': 'Estado',
     'ajuda.aboutStatusValue': 'Protótipo académico',
     'ajuda.aboutStatusHintPre': 'Consulta o', 'ajuda.aboutStatusHintPost': 'para detalhes de estado, limitações e trabalho futuro.',
-    // --- vitais ---
+    // vitais
     'vitais.forceReadingHint': 'Força uma leitura mesmo em movimento — só funciona com o dispositivo ligado ao bridge; pode ser menos fiável do que parado.',
     'vitais.measureNowBtn': 'Medir agora (FC + SpO₂)', 'vitais.hrCardTitle': 'Frequência cardíaca', 'vitais.spo2CardTitle': 'SpO₂', 'vitais.stepsCardTitle': 'Passos hoje',
     'vitais.fallsCardTitle': 'Quedas detetadas', 'vitais.hrCardSubtitle': 'Leituras do sensor PPG (MAX3010x) — em direto quando o bridge está ligado',
     'vitais.hrChartAria': 'Gráfico de frequência cardíaca das últimas 24h', 'vitais.hrChartDemo': '— últimas 24h (demonstração)', 'vitais.hrChartLive': '— ao vivo',
-    // --- tendencia ---
+    // tendencia
     'tendencia.trendCardTitle': 'Tendência — últimos 7 dias', 'tendencia.trendChartAria': 'Gráfico de tendência de passos, sono e frequência cardíaca média nos últimos 7 dias',
     'tendencia.legendSteps': 'Passos', 'tendencia.legendSleep': 'Sono (h)', 'tendencia.legendAvgHr': 'FC média (bpm)', 'tendencia.weeklyPatternCardTitle': 'Padrão semanal',
     'tendencia.heatmapChartAria': 'Mapa de calor do padrão semanal de intensidade de movimento por hora', 'tendencia.realHistoryCardTitle': 'Histórico real (BD local do bridge)',
     'tendencia.realHistoryCardSubtitle': 'Dados reais (não simulados), agregados por dia a partir do que o bridge guardou em <code>bridge/carewear_history.db</code> desde que começou a correr — pode não cobrir os 7 dias completos ainda. Não inclui horas de sono (o firmware ainda não deteta sono; essa métrica continua só no gráfico simulado acima).',
     'tendencia.refreshBtn': 'Atualizar', 'tendencia.thDay': 'Dia', 'tendencia.thRecords': 'Registos', 'tendencia.thAvgHr': 'FC média', 'tendencia.thStepsDelta': 'Passos (Δ no dia)',
-    // --- resumo ---
+    // resumo
     'resumo.movementCardTitle': 'Movimento', 'resumo.movementDemoValue': 'Demonstração', 'resumo.sleepCardTitle': 'Sono', 'resumo.nutritionCardTitle': 'Alimentação',
     'resumo.nutritionDemoValue': '3 refeições', 'resumo.heartRateCardTitle': 'Frequência cardíaca', 'resumo.spo2CardTitle': 'SpO₂', 'resumo.routineTodayCardTitle': 'Rotina diária — hoje',
     'resumo.simulatedDataBadge': 'dados simulados', 'resumo.routineTodayCardSubtitle': 'Comparação com o template de 21 passos do artigo científico',
@@ -122,7 +101,7 @@ const I18N = {
     'resumo.liveActivityConfirmedByCaregiver': 'confirmado pelo cuidador', 'resumo.liveActivityAiSaysNow': 'IA sugere agora: {cat} ({pct}%)',
     'resumo.liveActivityCorrectionExpired': 'correção antiga, a IA voltou a ser mostrada',
     'resumo.routineTodayChartLabel': 'Rotina de hoje', 'resumo.routineAnomalyChartLabel': 'Simulação com anomalias',
-    // --- pacientes ---
+    // pacientes
     'pacientes.monitoredCardTitle': 'Pacientes monitorizados', 'pacientes.assignedSingular': 'paciente atribuído', 'pacientes.assignedPlural': 'pacientes atribuídos',
     'pacientes.assignedToAccountSuffix': 'a esta conta', 'pacientes.adminFullAccessNote': '(conta administradora — acesso total)', 'pacientes.chooseViewingHint': 'escolhe qual estás a consultar',
     'pacientes.thPatient': 'Paciente', 'pacientes.thDevice': 'Dispositivo', 'pacientes.thLastSync': 'Última sincronização', 'pacientes.thStatus': 'Estado',
@@ -137,7 +116,7 @@ const I18N = {
     'pacientes.alertsBySeverityCardTitle': 'Alertas por severidade —',
     'pacientes.noConsentAlertsEmpty': 'Este utente/família não autorizou a partilha de alertas com a equipa clínica (ver Definições → Consentimento). Contacta diretamente para mais informação.',
     'pacientes.noNewAlertsEmpty': 'Sem alertas novos — ver Histórico de alertas.',
-    // --- dispositivo ---
+    // dispositivo
     'dispositivo.deviceStatusCardTitle': 'Estado do wearable —', 'dispositivo.batteryLabel': 'Bateria', 'dispositivo.ringBufferLabel': 'Ring buffer (flash QSPI)',
     'dispositivo.recordsUnit': 'registos', 'dispositivo.staticRamLabel': 'RAM estática (.data/.bss)', 'dispositivo.programFlashLabel': 'Flash de programa',
     'dispositivo.ramFlashSameNoteEmpty': 'RAM/Flash de programa são iguais em todos os wearables desta conta de propósito — é o mesmo firmware instalado em todos, esses valores vêm do binário compilado, não do dispositivo individual. Só a bateria e o ring buffer variam por paciente (uso real de cada dispositivo).',
@@ -147,7 +126,7 @@ const I18N = {
     'dispositivo.stackSlackCardSubtitle': 'igual para todos os dispositivos (mesmo firmware); pendente confirmação em hardware', 'dispositivo.thTask': 'Task', 'dispositivo.thReserved': 'Reservado',
     'dispositivo.thStatus': 'Estado', 'dispositivo.statusPendingConfirmation': 'por confirmar',
     'dispositivo.optimizationNoteEmpty': 'Valores da 2ª ronda de otimização (ver PROJECT_STATUS.md); ainda por confirmar em hardware real com DEBUG_STACK_WATERMARKS.',
-    // --- rotina ---
+    // rotina
     'rotina.simFlag': 'dados simulados', 'rotina.timelineSubtitle': 'Blocos de atividade ao longo de 24h, alinhados ao template clínico', 'rotina.pacingTitle': 'Padrão de deambulação (pacing)',
     'rotina.simTrend': 'tendência simulada', 'rotina.pacingSubtitle': 'Curvas apertadas/mudanças de direção via giroscópio — sinal precoce de wandering, complementar ao GPS',
     'rotina.pacingTrendAria': 'Tendência do índice de pacing nos últimos 7 dias', 'rotina.notesTitle': 'Notas do cuidador',
@@ -160,7 +139,7 @@ const I18N = {
     'rotina.vsWeeklyAvg': 'Vs. média semanal', 'rotina.minPerDay': 'min/dia', 'rotina.noBlocksBefore': 'Sem blocos de ', 'rotina.noBlocksAfter': ' registados hoje.',
     'rotina.weeklyTrendSubtitle': 'Tendência semanal — minutos por dia', 'rotina.weeklyTrendAriaBefore': 'Tendência semanal de ', 'rotina.weeklyTrendAriaAfter': ' em minutos por dia',
     'rotina.minutesLabel': 'Minutos', 'rotina.pacingIndexLabel': 'Índice de pacing',
-    // --- anomalias ---
+    // anomalias
     'anomalias.detectionSubtitle': 'Deteção combinada: LSTM Autoencoder (comportamental) + regras de duração, com supressão em cascata', 'anomalias.clearAllBtn': 'Limpar tudo',
     'anomalias.clearAllConfirm': 'Apagar TODAS as anomalias deste paciente? Esta ação não pode ser desfeita.',
     'anomalias.honestLimitationText': '<b>Limitação honesta:</b> os detetores (LSTM Autoencoder + regras de duração) ainda não foram validados clinicamente — podem não detetar uma anomalia real (falso negativo) ou assinalar algo que não é (falso positivo). Este registo apoia a decisão da equipa clínica, não a substitui — mesmo padrão de transparência já usado por sistemas de deteção de queda de referência (ex.: MobileHelp/Medical Guardian admitem publicamente que a deteção automática "não funciona 100% das vezes").',
@@ -169,14 +148,14 @@ const I18N = {
     'anomalias.thWhen': 'Quando', 'anomalias.severityCritical': 'Crítico', 'anomalias.severitySerious': 'Sério', 'anomalias.severityWarning': 'Aviso',
     'anomalias.deleteConfirmPrefix': 'Apagar esta anomalia', 'anomalias.deleteConfirmSuffix': '? Esta ação não pode ser desfeita.', 'anomalias.deleteBtn': 'Apagar',
     'anomalias.listEmpty': 'Sem anomalias registadas para este paciente.',
-    // --- alertas ---
+    // alertas
     'alertas.allAlertsSubtitle': 'Todos os alertas (lidos e por ler) deste paciente, incluindo os já removidos da área de alertas recentes', 'alertas.clearAllBtn': 'Limpar tudo',
     'alertas.clearAllConfirm': 'Apagar TODOS os alertas deste paciente? Esta ação não pode ser desfeita.',
     'alertas.honestLimitationText': '<b>Limitação honesta:</b> estes alertas disparam por limiares (fixos ou personalizados por pessoa, ver Definições) — não são um diagnóstico. A ausência de alertas não significa ausência de problemas; a presença de um alerta não confirma um problema real. Usa como apoio à decisão, não como substituto de supervisão direta.',
     'alertas.thTitle': 'Título', 'alertas.thDetail': 'Detalhe', 'alertas.thSeverity': 'Severidade', 'alertas.thWhen': 'Quando', 'alertas.thStatus': 'Estado', 'alertas.severityCritical': 'Crítico',
     'alertas.severitySerious': 'Sério', 'alertas.severityWarning': 'Aviso', 'alertas.statusRead': 'Lido', 'alertas.statusNew': 'Novo', 'alertas.deleteBtn': 'Apagar',
     'alertas.listEmpty': 'Sem alertas registados para este paciente.',
-    // --- emergencias ---
+    // emergencias
     'emergencias.detectionSubtitle': 'SOS manual (gesto de cliques) e deteção automática de queda + inatividade prolongada — ver módulo firmware Emergency', 'emergencias.clearAllBtn': 'Limpar tudo',
     'emergencias.clearAllConfirm': 'Apagar todos os registos de emergência RESOLVIDOS/CANCELADOS deste paciente? Emergências ativas não são afetadas. Esta ação não pode ser desfeita.',
     'emergencias.bridgeInfoText': 'O bridge (<code>ble_bridge.py</code>) escuta a characteristic <code>emergencyAlertChar</code> do dispositivo — eventos marcados <b>"Em direto"</b> abaixo vieram mesmo do wearable ligado; os restantes continuam a ser dados de demonstração. <b>Limitação honesta</b>: o bridge só liga a um dispositivo físico de cada vez, por isso um alerta em direto fica sempre atribuído ao paciente selecionado no momento em que chega, não a uma identidade confirmada pelo hardware (ver seletor de paciente). A deteção automática de queda + inatividade prolongada também não foi validada clinicamente — pode falhar em detetar uma queda real ou disparar sem uma ter ocorrido; o botão SOS manual continua a ser o mecanismo mais fiável.',
@@ -185,14 +164,14 @@ const I18N = {
     'emergencias.statusResolved': 'Resolvido', 'emergencias.cancelAlertBtn': 'Cancelar alerta…', 'emergencias.deleteConfirmPrefix': 'Apagar este registo de emergência',
     'emergencias.deleteConfirmSuffix': '? Esta ação não pode ser desfeita.', 'emergencias.deleteBtn': 'Apagar', 'emergencias.listEmpty': 'Sem eventos de emergência registados para este paciente.',
     'emergencias.cancelInfoText': 'Cancelar um alerta ativo exige confirmação reforçada (palavra-passe + código de verificação) — pensado para o caso de o wearable ficar sem resposta a meio de um falso positivo, sem abrir uma forma fácil de silenciar uma emergência real por engano.',
-    // --- timeline correlacionada por episódio (2026-08-05) ---
+    // timeline correlacionada por episódio (2026-08-05)
     'episodio.viewBtn': 'Ver linha do tempo', 'episodio.title': 'Linha do tempo do episódio',
     'episodio.subtitle': 'Sinais vitais, atividade classificada e outros alertas nos minutos à volta deste alerta — reunidos a partir da base de dados do bridge, sem inventar nenhuma correlação estatística.',
     'episodio.noBridgeConnectionHint': 'Sem ligação ao bridge — não é possível consultar a timeline agora.',
     'episodio.loadingHint': 'A carregar…', 'episodio.errorPrefix': 'Falhou:', 'episodio.unknownError': 'erro desconhecido',
     'episodio.emptyHint': 'Sem dados registados nesta janela de tempo (dispositivo sem sensores ligados no período, ou sem outros alertas por perto).',
     'episodio.centeredOnPrefix': 'Centrado em', 'episodio.badgeVital': 'Vital', 'episodio.badgeActivity': 'Atividade', 'episodio.badgeAlert': 'Alerta',
-    // --- alertData / anomalyType / anomalyDetector / anomalyDetail / emergencyType / emergencyNote / emergencyLive / alertRow ---
+    // alertData / anomalyType / anomalyDetector / anomalyDetail / emergencyType / emergencyNote / emergencyLive / alertRow
     'alertData.hrAlta.title': 'Frequência cardíaca elevada', 'alertData.hrAlta.desc': '92 bpm sustentados durante 6 min em repouso (referência: 58–78 bpm).',
     'alertData.hrAlta.plain': 'O coração esteve a bater mais depressa do que o normal para uma pessoa em repouso, e manteve-se assim durante vários minutos seguidos (não foi só um pico rápido). Pode acontecer por esforço recente, dor, ansiedade, febre ou desidratação — mas também pode não ter causa aparente. Vale a pena verificar como a pessoa está agora e, se se mantiver ou vier acompanhado de outros sintomas, contactar o médico.', 'alertData.hrAlta.time': 'há 6 min',
     'alertData.inatividadeProlongada.title': 'Inatividade prolongada', 'alertData.inatividadeProlongada.desc': 'Sem movimento detetado desde as 14:35 (3h12min) — acima do limite configurado.',
@@ -214,7 +193,7 @@ const I18N = {
     'alertRow.escalationNote': 'Repetiu-se {n}x nas últimas 24h — prioridade subida automaticamente de "aviso" para "grave" para reduzir o risco de ser ignorado. Silenciar reinicia a contagem.',
     'alertRow.criticalNoMute': 'Alertas críticos não podem ser silenciados.', 'alertRow.mutedUntilPrefix': 'Silenciado até às', 'alertRow.reactivateNow': 'reativar agora',
     'alertRow.muteBtn': 'Silenciar por 4h', 'alertRow.readBadge': '✓ Lida', 'alertRow.markReadBtn': 'Marcar como lida',
-    // --- medicacao ---
+    // medicacao
     'medicacao.statusTaken': 'Tomado', 'medicacao.statusLate': 'Em atraso', 'medicacao.statusPending': 'Pendente', 'medicacao.markTakenBtn': 'Marcar como tomado',
     'medicacao.correlationPrefix': 'Nos dias com adesão incompleta',
     'medicacao.correlationSuffix': 'vale a pena comparar com a FC/sono desses dias na vista "Tendência semanal" — é uma correspondência simples de datas para dar contexto ao cuidador, não uma análise estatística automática; essa só faria sentido a sério com histórico real acumulado (ver PROJECT_STATUS.md, "Base de dados").',
@@ -241,7 +220,7 @@ const I18N = {
     'medicacao.intervalPlaceholder': 'ex: 3', 'medicacao.applyIntervalBtn': 'Aplicar intervalo',
     'medicacao.manageNote': 'Os botões acima só preenchem o campo "Horários" acima — revê antes de clicar em "Adicionar". Protótipo: guardado só neste browser (localStorage) — um sistema real ligaria isto a uma prescrição clínica com assinatura/validação, não um formulário livre.',
     'medicacao.historyTitle': 'Adesão — últimos 6 dias',
-    // --- perfil ---
+    // perfil
     'perfil.myProfileTitle': 'O meu perfil', 'perfil.myProfileSubtitle': 'Atualiza os teus próprios dados sempre que quiseres — isto não altera os dados clínicos do paciente monitorizado',
     'perfil.nameLabel': 'Nome', 'perfil.phoneLabel': 'Telemóvel', 'perfil.nifLabel': 'NIF', 'perfil.addressLabel': 'Morada', 'perfil.institutionLabel': 'Instituição / clínica',
     'perfil.licenseLabel': 'Nº de cédula profissional', 'perfil.saveChangesBtn': 'Guardar alterações',
@@ -251,11 +230,11 @@ const I18N = {
     'perfil.pendingApprovalsTitle': 'Aprovações pendentes', 'perfil.pendingApprovalsSubtitle': 'Alterações a dados sensíveis pedidas pelo Utente/Família, à espera da tua confirmação',
     'perfil.thField': 'Campo', 'perfil.thRequestedValue': 'Novo valor pedido', 'perfil.thRequestedAt': 'Pedido em', 'perfil.approveBtn': 'Aprovar', 'perfil.rejectBtn': 'Rejeitar',
     'perfil.pendingEmpty': 'Sem alterações pendentes de aprovação.',
-    // --- limites ---
+    // limites
     'limites.templateTitle': 'Template de rotina diária — limites de duração', 'limites.templateSubtitle': '[d_min × 0.30, d_max × 3.00] por passo do template, conforme o artigo científico',
     'limites.thStep': 'Passo', 'limites.thTime': 'Hora', 'limites.thActivity': 'Atividade', 'limites.thDmin': 'd_min (min)', 'limites.thDmax': 'd_max (min)',
     'limites.prototypeEmpty': 'Edição de protótipo — ainda não persiste no dispositivo; a atualização de limites exigirá um canal BLE/OTA dedicado.',
-    // --- exportar ---
+    // exportar
     'exportar.fhirCardTitle': 'Resumo clínico (FHIR / PDF)',
     'exportar.fhirCardSubtitle': 'Diferente da exportação abaixo: cobre só o que está visível nesta sessão (alertas, anomalias, tendências), não o histórico completo — por isso já funciona sem depender da base de dados',
     'exportar.exportFhirBtn': 'Exportar FHIR (JSON)', 'exportar.printPdfBtn': 'Imprimir / exportar PDF',
@@ -268,7 +247,7 @@ const I18N = {
     'exportar.retentionSubtitle': 'Há quanto tempo os registos de sensores ficam guardados em <code>carewear_history.db</code> antes de serem apagados automaticamente — o registo de emergências nunca é apagado por esta política',
     'exportar.retentionDaysLabel': 'Dias a manter:',
     'exportar.retentionNoteEmpty': 'Valor por omissão do protótipo: 30 dias. Não é uma política de retenção certificada — a decisão real de quantos dias reter dados clínicos de um utente é do utilizador/responsável pelos dados; este controlo só evita que fique fixa no código-fonte.',
-    // --- consentimento (RGPD, granular por âmbito, 2026-08-05) ---
+    // consentimento (RGPD, granular por âmbito, 2026-08-05)
     'consentimento.title': 'Consentimento de dados (RGPD)',
     'consentimento.subtitle': 'Cada âmbito é independente — aceitar um não implica aceitar os outros. Cada alteração fica registada como uma linha nova e auditável (nunca apaga a decisão anterior); revogar um âmbito impede de imediato as operações que dependem dele (ex.: exportação CSV exige o âmbito "Exportação")',
     'consentimento.scopeSensorData': 'Dados de sensores', 'consentimento.scopeSensorDataDesc': 'Gravar as leituras de PPG/IMU/GNSS recebidas do wearable — sem este âmbito, o arranque do bridge regista a ausência mas não bloqueia (nunca corta o streaming em tempo real)',
@@ -280,7 +259,7 @@ const I18N = {
     'consentimento.noteEmpty': 'Protótipo sem autenticação real (ver PROJECT_STATUS.md) — a decisão é registada como given_by="representative" com o nome introduzido acima; um sistema com contas reais associaria isto à sessão autenticada, não a um campo de texto livre.',
     'consentimento.noBridgeConnectionHint': 'Sem ligação ao bridge — não é possível consultar nem alterar o consentimento agora.',
     'consentimento.savingHint': 'A gravar…',
-    // --- versionamento do modelo ML (2026-08-05) ---
+    // versionamento do modelo ML (2026-08-05)
     'modeloVersao.title': 'Versão do modelo de IA', 'modeloVersao.subtitle': 'Classificador de atividade (Random Forest) — histórico de versões e reversão (rollback) sem reiniciar o bridge',
     'modeloVersao.activeLabel': 'Ativa', 'modeloVersao.activateBtn': 'Ativar', 'modeloVersao.loadingHint': 'A carregar…',
     'modeloVersao.noBridgeConnectionHint': 'Sem ligação ao bridge — não é possível consultar as versões do modelo agora.',
@@ -288,10 +267,10 @@ const I18N = {
     'modeloVersao.activatingHint': 'A ativar…', 'modeloVersao.activatedHint': 'Versão ativada.',
     'modeloVersao.reloadFailedHint': 'Ativada na base de dados, mas falhou a recarregar em tempo real — o modelo anterior continua em uso.',
     'modeloVersao.noteEmpty': 'Trocar de versão aqui muda o modelo em memória desta instância do bridge de imediato (sem reiniciar); não retreina nem cria versões novas — isso continua a ser feito pelos scripts em ml/ (ver ml/README.md).',
-    // --- common ---
+    // common
     'common.save': 'Guardar', 'common.cancel': 'Cancelar', 'common.close': 'Fechar', 'common.edit': 'Editar', 'common.delete': 'Remover', 'common.add': 'Adicionar', 'common.search': 'Pesquisar',
     'common.back': 'Voltar', 'common.confirm': 'Confirmar', 'common.today': 'Hoje',
-    // --- definicoes.schedule + emergencyContact ---
+    // definicoes.schedule + emergencyContact
     'definicoes.scheduleTitle': 'Horário de indisponibilidade do cuidador',
     'definicoes.scheduleSubtitle': 'Dias e horas em que o cuidador principal pode estar incontactável (ex.: horário de trabalho) — usado para decidir quando escalar um alerta de emergência não confirmado para o contacto de emergência',
     'definicoes.scheduleThDay': 'Dia', 'definicoes.scheduleThStart': 'Início', 'definicoes.scheduleThEnd': 'Fim', 'definicoes.scheduleDayAria': 'Indisponível à',
@@ -305,7 +284,7 @@ const I18N = {
     'definicoes.emergencyContactNamePlaceholder': 'Nome', 'definicoes.emergencyContactPhonePlaceholder': 'Telefone',
     'definicoes.emergencyContactRelationPlaceholder': 'Relação (ex.: vizinho, irmão)',
     'definicoes.emergencyContactNote': 'Este contacto só é notificado automaticamente se o alerta acontecer dentro do horário declarado acima e o cuidador não confirmar a tempo.',
-    // --- i18n gap 2 (render*() helpers + medication-reminders.js + login) ---
+    // i18n gap 2 (render*() helpers + medication-reminders.js + login)
     'resumo.nightBedTime': 'Hora de deitar', 'resumo.nightWakeTime': 'Hora de acordar', 'resumo.nightRestlessEpisodes': 'Episódios de agitação',
     'resumo.nightTimeOutOfBed': 'Tempo fora da cama (total)', 'resumo.nightRestlessEvent': 'Levantou-se / agitação detetada',
     'resumo.nightNoEvents': 'Sem episódios de agitação detetados esta noite.', 'rotina.pacingAboveUsual': 'Acima do habitual', 'rotina.pacingWithinUsual': 'Dentro do habitual',
@@ -332,12 +311,12 @@ const I18N = {
     'medrem.recCriticalContact': 'Adesão crítica: contactar cuidador ou clínico', 'medrem.recCriticalAlarms': 'Sugestão: usar alarmes do relógio/telemóvel como lembretes extras',
     'medrem.recModerateAttention': 'Adesão moderada: melhorar atenção aos horários', 'medrem.recModerateMealTiming': 'Sugestão: marcar medicação imediatamente após as refeições',
     'medrem.recExcellent': 'Excelente adesão: manter a rotina', 'medrem.recLowActivityScheduling': 'Sugestão: agendar medicação para períodos de menor atividade',
-    // --- i18n gap 3 (continuous HR, export all, misc hints) ---
+    // i18n gap 3 (continuous HR, export all, misc hints)
     'vitais.continuousHrHint': 'Reenvia o pedido de medição automaticamente enquanto ligado, até desligares', 'vitais.continuousHrStartBtn': 'Leitura contínua',
     'vitais.continuousHrActiveHint': 'Leitura contínua ativa — a atualizar automaticamente.',
     'vitais.continuousHrStopBtn': 'A ler continuamente — parar', 'vitais.measuringHint': 'A medir…', 'vitais.secondsRemainingSuffix': 's restantes)',
     'vitais.measurementDoneHint': 'Leitura concluída — os valores devem estar atualizados.', 'vitais.noBridgeConnectionHint': 'Sem ligação ao bridge — liga o dispositivo primeiro.',
-    // --- baseline comportamental personalizada (2026-08-05) ---
+    // baseline comportamental personalizada (2026-08-05)
     'vitais.baselineTitle': 'Baseline personalizada',
     'vitais.baselineSubtitle': 'Limiares de frequência cardíaca e SpO₂ específicos deste paciente — sais fora do intervalo gera um alerta em tempo real, explicado por baixo dos valores acima',
     'vitais.hrMinLabel': 'FC mínima (bpm)', 'vitais.hrMaxLabel': 'FC máxima (bpm)', 'vitais.spo2MinLabel': 'SpO₂ mínima (%)',
@@ -351,7 +330,7 @@ const I18N = {
     'exportar.noBridgeConnectionHint': 'Sem ligação ao bridge — não é possível exportar agora.', 'exportar.bridgeUnreachableHint': 'Não foi possível contactar o bridge.',
     'exportar.generatingCsvHint': 'A gerar CSV…', 'exportar.csvFailedPrefix': 'Falhou:', 'exportar.csvNoDataFallback': 'sem dados', 'exportar.csvDownloadedHint': 'CSV descarregado.',
     'resumo.heatmapIntensityLabel': 'Intensidade de atividade',
-    // --- ajuda FAQ Q8-Q16 (cobertura completa das funcionalidades) ---
+    // ajuda FAQ Q8-Q16 (cobertura completa das funcionalidades)
     'ajuda.faqQ8': 'Qual a diferença entre os dois perfis (Utente/Família e Médico/Técnico)?',
     'ajuda.faqA8': 'Utente/Família vê os seus próprios dados de rotina, sinais vitais e medicação. Médico/Técnico gere vários pacientes, define limites clínicos, regista anomalias e exporta relatórios — vistas diferentes, com permissões diferentes.',
     'ajuda.faqQ9': 'Como funciona a equipa de cuidadores e as suas permissões?',
@@ -372,7 +351,7 @@ const I18N = {
     'ajuda.faqA16': 'O seletor de idioma está na barra superior; o botão de tema claro/escuro fica junto dele — a preferência escolhida fica guardada neste browser.',
     'ajuda.faqQ17': 'Como funciona a correção de atividade pelo cuidador?',
     'ajuda.faqA17': 'Ao corrigir a atividade que a IA classificou, a tua correção passa a ser a linha principal do painel durante 30 minutos (marcada "confirmado pelo cuidador"), com a classificação da IA como nota secundária. Passados os 30 minutos, volta a ser a IA a aparecer em destaque. A correção fica guardada para uma eventual reavaliação do classificador mais tarde, mas não o retreina em tempo real.',
-    // --- vista "Administrador" (2026-08-06) ---
+    // vista "Administrador" (2026-08-06)
     'nav.admin': 'Administração', 'login.role.admin': 'Administrador', 'admin.navGroupLabel': 'Administração',
     'admin.statClinicians': 'Médicos/técnicos', 'admin.statPatients': 'Pacientes',
     'admin.statActiveAlerts': 'Alertas ativos (todos)', 'admin.statUnassigned': 'Pacientes sem médico',
@@ -398,7 +377,7 @@ const I18N = {
     'signup.institution': 'Institution / clinic', 'signup.license': 'Professional license number',
     'signup.submit': 'Create account', 'signup.haveAccount': 'Already have an account?', 'signup.login': 'Sign in',
     'nav.summary': 'Summary', 'nav.routine': 'Daily routine', 'nav.vitals': 'Vital signs',
-    'nav.trend': 'Weekly trend', 'nav.settings': 'Settings', 'nav.help': 'Help', 'nav.logout': 'Log out', 'nav.emergencies': 'Emergency log', 'nav.profile': 'Profile', 'nav.medication': 'Medication', 'nav.alertHistory': 'Alert history',
+    'nav.trend': 'Weekly trend', 'nav.settings': 'Settings', 'nav.help': 'Help', 'nav.logout': 'Log out', 'nav.emergencies': 'Emergency log', 'nav.profile': 'Profile', 'nav.medication': 'Medication', 'nav.alertHistory': 'Alert history', 'nav.timeline': 'Unified timeline',
     'nav.patients': 'Patients', 'nav.device': 'Device & firmware', 'nav.anomalies': 'Detected anomalies',
     'nav.limits': 'Duration limits', 'nav.export': 'Export data',
     'topbar.connecting': 'Connecting to bridge…', 'topbar.connected': 'Wearable connected · live data',
@@ -450,18 +429,18 @@ const I18N = {
     'ajuda.aboutRepoLabel': 'Repository', 'ajuda.aboutHardwareLabel': 'Hardware', 'ajuda.aboutAuthorLabel': 'Author', 'ajuda.aboutStatusLabel': 'Status',
     'ajuda.aboutStatusValue': 'Academic prototype',
     'ajuda.aboutStatusHintPre': 'See', 'ajuda.aboutStatusHintPost': 'for status details, limitations and future work.',
-    // --- vitais ---
+    // vitais
     'vitais.forceReadingHint': 'Force a reading even while moving — only works with the device connected to the bridge; it may be less reliable than when still.',
     'vitais.measureNowBtn': 'Measure now (HR + SpO₂)', 'vitais.hrCardTitle': 'Heart rate', 'vitais.spo2CardTitle': 'SpO₂', 'vitais.stepsCardTitle': 'Steps today',
     'vitais.fallsCardTitle': 'Falls detected', 'vitais.hrCardSubtitle': 'Readings from the PPG sensor (MAX3010x) — live when the bridge is connected',
     'vitais.hrChartAria': 'Heart rate chart for the last 24 hours', 'vitais.hrChartDemo': '— last 24h (demo)', 'vitais.hrChartLive': '— live',
-    // --- tendencia ---
+    // tendencia
     'tendencia.trendCardTitle': 'Trend — last 7 days', 'tendencia.trendChartAria': 'Trend chart of steps, sleep and average heart rate over the last 7 days', 'tendencia.legendSteps': 'Steps',
     'tendencia.legendSleep': 'Sleep (h)', 'tendencia.legendAvgHr': 'Avg. HR (bpm)', 'tendencia.weeklyPatternCardTitle': 'Weekly pattern',
     'tendencia.heatmapChartAria': 'Heatmap of the weekly movement-intensity pattern by hour', 'tendencia.realHistoryCardTitle': 'Real history (bridge local DB)',
     'tendencia.realHistoryCardSubtitle': 'Real (non-simulated) data, aggregated per day from what the bridge has stored in <code>bridge/carewear_history.db</code> since it started running — may not yet cover the full 7 days. Does not include sleep hours (the firmware does not yet detect sleep; that metric is still only in the simulated chart above).',
     'tendencia.refreshBtn': 'Refresh', 'tendencia.thDay': 'Day', 'tendencia.thRecords': 'Records', 'tendencia.thAvgHr': 'Avg. HR', 'tendencia.thStepsDelta': 'Steps (Δ that day)',
-    // --- resumo ---
+    // resumo
     'resumo.movementCardTitle': 'Movement', 'resumo.movementDemoValue': 'Demo', 'resumo.sleepCardTitle': 'Sleep', 'resumo.nutritionCardTitle': 'Nutrition', 'resumo.nutritionDemoValue': '3 meals',
     'resumo.heartRateCardTitle': 'Heart rate', 'resumo.spo2CardTitle': 'SpO₂', 'resumo.routineTodayCardTitle': 'Daily routine — today', 'resumo.simulatedDataBadge': 'simulated data',
     'resumo.routineTodayCardSubtitle': 'Comparison with the scientific article\'s 21-step template',
@@ -484,7 +463,7 @@ const I18N = {
     'resumo.liveActivityConfirmedByCaregiver': 'confirmed by caregiver', 'resumo.liveActivityAiSaysNow': 'AI now suggests: {cat} ({pct}%)',
     'resumo.liveActivityCorrectionExpired': 'old correction, AI classification shown again',
     'resumo.routineTodayChartLabel': 'Today\'s routine', 'resumo.routineAnomalyChartLabel': 'Simulation with anomalies',
-    // --- pacientes ---
+    // pacientes
     'pacientes.monitoredCardTitle': 'Monitored patients', 'pacientes.assignedSingular': 'patient assigned', 'pacientes.assignedPlural': 'patients assigned',
     'pacientes.assignedToAccountSuffix': 'to this account', 'pacientes.adminFullAccessNote': '(administrator account — full access)',
     'pacientes.chooseViewingHint': 'choose which one you\'re viewing', 'pacientes.thPatient': 'Patient', 'pacientes.thDevice': 'Device', 'pacientes.thLastSync': 'Last sync',
@@ -499,7 +478,7 @@ const I18N = {
     'pacientes.alertsBySeverityCardTitle': 'Alerts by severity —',
     'pacientes.noConsentAlertsEmpty': 'This user/family has not authorized sharing alerts with the clinical team (see Settings → Consent). Contact them directly for more information.',
     'pacientes.noNewAlertsEmpty': 'No new alerts — see Alert history.',
-    // --- dispositivo ---
+    // dispositivo
     'dispositivo.deviceStatusCardTitle': 'Wearable status —', 'dispositivo.batteryLabel': 'Battery', 'dispositivo.ringBufferLabel': 'Ring buffer (QSPI flash)', 'dispositivo.recordsUnit': 'records',
     'dispositivo.staticRamLabel': 'Static RAM (.data/.bss)', 'dispositivo.programFlashLabel': 'Program flash',
     'dispositivo.ramFlashSameNoteEmpty': 'RAM/program flash are the same across all wearables on this account on purpose — it\'s the same firmware installed on all of them, these values come from the compiled binary, not from the individual device. Only battery and the ring buffer vary per patient (each device\'s actual usage).',
@@ -508,7 +487,7 @@ const I18N = {
     'dispositivo.stackSlackCardTitle': 'Stack slack per task (FreeRTOS)', 'dispositivo.stackSlackCardSubtitle': 'same for all devices (same firmware); pending confirmation on hardware',
     'dispositivo.thTask': 'Task', 'dispositivo.thReserved': 'Reserved', 'dispositivo.thStatus': 'Status', 'dispositivo.statusPendingConfirmation': 'to confirm',
     'dispositivo.optimizationNoteEmpty': 'Values from the 2nd optimization round (see PROJECT_STATUS.md); still to be confirmed on real hardware with DEBUG_STACK_WATERMARKS.',
-    // --- rotina ---
+    // rotina
     'rotina.simFlag': 'simulated data', 'rotina.timelineSubtitle': 'Activity blocks over 24h, aligned to the clinical template', 'rotina.pacingTitle': 'Wandering pattern (pacing)',
     'rotina.simTrend': 'simulated trend', 'rotina.pacingSubtitle': 'Tight turns/direction changes via gyroscope — an early sign of wandering, complementary to GPS',
     'rotina.pacingTrendAria': 'Pacing index trend over the last 7 days', 'rotina.notesTitle': 'Caregiver notes',
@@ -520,7 +499,7 @@ const I18N = {
     'rotina.vsWeeklyAvg': 'Vs. weekly average', 'rotina.minPerDay': 'min/day', 'rotina.noBlocksBefore': 'No ', 'rotina.noBlocksAfter': ' blocks recorded today.',
     'rotina.weeklyTrendSubtitle': 'Weekly trend — minutes per day', 'rotina.weeklyTrendAriaBefore': 'Weekly trend of ', 'rotina.weeklyTrendAriaAfter': ' in minutes per day',
     'rotina.minutesLabel': 'Minutes', 'rotina.pacingIndexLabel': 'Pacing index',
-    // --- anomalias ---
+    // anomalias
     'anomalias.detectionSubtitle': 'Combined detection: LSTM Autoencoder (behavioral) + duration rules, with cascade suppression', 'anomalias.clearAllBtn': 'Clear all',
     'anomalias.clearAllConfirm': 'Delete ALL anomalies for this patient? This action cannot be undone.',
     'anomalias.honestLimitationText': '<b>Honest limitation:</b> the detectors (LSTM Autoencoder + duration rules) have not yet been clinically validated — they may fail to detect a real anomaly (false negative) or flag something that isn\'t one (false positive). This log supports the clinical team\'s decision, it does not replace it — the same transparency standard already used by reference fall-detection systems (e.g., MobileHelp/Medical Guardian publicly admit that automatic detection "doesn\'t work 100% of the time").',
@@ -529,14 +508,14 @@ const I18N = {
     'anomalias.thWhen': 'When', 'anomalias.severityCritical': 'Critical', 'anomalias.severitySerious': 'Serious', 'anomalias.severityWarning': 'Warning',
     'anomalias.deleteConfirmPrefix': 'Delete this anomaly', 'anomalias.deleteConfirmSuffix': '? This action cannot be undone.', 'anomalias.deleteBtn': 'Delete',
     'anomalias.listEmpty': 'No anomalies recorded for this patient.',
-    // --- alertas ---
+    // alertas
     'alertas.allAlertsSubtitle': 'All alerts (read and unread) for this patient, including those already removed from the recent alerts area', 'alertas.clearAllBtn': 'Clear all',
     'alertas.clearAllConfirm': 'Delete ALL alerts for this patient? This action cannot be undone.',
     'alertas.honestLimitationText': '<b>Honest limitation:</b> these alerts are triggered by thresholds (fixed or personalized per person, see Settings) — they are not a diagnosis. The absence of alerts does not mean the absence of problems; the presence of an alert does not confirm a real problem. Use it as decision support, not as a substitute for direct supervision.',
     'alertas.thTitle': 'Title', 'alertas.thDetail': 'Detail', 'alertas.thSeverity': 'Severity', 'alertas.thWhen': 'When', 'alertas.thStatus': 'Status', 'alertas.severityCritical': 'Critical',
     'alertas.severitySerious': 'Serious', 'alertas.severityWarning': 'Warning', 'alertas.statusRead': 'Read', 'alertas.statusNew': 'New', 'alertas.deleteBtn': 'Delete',
     'alertas.listEmpty': 'No alerts recorded for this patient.',
-    // --- emergencias ---
+    // emergencias
     'emergencias.detectionSubtitle': 'Manual SOS (click gesture) and automatic fall + prolonged inactivity detection — see the Emergency firmware module', 'emergencias.clearAllBtn': 'Clear all',
     'emergencias.clearAllConfirm': 'Delete all RESOLVED/CANCELLED emergency records for this patient? Active emergencies are not affected. This action cannot be undone.',
     'emergencias.bridgeInfoText': 'The bridge (<code>ble_bridge.py</code>) listens to the device\'s <code>emergencyAlertChar</code> characteristic — events marked <b>"Live"</b> below really came from the connected wearable; the rest remain demo data. <b>Honest limitation</b>: the bridge only connects to one physical device at a time, so a live alert is always attributed to whichever patient is selected at the moment it arrives, not to an identity confirmed by the hardware (see patient selector). Automatic fall + prolonged inactivity detection has also not been clinically validated — it may fail to detect a real fall or trigger without one occurring; the manual SOS button remains the most reliable mechanism.',
@@ -545,7 +524,7 @@ const I18N = {
     'emergencias.cancelAlertBtn': 'Cancel alert…', 'emergencias.deleteConfirmPrefix': 'Delete this emergency record', 'emergencias.deleteConfirmSuffix': '? This action cannot be undone.',
     'emergencias.deleteBtn': 'Delete', 'emergencias.listEmpty': 'No emergency events recorded for this patient.',
     'emergencias.cancelInfoText': 'Cancelling an active alert requires reinforced confirmation (password + verification code) — designed for the case where the wearable stops responding mid false positive, without opening an easy way to accidentally silence a real emergency.',
-    // --- medicacao ---
+    // medicacao
     'medicacao.statusTaken': 'Taken', 'medicacao.statusLate': 'Overdue', 'medicacao.statusPending': 'Pending', 'medicacao.markTakenBtn': 'Mark as taken',
     'medicacao.correlationPrefix': 'On days with incomplete adherence',
     'medicacao.correlationSuffix': 'it is worth comparing with the HR/sleep of those days in the "Weekly trend" view — it is a simple date match to give the caregiver context, not an automatic statistical analysis; that would only make real sense with accumulated real history (see PROJECT_STATUS.md, "Database").',
@@ -571,7 +550,7 @@ const I18N = {
     'medicacao.onceDailyBtn': 'Once/day', 'medicacao.customIntervalLabel': 'Or at what hourly interval:', 'medicacao.intervalPlaceholder': 'e.g. 3', 'medicacao.applyIntervalBtn': 'Apply interval',
     'medicacao.manageNote': 'The buttons above only fill in the "Times" field above — review before clicking "Add". Prototype: stored only in this browser (localStorage) — a real system would link this to a clinical prescription with signature/validation, not a free-form field.',
     'medicacao.historyTitle': 'Adherence — last 6 days',
-    // --- perfil ---
+    // perfil
     'perfil.myProfileTitle': 'My profile', 'perfil.myProfileSubtitle': 'Update your own details whenever you like — this does not change the clinical data of the monitored patient',
     'perfil.nameLabel': 'Name', 'perfil.phoneLabel': 'Mobile phone', 'perfil.nifLabel': 'NIF', 'perfil.addressLabel': 'Address', 'perfil.institutionLabel': 'Institution / clinic',
     'perfil.licenseLabel': 'Professional license no.', 'perfil.saveChangesBtn': 'Save changes',
@@ -581,11 +560,11 @@ const I18N = {
     'perfil.pendingApprovalsTitle': 'Pending approvals', 'perfil.pendingApprovalsSubtitle': 'Changes to sensitive data requested by the User/Family, awaiting your confirmation',
     'perfil.thField': 'Field', 'perfil.thRequestedValue': 'New requested value', 'perfil.thRequestedAt': 'Requested on', 'perfil.approveBtn': 'Approve', 'perfil.rejectBtn': 'Reject',
     'perfil.pendingEmpty': 'No changes pending approval.',
-    // --- limites ---
+    // limites
     'limites.templateTitle': 'Daily routine template — duration limits', 'limites.templateSubtitle': '[d_min × 0.30, d_max × 3.00] per template step, as per the scientific paper',
     'limites.thStep': 'Step', 'limites.thTime': 'Time', 'limites.thActivity': 'Activity', 'limites.thDmin': 'd_min (min)', 'limites.thDmax': 'd_max (min)',
     'limites.prototypeEmpty': 'Prototype editing — does not yet persist to the device; updating limits will require a dedicated BLE/OTA channel.',
-    // --- exportar ---
+    // exportar
     'exportar.fhirCardTitle': 'Clinical summary (FHIR / PDF)',
     'exportar.fhirCardSubtitle': 'Different from the export below: it covers only what is visible in this session (alerts, anomalies, trends), not the full history — so it already works without depending on the database',
     'exportar.exportFhirBtn': 'Export FHIR (JSON)', 'exportar.printPdfBtn': 'Print / export PDF',
@@ -598,10 +577,10 @@ const I18N = {
     'exportar.retentionSubtitle': 'How long sensor records are kept in <code>carewear_history.db</code> before being automatically deleted — the emergency log is never deleted by this policy',
     'exportar.retentionDaysLabel': 'Days to keep:',
     'exportar.retentionNoteEmpty': 'Prototype default: 30 days. This is not a certified retention policy — the real decision of how many days to keep a user\'s clinical data belongs to the user/data controller; this control only avoids it being hard-coded in the source.',
-    // --- common ---
+    // common
     'common.save': 'Save', 'common.cancel': 'Cancel', 'common.close': 'Close', 'common.edit': 'Edit', 'common.delete': 'Remove', 'common.add': 'Add', 'common.search': 'Search', 'common.back': 'Back',
     'common.confirm': 'Confirm', 'common.today': 'Today',
-    // --- definicoes.schedule + emergencyContact ---
+    // definicoes.schedule + emergencyContact
     'definicoes.scheduleTitle': 'Caregiver unavailability schedule',
     'definicoes.scheduleSubtitle': 'Days and hours when the primary caregiver may be unreachable (e.g. work hours) — used to decide when to escalate an unconfirmed emergency alert to the emergency contact',
     'definicoes.scheduleThDay': 'Day', 'definicoes.scheduleThStart': 'Start', 'definicoes.scheduleThEnd': 'End', 'definicoes.scheduleDayAria': 'Unavailable on',
@@ -615,7 +594,7 @@ const I18N = {
     'definicoes.emergencyContactNamePlaceholder': 'Name', 'definicoes.emergencyContactPhonePlaceholder': 'Phone',
     'definicoes.emergencyContactRelationPlaceholder': 'Relationship (e.g. neighbor, sibling)',
     'definicoes.emergencyContactNote': 'This contact is only notified automatically if the alert happens within the declared hours above and the caregiver doesn\'t confirm in time.',
-    // --- i18n gap 2 (render*() helpers + medication-reminders.js + login) ---
+    // i18n gap 2 (render*() helpers + medication-reminders.js + login)
     'resumo.nightBedTime': 'Bedtime', 'resumo.nightWakeTime': 'Wake time', 'resumo.nightRestlessEpisodes': 'Restlessness episodes', 'resumo.nightTimeOutOfBed': 'Time out of bed (total)',
     'resumo.nightRestlessEvent': 'Got up / restlessness detected', 'resumo.nightNoEvents': 'No restlessness episodes detected tonight.', 'rotina.pacingAboveUsual': 'Above usual',
     'rotina.pacingWithinUsual': 'Within usual', 'rotina.pacingLive': 'live', 'rotina.pacingDemo': 'demo', 'rotina.pacingTodayIndex': 'Today\'s index (0-100)',
@@ -641,7 +620,7 @@ const I18N = {
     'medrem.recCriticalContact': 'Critical adherence: contact caregiver or clinician', 'medrem.recCriticalAlarms': 'Suggestion: use watch/phone alarms as extra reminders',
     'medrem.recModerateAttention': 'Moderate adherence: pay more attention to schedules', 'medrem.recModerateMealTiming': 'Suggestion: mark medication right after meals',
     'medrem.recExcellent': 'Excellent adherence: keep up the routine', 'medrem.recLowActivityScheduling': 'Suggestion: schedule medication for lower-activity periods',
-    // --- i18n gap 3 (continuous HR, export all, misc hints) ---
+    // i18n gap 3 (continuous HR, export all, misc hints)
     'vitais.continuousHrHint': 'Automatically resends the measurement request while on, until you turn it off', 'vitais.continuousHrStartBtn': 'Continuous reading',
     'vitais.continuousHrActiveHint': 'Continuous reading active — updating automatically.',
     'vitais.continuousHrStopBtn': 'Reading continuously — stop', 'vitais.measuringHint': 'Measuring…', 'vitais.secondsRemainingSuffix': 's remaining)',
@@ -651,7 +630,7 @@ const I18N = {
     'exportar.noBridgeConnectionHint': 'Not connected to the bridge — cannot export right now.', 'exportar.bridgeUnreachableHint': 'Could not reach the bridge.',
     'exportar.generatingCsvHint': 'Generating CSV…', 'exportar.csvFailedPrefix': 'Failed:', 'exportar.csvNoDataFallback': 'no data', 'exportar.csvDownloadedHint': 'CSV downloaded.',
     'resumo.heatmapIntensityLabel': 'Activity intensity',
-    // --- ajuda FAQ Q8-Q16 (cobertura completa das funcionalidades) ---
+    // ajuda FAQ Q8-Q16 (cobertura completa das funcionalidades)
     'ajuda.faqQ8': 'What is the difference between the two profiles (Patient/Family and Doctor/Technician)?',
     'ajuda.faqA8': 'Patient/Family sees their own routine, vital-sign, and medication data. Doctor/Technician manages multiple patients, sets clinical thresholds, reviews anomalies, and exports reports — different views, with different permissions.',
     'ajuda.faqQ9': 'How does the caregiver team and its permissions work?',
@@ -672,7 +651,7 @@ const I18N = {
     'ajuda.faqA16': 'The language selector is in the top bar; the light/dark theme button is right next to it — your choice is saved in this browser.',
     'ajuda.faqQ17': 'How does the caregiver\'s activity correction work?',
     'ajuda.faqA17': 'When you correct the activity the AI classified, your correction becomes the panel\'s main line for 30 minutes (marked "confirmed by caregiver"), with the AI\'s classification shown as a secondary note. After 30 minutes, the AI classification takes the lead again. The correction is stored for a possible later re-evaluation of the classifier, but it does not retrain it in real time.',
-    // --- "Administrator" view (2026-08-06) ---
+    // "Administrator" view (2026-08-06)
     'nav.admin': 'Administration', 'login.role.admin': 'Administrator', 'admin.navGroupLabel': 'Administration',
     'admin.statClinicians': 'Doctors/technicians', 'admin.statPatients': 'Patients',
     'admin.statActiveAlerts': 'Active alerts (all)', 'admin.statUnassigned': 'Patients without a doctor',
@@ -698,7 +677,7 @@ const I18N = {
     'signup.institution': '机构 / 诊所', 'signup.license': '执业证号',
     'signup.submit': '注册账户', 'signup.haveAccount': '已有账户？', 'signup.login': '登录',
     'nav.summary': '概览', 'nav.routine': '日常活动', 'nav.vitals': '生命体征',
-    'nav.trend': '每周趋势', 'nav.settings': '设置', 'nav.help': '帮助', 'nav.logout': '退出登录', 'nav.emergencies': '紧急情况记录', 'nav.profile': '个人资料', 'nav.medication': '用药', 'nav.alertHistory': '警报历史',
+    'nav.trend': '每周趋势', 'nav.settings': '设置', 'nav.help': '帮助', 'nav.logout': '退出登录', 'nav.emergencies': '紧急情况记录', 'nav.profile': '个人资料', 'nav.medication': '用药', 'nav.alertHistory': '警报历史', 'nav.timeline': '统一时间线',
     'nav.patients': '患者', 'nav.device': '设备与固件', 'nav.anomalies': '检测到的异常',
     'nav.limits': '时长限制', 'nav.export': '导出数据',
     'topbar.connecting': '正在连接网桥…', 'topbar.connected': '穿戴设备已连接 · 实时数据',
@@ -750,16 +729,16 @@ const I18N = {
     'ajuda.aboutRepoLabel': '代码仓库', 'ajuda.aboutHardwareLabel': '硬件', 'ajuda.aboutAuthorLabel': '作者', 'ajuda.aboutStatusLabel': '状态',
     'ajuda.aboutStatusValue': '学术原型',
     'ajuda.aboutStatusHintPre': '请参阅', 'ajuda.aboutStatusHintPost': '了解状态详情、限制和后续工作。',
-    // --- vitais ---
+    // vitais
     'vitais.forceReadingHint': '即使在移动中也强制进行一次读数——仅在设备已连接到桥接器时有效；可能比静止时读数的可靠性低。', 'vitais.measureNowBtn': '立即测量（心率 + 血氧）', 'vitais.hrCardTitle': '心率', 'vitais.spo2CardTitle': '血氧饱和度 (SpO₂)',
     'vitais.stepsCardTitle': '今日步数', 'vitais.fallsCardTitle': '检测到的跌倒次数', 'vitais.hrCardSubtitle': '来自 PPG 传感器（MAX3010x）的读数——桥接器已连接时为实时数据', 'vitais.hrChartAria': '过去24小时心率图表',
     'vitais.hrChartDemo': '— 过去24小时（演示）', 'vitais.hrChartLive': '— 实时',
-    // --- tendencia ---
+    // tendencia
     'tendencia.trendCardTitle': '趋势——过去7天', 'tendencia.trendChartAria': '过去7天步数、睡眠和平均心率趋势图', 'tendencia.legendSteps': '步数', 'tendencia.legendSleep': '睡眠（小时）', 'tendencia.legendAvgHr': '平均心率（bpm）',
     'tendencia.weeklyPatternCardTitle': '每周模式', 'tendencia.heatmapChartAria': '按小时显示的每周运动强度模式热力图', 'tendencia.realHistoryCardTitle': '真实历史记录（桥接器本地数据库）',
     'tendencia.realHistoryCardSubtitle': '真实（非模拟）数据，按天汇总，来自桥接器自启动以来存储在 <code>bridge/carewear_history.db</code> 中的记录——可能尚未覆盖完整的7天。不包含睡眠时长（固件尚未检测睡眠；该指标仍仅出现在上方的模拟图表中）。', 'tendencia.refreshBtn': '刷新',
     'tendencia.thDay': '日期', 'tendencia.thRecords': '记录数', 'tendencia.thAvgHr': '平均心率', 'tendencia.thStepsDelta': '步数（当日增量 Δ）',
-    // --- resumo ---
+    // resumo
     'resumo.movementCardTitle': '运动', 'resumo.movementDemoValue': '演示', 'resumo.sleepCardTitle': '睡眠', 'resumo.nutritionCardTitle': '饮食', 'resumo.nutritionDemoValue': '3餐',
     'resumo.heartRateCardTitle': '心率', 'resumo.spo2CardTitle': '血氧饱和度（SpO₂）', 'resumo.routineTodayCardTitle': '每日常规 — 今天', 'resumo.simulatedDataBadge': '模拟数据',
     'resumo.routineTodayCardSubtitle': '与科学文章中21步模板的比较', 'resumo.routineTodayChartAria': '今日每日常规时间线，按活动类别划分（模拟数据）', 'resumo.routineAnomalyChartAria': '标记异常的每日常规时间线（模拟数据）',
@@ -778,7 +757,7 @@ const I18N = {
     'resumo.liveActivityConfirmedByCaregiver': '照护者已确认', 'resumo.liveActivityAiSaysNow': 'AI 现在建议：{cat}（{pct}%）',
     'resumo.liveActivityCorrectionExpired': '更正已过期，重新显示 AI 分类',
     'resumo.routineTodayChartLabel': '今日常规', 'resumo.routineAnomalyChartLabel': '含异常的模拟',
-    // --- pacientes ---
+    // pacientes
     'pacientes.monitoredCardTitle': '受监测患者', 'pacientes.assignedSingular': '位患者已分配', 'pacientes.assignedPlural': '位患者已分配', 'pacientes.assignedToAccountSuffix': '至此账户',
     'pacientes.adminFullAccessNote': '（管理员账户 — 完全访问权限）', 'pacientes.chooseViewingHint': '选择您正在查看的患者', 'pacientes.thPatient': '患者', 'pacientes.thDevice': '设备', 'pacientes.thLastSync': '上次同步',
     'pacientes.thStatus': '状态', 'pacientes.thActiveAlerts': '活跃警报', 'pacientes.statusConnected': '已连接', 'pacientes.statusUnstable': '不稳定', 'pacientes.statusDisconnected': '已断开',
@@ -788,7 +767,7 @@ const I18N = {
     'pacientes.bleNoteEmpty': '选择患者会更改此账户显示的身份。<b>重要提示</b>：在此原型中，与可穿戴设备的实际蓝牙连接一次仍仅限于一个物理设备（附近并被网桥发现的设备）——在此选择不同的患者不会自动切换实际连接的可穿戴设备。', 'pacientes.otherPatientsCardTitle': '此机构的其他患者',
     'pacientes.otherPatientsCardSubtitle1': '未分配给此账户——仅管理员账户', 'pacientes.otherPatientsCardSubtitle2': '默认可查看。如果您是负责的临床医生，请为自己分配一名。', 'pacientes.assignToMeBtn': '将此患者分配给我',
     'pacientes.alertsBySeverityCardTitle': '按严重程度分类的警报 —', 'pacientes.noConsentAlertsEmpty': '该用户/家属未授权与临床团队共享警报（见设置 → 同意）。请直接联系以获取更多信息。', 'pacientes.noNewAlertsEmpty': '没有新警报——请查看警报历史记录。',
-    // --- dispositivo ---
+    // dispositivo
     'dispositivo.deviceStatusCardTitle': '可穿戴设备状态 —', 'dispositivo.batteryLabel': '电池', 'dispositivo.ringBufferLabel': '环形缓冲区（QSPI 闪存）', 'dispositivo.recordsUnit': '条记录',
     'dispositivo.staticRamLabel': '静态 RAM (.data/.bss)', 'dispositivo.programFlashLabel': '程序闪存',
     'dispositivo.ramFlashSameNoteEmpty': '此账户下所有可穿戴设备的 RAM/程序闪存值相同，这是有意为之——所有设备安装的是同一固件，这些数值来自编译后的二进制文件，而非单个设备本身。只有电池和环形缓冲区因患者而异（各设备的实际使用情况）。',
@@ -796,7 +775,7 @@ const I18N = {
     'dispositivo.ringBufferDemoNote': '环形缓冲区：演示数值——实时读取尚未接入仪表板。',
     'dispositivo.stackSlackCardTitle': '每个任务的堆栈余量（FreeRTOS）', 'dispositivo.stackSlackCardSubtitle': '所有设备相同（相同固件）；待硬件确认', 'dispositivo.thTask': '任务', 'dispositivo.thReserved': '已保留',
     'dispositivo.thStatus': '状态', 'dispositivo.statusPendingConfirmation': '待确认', 'dispositivo.optimizationNoteEmpty': '第二轮优化的数值（参见 PROJECT_STATUS.md）；仍需在真实硬件上使用 DEBUG_STACK_WATERMARKS 确认。',
-    // --- rotina ---
+    // rotina
     'rotina.simFlag': '模拟数据', 'rotina.timelineSubtitle': '24 小时活动区块，与临床模板对齐', 'rotina.pacingTitle': '徘徊模式（pacing）', 'rotina.simTrend': '模拟趋势',
     'rotina.pacingSubtitle': '通过陀螺仪检测的急转弯/方向变化——徘徊的早期信号，是 GPS 的补充', 'rotina.pacingTrendAria': '过去 7 天的 pacing 指数趋势', 'rotina.notesTitle': '照护者备注', 'rotina.notesSubtitle': '传感器无法捕捉的情境——将观察与一天中的时刻关联',
     'rotina.notePlaceholder': '例如：拒绝午餐，晚餐前显得烦躁…', 'rotina.addNoteBtn': '添加备注', 'rotina.activityAnalysisTitle': '按活动分析', 'rotina.activityAnalysisSubtitle': '选择一个类别以查看今天的详情和每周趋势',
@@ -804,18 +783,18 @@ const I18N = {
     'rotina.timeToday': '今日时长', 'rotina.occurrencesToday': '今日次数', 'rotina.avgBlockDuration': '每个区块的平均时长', 'rotina.vsWeeklyAvg': '对比每周平均', 'rotina.minPerDay': '分钟/天',
     'rotina.noBlocksBefore': '今天没有记录 ', 'rotina.noBlocksAfter': ' 区块。', 'rotina.weeklyTrendSubtitle': '每周趋势——每天分钟数', 'rotina.weeklyTrendAriaBefore': '每周趋势：',
     'rotina.weeklyTrendAriaAfter': '，以每天分钟数计', 'rotina.minutesLabel': '分钟', 'rotina.pacingIndexLabel': 'Pacing 指数',
-    // --- anomalias ---
+    // anomalias
     'anomalias.detectionSubtitle': '组合检测：LSTM 自编码器（行为分析）+ 持续时间规则，具备级联抑制', 'anomalias.clearAllBtn': '全部清除', 'anomalias.clearAllConfirm': '删除此患者的所有异常记录？此操作无法撤销。',
     'anomalias.honestLimitationText': '<b>如实说明局限性：</b>检测器（LSTM 自编码器 + 持续时间规则）尚未经过临床验证——可能无法检测到真实异常（漏报），也可能标记出并非异常的情况（误报）。此记录用于辅助临床团队的判断，不能取代其判断——这与参考跌倒检测系统所采用的透明度标准一致（例如 MobileHelp/Medical Guardian 公开承认自动检测"并非百分之百有效"）。',
     'anomalias.consentMissingText': '该患者/家属未授权与临床团队共享警报/异常数据（见设置 → 同意授权）。', 'anomalias.thId': 'ID', 'anomalias.thType': '类型', 'anomalias.thDetail': '详情', 'anomalias.thDetector': '检测器',
     'anomalias.thConfidence': '置信度', 'anomalias.thSeverity': '严重程度', 'anomalias.thWhen': '时间', 'anomalias.severityCritical': '危急', 'anomalias.severitySerious': '严重',
     'anomalias.severityWarning': '警告', 'anomalias.deleteConfirmPrefix': '删除此异常记录', 'anomalias.deleteConfirmSuffix': '？此操作无法撤销。', 'anomalias.deleteBtn': '删除', 'anomalias.listEmpty': '该患者暂无异常记录。',
-    // --- alertas ---
+    // alertas
     'alertas.allAlertsSubtitle': '该患者的所有警报（已读和未读），包括已从近期警报区域移除的警报', 'alertas.clearAllBtn': '全部清除', 'alertas.clearAllConfirm': '删除此患者的所有警报？此操作无法撤销。',
     'alertas.honestLimitationText': '<b>如实说明局限性：</b>这些警报由阈值触发（固定阈值或按个人自定义，见设置）——并非诊断结果。没有警报不代表没有问题；出现警报也不代表确实存在问题。请将其作为辅助决策工具，而非直接监护的替代品。', 'alertas.thTitle': '标题', 'alertas.thDetail': '详情',
     'alertas.thSeverity': '严重程度', 'alertas.thWhen': '时间', 'alertas.thStatus': '状态', 'alertas.severityCritical': '危急', 'alertas.severitySerious': '严重', 'alertas.severityWarning': '警告',
     'alertas.statusRead': '已读', 'alertas.statusNew': '新', 'alertas.deleteBtn': '删除', 'alertas.listEmpty': '该患者暂无警报记录。',
-    // --- emergencias ---
+    // emergencias
     'emergencias.detectionSubtitle': '手动 SOS（点击手势）以及跌倒 + 长时间不活动的自动检测——参见 Emergency 固件模块', 'emergencias.clearAllBtn': '全部清除',
     'emergencias.clearAllConfirm': '删除该患者所有已解决/已取消的紧急记录？进行中的紧急情况不受影响。此操作无法撤销。',
     'emergencias.bridgeInfoText': '网桥（<code>ble_bridge.py</code>）监听设备的 <code>emergencyAlertChar</code> 特征值——下方标记为<b>"实时"</b>的事件确实来自已连接的可穿戴设备；其余仍为演示数据。<b>如实说明局限性</b>：网桥同一时间只能连接一台物理设备，因此实时警报总是归属于警报到达时所选中的患者，而非由硬件确认的身份（见患者选择器）。跌倒 + 长时间不活动的自动检测同样未经临床验证——可能无法检测到真实跌倒，也可能在没有发生跌倒时误触发；手动 SOS 按钮仍是最可靠的机制。',
@@ -823,7 +802,7 @@ const I18N = {
     'emergencias.sourceLive': '实时', 'emergencias.sourceDemo': '演示', 'emergencias.statusActive': '进行中', 'emergencias.statusCancelled': '已取消', 'emergencias.statusResolved': '已解决',
     'emergencias.cancelAlertBtn': '取消警报…', 'emergencias.deleteConfirmPrefix': '删除此紧急记录', 'emergencias.deleteConfirmSuffix': '？此操作无法撤销。', 'emergencias.deleteBtn': '删除',
     'emergencias.listEmpty': '该患者暂无紧急事件记录。', 'emergencias.cancelInfoText': '取消进行中的警报需要加强验证（密码 + 验证码）——这是为了应对可穿戴设备在误报过程中失去响应的情况，同时避免因此轻易误将真实紧急情况静音。',
-    // --- medicacao ---
+    // medicacao
     'medicacao.statusTaken': '已服用', 'medicacao.statusLate': '已逾时', 'medicacao.statusPending': '待处理', 'medicacao.markTakenBtn': '标记为已服用', 'medicacao.correlationPrefix': '在依从性不完整的日子',
     'medicacao.correlationSuffix': '值得在"每周趋势"视图中对比这些日子的心率/睡眠——这只是简单的日期对应，为照护者提供背景，而非自动统计分析；只有在积累真实历史数据后才真正有意义（参见 PROJECT_STATUS.md，"数据库"）。', 'medicacao.noIncompleteEmpty': '近期历史中没有依从性不完整的日子（示例数据）。',
     'medicacao.analyticsTitle': '依从性分析', 'medicacao.analyticsSubtitle': '基于真实的"标记为已服用"点击，而非示例数据', 'medicacao.avgPrefix': '最近', 'medicacao.avgDaysMid': '个记录日的平均值：', 'medicacao.noHistoryYet': '暂无历史记录',
@@ -843,17 +822,17 @@ const I18N = {
     'medicacao.adherenceUnknownDeviceOff': '无可靠的服药数据——该设备当天处于关闭/未同步状态。',
     'medicacao.every6hBtn': '每 6 小时', 'medicacao.onceDailyBtn': '每日 1 次', 'medicacao.customIntervalLabel': '或每隔多少小时：', 'medicacao.intervalPlaceholder': '例如 3', 'medicacao.applyIntervalBtn': '应用间隔',
     'medicacao.manageNote': '上方按钮只会填入上面的"时间"字段——点击"添加"前请先检查。原型：仅保存在本浏览器（localStorage）中——真实系统会将此关联到带签名/验证的临床处方，而非自由填写的表单。', 'medicacao.historyTitle': '依从性 — 最近 6 天',
-    // --- perfil ---
+    // perfil
     'perfil.myProfileTitle': '我的个人资料', 'perfil.myProfileSubtitle': '随时更新您自己的资料 — 这不会更改被监测患者的临床数据', 'perfil.nameLabel': '姓名', 'perfil.phoneLabel': '手机', 'perfil.nifLabel': '税号（NIF）',
     'perfil.addressLabel': '地址', 'perfil.institutionLabel': '机构 / 诊所', 'perfil.licenseLabel': '专业执照编号', 'perfil.saveChangesBtn': '保存更改',
     'perfil.prototypeStorageEmpty': '原型 — 仅存储在此浏览器中（localStorage）；真实的后端会用服务器上持久化的账户替代它。', 'perfil.emergencyContactTitle': '紧急联系人（照护者）', 'perfil.emergencyContactSubtitle': '紧急情况下首先联系的人 — 参见紧急事件记录',
     'perfil.caregiverNameLabel': '照护者/家属姓名', 'perfil.caregiverPhoneLabel': '照护者/家属手机', 'perfil.caregiverRelationLabel': '与用户的关系', 'perfil.pendingApprovalsTitle': '待审批',
     'perfil.pendingApprovalsSubtitle': '用户/家属请求的敏感数据更改，等待您的确认', 'perfil.thField': '字段', 'perfil.thRequestedValue': '请求的新值', 'perfil.thRequestedAt': '请求时间', 'perfil.approveBtn': '批准',
     'perfil.rejectBtn': '拒绝', 'perfil.pendingEmpty': '没有待审批的更改。',
-    // --- limites ---
+    // limites
     'limites.templateTitle': '每日作息模板 — 时长限制', 'limites.templateSubtitle': '每个模板步骤 [d_min × 0.30, d_max × 3.00]，依据科学论文', 'limites.thStep': '步骤', 'limites.thTime': '时间', 'limites.thActivity': '活动',
     'limites.thDmin': 'd_min (min)', 'limites.thDmax': 'd_max (min)', 'limites.prototypeEmpty': '原型编辑 — 尚未持久化到设备；更新限制将需要专用的 BLE/OTA 通道。',
-    // --- exportar ---
+    // exportar
     'exportar.fhirCardTitle': '临床摘要 (FHIR / PDF)', 'exportar.fhirCardSubtitle': '与下方的导出不同：它仅涵盖本次会话中可见的内容（警报、异常、趋势），而非完整历史 — 因此无需依赖数据库即可使用', 'exportar.exportFhirBtn': '导出 FHIR (JSON)',
     'exportar.printPdfBtn': '打印 / 导出 PDF', 'exportar.fhirNoteEmpty': '此处的 FHIR 是一个简化结构（Patient + Observation 资源），旨在展示格式的概念 — 它不是针对完整标准的经过认证/验证的实现。PDF 选项使用浏览器自带的打印功能（目标处选择“另存为 PDF”）。',
     'exportar.realCsvTitle': '真实数据 (CSV)',
@@ -861,10 +840,10 @@ const I18N = {
     'exportar.export24hBtn': '导出最近 24 小时 (CSV)', 'exportar.export7dBtn': '导出最近 7 天 (CSV)', 'exportar.csvRequiresBridgeEmpty': '需要与桥接程序保持活动连接（见页面顶部的状态）— 没有连接就无法向持久化服务请求历史记录。',
     'exportar.retentionTitle': '本地数据保留（桥接程序数据库）', 'exportar.retentionSubtitle': '传感器记录在自动删除前保留在 <code>carewear_history.db</code> 中的时长 — 此策略绝不会删除紧急事件记录', 'exportar.retentionDaysLabel': '保留天数：',
     'exportar.retentionNoteEmpty': '原型默认值：30 天。这不是经过认证的保留策略 — 保留用户临床数据多少天的实际决定权在于用户/数据负责人；此控件只是避免将其硬编码在源代码中。',
-    // --- common ---
+    // common
     'common.save': '保存', 'common.cancel': '取消', 'common.close': '关闭', 'common.edit': '编辑', 'common.delete': '移除', 'common.add': '添加', 'common.search': '搜索', 'common.back': '返回',
     'common.confirm': '确认', 'common.today': '今天',
-    // --- definicoes.schedule + emergencyContact ---
+    // definicoes.schedule + emergencyContact
     'definicoes.scheduleTitle': '照护者不可用时段', 'definicoes.scheduleSubtitle': '主要照护者可能无法联系的日期与时间（例如工作时间）——用于决定何时将未确认的紧急警报升级给紧急联系人', 'definicoes.scheduleThDay': '日期',
     'definicoes.scheduleThStart': '开始', 'definicoes.scheduleThEnd': '结束', 'definicoes.scheduleDayAria': '不可用日', 'definicoes.scheduleWeekdaysBtn': '工作日', 'definicoes.scheduleWeekendBtn': '周末',
     'definicoes.scheduleCustomBtn': '选择日期', 'definicoes.scheduleOverrideLabel': '我今天有空（今天暂不适用下方的时间表）', 'definicoes.scheduleOverrideAria': '将今天标记为有空，忽略已设置的时间表',
@@ -873,7 +852,7 @@ const I18N = {
     'definicoes.emergencyContactSubtitle': '如果照护者在上方不可用时段内未确认警报，将自动通知的人——绝不会直接联系真实的紧急服务，只通知此人', 'definicoes.emergencyContactNamePlaceholder': '姓名',
     'definicoes.emergencyContactPhonePlaceholder': '电话', 'definicoes.emergencyContactRelationPlaceholder': '关系（例如邻居、兄弟姐妹）',
     'definicoes.emergencyContactNote': '只有当警报发生在上方声明的时段内且照护者未能及时确认时，才会自动通知此联系人。',
-    // --- i18n gap 2 (render*() helpers + medication-reminders.js + login) ---
+    // i18n gap 2 (render*() helpers + medication-reminders.js + login)
     'resumo.nightBedTime': '就寝时间', 'resumo.nightWakeTime': '起床时间', 'resumo.nightRestlessEpisodes': '躁动发作次数', 'resumo.nightTimeOutOfBed': '离床时间（总计）', 'resumo.nightRestlessEvent': '起床／检测到躁动',
     'resumo.nightNoEvents': '今晚未检测到躁动发作。', 'rotina.pacingAboveUsual': '高于平时', 'rotina.pacingWithinUsual': '处于平时范围', 'rotina.pacingLive': '实时', 'rotina.pacingDemo': '演示',
     'rotina.pacingTodayIndex': '今日指数 (0-100)', 'rotina.pacingWeekAvg': '过去 7 天平均值', 'rotina.pacingStateLabel': '状态',
@@ -891,14 +870,14 @@ const I18N = {
     'medrem.alertModerate': '依从性中等 — 需多加留意', 'medrem.alertGreat': '本周依从性很好', 'medrem.patternsNormal': '正常模式', 'medrem.patternsCorrelation': '可能存在关联：活动量较高的日子依从性较低',
     'medrem.recCriticalContact': '依从性严重不足：请联系照护者或临床医生', 'medrem.recCriticalAlarms': '建议：使用手表/手机闹钟作为额外提醒', 'medrem.recModerateAttention': '依从性中等：需更加注意服药时间',
     'medrem.recModerateMealTiming': '建议：饭后立即标记服药', 'medrem.recExcellent': '依从性极佳：保持当前习惯', 'medrem.recLowActivityScheduling': '建议：将服药时间安排在活动量较低的时段',
-    // --- i18n gap 3 (continuous HR, export all, misc hints) ---
+    // i18n gap 3 (continuous HR, export all, misc hints)
     'vitais.continuousHrHint': '开启后自动重复发送测量请求，直到关闭为止', 'vitais.continuousHrStartBtn': '持续读取', 'vitais.continuousHrStopBtn': '正在持续读取 — 停止', 'vitais.measuringHint': '正在测量……',
     'vitais.continuousHrActiveHint': '持续读取已启用 — 正在自动更新。',
     'vitais.secondsRemainingSuffix': '秒)', 'vitais.measurementDoneHint': '读取完成 — 数值现已更新。', 'vitais.noBridgeConnectionHint': '未连接到网桥 — 请先连接设备。', 'exportar.exportAllBtn': '导出全部 (CSV)',
     'exportar.exportAllNote': '导出已到达网桥的所有数据（不限天数）— 不会加快设备上尚未传输数据的速度，只是将本地已保存的数据整合到一个文件中。', 'exportar.noBridgeConnectionHint': '未连接到网桥 — 目前无法导出。', 'exportar.bridgeUnreachableHint': '无法联系到网桥。',
     'exportar.generatingCsvHint': '正在生成 CSV……', 'exportar.csvFailedPrefix': '失败：', 'exportar.csvNoDataFallback': '无数据', 'exportar.csvDownloadedHint': 'CSV 已下载。',
     'resumo.heatmapIntensityLabel': '活动强度',
-    // --- ajuda FAQ Q8-Q16 (cobertura completa das funcionalidades) ---
+    // ajuda FAQ Q8-Q16 (cobertura completa das funcionalidades)
     'ajuda.faqQ8': '两种身份（患者/家属 与 医生/技术人员）有什么区别？', 'ajuda.faqA8': '患者/家属可查看自己的日常活动、生命体征和用药数据。医生/技术人员可管理多名患者、设置临床阈值、查看异常并导出报告——不同的视图，不同的权限。', 'ajuda.faqQ9': '照护团队及其权限如何运作？',
     'ajuda.faqA9': '在"设置"中，照护团队列出了关注该患者的人员，每个人都有各自查看警报和编辑备注的权限。你可以随时邀请（本原型为模拟操作）或移除某人。', 'ajuda.faqQ10': '"同意与数据共享"控制什么？',
     'ajuda.faqA10': '在"设置"中，控制生命体征、日常活动和警报是否与临床团队共享——仅影响浏览器显示/导出的内容，不会在服务器端强制执行（原型阶段）。', 'ajuda.faqQ11': '临床区域如何检测异常？',
@@ -908,9 +887,7 @@ const I18N = {
     'ajuda.faqA14': '到了服药时间，浏览器会发出通知（前后 30 分钟窗口）；标记为已服用会更新依从性。依从性分析使用这些真实的点击记录（而非 6 天历史记录中的示例数据）来提出调整建议。', 'ajuda.faqQ15': '某些图表上的"模拟数据"是什么意思？',
     'ajuda.faqA15': '多个图表（日常活动、7 天趋势、每周热力图）仍使用示例数据，并清楚标注为"模拟"。当网桥连接后，实时生命体征（心率/血氧/步数）已使用真实数据。', 'ajuda.faqQ16': '如何更改语言或主题（浅色/深色）？', 'ajuda.faqA16': '语言选择器位于顶部栏；浅色/深色主题按钮就在旁边——你的选择会保存在此浏览器中。',
     'ajuda.faqQ17': '照护者的活动纠正是如何运作的？', 'ajuda.faqA17': '当你纠正 AI 分类的活动时，你的纠正会在 30 分钟内成为面板的主要显示内容（标记为"照护者已确认"），AI 的分类则作为次要说明显示。30 分钟后，AI 分类会重新成为主要显示。纠正记录会被保存，供以后重新评估分类器使用，但不会实时重新训练模型。',
-    // --- vista "Administrador" (2026-08-06) — texto em inglês por falta de
-    // tradução com confiança; t() cai automaticamente em pt se faltar aqui,
-    // mas mantemos a chave preenchida em todas as línguas por segurança ---
+    // vista Administrador: texto em inglês por falta de tradução confiável
     'nav.admin': 'Administration', 'login.role.admin': 'Administrator', 'admin.navGroupLabel': 'Administration',
     'admin.statClinicians': 'Doctors/technicians', 'admin.statPatients': 'Patients',
     'admin.statActiveAlerts': 'Active alerts (all)', 'admin.statUnassigned': 'Patients without a doctor',
@@ -936,7 +913,7 @@ const I18N = {
     'signup.institution': 'Institución / clínica', 'signup.license': 'Número de colegiado',
     'signup.submit': 'Crear cuenta', 'signup.haveAccount': '¿Ya tienes cuenta?', 'signup.login': 'Iniciar sesión',
     'nav.summary': 'Resumen', 'nav.routine': 'Rutina diaria', 'nav.vitals': 'Signos vitales',
-    'nav.trend': 'Tendencia semanal', 'nav.settings': 'Ajustes', 'nav.help': 'Ayuda', 'nav.logout': 'Cerrar sesión', 'nav.emergencies': 'Registro de emergencias', 'nav.profile': 'Perfil', 'nav.medication': 'Medicación', 'nav.alertHistory': 'Historial de alertas',
+    'nav.trend': 'Tendencia semanal', 'nav.settings': 'Ajustes', 'nav.help': 'Ayuda', 'nav.logout': 'Cerrar sesión', 'nav.emergencies': 'Registro de emergencias', 'nav.profile': 'Perfil', 'nav.medication': 'Medicación', 'nav.alertHistory': 'Historial de alertas', 'nav.timeline': 'Línea de tiempo unificada',
     'nav.patients': 'Pacientes', 'nav.device': 'Dispositivo y firmware', 'nav.anomalies': 'Anomalías detectadas',
     'nav.limits': 'Límites de duración', 'nav.export': 'Exportar datos',
     'topbar.connecting': 'Conectando al bridge…', 'topbar.connected': 'Wearable conectado · datos en vivo',
@@ -988,18 +965,18 @@ const I18N = {
     'ajuda.aboutRepoLabel': 'Repositorio', 'ajuda.aboutHardwareLabel': 'Hardware', 'ajuda.aboutAuthorLabel': 'Autor', 'ajuda.aboutStatusLabel': 'Estado',
     'ajuda.aboutStatusValue': 'Prototipo académico',
     'ajuda.aboutStatusHintPre': 'Consulta', 'ajuda.aboutStatusHintPost': 'para detalles de estado, limitaciones y trabajo futuro.',
-    // --- vitais ---
+    // vitais
     'vitais.forceReadingHint': 'Fuerza una lectura incluso en movimiento — solo funciona con el dispositivo conectado al bridge; puede ser menos fiable que en reposo.',
     'vitais.measureNowBtn': 'Medir ahora (FC + SpO₂)', 'vitais.hrCardTitle': 'Frecuencia cardíaca', 'vitais.spo2CardTitle': 'SpO₂', 'vitais.stepsCardTitle': 'Pasos hoy',
     'vitais.fallsCardTitle': 'Caídas detectadas', 'vitais.hrCardSubtitle': 'Lecturas del sensor PPG (MAX3010x) — en directo cuando el bridge está conectado',
     'vitais.hrChartAria': 'Gráfico de frecuencia cardíaca de las últimas 24 h', 'vitais.hrChartDemo': '— últimas 24 h (demostración)', 'vitais.hrChartLive': '— en directo',
-    // --- tendencia ---
+    // tendencia
     'tendencia.trendCardTitle': 'Tendencia — últimos 7 días', 'tendencia.trendChartAria': 'Gráfico de tendencia de pasos, sueño y frecuencia cardíaca media en los últimos 7 días',
     'tendencia.legendSteps': 'Pasos', 'tendencia.legendSleep': 'Sueño (h)', 'tendencia.legendAvgHr': 'FC media (bpm)', 'tendencia.weeklyPatternCardTitle': 'Patrón semanal',
     'tendencia.heatmapChartAria': 'Mapa de calor del patrón semanal de intensidad de movimiento por hora', 'tendencia.realHistoryCardTitle': 'Historial real (BD local del bridge)',
     'tendencia.realHistoryCardSubtitle': 'Datos reales (no simulados), agregados por día a partir de lo que el bridge ha guardado en <code>bridge/carewear_history.db</code> desde que empezó a funcionar — puede que aún no cubra los 7 días completos. No incluye horas de sueño (el firmware todavía no detecta el sueño; esa métrica sigue solo en el gráfico simulado de arriba).',
     'tendencia.refreshBtn': 'Actualizar', 'tendencia.thDay': 'Día', 'tendencia.thRecords': 'Registros', 'tendencia.thAvgHr': 'FC media', 'tendencia.thStepsDelta': 'Pasos (Δ en el día)',
-    // --- resumo ---
+    // resumo
     'resumo.movementCardTitle': 'Movimiento', 'resumo.movementDemoValue': 'Demostración', 'resumo.sleepCardTitle': 'Sueño', 'resumo.nutritionCardTitle': 'Alimentación',
     'resumo.nutritionDemoValue': '3 comidas', 'resumo.heartRateCardTitle': 'Frecuencia cardíaca', 'resumo.spo2CardTitle': 'SpO₂', 'resumo.routineTodayCardTitle': 'Rutina diaria — hoy',
     'resumo.simulatedDataBadge': 'datos simulados', 'resumo.routineTodayCardSubtitle': 'Comparación con la plantilla de 21 pasos del artículo científico',
@@ -1022,7 +999,7 @@ const I18N = {
     'resumo.liveActivityConfirmedByCaregiver': 'confirmado por el cuidador', 'resumo.liveActivityAiSaysNow': 'La IA ahora sugiere: {cat} ({pct}%)',
     'resumo.liveActivityCorrectionExpired': 'corrección antigua, se muestra de nuevo la IA',
     'resumo.routineTodayChartLabel': 'Rutina de hoy', 'resumo.routineAnomalyChartLabel': 'Simulación con anomalías',
-    // --- pacientes ---
+    // pacientes
     'pacientes.monitoredCardTitle': 'Pacientes monitorizados', 'pacientes.assignedSingular': 'paciente asignado', 'pacientes.assignedPlural': 'pacientes asignados',
     'pacientes.assignedToAccountSuffix': 'a esta cuenta', 'pacientes.adminFullAccessNote': '(cuenta administradora — acceso total)', 'pacientes.chooseViewingHint': 'elige cuál estás consultando',
     'pacientes.thPatient': 'Paciente', 'pacientes.thDevice': 'Dispositivo', 'pacientes.thLastSync': 'Última sincronización', 'pacientes.thStatus': 'Estado',
@@ -1037,7 +1014,7 @@ const I18N = {
     'pacientes.alertsBySeverityCardTitle': 'Alertas por gravedad —',
     'pacientes.noConsentAlertsEmpty': 'Este usuario/familia no ha autorizado compartir alertas con el equipo clínico (ver Configuración → Consentimiento). Contacta directamente para más información.',
     'pacientes.noNewAlertsEmpty': 'Sin alertas nuevas — ver Historial de alertas.',
-    // --- dispositivo ---
+    // dispositivo
     'dispositivo.deviceStatusCardTitle': 'Estado del wearable —', 'dispositivo.batteryLabel': 'Batería', 'dispositivo.ringBufferLabel': 'Búfer circular (flash QSPI)',
     'dispositivo.recordsUnit': 'registros', 'dispositivo.staticRamLabel': 'RAM estática (.data/.bss)', 'dispositivo.programFlashLabel': 'Flash de programa',
     'dispositivo.ramFlashSameNoteEmpty': 'La RAM/flash de programa son iguales en todos los wearables de esta cuenta a propósito — es el mismo firmware instalado en todos, esos valores provienen del binario compilado, no del dispositivo individual. Solo la batería y el búfer circular varían por paciente (uso real de cada dispositivo).',
@@ -1047,7 +1024,7 @@ const I18N = {
     'dispositivo.stackSlackCardSubtitle': 'igual para todos los dispositivos (mismo firmware); pendiente de confirmación en hardware', 'dispositivo.thTask': 'Tarea',
     'dispositivo.thReserved': 'Reservado', 'dispositivo.thStatus': 'Estado', 'dispositivo.statusPendingConfirmation': 'por confirmar',
     'dispositivo.optimizationNoteEmpty': 'Valores de la 2ª ronda de optimización (ver PROJECT_STATUS.md); aún por confirmar en hardware real con DEBUG_STACK_WATERMARKS.',
-    // --- rotina ---
+    // rotina
     'rotina.simFlag': 'datos simulados', 'rotina.timelineSubtitle': 'Bloques de actividad a lo largo de 24h, alineados con la plantilla clínica',
     'rotina.pacingTitle': 'Patrón de deambulación (pacing)', 'rotina.simTrend': 'tendencia simulada',
     'rotina.pacingSubtitle': 'Giros cerrados/cambios de dirección mediante giroscopio — señal temprana de deambulación, complementaria al GPS',
@@ -1061,7 +1038,7 @@ const I18N = {
     'rotina.vsWeeklyAvg': 'Vs. media semanal', 'rotina.minPerDay': 'min/día', 'rotina.noBlocksBefore': 'Sin bloques de ', 'rotina.noBlocksAfter': ' registrados hoy.',
     'rotina.weeklyTrendSubtitle': 'Tendencia semanal — minutos por día', 'rotina.weeklyTrendAriaBefore': 'Tendencia semanal de ', 'rotina.weeklyTrendAriaAfter': ' en minutos por día',
     'rotina.minutesLabel': 'Minutos', 'rotina.pacingIndexLabel': 'Índice de pacing',
-    // --- anomalias ---
+    // anomalias
     'anomalias.detectionSubtitle': 'Detección combinada: LSTM Autoencoder (conductual) + reglas de duración, con supresión en cascada', 'anomalias.clearAllBtn': 'Borrar todo',
     'anomalias.clearAllConfirm': '¿Eliminar TODAS las anomalías de este paciente? Esta acción no se puede deshacer.',
     'anomalias.honestLimitationText': '<b>Limitación honesta:</b> los detectores (LSTM Autoencoder + reglas de duración) aún no han sido validados clínicamente — pueden no detectar una anomalía real (falso negativo) o señalar algo que no lo es (falso positivo). Este registro apoya la decisión del equipo clínico, no la sustituye — el mismo estándar de transparencia ya usado por sistemas de referencia de detección de caídas (p. ej., MobileHelp/Medical Guardian admiten públicamente que la detección automática "no funciona el 100% de las veces").',
@@ -1070,14 +1047,14 @@ const I18N = {
     'anomalias.thWhen': 'Cuándo', 'anomalias.severityCritical': 'Crítico', 'anomalias.severitySerious': 'Grave', 'anomalias.severityWarning': 'Aviso',
     'anomalias.deleteConfirmPrefix': 'Eliminar esta anomalía', 'anomalias.deleteConfirmSuffix': '? Esta acción no se puede deshacer.', 'anomalias.deleteBtn': 'Eliminar',
     'anomalias.listEmpty': 'No hay anomalías registradas para este paciente.',
-    // --- alertas ---
+    // alertas
     'alertas.allAlertsSubtitle': 'Todas las alertas (leídas y no leídas) de este paciente, incluidas las ya eliminadas del área de alertas recientes', 'alertas.clearAllBtn': 'Borrar todo',
     'alertas.clearAllConfirm': '¿Eliminar TODAS las alertas de este paciente? Esta acción no se puede deshacer.',
     'alertas.honestLimitationText': '<b>Limitación honesta:</b> estas alertas se disparan por umbrales (fijos o personalizados por persona, ver Ajustes) — no son un diagnóstico. La ausencia de alertas no significa ausencia de problemas; la presencia de una alerta no confirma un problema real. Úsala como apoyo a la decisión, no como sustituto de la supervisión directa.',
     'alertas.thTitle': 'Título', 'alertas.thDetail': 'Detalle', 'alertas.thSeverity': 'Gravedad', 'alertas.thWhen': 'Cuándo', 'alertas.thStatus': 'Estado', 'alertas.severityCritical': 'Crítico',
     'alertas.severitySerious': 'Grave', 'alertas.severityWarning': 'Aviso', 'alertas.statusRead': 'Leído', 'alertas.statusNew': 'Nuevo', 'alertas.deleteBtn': 'Eliminar',
     'alertas.listEmpty': 'No hay alertas registradas para este paciente.',
-    // --- emergencias ---
+    // emergencias
     'emergencias.detectionSubtitle': 'SOS manual (gesto de clics) y detección automática de caídas + inactividad prolongada — ver módulo de firmware Emergency',
     'emergencias.clearAllBtn': 'Borrar todo',
     'emergencias.clearAllConfirm': '¿Eliminar todos los registros de emergencia RESUELTOS/CANCELADOS de este paciente? Las emergencias activas no se ven afectadas. Esta acción no se puede deshacer.',
@@ -1088,7 +1065,7 @@ const I18N = {
     'emergencias.deleteConfirmSuffix': '? Esta acción no se puede deshacer.', 'emergencias.deleteBtn': 'Eliminar',
     'emergencias.listEmpty': 'No hay eventos de emergencia registrados para este paciente.',
     'emergencias.cancelInfoText': 'Cancelar una alerta activa requiere confirmación reforzada (contraseña + código de verificación) — pensado para el caso de que el wearable deje de responder en medio de un falso positivo, sin abrir una forma fácil de silenciar por error una emergencia real.',
-    // --- medicacao ---
+    // medicacao
     'medicacao.statusTaken': 'Tomado', 'medicacao.statusLate': 'Atrasado', 'medicacao.statusPending': 'Pendiente', 'medicacao.markTakenBtn': 'Marcar como tomado',
     'medicacao.correlationPrefix': 'En los días con adherencia incompleta',
     'medicacao.correlationSuffix': 'vale la pena compararlo con la FC/sueño de esos días en la vista "Tendencia semanal" — es una simple correspondencia de fechas para dar contexto al cuidador, no un análisis estadístico automático; eso solo tendría sentido de verdad con un historial real acumulado (ver PROJECT_STATUS.md, "Base de datos").',
@@ -1114,7 +1091,7 @@ const I18N = {
     'medicacao.intervalPlaceholder': 'ej.: 3', 'medicacao.applyIntervalBtn': 'Aplicar intervalo',
     'medicacao.manageNote': 'Los botones de arriba solo rellenan el campo "Horarios" de arriba — revísalo antes de hacer clic en "Añadir". Prototipo: guardado solo en este navegador (localStorage) — un sistema real vincularía esto a una prescripción clínica con firma/validación, no un formulario libre.',
     'medicacao.historyTitle': 'Adherencia — últimos 6 días',
-    // --- perfil ---
+    // perfil
     'perfil.myProfileTitle': 'Mi perfil', 'perfil.myProfileSubtitle': 'Actualiza tus propios datos cuando quieras — esto no modifica los datos clínicos del paciente monitorizado',
     'perfil.nameLabel': 'Nombre', 'perfil.phoneLabel': 'Teléfono móvil', 'perfil.nifLabel': 'NIF', 'perfil.addressLabel': 'Dirección', 'perfil.institutionLabel': 'Institución / clínica',
     'perfil.licenseLabel': 'Nº de colegiado profesional', 'perfil.saveChangesBtn': 'Guardar cambios',
@@ -1124,11 +1101,11 @@ const I18N = {
     'perfil.pendingApprovalsTitle': 'Aprobaciones pendientes', 'perfil.pendingApprovalsSubtitle': 'Cambios en datos sensibles solicitados por el Usuario/Familia, a la espera de tu confirmación',
     'perfil.thField': 'Campo', 'perfil.thRequestedValue': 'Nuevo valor solicitado', 'perfil.thRequestedAt': 'Solicitado el', 'perfil.approveBtn': 'Aprobar', 'perfil.rejectBtn': 'Rechazar',
     'perfil.pendingEmpty': 'Sin cambios pendientes de aprobación.',
-    // --- limites ---
+    // limites
     'limites.templateTitle': 'Plantilla de rutina diaria — límites de duración', 'limites.templateSubtitle': '[d_min × 0.30, d_max × 3.00] por paso de la plantilla, según el artículo científico',
     'limites.thStep': 'Paso', 'limites.thTime': 'Hora', 'limites.thActivity': 'Actividad', 'limites.thDmin': 'd_min (min)', 'limites.thDmax': 'd_max (min)',
     'limites.prototypeEmpty': 'Edición de prototipo — todavía no persiste en el dispositivo; la actualización de límites requerirá un canal BLE/OTA dedicado.',
-    // --- exportar ---
+    // exportar
     'exportar.fhirCardTitle': 'Resumen clínico (FHIR / PDF)',
     'exportar.fhirCardSubtitle': 'Diferente de la exportación de abajo: cubre solo lo visible en esta sesión (alertas, anomalías, tendencias), no el historial completo — por eso ya funciona sin depender de la base de datos',
     'exportar.exportFhirBtn': 'Exportar FHIR (JSON)', 'exportar.printPdfBtn': 'Imprimir / exportar PDF',
@@ -1141,10 +1118,10 @@ const I18N = {
     'exportar.retentionSubtitle': 'Cuánto tiempo se guardan los registros de sensores en <code>carewear_history.db</code> antes de eliminarse automáticamente — el registro de emergencias nunca se elimina por esta política',
     'exportar.retentionDaysLabel': 'Días a mantener:',
     'exportar.retentionNoteEmpty': 'Valor por defecto del prototipo: 30 días. No es una política de retención certificada — la decisión real de cuántos días conservar los datos clínicos de un usuario corresponde al usuario/responsable de los datos; este control solo evita que quede fijado en el código fuente.',
-    // --- common ---
+    // common
     'common.save': 'Guardar', 'common.cancel': 'Cancelar', 'common.close': 'Cerrar', 'common.edit': 'Editar', 'common.delete': 'Quitar', 'common.add': 'Añadir', 'common.search': 'Buscar',
     'common.back': 'Volver', 'common.confirm': 'Confirmar', 'common.today': 'Hoy',
-    // --- definicoes.schedule + emergencyContact ---
+    // definicoes.schedule + emergencyContact
     'definicoes.scheduleTitle': 'Horario de indisponibilidad del cuidador',
     'definicoes.scheduleSubtitle': 'Días y horas en que el cuidador principal puede estar incomunicado (ej.: horario laboral) — se usa para decidir cuándo escalar una alerta de emergencia no confirmada al contacto de emergencia',
     'definicoes.scheduleThDay': 'Día', 'definicoes.scheduleThStart': 'Inicio', 'definicoes.scheduleThEnd': 'Fin', 'definicoes.scheduleDayAria': 'No disponible el',
@@ -1158,7 +1135,7 @@ const I18N = {
     'definicoes.emergencyContactNamePlaceholder': 'Nombre', 'definicoes.emergencyContactPhonePlaceholder': 'Teléfono',
     'definicoes.emergencyContactRelationPlaceholder': 'Relación (ej.: vecino, hermano)',
     'definicoes.emergencyContactNote': 'Este contacto solo se notifica automáticamente si la alerta ocurre dentro del horario declarado arriba y el cuidador no confirma a tiempo.',
-    // --- i18n gap 2 (render*() helpers + medication-reminders.js + login) ---
+    // i18n gap 2 (render*() helpers + medication-reminders.js + login)
     'resumo.nightBedTime': 'Hora de acostarse', 'resumo.nightWakeTime': 'Hora de despertar', 'resumo.nightRestlessEpisodes': 'Episodios de agitación',
     'resumo.nightTimeOutOfBed': 'Tiempo fuera de la cama (total)', 'resumo.nightRestlessEvent': 'Se levantó / agitación detectada',
     'resumo.nightNoEvents': 'No se detectaron episodios de agitación esta noche.', 'rotina.pacingAboveUsual': 'Por encima de lo habitual', 'rotina.pacingWithinUsual': 'Dentro de lo habitual',
@@ -1185,7 +1162,7 @@ const I18N = {
     'medrem.recCriticalContact': 'Adherencia crítica: contactar al cuidador o al clínico', 'medrem.recCriticalAlarms': 'Sugerencia: usar alarmas del reloj/móvil como recordatorios extra',
     'medrem.recModerateAttention': 'Adherencia moderada: mejorar la atención a los horarios', 'medrem.recModerateMealTiming': 'Sugerencia: marcar la medicación justo después de las comidas',
     'medrem.recExcellent': 'Excelente adherencia: mantener la rutina', 'medrem.recLowActivityScheduling': 'Sugerencia: programar la medicación para periodos de menor actividad',
-    // --- i18n gap 3 (continuous HR, export all, misc hints) ---
+    // i18n gap 3 (continuous HR, export all, misc hints)
     'vitais.continuousHrHint': 'Reenvía la solicitud de medición automáticamente mientras esté activado, hasta que lo apagues', 'vitais.continuousHrStartBtn': 'Lectura continua',
     'vitais.continuousHrActiveHint': 'Lectura continua activa — actualizando automáticamente.',
     'vitais.continuousHrStopBtn': 'Leyendo continuamente — detener', 'vitais.measuringHint': 'Midiendo…', 'vitais.secondsRemainingSuffix': 's restantes)',
@@ -1195,7 +1172,7 @@ const I18N = {
     'exportar.noBridgeConnectionHint': 'Sin conexión al bridge — no se puede exportar ahora.', 'exportar.bridgeUnreachableHint': 'No se pudo contactar con el bridge.',
     'exportar.generatingCsvHint': 'Generando CSV…', 'exportar.csvFailedPrefix': 'Falló:', 'exportar.csvNoDataFallback': 'sin datos', 'exportar.csvDownloadedHint': 'CSV descargado.',
     'resumo.heatmapIntensityLabel': 'Intensidad de actividad',
-    // --- ajuda FAQ Q8-Q16 (cobertura completa das funcionalidades) ---
+    // ajuda FAQ Q8-Q16 (cobertura completa das funcionalidades)
     'ajuda.faqQ8': '¿Cuál es la diferencia entre los dos perfiles (Paciente/Familia y Médico/Técnico)?',
     'ajuda.faqA8': 'Paciente/Familia ve sus propios datos de rutina, signos vitales y medicación. Médico/Técnico gestiona varios pacientes, define umbrales clínicos, revisa anomalías y exporta informes — vistas distintas, con permisos distintos.',
     'ajuda.faqQ9': '¿Cómo funciona el equipo de cuidadores y sus permisos?',
@@ -1216,8 +1193,7 @@ const I18N = {
     'ajuda.faqA16': 'El selector de idioma está en la barra superior; el botón de tema claro/oscuro está justo al lado — la elección se guarda en este navegador.',
     'ajuda.faqQ17': '¿Cómo funciona la corrección de actividad del cuidador?',
     'ajuda.faqA17': 'Al corregir la actividad que la IA clasificó, tu corrección pasa a ser la línea principal del panel durante 30 minutos (marcada "confirmado por el cuidador"), con la clasificación de la IA como nota secundaria. Pasados los 30 minutos, vuelve a ser la IA la que aparece destacada. La corrección se guarda para una posible reevaluación del clasificador más adelante, pero no lo reentrena en tiempo real.',
-    // --- vista "Administrador" (2026-08-06) — texto en inglés por falta de
-    // traducción con confianza; t() recurre automáticamente a pt si falta ---
+    // vista Administrador: texto en inglés por falta de traducción confiable
     'nav.admin': 'Administration', 'login.role.admin': 'Administrator', 'admin.navGroupLabel': 'Administration',
     'admin.statClinicians': 'Doctors/technicians', 'admin.statPatients': 'Patients',
     'admin.statActiveAlerts': 'Active alerts (all)', 'admin.statUnassigned': 'Patients without a doctor',
@@ -1243,7 +1219,7 @@ const I18N = {
     'signup.institution': 'Institution / clinique', 'signup.license': 'Numéro professionnel',
     'signup.submit': 'Créer un compte', 'signup.haveAccount': 'Déjà un compte ?', 'signup.login': 'Se connecter',
     'nav.summary': 'Résumé', 'nav.routine': 'Routine quotidienne', 'nav.vitals': 'Signes vitaux',
-    'nav.trend': 'Tendance hebdomadaire', 'nav.settings': 'Paramètres', 'nav.help': 'Aide', 'nav.logout': 'Se déconnecter', 'nav.emergencies': "Journal d'urgence", 'nav.profile': 'Profil', 'nav.medication': 'Médication', 'nav.alertHistory': 'Historique des alertes',
+    'nav.trend': 'Tendance hebdomadaire', 'nav.settings': 'Paramètres', 'nav.help': 'Aide', 'nav.logout': 'Se déconnecter', 'nav.emergencies': "Journal d'urgence", 'nav.profile': 'Profil', 'nav.medication': 'Médication', 'nav.alertHistory': 'Historique des alertes', 'nav.timeline': 'Chronologie unifiée',
     'nav.patients': 'Patients', 'nav.device': 'Appareil & firmware', 'nav.anomalies': 'Anomalies détectées',
     'nav.limits': 'Limites de durée', 'nav.export': 'Exporter les données',
     'topbar.connecting': 'Connexion au bridge…', 'topbar.connected': 'Wearable connecté · données en direct',
@@ -1295,18 +1271,18 @@ const I18N = {
     'ajuda.aboutRepoLabel': 'Dépôt', 'ajuda.aboutHardwareLabel': 'Matériel', 'ajuda.aboutAuthorLabel': 'Auteur', 'ajuda.aboutStatusLabel': 'État',
     'ajuda.aboutStatusValue': 'Prototype académique',
     'ajuda.aboutStatusHintPre': 'Consultez', 'ajuda.aboutStatusHintPost': 'pour les détails d’état, les limites et les travaux futurs.',
-    // --- vitais ---
+    // vitais
     'vitais.forceReadingHint': 'Force une mesure même en mouvement — ne fonctionne qu\'avec l\'appareil connecté au bridge ; peut être moins fiable qu\'à l\'arrêt.',
     'vitais.measureNowBtn': 'Mesurer maintenant (FC + SpO₂)', 'vitais.hrCardTitle': 'Fréquence cardiaque', 'vitais.spo2CardTitle': 'SpO₂', 'vitais.stepsCardTitle': 'Pas aujourd\'hui',
     'vitais.fallsCardTitle': 'Chutes détectées', 'vitais.hrCardSubtitle': 'Mesures du capteur PPG (MAX3010x) — en direct lorsque le bridge est connecté',
     'vitais.hrChartAria': 'Graphique de la fréquence cardiaque des dernières 24 h', 'vitais.hrChartDemo': '— dernières 24 h (démonstration)', 'vitais.hrChartLive': '— en direct',
-    // --- tendencia ---
+    // tendencia
     'tendencia.trendCardTitle': 'Tendance — 7 derniers jours', 'tendencia.trendChartAria': 'Graphique de tendance des pas, du sommeil et de la fréquence cardiaque moyenne sur les 7 derniers jours',
     'tendencia.legendSteps': 'Pas', 'tendencia.legendSleep': 'Sommeil (h)', 'tendencia.legendAvgHr': 'FC moyenne (bpm)', 'tendencia.weeklyPatternCardTitle': 'Schéma hebdomadaire',
     'tendencia.heatmapChartAria': 'Carte de chaleur du schéma hebdomadaire d\'intensité de mouvement par heure', 'tendencia.realHistoryCardTitle': 'Historique réel (BDD locale du bridge)',
     'tendencia.realHistoryCardSubtitle': 'Données réelles (non simulées), agrégées par jour à partir de ce que le bridge a enregistré dans <code>bridge/carewear_history.db</code> depuis son démarrage — peut ne pas encore couvrir les 7 jours complets. N\'inclut pas les heures de sommeil (le firmware ne détecte pas encore le sommeil ; cette métrique reste uniquement dans le graphique simulé ci-dessus).',
     'tendencia.refreshBtn': 'Actualiser', 'tendencia.thDay': 'Jour', 'tendencia.thRecords': 'Enregistrements', 'tendencia.thAvgHr': 'FC moyenne', 'tendencia.thStepsDelta': 'Pas (Δ du jour)',
-    // --- resumo ---
+    // resumo
     'resumo.movementCardTitle': 'Mouvement', 'resumo.movementDemoValue': 'Démonstration', 'resumo.sleepCardTitle': 'Sommeil', 'resumo.nutritionCardTitle': 'Alimentation',
     'resumo.nutritionDemoValue': '3 repas', 'resumo.heartRateCardTitle': 'Fréquence cardiaque', 'resumo.spo2CardTitle': 'SpO₂', 'resumo.routineTodayCardTitle': 'Routine quotidienne — aujourd\'hui',
     'resumo.simulatedDataBadge': 'données simulées', 'resumo.routineTodayCardSubtitle': 'Comparaison avec le modèle en 21 étapes de l\'article scientifique',
@@ -1330,7 +1306,7 @@ const I18N = {
     'resumo.liveActivityConfirmedByCaregiver': 'confirmé par l\'aidant', 'resumo.liveActivityAiSaysNow': 'L\'IA suggère maintenant : {cat} ({pct} %)',
     'resumo.liveActivityCorrectionExpired': 'correction ancienne, l\'IA est de nouveau affichée',
     'resumo.routineTodayChartLabel': 'Routine d\'aujourd\'hui', 'resumo.routineAnomalyChartLabel': 'Simulation avec anomalies',
-    // --- pacientes ---
+    // pacientes
     'pacientes.monitoredCardTitle': 'Patients surveillés', 'pacientes.assignedSingular': 'patient attribué', 'pacientes.assignedPlural': 'patients attribués',
     'pacientes.assignedToAccountSuffix': 'à ce compte', 'pacientes.adminFullAccessNote': '(compte administrateur — accès complet)', 'pacientes.chooseViewingHint': 'choisis lequel tu consultes',
     'pacientes.thPatient': 'Patient', 'pacientes.thDevice': 'Appareil', 'pacientes.thLastSync': 'Dernière synchronisation', 'pacientes.thStatus': 'État',
@@ -1345,7 +1321,7 @@ const I18N = {
     'pacientes.alertsBySeverityCardTitle': 'Alertes par gravité —',
     'pacientes.noConsentAlertsEmpty': 'Cet utilisateur/cette famille n\'a pas autorisé le partage des alertes avec l\'équipe clinique (voir Paramètres → Consentement). Contacte directement pour plus d\'informations.',
     'pacientes.noNewAlertsEmpty': 'Aucune nouvelle alerte — voir Historique des alertes.',
-    // --- dispositivo ---
+    // dispositivo
     'dispositivo.deviceStatusCardTitle': 'État du wearable —', 'dispositivo.batteryLabel': 'Batterie', 'dispositivo.ringBufferLabel': 'Tampon circulaire (flash QSPI)',
     'dispositivo.recordsUnit': 'enregistrements', 'dispositivo.staticRamLabel': 'RAM statique (.data/.bss)', 'dispositivo.programFlashLabel': 'Flash de programme',
     'dispositivo.ramFlashSameNoteEmpty': 'La RAM/flash de programme sont identiques sur tous les wearables de ce compte, volontairement — c\'est le même firmware installé sur tous, ces valeurs proviennent du binaire compilé, pas de l\'appareil individuel. Seules la batterie et le tampon circulaire varient selon le patient (usage réel de chaque appareil).',
@@ -1355,7 +1331,7 @@ const I18N = {
     'dispositivo.stackSlackCardSubtitle': 'identique pour tous les appareils (même firmware) ; en attente de confirmation sur le matériel', 'dispositivo.thTask': 'Tâche',
     'dispositivo.thReserved': 'Réservé', 'dispositivo.thStatus': 'État', 'dispositivo.statusPendingConfirmation': 'à confirmer',
     'dispositivo.optimizationNoteEmpty': 'Valeurs du 2e tour d\'optimisation (voir PROJECT_STATUS.md) ; encore à confirmer sur du matériel réel avec DEBUG_STACK_WATERMARKS.',
-    // --- rotina ---
+    // rotina
     'rotina.simFlag': 'données simulées', 'rotina.timelineSubtitle': 'Blocs d\'activité sur 24h, alignés sur le modèle clinique', 'rotina.pacingTitle': 'Schéma de déambulation (pacing)',
     'rotina.simTrend': 'tendance simulée', 'rotina.pacingSubtitle': 'Virages serrés/changements de direction via gyroscope — signe précoce de déambulation, complémentaire au GPS',
     'rotina.pacingTrendAria': 'Tendance de l\'indice de pacing sur les 7 derniers jours', 'rotina.notesTitle': 'Notes du soignant',
@@ -1368,7 +1344,7 @@ const I18N = {
     'rotina.avgBlockDuration': 'Durée moyenne par bloc', 'rotina.vsWeeklyAvg': 'Vs. moyenne hebdomadaire', 'rotina.minPerDay': 'min/jour', 'rotina.noBlocksBefore': 'Aucun bloc de ',
     'rotina.noBlocksAfter': ' enregistré aujourd\'hui.', 'rotina.weeklyTrendSubtitle': 'Tendance hebdomadaire — minutes par jour', 'rotina.weeklyTrendAriaBefore': 'Tendance hebdomadaire de ',
     'rotina.weeklyTrendAriaAfter': ' en minutes par jour', 'rotina.minutesLabel': 'Minutes', 'rotina.pacingIndexLabel': 'Indice de pacing',
-    // --- anomalias ---
+    // anomalias
     'anomalias.detectionSubtitle': 'Détection combinée : LSTM Autoencoder (comportemental) + règles de durée, avec suppression en cascade', 'anomalias.clearAllBtn': 'Tout effacer',
     'anomalias.clearAllConfirm': 'Supprimer TOUTES les anomalies de ce patient ? Cette action est irréversible.',
     'anomalias.honestLimitationText': '<b>Limite honnête :</b> les détecteurs (LSTM Autoencoder + règles de durée) n\'ont pas encore été validés cliniquement — ils peuvent ne pas détecter une anomalie réelle (faux négatif) ou signaler quelque chose qui n\'en est pas une (faux positif). Ce registre appuie la décision de l\'équipe clinique, il ne la remplace pas — la même norme de transparence déjà utilisée par les systèmes de référence de détection de chute (ex. : MobileHelp/Medical Guardian admettent publiquement que la détection automatique « ne fonctionne pas 100 % du temps »).',
@@ -1377,14 +1353,14 @@ const I18N = {
     'anomalias.thWhen': 'Quand', 'anomalias.severityCritical': 'Critique', 'anomalias.severitySerious': 'Sérieux', 'anomalias.severityWarning': 'Avertissement',
     'anomalias.deleteConfirmPrefix': 'Supprimer cette anomalie', 'anomalias.deleteConfirmSuffix': ' ? Cette action est irréversible.', 'anomalias.deleteBtn': 'Supprimer',
     'anomalias.listEmpty': 'Aucune anomalie enregistrée pour ce patient.',
-    // --- alertas ---
+    // alertas
     'alertas.allAlertsSubtitle': 'Toutes les alertes (lues et non lues) de ce patient, y compris celles déjà supprimées de la zone des alertes récentes', 'alertas.clearAllBtn': 'Tout effacer',
     'alertas.clearAllConfirm': 'Supprimer TOUTES les alertes de ce patient ? Cette action est irréversible.',
     'alertas.honestLimitationText': '<b>Limite honnête :</b> ces alertes se déclenchent selon des seuils (fixes ou personnalisés par personne, voir Paramètres) — ce n\'est pas un diagnostic. L\'absence d\'alertes ne signifie pas l\'absence de problèmes ; la présence d\'une alerte ne confirme pas un problème réel. Utilise-la comme aide à la décision, pas comme substitut à une supervision directe.',
     'alertas.thTitle': 'Titre', 'alertas.thDetail': 'Détail', 'alertas.thSeverity': 'Gravité', 'alertas.thWhen': 'Quand', 'alertas.thStatus': 'État', 'alertas.severityCritical': 'Critique',
     'alertas.severitySerious': 'Sérieux', 'alertas.severityWarning': 'Avertissement', 'alertas.statusRead': 'Lu', 'alertas.statusNew': 'Nouveau', 'alertas.deleteBtn': 'Supprimer',
     'alertas.listEmpty': 'Aucune alerte enregistrée pour ce patient.',
-    // --- emergencias ---
+    // emergencias
     'emergencias.detectionSubtitle': 'SOS manuel (geste de clics) et détection automatique de chute + inactivité prolongée — voir le module firmware Emergency',
     'emergencias.clearAllBtn': 'Tout effacer',
     'emergencias.clearAllConfirm': 'Supprimer tous les enregistrements d\'urgence RÉSOLUS/ANNULÉS de ce patient ? Les urgences actives ne sont pas affectées. Cette action est irréversible.',
@@ -1394,7 +1370,7 @@ const I18N = {
     'emergencias.statusResolved': 'Résolu', 'emergencias.cancelAlertBtn': 'Annuler l\'alerte…', 'emergencias.deleteConfirmPrefix': 'Supprimer cet enregistrement d\'urgence',
     'emergencias.deleteConfirmSuffix': ' ? Cette action est irréversible.', 'emergencias.deleteBtn': 'Supprimer', 'emergencias.listEmpty': 'Aucun événement d\'urgence enregistré pour ce patient.',
     'emergencias.cancelInfoText': 'Annuler une alerte active nécessite une confirmation renforcée (mot de passe + code de vérification) — conçu pour le cas où le wearable cesserait de répondre en plein faux positif, sans pour autant ouvrir un moyen facile de faire taire par erreur une véritable urgence.',
-    // --- medicacao ---
+    // medicacao
     'medicacao.statusTaken': 'Pris', 'medicacao.statusLate': 'En retard', 'medicacao.statusPending': 'En attente', 'medicacao.markTakenBtn': 'Marquer comme pris',
     'medicacao.correlationPrefix': 'Les jours où l\'observance est incomplète',
     'medicacao.correlationSuffix': 'il vaut la peine de comparer avec la FC/le sommeil de ces jours-là dans la vue « Tendance hebdomadaire » — il s\'agit d\'une simple correspondance de dates pour donner du contexte à l\'aidant, non d\'une analyse statistique automatique ; cela n\'aurait vraiment de sens qu\'avec un historique réel accumulé (voir PROJECT_STATUS.md, « Base de données »).',
@@ -1421,7 +1397,7 @@ const I18N = {
     'medicacao.customIntervalLabel': 'Ou à quel intervalle horaire :', 'medicacao.intervalPlaceholder': 'ex. : 3', 'medicacao.applyIntervalBtn': 'Appliquer l\'intervalle',
     'medicacao.manageNote': 'Les boutons ci-dessus ne font que remplir le champ « Horaires » ci-dessus — vérifiez avant de cliquer sur « Ajouter ». Prototype : enregistré uniquement dans ce navigateur (localStorage) — un vrai système relierait cela à une prescription clinique avec signature/validation, et non à un formulaire libre.',
     'medicacao.historyTitle': 'Observance — 6 derniers jours',
-    // --- perfil ---
+    // perfil
     'perfil.myProfileTitle': 'Mon profil', 'perfil.myProfileSubtitle': 'Mettez à jour vos propres données quand vous le souhaitez — cela ne modifie pas les données cliniques du patient surveillé',
     'perfil.nameLabel': 'Nom', 'perfil.phoneLabel': 'Téléphone mobile', 'perfil.nifLabel': 'NIF', 'perfil.addressLabel': 'Adresse', 'perfil.institutionLabel': 'Établissement / clinique',
     'perfil.licenseLabel': 'Numéro de licence professionnelle', 'perfil.saveChangesBtn': 'Enregistrer les modifications',
@@ -1432,12 +1408,12 @@ const I18N = {
     'perfil.pendingApprovalsSubtitle': 'Modifications de données sensibles demandées par l\'Usager/la Famille, en attente de votre confirmation', 'perfil.thField': 'Champ',
     'perfil.thRequestedValue': 'Nouvelle valeur demandée', 'perfil.thRequestedAt': 'Demandé le', 'perfil.approveBtn': 'Approuver', 'perfil.rejectBtn': 'Rejeter',
     'perfil.pendingEmpty': 'Aucune modification en attente d\'approbation.',
-    // --- limites ---
+    // limites
     'limites.templateTitle': 'Modèle de routine quotidienne — limites de durée',
     'limites.templateSubtitle': '[d_min × 0.30, d_max × 3.00] par étape du modèle, conformément à l\'article scientifique', 'limites.thStep': 'Étape', 'limites.thTime': 'Heure',
     'limites.thActivity': 'Activité', 'limites.thDmin': 'd_min (min)', 'limites.thDmax': 'd_max (min)',
     'limites.prototypeEmpty': 'Édition prototype — ne persiste pas encore sur l\'appareil ; la mise à jour des limites nécessitera un canal BLE/OTA dédié.',
-    // --- exportar ---
+    // exportar
     'exportar.fhirCardTitle': 'Résumé clinique (FHIR / PDF)',
     'exportar.fhirCardSubtitle': 'Différent de l\'export ci-dessous : il couvre uniquement ce qui est visible dans cette session (alertes, anomalies, tendances), pas l\'historique complet — il fonctionne donc déjà sans dépendre de la base de données',
     'exportar.exportFhirBtn': 'Exporter FHIR (JSON)', 'exportar.printPdfBtn': 'Imprimer / exporter en PDF',
@@ -1450,10 +1426,10 @@ const I18N = {
     'exportar.retentionSubtitle': 'Combien de temps les enregistrements de capteurs sont conservés dans <code>carewear_history.db</code> avant d\'être supprimés automatiquement — le journal des urgences n\'est jamais supprimé par cette politique',
     'exportar.retentionDaysLabel': 'Jours à conserver :',
     'exportar.retentionNoteEmpty': 'Valeur par défaut du prototype : 30 jours. Ce n\'est pas une politique de rétention certifiée — la décision réelle du nombre de jours de conservation des données cliniques d\'un usager revient à l\'usager/au responsable des données ; ce contrôle évite seulement qu\'elle soit codée en dur dans le source.',
-    // --- common ---
+    // common
     'common.save': 'Enregistrer', 'common.cancel': 'Annuler', 'common.close': 'Fermer', 'common.edit': 'Modifier', 'common.delete': 'Retirer', 'common.add': 'Ajouter', 'common.search': 'Rechercher',
     'common.back': 'Retour', 'common.confirm': 'Confirmer', 'common.today': 'Aujourd\'hui',
-    // --- definicoes.schedule + emergencyContact ---
+    // definicoes.schedule + emergencyContact
     'definicoes.scheduleTitle': 'Horaire d\'indisponibilité de l\'aidant',
     'definicoes.scheduleSubtitle': 'Jours et heures où l\'aidant principal peut être injoignable (ex. horaires de travail) — utilisé pour décider quand escalader une alerte d\'urgence non confirmée vers le contact d\'urgence',
     'definicoes.scheduleThDay': 'Jour', 'definicoes.scheduleThStart': 'Début', 'definicoes.scheduleThEnd': 'Fin', 'definicoes.scheduleDayAria': 'Indisponible le',
@@ -1467,7 +1443,7 @@ const I18N = {
     'definicoes.emergencyContactNamePlaceholder': 'Nom', 'definicoes.emergencyContactPhonePlaceholder': 'Téléphone',
     'definicoes.emergencyContactRelationPlaceholder': 'Lien (ex. voisin, frère/sœur)',
     'definicoes.emergencyContactNote': 'Ce contact n\'est notifié automatiquement que si l\'alerte survient pendant les heures déclarées ci-dessus et que l\'aidant ne confirme pas à temps.',
-    // --- i18n gap 2 (render*() helpers + medication-reminders.js + login) ---
+    // i18n gap 2 (render*() helpers + medication-reminders.js + login)
     'resumo.nightBedTime': 'Heure du coucher', 'resumo.nightWakeTime': 'Heure du réveil', 'resumo.nightRestlessEpisodes': 'Épisodes d\'agitation',
     'resumo.nightTimeOutOfBed': 'Temps hors du lit (total)', 'resumo.nightRestlessEvent': 'S\'est levé(e) / agitation détectée',
     'resumo.nightNoEvents': 'Aucun épisode d\'agitation détecté cette nuit.', 'rotina.pacingAboveUsual': 'Au-dessus de l\'habituel', 'rotina.pacingWithinUsual': 'Dans la norme habituelle',
@@ -1498,7 +1474,7 @@ const I18N = {
     'medrem.recModerateAttention': 'Observance modérée : améliorer l\'attention aux horaires',
     'medrem.recModerateMealTiming': 'Suggestion : marquer la prise du médicament juste après les repas', 'medrem.recExcellent': 'Excellente observance : maintenir la routine',
     'medrem.recLowActivityScheduling': 'Suggestion : planifier le médicament pour les périodes de moindre activité',
-    // --- i18n gap 3 (continuous HR, export all, misc hints) ---
+    // i18n gap 3 (continuous HR, export all, misc hints)
     'vitais.continuousHrHint': 'Renvoie automatiquement la demande de mesure tant que activé, jusqu\'à ce que vous l\'éteigniez', 'vitais.continuousHrStartBtn': 'Lecture continue',
     'vitais.continuousHrActiveHint': 'Lecture continue active — mise à jour automatique.',
     'vitais.continuousHrStopBtn': 'Lecture continue en cours — arrêter', 'vitais.measuringHint': 'Mesure en cours…', 'vitais.secondsRemainingSuffix': 's restantes)',
@@ -1508,7 +1484,7 @@ const I18N = {
     'exportar.noBridgeConnectionHint': 'Pas de connexion au bridge — impossible d\'exporter maintenant.', 'exportar.bridgeUnreachableHint': 'Impossible de contacter le bridge.',
     'exportar.generatingCsvHint': 'Génération du CSV…', 'exportar.csvFailedPrefix': 'Échec :', 'exportar.csvNoDataFallback': 'aucune donnée', 'exportar.csvDownloadedHint': 'CSV téléchargé.',
     'resumo.heatmapIntensityLabel': 'Intensité d\'activité',
-    // --- ajuda FAQ Q8-Q16 (cobertura completa das funcionalidades) ---
+    // ajuda FAQ Q8-Q16 (cobertura completa das funcionalidades)
     'ajuda.faqQ8': 'Quelle est la différence entre les deux profils (Patient/Famille et Médecin/Technicien) ?',
     'ajuda.faqA8': 'Patient/Famille voit ses propres données de routine, de signes vitaux et de médication. Médecin/Technicien gère plusieurs patients, définit des seuils cliniques, examine les anomalies et exporte des rapports — des vues différentes, avec des permissions différentes.',
     'ajuda.faqQ9': 'Comment fonctionne l\'équipe de soignants et ses permissions ?',
@@ -1529,8 +1505,7 @@ const I18N = {
     'ajuda.faqA16': 'Le sélecteur de langue se trouve dans la barre supérieure ; le bouton de thème clair/sombre est juste à côté — votre choix est enregistré dans ce navigateur.',
     'ajuda.faqQ17': "Comment fonctionne la correction d'activité par l'aidant ?",
     'ajuda.faqA17': "Lorsque vous corrigez l'activité classée par l'IA, votre correction devient la ligne principale du panneau pendant 30 minutes (marquée « confirmé par l'aidant »), la classification de l'IA apparaissant en note secondaire. Passé ce délai, c'est de nouveau l'IA qui s'affiche en priorité. La correction est enregistrée pour une éventuelle réévaluation ultérieure du classificateur, mais ne le réentraîne pas en temps réel.",
-    // --- vue "Administrateur" (2026-08-06) — texte en anglais faute de
-    // traduction fiable ; t() se rabat automatiquement sur le pt si absent ---
+    // vue Administrateur : texte en anglais faute de traduction fiable
     'nav.admin': 'Administration', 'login.role.admin': 'Administrator', 'admin.navGroupLabel': 'Administration',
     'admin.statClinicians': 'Doctors/technicians', 'admin.statPatients': 'Patients',
     'admin.statActiveAlerts': 'Active alerts (all)', 'admin.statUnassigned': 'Patients without a doctor',
@@ -1556,7 +1531,7 @@ const I18N = {
     'signup.institution': 'Einrichtung / Klinik', 'signup.license': 'Berufszulassungsnummer',
     'signup.submit': 'Konto erstellen', 'signup.haveAccount': 'Schon ein Konto?', 'signup.login': 'Anmelden',
     'nav.summary': 'Übersicht', 'nav.routine': 'Tagesroutine', 'nav.vitals': 'Vitalwerte',
-    'nav.trend': 'Wochentrend', 'nav.settings': 'Einstellungen', 'nav.help': 'Hilfe', 'nav.logout': 'Abmelden', 'nav.emergencies': 'Notfallprotokoll', 'nav.profile': 'Profil', 'nav.medication': 'Medikation', 'nav.alertHistory': 'Warnungsverlauf',
+    'nav.trend': 'Wochentrend', 'nav.settings': 'Einstellungen', 'nav.help': 'Hilfe', 'nav.logout': 'Abmelden', 'nav.emergencies': 'Notfallprotokoll', 'nav.profile': 'Profil', 'nav.medication': 'Medikation', 'nav.alertHistory': 'Warnungsverlauf', 'nav.timeline': 'Vereinheitlichte Zeitleiste',
     'nav.patients': 'Patienten', 'nav.device': 'Gerät & Firmware', 'nav.anomalies': 'Erkannte Anomalien',
     'nav.limits': 'Dauergrenzwerte', 'nav.export': 'Daten exportieren',
     'topbar.connecting': 'Verbindung zur Bridge…', 'topbar.connected': 'Wearable verbunden · Live-Daten',
@@ -1608,18 +1583,18 @@ const I18N = {
     'ajuda.aboutRepoLabel': 'Repository', 'ajuda.aboutHardwareLabel': 'Hardware', 'ajuda.aboutAuthorLabel': 'Autor', 'ajuda.aboutStatusLabel': 'Status',
     'ajuda.aboutStatusValue': 'Akademischer Prototyp',
     'ajuda.aboutStatusHintPre': 'Siehe', 'ajuda.aboutStatusHintPost': 'für Statusdetails, Einschränkungen und künftige Arbeiten.',
-    // --- vitais ---
+    // vitais
     'vitais.forceReadingHint': 'Erzwingt eine Messung auch in Bewegung — funktioniert nur, wenn das Gerät mit der Bridge verbunden ist; kann weniger zuverlässig sein als im Stillstand.',
     'vitais.measureNowBtn': 'Jetzt messen (HF + SpO₂)', 'vitais.hrCardTitle': 'Herzfrequenz', 'vitais.spo2CardTitle': 'SpO₂', 'vitais.stepsCardTitle': 'Schritte heute',
     'vitais.fallsCardTitle': 'Erkannte Stürze', 'vitais.hrCardSubtitle': 'Messwerte des PPG-Sensors (MAX3010x) — live, wenn die Bridge verbunden ist',
     'vitais.hrChartAria': 'Diagramm der Herzfrequenz der letzten 24 Stunden', 'vitais.hrChartDemo': '— letzte 24 Std. (Demo)', 'vitais.hrChartLive': '— live',
-    // --- tendencia ---
+    // tendencia
     'tendencia.trendCardTitle': 'Trend — letzte 7 Tage', 'tendencia.trendChartAria': 'Trenddiagramm für Schritte, Schlaf und durchschnittliche Herzfrequenz der letzten 7 Tage',
     'tendencia.legendSteps': 'Schritte', 'tendencia.legendSleep': 'Schlaf (Std.)', 'tendencia.legendAvgHr': 'Ø HF (bpm)', 'tendencia.weeklyPatternCardTitle': 'Wöchentliches Muster',
     'tendencia.heatmapChartAria': 'Heatmap des wöchentlichen Bewegungsintensitätsmusters nach Stunde', 'tendencia.realHistoryCardTitle': 'Reale Historie (lokale Bridge-Datenbank)',
     'tendencia.realHistoryCardSubtitle': 'Reale (nicht simulierte) Daten, täglich aggregiert aus dem, was die Bridge seit ihrem Start in <code>bridge/carewear_history.db</code> gespeichert hat — deckt möglicherweise noch nicht die vollen 7 Tage ab. Enthält keine Schlafstunden (die Firmware erkennt Schlaf noch nicht; diese Kennzahl ist weiterhin nur im simulierten Diagramm oben verfügbar).',
     'tendencia.refreshBtn': 'Aktualisieren', 'tendencia.thDay': 'Tag', 'tendencia.thRecords': 'Datensätze', 'tendencia.thAvgHr': 'Ø HF', 'tendencia.thStepsDelta': 'Schritte (Δ an diesem Tag)',
-    // --- resumo ---
+    // resumo
     'resumo.movementCardTitle': 'Bewegung', 'resumo.movementDemoValue': 'Demo', 'resumo.sleepCardTitle': 'Schlaf', 'resumo.nutritionCardTitle': 'Ernährung',
     'resumo.nutritionDemoValue': '3 Mahlzeiten', 'resumo.heartRateCardTitle': 'Herzfrequenz', 'resumo.spo2CardTitle': 'SpO₂', 'resumo.routineTodayCardTitle': 'Tagesroutine — heute',
     'resumo.simulatedDataBadge': 'simulierte Daten', 'resumo.routineTodayCardSubtitle': 'Vergleich mit der 21-Schritte-Vorlage des wissenschaftlichen Artikels',
@@ -1642,7 +1617,7 @@ const I18N = {
     'resumo.liveActivityConfirmedByCaregiver': 'von der Pflegeperson bestätigt', 'resumo.liveActivityAiSaysNow': 'KI schlägt jetzt vor: {cat} ({pct}%)',
     'resumo.liveActivityCorrectionExpired': 'alte Korrektur, KI-Klassifikation wieder angezeigt',
     'resumo.routineTodayChartLabel': 'Heutige Routine', 'resumo.routineAnomalyChartLabel': 'Simulation mit Anomalien',
-    // --- pacientes ---
+    // pacientes
     'pacientes.monitoredCardTitle': 'Überwachte Patienten', 'pacientes.assignedSingular': 'Patient zugewiesen', 'pacientes.assignedPlural': 'Patienten zugewiesen',
     'pacientes.assignedToAccountSuffix': 'diesem Konto', 'pacientes.adminFullAccessNote': '(Administratorkonto — Vollzugriff)', 'pacientes.chooseViewingHint': 'wähle, welchen du gerade ansiehst',
     'pacientes.thPatient': 'Patient', 'pacientes.thDevice': 'Gerät', 'pacientes.thLastSync': 'Letzte Synchronisierung', 'pacientes.thStatus': 'Status', 'pacientes.thActiveAlerts': 'Aktive Warnungen',
@@ -1657,7 +1632,7 @@ const I18N = {
     'pacientes.alertsBySeverityCardTitle': 'Warnungen nach Schweregrad —',
     'pacientes.noConsentAlertsEmpty': 'Dieser Nutzer/diese Familie hat die Weitergabe von Warnungen an das klinische Team nicht genehmigt (siehe Einstellungen → Zustimmung). Bitte direkt kontaktieren für weitere Informationen.',
     'pacientes.noNewAlertsEmpty': 'Keine neuen Warnungen — siehe Warnverlauf.',
-    // --- dispositivo ---
+    // dispositivo
     'dispositivo.deviceStatusCardTitle': 'Wearable-Status —', 'dispositivo.batteryLabel': 'Akku', 'dispositivo.ringBufferLabel': 'Ringpuffer (QSPI-Flash)', 'dispositivo.recordsUnit': 'Datensätze',
     'dispositivo.staticRamLabel': 'Statischer RAM (.data/.bss)', 'dispositivo.programFlashLabel': 'Programm-Flash',
     'dispositivo.ramFlashSameNoteEmpty': 'RAM/Programm-Flash sind bei allen Wearables dieses Kontos absichtlich gleich — es ist dieselbe Firmware, die auf allen installiert ist; diese Werte stammen aus der kompilierten Binärdatei, nicht vom einzelnen Gerät. Nur Akku und Ringpuffer variieren je Patient (tatsächliche Nutzung jedes Geräts).',
@@ -1666,7 +1641,7 @@ const I18N = {
     'dispositivo.stackSlackCardTitle': 'Stack-Reserve pro Task (FreeRTOS)', 'dispositivo.stackSlackCardSubtitle': 'für alle Geräte gleich (gleiche Firmware); Bestätigung auf Hardware ausstehend',
     'dispositivo.thTask': 'Task', 'dispositivo.thReserved': 'Reserviert', 'dispositivo.thStatus': 'Status', 'dispositivo.statusPendingConfirmation': 'zu bestätigen',
     'dispositivo.optimizationNoteEmpty': 'Werte aus der 2. Optimierungsrunde (siehe PROJECT_STATUS.md); noch auf echter Hardware mit DEBUG_STACK_WATERMARKS zu bestätigen.',
-    // --- rotina ---
+    // rotina
     'rotina.simFlag': 'simulierte Daten', 'rotina.timelineSubtitle': 'Aktivitätsblöcke über 24 Std., am klinischen Template ausgerichtet', 'rotina.pacingTitle': 'Umherwandern-Muster (Pacing)',
     'rotina.simTrend': 'simulierter Trend', 'rotina.pacingSubtitle': 'Enge Kurven/Richtungswechsel per Gyroskop — Frühzeichen für Umherwandern, ergänzend zum GPS',
     'rotina.pacingTrendAria': 'Trend des Pacing-Index über die letzten 7 Tage', 'rotina.notesTitle': 'Notizen der Pflegeperson',
@@ -1679,7 +1654,7 @@ const I18N = {
     'rotina.vsWeeklyAvg': 'Vs. Wochendurchschnitt', 'rotina.minPerDay': 'Min./Tag', 'rotina.noBlocksBefore': 'Keine Blöcke von ', 'rotina.noBlocksAfter': ' heute erfasst.',
     'rotina.weeklyTrendSubtitle': 'Wochentrend — Minuten pro Tag', 'rotina.weeklyTrendAriaBefore': 'Wochentrend von ', 'rotina.weeklyTrendAriaAfter': ' in Minuten pro Tag',
     'rotina.minutesLabel': 'Minuten', 'rotina.pacingIndexLabel': 'Pacing-Index',
-    // --- anomalias ---
+    // anomalias
     'anomalias.detectionSubtitle': 'Kombinierte Erkennung: LSTM Autoencoder (Verhalten) + Dauerregeln, mit Kaskadenunterdrückung', 'anomalias.clearAllBtn': 'Alles löschen',
     'anomalias.clearAllConfirm': 'ALLE Anomalien dieses Patienten löschen? Diese Aktion kann nicht rückgängig gemacht werden.',
     'anomalias.honestLimitationText': '<b>Ehrliche Einschränkung:</b> die Detektoren (LSTM Autoencoder + Dauerregeln) wurden noch nicht klinisch validiert — sie erkennen möglicherweise eine echte Anomalie nicht (falsch negativ) oder melden etwas, das keine ist (falsch positiv). Dieses Protokoll unterstützt die Entscheidung des klinischen Teams, ersetzt sie aber nicht — derselbe Transparenzstandard, den auch führende Sturzerkennungssysteme verwenden (z. B. geben MobileHelp/Medical Guardian öffentlich zu, dass die automatische Erkennung "nicht zu 100 % funktioniert").',
@@ -1688,14 +1663,14 @@ const I18N = {
     'anomalias.thSeverity': 'Schweregrad', 'anomalias.thWhen': 'Wann', 'anomalias.severityCritical': 'Kritisch', 'anomalias.severitySerious': 'Ernst', 'anomalias.severityWarning': 'Warnung',
     'anomalias.deleteConfirmPrefix': 'Diese Anomalie löschen', 'anomalias.deleteConfirmSuffix': '? Diese Aktion kann nicht rückgängig gemacht werden.', 'anomalias.deleteBtn': 'Löschen',
     'anomalias.listEmpty': 'Keine Anomalien für diesen Patienten erfasst.',
-    // --- alertas ---
+    // alertas
     'alertas.allAlertsSubtitle': 'Alle Warnungen (gelesen und ungelesen) dieses Patienten, einschließlich der bereits aus dem Bereich der letzten Warnungen entfernten',
     'alertas.clearAllBtn': 'Alles löschen', 'alertas.clearAllConfirm': 'ALLE Warnungen dieses Patienten löschen? Diese Aktion kann nicht rückgängig gemacht werden.',
     'alertas.honestLimitationText': '<b>Ehrliche Einschränkung:</b> diese Warnungen werden durch Schwellenwerte ausgelöst (fest oder personenbezogen angepasst, siehe Einstellungen) — sie sind keine Diagnose. Das Fehlen von Warnungen bedeutet nicht das Fehlen von Problemen; das Vorhandensein einer Warnung bestätigt kein reales Problem. Nutze sie als Entscheidungshilfe, nicht als Ersatz für direkte Aufsicht.',
     'alertas.thTitle': 'Titel', 'alertas.thDetail': 'Detail', 'alertas.thSeverity': 'Schweregrad', 'alertas.thWhen': 'Wann', 'alertas.thStatus': 'Status', 'alertas.severityCritical': 'Kritisch',
     'alertas.severitySerious': 'Ernst', 'alertas.severityWarning': 'Warnung', 'alertas.statusRead': 'Gelesen', 'alertas.statusNew': 'Neu', 'alertas.deleteBtn': 'Löschen',
     'alertas.listEmpty': 'Keine Warnungen für diesen Patienten erfasst.',
-    // --- emergencias ---
+    // emergencias
     'emergencias.detectionSubtitle': 'Manueller SOS (Klick-Geste) und automatische Erkennung von Sturz + längerer Inaktivität — siehe Firmware-Modul Emergency',
     'emergencias.clearAllBtn': 'Alles löschen',
     'emergencias.clearAllConfirm': 'Alle GELÖSTEN/ABGEBROCHENEN Notfallprotokolle dieses Patienten löschen? Aktive Notfälle sind davon nicht betroffen. Diese Aktion kann nicht rückgängig gemacht werden.',
@@ -1706,7 +1681,7 @@ const I18N = {
     'emergencias.deleteConfirmSuffix': '? Diese Aktion kann nicht rückgängig gemacht werden.', 'emergencias.deleteBtn': 'Löschen',
     'emergencias.listEmpty': 'Keine Notfallereignisse für diesen Patienten erfasst.',
     'emergencias.cancelInfoText': 'Das Abbrechen einer aktiven Warnung erfordert eine verstärkte Bestätigung (Passwort + Verifizierungscode) — gedacht für den Fall, dass das Wearable mitten in einem Fehlalarm nicht mehr reagiert, ohne dabei eine einfache Möglichkeit zu schaffen, versehentlich einen echten Notfall zum Schweigen zu bringen.',
-    // --- medicacao ---
+    // medicacao
     'medicacao.statusTaken': 'Eingenommen', 'medicacao.statusLate': 'Überfällig', 'medicacao.statusPending': 'Ausstehend', 'medicacao.markTakenBtn': 'Als eingenommen markieren',
     'medicacao.correlationPrefix': 'An Tagen mit unvollständiger Einnahmetreue',
     'medicacao.correlationSuffix': 'lohnt sich ein Vergleich mit der HF/dem Schlaf dieser Tage in der Ansicht „Wochentrend“ — es ist ein einfacher Datumsabgleich, um der Pflegeperson Kontext zu geben, keine automatische statistische Analyse; diese wäre erst mit einer echten, angesammelten Historie wirklich sinnvoll (siehe PROJECT_STATUS.md, „Datenbank“).',
@@ -1732,7 +1707,7 @@ const I18N = {
     'medicacao.intervalPlaceholder': 'z. B. 3', 'medicacao.applyIntervalBtn': 'Intervall anwenden',
     'medicacao.manageNote': 'Die Schaltflächen oben füllen nur das Feld „Uhrzeiten“ oben aus — prüfen Sie es, bevor Sie auf „Hinzufügen“ klicken. Prototyp: nur in diesem Browser gespeichert (localStorage) — ein echtes System würde dies mit einer klinischen Verordnung mit Signatur/Validierung verknüpfen, nicht mit einem freien Formular.',
     'medicacao.historyTitle': 'Einnahmetreue — letzte 6 Tage',
-    // --- perfil ---
+    // perfil
     'perfil.myProfileTitle': 'Mein Profil', 'perfil.myProfileSubtitle': 'Aktualisieren Sie Ihre eigenen Daten jederzeit — dies ändert nicht die klinischen Daten des überwachten Patienten',
     'perfil.nameLabel': 'Name', 'perfil.phoneLabel': 'Mobiltelefon', 'perfil.nifLabel': 'NIF', 'perfil.addressLabel': 'Adresse', 'perfil.institutionLabel': 'Einrichtung / Klinik',
     'perfil.licenseLabel': 'Berufszulassungsnummer', 'perfil.saveChangesBtn': 'Änderungen speichern',
@@ -1743,11 +1718,11 @@ const I18N = {
     'perfil.pendingApprovalsSubtitle': 'Änderungen an sensiblen Daten, die vom Nutzer/von der Familie angefordert wurden und auf Ihre Bestätigung warten', 'perfil.thField': 'Feld',
     'perfil.thRequestedValue': 'Neuer angeforderter Wert', 'perfil.thRequestedAt': 'Angefordert am', 'perfil.approveBtn': 'Genehmigen', 'perfil.rejectBtn': 'Ablehnen',
     'perfil.pendingEmpty': 'Keine Änderungen zur Genehmigung ausstehend.',
-    // --- limites ---
+    // limites
     'limites.templateTitle': 'Tagesroutine-Vorlage — Dauergrenzen', 'limites.templateSubtitle': '[d_min × 0.30, d_max × 3.00] pro Vorlagenschritt, gemäß der wissenschaftlichen Arbeit',
     'limites.thStep': 'Schritt', 'limites.thTime': 'Uhrzeit', 'limites.thActivity': 'Aktivität', 'limites.thDmin': 'd_min (min)', 'limites.thDmax': 'd_max (min)',
     'limites.prototypeEmpty': 'Prototyp-Bearbeitung — wird noch nicht auf dem Gerät gespeichert; die Aktualisierung der Grenzen erfordert einen dedizierten BLE/OTA-Kanal.',
-    // --- exportar ---
+    // exportar
     'exportar.fhirCardTitle': 'Klinische Zusammenfassung (FHIR / PDF)',
     'exportar.fhirCardSubtitle': 'Anders als der Export unten: Er umfasst nur das in dieser Sitzung Sichtbare (Warnungen, Anomalien, Trends), nicht den vollständigen Verlauf — daher funktioniert er bereits ohne die Datenbank',
     'exportar.exportFhirBtn': 'FHIR exportieren (JSON)', 'exportar.printPdfBtn': 'Drucken / als PDF exportieren',
@@ -1760,10 +1735,10 @@ const I18N = {
     'exportar.retentionSubtitle': 'Wie lange Sensoraufzeichnungen in <code>carewear_history.db</code> gespeichert bleiben, bevor sie automatisch gelöscht werden — das Notfallprotokoll wird durch diese Richtlinie nie gelöscht',
     'exportar.retentionDaysLabel': 'Aufzubewahrende Tage:',
     'exportar.retentionNoteEmpty': 'Prototyp-Standardwert: 30 Tage. Dies ist keine zertifizierte Aufbewahrungsrichtlinie — die tatsächliche Entscheidung, wie viele Tage die klinischen Daten eines Nutzers aufbewahrt werden, liegt beim Nutzer/Datenverantwortlichen; dieses Steuerelement verhindert nur, dass sie im Quellcode fest verankert ist.',
-    // --- common ---
+    // common
     'common.save': 'Speichern', 'common.cancel': 'Abbrechen', 'common.close': 'Schließen', 'common.edit': 'Bearbeiten', 'common.delete': 'Entfernen', 'common.add': 'Hinzufügen',
     'common.search': 'Suchen', 'common.back': 'Zurück', 'common.confirm': 'Bestätigen', 'common.today': 'Heute',
-    // --- definicoes.schedule + emergencyContact ---
+    // definicoes.schedule + emergencyContact
     'definicoes.scheduleTitle': 'Nichtverfügbarkeitszeiten der Betreuungsperson',
     'definicoes.scheduleSubtitle': 'Tage und Uhrzeiten, an denen die Hauptbetreuungsperson unerreichbar sein kann (z. B. Arbeitszeiten) — wird verwendet, um zu entscheiden, wann ein unbestätigter Notfallalarm an den Notfallkontakt eskaliert wird',
     'definicoes.scheduleThDay': 'Tag', 'definicoes.scheduleThStart': 'Beginn', 'definicoes.scheduleThEnd': 'Ende', 'definicoes.scheduleDayAria': 'Nicht verfügbar am',
@@ -1777,7 +1752,7 @@ const I18N = {
     'definicoes.emergencyContactNamePlaceholder': 'Name', 'definicoes.emergencyContactPhonePlaceholder': 'Telefon',
     'definicoes.emergencyContactRelationPlaceholder': 'Beziehung (z. B. Nachbar/in, Geschwister)',
     'definicoes.emergencyContactNote': 'Dieser Kontakt wird nur automatisch benachrichtigt, wenn der Alarm innerhalb der oben angegebenen Zeiten auftritt und die Betreuungsperson nicht rechtzeitig bestätigt.',
-    // --- i18n gap 2 (render*() helpers + medication-reminders.js + login) ---
+    // i18n gap 2 (render*() helpers + medication-reminders.js + login)
     'resumo.nightBedTime': 'Zubettgehzeit', 'resumo.nightWakeTime': 'Aufwachzeit', 'resumo.nightRestlessEpisodes': 'Unruhe-Episoden',
     'resumo.nightTimeOutOfBed': 'Zeit außerhalb des Bettes (gesamt)', 'resumo.nightRestlessEvent': 'Aufgestanden / Unruhe erkannt',
     'resumo.nightNoEvents': 'Heute Nacht wurden keine Unruhe-Episoden erkannt.', 'rotina.pacingAboveUsual': 'Über dem Üblichen', 'rotina.pacingWithinUsual': 'Im üblichen Bereich',
@@ -1805,7 +1780,7 @@ const I18N = {
     'medrem.recCriticalContact': 'Kritische Therapietreue: Betreuer oder Kliniker kontaktieren', 'medrem.recCriticalAlarms': 'Vorschlag: Uhr-/Handy-Alarme als zusätzliche Erinnerungen nutzen',
     'medrem.recModerateAttention': 'Mäßige Therapietreue: mehr auf die Zeiten achten', 'medrem.recModerateMealTiming': 'Vorschlag: Medikament direkt nach den Mahlzeiten markieren',
     'medrem.recExcellent': 'Ausgezeichnete Therapietreue: Routine beibehalten', 'medrem.recLowActivityScheduling': 'Vorschlag: Medikamentenzeiten in Phasen geringerer Aktivität legen',
-    // --- i18n gap 3 (continuous HR, export all, misc hints) ---
+    // i18n gap 3 (continuous HR, export all, misc hints)
     'vitais.continuousHrHint': 'Sendet die Messanfrage automatisch erneut, solange aktiviert, bis du sie ausschaltest', 'vitais.continuousHrStartBtn': 'Kontinuierliche Messung',
     'vitais.continuousHrActiveHint': 'Kontinuierliche Messung aktiv — wird automatisch aktualisiert.',
     'vitais.continuousHrStopBtn': 'Kontinuierliche Messung läuft — stoppen', 'vitais.measuringHint': 'Messung läuft…', 'vitais.secondsRemainingSuffix': 's verbleibend)',
@@ -1815,7 +1790,7 @@ const I18N = {
     'exportar.noBridgeConnectionHint': 'Keine Verbindung zur Bridge — Export derzeit nicht möglich.', 'exportar.bridgeUnreachableHint': 'Bridge konnte nicht erreicht werden.',
     'exportar.generatingCsvHint': 'CSV wird erstellt…', 'exportar.csvFailedPrefix': 'Fehlgeschlagen:', 'exportar.csvNoDataFallback': 'keine Daten',
     'exportar.csvDownloadedHint': 'CSV heruntergeladen.', 'resumo.heatmapIntensityLabel': 'Aktivitätsintensität',
-    // --- ajuda FAQ Q8-Q16 (cobertura completa das funcionalidades) ---
+    // ajuda FAQ Q8-Q16 (cobertura completa das funcionalidades)
     'ajuda.faqQ8': 'Was ist der Unterschied zwischen den beiden Profilen (Patient/Familie und Arzt/Techniker)?',
     'ajuda.faqA8': 'Patient/Familie sieht die eigenen Routine-, Vitalwert- und Medikationsdaten. Arzt/Techniker verwaltet mehrere Patienten, legt klinische Schwellenwerte fest, prüft Anomalien und exportiert Berichte — unterschiedliche Ansichten mit unterschiedlichen Berechtigungen.',
     'ajuda.faqQ9': 'Wie funktioniert das Betreuungsteam und dessen Berechtigungen?',
@@ -1836,8 +1811,7 @@ const I18N = {
     'ajuda.faqA16': 'Die Sprachauswahl befindet sich in der oberen Leiste; die Schaltfläche für helles/dunkles Thema ist direkt daneben — deine Wahl wird in diesem Browser gespeichert.',
     'ajuda.faqQ17': 'Wie funktioniert die Aktivitätskorrektur durch die Betreuungsperson?',
     'ajuda.faqA17': 'Wenn du die von der KI klassifizierte Aktivität korrigierst, wird deine Korrektur für 30 Minuten zur Hauptzeile des Panels (markiert als „von der Betreuungsperson bestätigt"), während die KI-Klassifizierung als sekundärer Hinweis angezeigt wird. Nach 30 Minuten steht wieder die KI-Klassifizierung im Vordergrund. Die Korrektur wird für eine mögliche spätere Neubewertung des Klassifikators gespeichert, trainiert ihn aber nicht in Echtzeit neu.',
-    // --- Ansicht "Administrator" (2026-08-06) — englischer Text mangels
-    // verlässlicher Übersetzung; t() greift automatisch auf pt zurück ---
+    // Ansicht Administrator: englischer Text mangels verlässlicher Übersetzung
     'nav.admin': 'Administration', 'login.role.admin': 'Administrator', 'admin.navGroupLabel': 'Administration',
     'admin.statClinicians': 'Doctors/technicians', 'admin.statPatients': 'Patients',
     'admin.statActiveAlerts': 'Active alerts (all)', 'admin.statUnassigned': 'Patients without a doctor',
@@ -1863,7 +1837,7 @@ const I18N = {
     'signup.institution': 'Istituzione / clinica', 'signup.license': 'Numero di iscrizione all\'albo',
     'signup.submit': 'Crea account', 'signup.haveAccount': 'Hai già un account?', 'signup.login': 'Accedi',
     'nav.summary': 'Riepilogo', 'nav.routine': 'Routine giornaliera', 'nav.vitals': 'Parametri vitali',
-    'nav.trend': 'Tendenza settimanale', 'nav.settings': 'Impostazioni', 'nav.help': 'Aiuto', 'nav.logout': 'Esci', 'nav.emergencies': 'Registro emergenze', 'nav.profile': 'Profilo', 'nav.medication': 'Farmaci', 'nav.alertHistory': 'Cronologia avvisi',
+    'nav.trend': 'Tendenza settimanale', 'nav.settings': 'Impostazioni', 'nav.help': 'Aiuto', 'nav.logout': 'Esci', 'nav.emergencies': 'Registro emergenze', 'nav.profile': 'Profilo', 'nav.medication': 'Farmaci', 'nav.alertHistory': 'Cronologia avvisi', 'nav.timeline': 'Timeline unificata',
     'nav.patients': 'Pazienti', 'nav.device': 'Dispositivo & firmware', 'nav.anomalies': 'Anomalie rilevate',
     'nav.limits': 'Limiti di durata', 'nav.export': 'Esporta dati',
     'topbar.connecting': 'Connessione al bridge…', 'topbar.connected': 'Wearable connesso · dati in diretta',
@@ -1915,18 +1889,18 @@ const I18N = {
     'ajuda.aboutRepoLabel': 'Repository', 'ajuda.aboutHardwareLabel': 'Hardware', 'ajuda.aboutAuthorLabel': 'Autore', 'ajuda.aboutStatusLabel': 'Stato',
     'ajuda.aboutStatusValue': 'Prototipo accademico',
     'ajuda.aboutStatusHintPre': 'Consulta', 'ajuda.aboutStatusHintPost': 'per dettagli sullo stato, limitazioni e sviluppi futuri.',
-    // --- vitais ---
+    // vitais
     'vitais.forceReadingHint': 'Forza una lettura anche in movimento — funziona solo con il dispositivo collegato al bridge; può essere meno affidabile rispetto a quando si è fermi.',
     'vitais.measureNowBtn': 'Misura ora (FC + SpO₂)', 'vitais.hrCardTitle': 'Frequenza cardiaca', 'vitais.spo2CardTitle': 'SpO₂', 'vitais.stepsCardTitle': 'Passi oggi',
     'vitais.fallsCardTitle': 'Cadute rilevate', 'vitais.hrCardSubtitle': 'Letture del sensore PPG (MAX3010x) — in diretta quando il bridge è collegato',
     'vitais.hrChartAria': 'Grafico della frequenza cardiaca delle ultime 24 ore', 'vitais.hrChartDemo': '— ultime 24h (demo)', 'vitais.hrChartLive': '— in diretta',
-    // --- tendencia ---
+    // tendencia
     'tendencia.trendCardTitle': 'Tendenza — ultimi 7 giorni', 'tendencia.trendChartAria': 'Grafico di tendenza di passi, sonno e frequenza cardiaca media negli ultimi 7 giorni',
     'tendencia.legendSteps': 'Passi', 'tendencia.legendSleep': 'Sonno (h)', 'tendencia.legendAvgHr': 'FC media (bpm)', 'tendencia.weeklyPatternCardTitle': 'Modello settimanale',
     'tendencia.heatmapChartAria': 'Mappa di calore del modello settimanale di intensità di movimento per ora', 'tendencia.realHistoryCardTitle': 'Cronologia reale (DB locale del bridge)',
     'tendencia.realHistoryCardSubtitle': 'Dati reali (non simulati), aggregati per giorno da quanto il bridge ha salvato in <code>bridge/carewear_history.db</code> da quando ha iniziato a funzionare — potrebbe non coprire ancora i 7 giorni completi. Non include le ore di sonno (il firmware non rileva ancora il sonno; questa metrica rimane solo nel grafico simulato sopra).',
     'tendencia.refreshBtn': 'Aggiorna', 'tendencia.thDay': 'Giorno', 'tendencia.thRecords': 'Registrazioni', 'tendencia.thAvgHr': 'FC media', 'tendencia.thStepsDelta': 'Passi (Δ nel giorno)',
-    // --- resumo ---
+    // resumo
     'resumo.movementCardTitle': 'Movimento', 'resumo.movementDemoValue': 'Dimostrazione', 'resumo.sleepCardTitle': 'Sonno', 'resumo.nutritionCardTitle': 'Alimentazione',
     'resumo.nutritionDemoValue': '3 pasti', 'resumo.heartRateCardTitle': 'Frequenza cardiaca', 'resumo.spo2CardTitle': 'SpO₂', 'resumo.routineTodayCardTitle': 'Routine quotidiana — oggi',
     'resumo.simulatedDataBadge': 'dati simulati', 'resumo.routineTodayCardSubtitle': 'Confronto con il modello a 21 passi dell\'articolo scientifico',
@@ -1949,7 +1923,7 @@ const I18N = {
     'resumo.liveActivityConfirmedByCaregiver': 'confermato dal caregiver', 'resumo.liveActivityAiSaysNow': 'L\'IA ora suggerisce: {cat} ({pct}%)',
     'resumo.liveActivityCorrectionExpired': 'correzione obsoleta, mostrata di nuovo la classificazione IA',
     'resumo.routineTodayChartLabel': 'Routine di oggi', 'resumo.routineAnomalyChartLabel': 'Simulazione con anomalie',
-    // --- pacientes ---
+    // pacientes
     'pacientes.monitoredCardTitle': 'Pazienti monitorati', 'pacientes.assignedSingular': 'paziente assegnato', 'pacientes.assignedPlural': 'pazienti assegnati',
     'pacientes.assignedToAccountSuffix': 'a questo account', 'pacientes.adminFullAccessNote': '(account amministratore — accesso completo)',
     'pacientes.chooseViewingHint': 'scegli quale stai consultando', 'pacientes.thPatient': 'Paziente', 'pacientes.thDevice': 'Dispositivo', 'pacientes.thLastSync': 'Ultima sincronizzazione',
@@ -1964,7 +1938,7 @@ const I18N = {
     'pacientes.alertsBySeverityCardTitle': 'Avvisi per gravità —',
     'pacientes.noConsentAlertsEmpty': 'Questo utente/famiglia non ha autorizzato la condivisione degli avvisi con l\'equipe clinica (vedi Impostazioni → Consenso). Contatta direttamente per maggiori informazioni.',
     'pacientes.noNewAlertsEmpty': 'Nessun nuovo avviso — vedi Cronologia avvisi.',
-    // --- dispositivo ---
+    // dispositivo
     'dispositivo.deviceStatusCardTitle': 'Stato del wearable —', 'dispositivo.batteryLabel': 'Batteria', 'dispositivo.ringBufferLabel': 'Buffer circolare (flash QSPI)',
     'dispositivo.recordsUnit': 'record', 'dispositivo.staticRamLabel': 'RAM statica (.data/.bss)', 'dispositivo.programFlashLabel': 'Flash del programma',
     'dispositivo.ramFlashSameNoteEmpty': 'RAM/Flash del programma sono uguali su tutti i wearable di questo account di proposito — è lo stesso firmware installato su tutti, questi valori provengono dal binario compilato, non dal singolo dispositivo. Solo la batteria e il buffer circolare variano per paziente (uso reale di ciascun dispositivo).',
@@ -1974,7 +1948,7 @@ const I18N = {
     'dispositivo.stackSlackCardSubtitle': 'uguale per tutti i dispositivi (stesso firmware); in attesa di conferma su hardware', 'dispositivo.thTask': 'Task', 'dispositivo.thReserved': 'Riservato',
     'dispositivo.thStatus': 'Stato', 'dispositivo.statusPendingConfirmation': 'da confermare',
     'dispositivo.optimizationNoteEmpty': 'Valori del 2° round di ottimizzazione (vedi PROJECT_STATUS.md); ancora da confermare su hardware reale con DEBUG_STACK_WATERMARKS.',
-    // --- rotina ---
+    // rotina
     'rotina.simFlag': 'dati simulati', 'rotina.timelineSubtitle': 'Blocchi di attività nell\'arco di 24h, allineati al template clinico', 'rotina.pacingTitle': 'Schema di deambulazione (pacing)',
     'rotina.simTrend': 'tendenza simulata', 'rotina.pacingSubtitle': 'Curve strette/cambi di direzione tramite giroscopio — segnale precoce di deambulazione, complementare al GPS',
     'rotina.pacingTrendAria': 'Tendenza dell\'indice di pacing negli ultimi 7 giorni', 'rotina.notesTitle': 'Note del caregiver',
@@ -1987,7 +1961,7 @@ const I18N = {
     'rotina.vsWeeklyAvg': 'Vs. media settimanale', 'rotina.minPerDay': 'min/giorno', 'rotina.noBlocksBefore': 'Nessun blocco di ', 'rotina.noBlocksAfter': ' registrato oggi.',
     'rotina.weeklyTrendSubtitle': 'Tendenza settimanale — minuti al giorno', 'rotina.weeklyTrendAriaBefore': 'Tendenza settimanale di ', 'rotina.weeklyTrendAriaAfter': ' in minuti al giorno',
     'rotina.minutesLabel': 'Minuti', 'rotina.pacingIndexLabel': 'Indice di pacing',
-    // --- anomalias ---
+    // anomalias
     'anomalias.detectionSubtitle': 'Rilevamento combinato: LSTM Autoencoder (comportamentale) + regole di durata, con soppressione a cascata', 'anomalias.clearAllBtn': 'Cancella tutto',
     'anomalias.clearAllConfirm': 'Eliminare TUTTE le anomalie di questo paziente? Questa azione non può essere annullata.',
     'anomalias.honestLimitationText': '<b>Limitazione onesta:</b> i rilevatori (LSTM Autoencoder + regole di durata) non sono ancora stati validati clinicamente — potrebbero non rilevare un\'anomalia reale (falso negativo) o segnalare qualcosa che non lo è (falso positivo). Questo registro supporta la decisione del team clinico, non la sostituisce — lo stesso standard di trasparenza già usato dai sistemi di riferimento per il rilevamento delle cadute (es.: MobileHelp/Medical Guardian ammettono pubblicamente che il rilevamento automatico "non funziona al 100% delle volte").',
@@ -1996,14 +1970,14 @@ const I18N = {
     'anomalias.thWhen': 'Quando', 'anomalias.severityCritical': 'Critico', 'anomalias.severitySerious': 'Serio', 'anomalias.severityWarning': 'Avviso',
     'anomalias.deleteConfirmPrefix': 'Eliminare questa anomalia', 'anomalias.deleteConfirmSuffix': '? Questa azione non può essere annullata.', 'anomalias.deleteBtn': 'Elimina',
     'anomalias.listEmpty': 'Nessuna anomalia registrata per questo paziente.',
-    // --- alertas ---
+    // alertas
     'alertas.allAlertsSubtitle': 'Tutti gli avvisi (letti e non letti) di questo paziente, compresi quelli già rimossi dall\'area degli avvisi recenti', 'alertas.clearAllBtn': 'Cancella tutto',
     'alertas.clearAllConfirm': 'Eliminare TUTTI gli avvisi di questo paziente? Questa azione non può essere annullata.',
     'alertas.honestLimitationText': '<b>Limitazione onesta:</b> questi avvisi scattano in base a soglie (fisse o personalizzate per persona, vedi Impostazioni) — non sono una diagnosi. L\'assenza di avvisi non significa assenza di problemi; la presenza di un avviso non conferma un problema reale. Usali come supporto alla decisione, non come sostituto della supervisione diretta.',
     'alertas.thTitle': 'Titolo', 'alertas.thDetail': 'Dettaglio', 'alertas.thSeverity': 'Gravità', 'alertas.thWhen': 'Quando', 'alertas.thStatus': 'Stato', 'alertas.severityCritical': 'Critico',
     'alertas.severitySerious': 'Serio', 'alertas.severityWarning': 'Avviso', 'alertas.statusRead': 'Letto', 'alertas.statusNew': 'Nuovo', 'alertas.deleteBtn': 'Elimina',
     'alertas.listEmpty': 'Nessun avviso registrato per questo paziente.',
-    // --- emergencias ---
+    // emergencias
     'emergencias.detectionSubtitle': 'SOS manuale (gesto di clic) e rilevamento automatico di cadute + inattività prolungata — vedi modulo firmware Emergency',
     'emergencias.clearAllBtn': 'Cancella tutto',
     'emergencias.clearAllConfirm': 'Eliminare tutti i registri di emergenza RISOLTI/ANNULLATI di questo paziente? Le emergenze attive non sono interessate. Questa azione non può essere annullata.',
@@ -2014,7 +1988,7 @@ const I18N = {
     'emergencias.deleteConfirmSuffix': '? Questa azione non può essere annullata.', 'emergencias.deleteBtn': 'Elimina',
     'emergencias.listEmpty': 'Nessun evento di emergenza registrato per questo paziente.',
     'emergencias.cancelInfoText': 'Annullare un avviso attivo richiede una conferma rafforzata (password + codice di verifica) — pensato per il caso in cui il wearable smetta di rispondere nel bel mezzo di un falso positivo, senza però aprire un modo facile per silenziare per errore un\'emergenza reale.',
-    // --- medicacao ---
+    // medicacao
     'medicacao.statusTaken': 'Assunto', 'medicacao.statusLate': 'In ritardo', 'medicacao.statusPending': 'In attesa', 'medicacao.markTakenBtn': 'Segna come assunto',
     'medicacao.correlationPrefix': 'Nei giorni con aderenza incompleta',
     'medicacao.correlationSuffix': 'vale la pena confrontarli con la FC/il sonno di quei giorni nella vista "Tendenza settimanale" — è una semplice corrispondenza di date per dare contesto al caregiver, non un\'analisi statistica automatica; avrebbe davvero senso solo con uno storico reale accumulato (vedi PROJECT_STATUS.md, "Database").',
@@ -2041,7 +2015,7 @@ const I18N = {
     'medicacao.intervalPlaceholder': 'es.: 3', 'medicacao.applyIntervalBtn': 'Applica intervallo',
     'medicacao.manageNote': 'I pulsanti qui sopra si limitano a compilare il campo "Orari" qui sopra — controlla prima di fare clic su "Aggiungi". Prototipo: salvato solo in questo browser (localStorage) — un sistema reale collegherebbe questo a una prescrizione clinica con firma/validazione, non a un modulo libero.',
     'medicacao.historyTitle': 'Aderenza — ultimi 6 giorni',
-    // --- perfil ---
+    // perfil
     'perfil.myProfileTitle': 'Il mio profilo', 'perfil.myProfileSubtitle': 'Aggiorna i tuoi dati quando vuoi — questo non modifica i dati clinici del paziente monitorato', 'perfil.nameLabel': 'Nome',
     'perfil.phoneLabel': 'Cellulare', 'perfil.nifLabel': 'NIF', 'perfil.addressLabel': 'Indirizzo', 'perfil.institutionLabel': 'Istituzione / clinica',
     'perfil.licenseLabel': 'N. di albo professionale', 'perfil.saveChangesBtn': 'Salva modifiche',
@@ -2051,11 +2025,11 @@ const I18N = {
     'perfil.pendingApprovalsTitle': 'Approvazioni in sospeso', 'perfil.pendingApprovalsSubtitle': 'Modifiche a dati sensibili richieste dall\'Utente/dalla Famiglia, in attesa della tua conferma',
     'perfil.thField': 'Campo', 'perfil.thRequestedValue': 'Nuovo valore richiesto', 'perfil.thRequestedAt': 'Richiesto il', 'perfil.approveBtn': 'Approva', 'perfil.rejectBtn': 'Rifiuta',
     'perfil.pendingEmpty': 'Nessuna modifica in attesa di approvazione.',
-    // --- limites ---
+    // limites
     'limites.templateTitle': 'Modello di routine giornaliera — limiti di durata', 'limites.templateSubtitle': '[d_min × 0.30, d_max × 3.00] per passo del modello, secondo l\'articolo scientifico',
     'limites.thStep': 'Passo', 'limites.thTime': 'Ora', 'limites.thActivity': 'Attività', 'limites.thDmin': 'd_min (min)', 'limites.thDmax': 'd_max (min)',
     'limites.prototypeEmpty': 'Modifica prototipo — non ancora persistita sul dispositivo; l\'aggiornamento dei limiti richiederà un canale BLE/OTA dedicato.',
-    // --- exportar ---
+    // exportar
     'exportar.fhirCardTitle': 'Riepilogo clinico (FHIR / PDF)',
     'exportar.fhirCardSubtitle': 'Diverso dall\'esportazione qui sotto: copre solo ciò che è visibile in questa sessione (avvisi, anomalie, tendenze), non lo storico completo — quindi funziona già senza dipendere dal database',
     'exportar.exportFhirBtn': 'Esporta FHIR (JSON)', 'exportar.printPdfBtn': 'Stampa / esporta PDF',
@@ -2068,10 +2042,10 @@ const I18N = {
     'exportar.retentionSubtitle': 'Per quanto tempo i record dei sensori restano salvati in <code>carewear_history.db</code> prima di essere eliminati automaticamente — il registro delle emergenze non viene mai eliminato da questa politica',
     'exportar.retentionDaysLabel': 'Giorni da mantenere:',
     'exportar.retentionNoteEmpty': 'Valore predefinito del prototipo: 30 giorni. Non è una politica di conservazione certificata — la decisione reale su quanti giorni conservare i dati clinici di un utente spetta all\'utente/responsabile dei dati; questo controllo evita solo che sia fissata nel codice sorgente.',
-    // --- common ---
+    // common
     'common.save': 'Salva', 'common.cancel': 'Annulla', 'common.close': 'Chiudi', 'common.edit': 'Modifica', 'common.delete': 'Rimuovi', 'common.add': 'Aggiungi', 'common.search': 'Cerca',
     'common.back': 'Indietro', 'common.confirm': 'Conferma', 'common.today': 'Oggi',
-    // --- definicoes.schedule + emergencyContact ---
+    // definicoes.schedule + emergencyContact
     'definicoes.scheduleTitle': 'Orario di indisponibilità del caregiver',
     'definicoes.scheduleSubtitle': 'Giorni e orari in cui il caregiver principale potrebbe essere irraggiungibile (es. orario di lavoro) — usato per decidere quando inoltrare un avviso di emergenza non confermato al contatto di emergenza',
     'definicoes.scheduleThDay': 'Giorno', 'definicoes.scheduleThStart': 'Inizio', 'definicoes.scheduleThEnd': 'Fine', 'definicoes.scheduleDayAria': 'Non disponibile il',
@@ -2085,7 +2059,7 @@ const I18N = {
     'definicoes.emergencyContactNamePlaceholder': 'Nome', 'definicoes.emergencyContactPhonePlaceholder': 'Telefono',
     'definicoes.emergencyContactRelationPlaceholder': 'Relazione (es. vicino, fratello/sorella)',
     'definicoes.emergencyContactNote': 'Questo contatto viene avvisato automaticamente solo se l\'avviso si verifica negli orari dichiarati sopra e il caregiver non conferma in tempo.',
-    // --- i18n gap 2 (render*() helpers + medication-reminders.js + login) ---
+    // i18n gap 2 (render*() helpers + medication-reminders.js + login)
     'resumo.nightBedTime': 'Ora di andare a letto', 'resumo.nightWakeTime': 'Ora della sveglia', 'resumo.nightRestlessEpisodes': 'Episodi di agitazione',
     'resumo.nightTimeOutOfBed': 'Tempo fuori dal letto (totale)', 'resumo.nightRestlessEvent': 'Si è alzato/a / agitazione rilevata',
     'resumo.nightNoEvents': 'Nessun episodio di agitazione rilevato stanotte.', 'rotina.pacingAboveUsual': 'Sopra il solito', 'rotina.pacingWithinUsual': 'Nella norma abituale',
@@ -2113,7 +2087,7 @@ const I18N = {
     'medrem.recCriticalAlarms': 'Suggerimento: usare le sveglie di orologio/telefono come promemoria extra',
     'medrem.recModerateAttention': 'Aderenza moderata: migliorare l\'attenzione agli orari', 'medrem.recModerateMealTiming': 'Suggerimento: segnare il farmaco subito dopo i pasti',
     'medrem.recExcellent': 'Aderenza eccellente: mantenere la routine', 'medrem.recLowActivityScheduling': 'Suggerimento: pianificare il farmaco nei periodi di minore attività',
-    // --- i18n gap 3 (continuous HR, export all, misc hints) ---
+    // i18n gap 3 (continuous HR, export all, misc hints)
     'vitais.continuousHrHint': 'Reinvia automaticamente la richiesta di misurazione finché attivo, finché non lo disattivi', 'vitais.continuousHrStartBtn': 'Lettura continua',
     'vitais.continuousHrActiveHint': 'Lettura continua attiva — aggiornamento automatico.',
     'vitais.continuousHrStopBtn': 'Lettura continua in corso — ferma', 'vitais.measuringHint': 'Misurazione in corso…', 'vitais.secondsRemainingSuffix': 's rimanenti)',
@@ -2123,7 +2097,7 @@ const I18N = {
     'exportar.noBridgeConnectionHint': 'Nessuna connessione al bridge — impossibile esportare ora.', 'exportar.bridgeUnreachableHint': 'Impossibile contattare il bridge.',
     'exportar.generatingCsvHint': 'Generazione CSV…', 'exportar.csvFailedPrefix': 'Non riuscito:', 'exportar.csvNoDataFallback': 'nessun dato', 'exportar.csvDownloadedHint': 'CSV scaricato.',
     'resumo.heatmapIntensityLabel': 'Intensità di attività',
-    // --- ajuda FAQ Q8-Q16 (cobertura completa das funcionalidades) ---
+    // ajuda FAQ Q8-Q16 (cobertura completa das funcionalidades)
     'ajuda.faqQ8': 'Qual è la differenza tra i due profili (Paziente/Famiglia e Medico/Tecnico)?',
     'ajuda.faqA8': 'Paziente/Famiglia vede i propri dati di routine, parametri vitali e farmaci. Medico/Tecnico gestisce più pazienti, definisce soglie cliniche, esamina le anomalie ed esporta report — viste diverse, con permessi diversi.',
     'ajuda.faqQ9': 'Come funziona il team di assistenza e i suoi permessi?',
@@ -2144,8 +2118,7 @@ const I18N = {
     'ajuda.faqA16': 'Il selettore della lingua si trova nella barra superiore; il pulsante del tema chiaro/scuro è proprio accanto — la scelta viene salvata in questo browser.',
     'ajuda.faqQ17': 'Come funziona la correzione dell\'attività da parte del caregiver?',
     'ajuda.faqA17': 'Quando correggi l\'attività classificata dall\'IA, la tua correzione diventa la riga principale del pannello per 30 minuti (contrassegnata come "confermato dal caregiver"), con la classificazione dell\'IA mostrata come nota secondaria. Trascorsi i 30 minuti, torna a essere l\'IA a comparire in evidenza. La correzione viene salvata per un\'eventuale rivalutazione futura del classificatore, ma non lo riaddestra in tempo reale.',
-    // --- vista "Amministratore" (2026-08-06) — testo in inglese per
-    // mancanza di una traduzione affidabile; t() ricade automaticamente su pt ---
+    // vista Amministratore: testo in inglese per mancanza di traduzione affidabile
     'nav.admin': 'Administration', 'login.role.admin': 'Administrator', 'admin.navGroupLabel': 'Administration',
     'admin.statClinicians': 'Doctors/technicians', 'admin.statPatients': 'Patients',
     'admin.statActiveAlerts': 'Active alerts (all)', 'admin.statUnassigned': 'Patients without a doctor',

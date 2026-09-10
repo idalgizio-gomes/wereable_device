@@ -1,66 +1,10 @@
 #!/usr/bin/env python3
-"""
-orm_persistence.py — Camada de ligação entre o bridge BLE e o ORM avançado.
-
-CONTEXTO (migração 2026-07-26 — storage_advanced.py passa a ser a fonte única)
--------------------------------------------------------------------------------
-Até 2026-07-25, `ble_bridge.py` persistia primariamente em `storage.py`
-(SQLite "cru", sem ORM) e este módulo era um SEGUNDO destino de escrita
-transitório ("dual-write", Lote C) — o esquema ORM completo de
-`storage_advanced.py` (pacientes, dispositivos, `sensor_records`,
-`emergency_alerts`, `audit_log`, retenção, cifra de campos sensíveis)
-existia mas nunca era lido em runtime pelo dashboard.
-
-Essa fase de transição terminou: `storage.py` foi removido, e este módulo
-é agora a ÚNICA camada de persistência do bridge — escrita E leitura
-(get_history, get_daily_trend, export_csv, retenção configurável,
-correções de atividade). Diferença prática para quem chama a partir de
-`ble_bridge.py`: os métodos de LEITURA abaixo (get_history/get_daily_trend/
-export_csv/get_retention_days/set_retention_days) já NÃO degradam em
-silêncio como os de escrita — se `self.orm` estiver desativado
-(`self.disabled`), lançam `RuntimeError` explícito, porque já não há
-nenhum `storage.py` a responder no lugar. Quem chama (ble_bridge.py) tem
-de apanhar isto e devolver um erro claro ao dashboard.
-
-Escrita continua tolerante a falha (mesmo padrão de sempre):
-
-  * NUNCA pode derrubar o streaming BLE. Ao PRIMEIRO erro em qualquer
-    método, avisa uma vez, marca `self.disabled` e passa a ser um no-op.
-  * `SensorRecord` são acumulados num buffer e comprometidos EM LOTE (ver
-    `insert_sensor_record`) — ao ritmo do IMU (~14-52 registos/seg), um
-    commit por registo bloquearia o event loop asyncio. Alertas de
-    emergência e auditoria são raros e importantes, logo escritos de
-    imediato.
-
-Uso a partir de `ble_bridge.py`:
-
-    self.orm = OrmPersistence()            # no __init__ (try/except -> None)
-                                           #   o bootstrap verifica ainda o
-                                           #   consentimento (GDPR-001/003):
-                                           #   sem ConsentRecord válido de
-                                           #   scope 'sensor_data' regista
-                                           #   'consent_missing' em audit_log
-                                           #   sem bloquear o arranque.
-    self.orm.update_device_mac(addr)       # ao ligar (run_device_loop)
-    self.orm.insert_sensor_record(record)  # por registo (_on_dump_data)
-    self.orm.insert_emergency_alert(alert) # por alerta (_on_emergency_alert)
-    self.orm.insert_activity_window(block) # por bloco fechado (activity_inference.py)
-    self.orm.audit(...)                    # acessos a dados de paciente
-    self.orm.purge(days)                   # retenção periódica (SensorRecord, configurável)
-    self.orm.run_retention_cleanup()       # retenção periódica (RETENTION_POLICIES fixas, GDPR-006)
-    self.orm.get_history(hours)            # leitura (cmd "get_history")
-    self.orm.get_daily_trend(days)         # leitura (cmd "get_daily_trend")
-    self.orm.export_csv(hours)             # leitura (cmd "export_csv")
-    self.orm.get_retention_days()          # leitura (cmd "get_retention_days")
-    self.orm.set_retention_days(days)      # escrita (cmd "set_retention_days")
-    self.orm.insert_activity_correction(orig, corrected)  # escrita (cmd "correct_activity")
-    self.orm.get_consent_status()          # leitura (cmd "get_consent_status")
-    self.orm.set_consent(scope, granted)   # escrita (cmd "set_consent", 2026-08-05)
-    self.orm.check_consent(scope)          # usado internamente (ex.: export_csv)
-    self.orm.get_thresholds()              # leitura (cmd "get_thresholds", 2026-08-05)
-    self.orm.set_thresholds(**fields)      # escrita (cmd "set_thresholds", 2026-08-05)
-    self.orm.get_episode_timeline(seq)     # leitura (cmd "get_episode_timeline", 2026-08-05)
-"""
+"""orm_persistence.py — camada de ligação entre o bridge BLE e storage_advanced.py
+(única fonte de persistência: escrita e leitura). Escrita é tolerante a falha (ao
+primeiro erro, avisa uma vez, marca self.disabled e vira no-op — nunca derruba o
+streaming BLE); leitura lança RuntimeError se desativado, pois não há fallback.
+SensorRecord é acumulado em buffer e commitado em lote (insert_sensor_record);
+alertas de emergência e auditoria são escritos de imediato."""
 
 from __future__ import annotations
 
@@ -74,48 +18,26 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 import storage_advanced as sa
 
-# UUIDs fixos do paciente/dispositivo "local" únicos deste bridge. O
-# dual-write local não tem multi-tenancy — há um único paciente e um único
-# dispositivo por instalação, criados por get-or-create no arranque. Se e
-# quando existir provisioning real com vários dispositivos, isto passa a
-# ser resolvido pelo MAC/uuid reais entregues por essa app.
+# UUIDs fixos do paciente/dispositivo "local" únicos deste bridge (sem multi-tenancy);
+# get-or-create no arranque. Provisioning real com vários dispositivos resolveria por MAC/uuid.
 DEFAULT_PATIENT_UUID = "local-default-patient"
 DEFAULT_DEVICE_UUID = "local-default-device"
-# Placeholder até haver um MAC real (atualizado por update_device_mac()
-# quando o bridge liga — device.address do bleak). "00:00:00:00:00:00"
-# nunca colide com um MAC real de hardware.
-DEFAULT_DEVICE_MAC = "00:00:00:00:00:00"
-# Utilizador "local" get-or-create, mesmo padrão de DEFAULT_PATIENT_UUID/
-# DEFAULT_DEVICE_UUID acima — existe só para que ConsentRecord.user_id
-# (NOT NULL) tenha uma FK válida a apontar quando o consentimento é
-# concedido/revogado a partir do WebSocket não-autenticado do dashboard
-# (2026-08-05, consentimento granular). Nunca serve para login real: o
-# password_hash é um valor fixo que nenhum hash de password real produz.
+DEFAULT_DEVICE_MAC = "00:00:00:00:00:00"  # placeholder até update_device_mac() com o MAC real
+# utilizador local get-or-create, só para ConsentRecord.user_id (NOT NULL) ter FK válida;
+# nunca serve para login real (password_hash fixo, nenhum hash real produz este valor)
 DEFAULT_USER_UUID = "local-default-user"
 DEFAULT_USER_EMAIL = "local@carewear.invalid"
 _DEFAULT_USER_PASSWORD_HASH = "!disabled-local-default-user"
-# date_of_birth é NOT NULL no esquema (Patient.date_of_birth) mas o bridge
-# não conhece a data de nascimento real do utente — placeholder explícito
-# e documentado, a corrigir por quem fizer o provisioning/registo real.
-PLACEHOLDER_DOB = datetime(1940, 1, 1)
-# Scope mínimo de consentimento (GDPR-001/GDPR-003) que o bridge tem de ter
-# para sequer gravar dados de sensores. Verificado no _bootstrap.
-CONSENT_SCOPE = "sensor_data"
+PLACEHOLDER_DOB = datetime(1940, 1, 1)  # date_of_birth é NOT NULL mas o bridge não a conhece
+CONSENT_SCOPE = "sensor_data"  # scope mínimo (GDPR-001/003) para o bridge gravar dados; ver _bootstrap
 
 
 class OrmPersistence:
-    """Segundo destino de escrita (ORM) do dual-write transitório.
+    """Camada de persistência ORM. Todos os métodos de escrita são tolerantes a
+    falha: ao primeiro erro, avisam uma vez, marcam self.disabled=True e viram no-op."""
 
-    Todos os métodos são tolerantes a falha: ao primeiro erro, avisam uma
-    vez, marcam `self.disabled = True` e tornam-se no-ops. A persistência
-    nova degrada em silêncio; o streaming e o `storage.py` continuam.
-    """
-
-    # Compromete o buffer de SensorRecord quando atinge este tamanho...
-    BATCH_SIZE = 50
-    # ...ou quando passou este tempo desde o último flush (o que vier
-    # primeiro), verificado dentro do próprio insert (sem task extra).
-    BATCH_INTERVAL_S = 1.0
+    BATCH_SIZE = 50  # compromete o buffer de SensorRecord ao atingir este tamanho...
+    BATCH_INTERVAL_S = 1.0  # ...ou após este tempo desde o último flush, o que vier primeiro
 
     def __init__(self) -> None:
         self.disabled = False
@@ -130,7 +52,7 @@ class OrmPersistence:
             sa.create_all_tables()
             self.session = sa.get_db_session()
             self._bootstrap()
-        except Exception as exc:  # noqa: BLE001 - dual-write nunca derruba o arranque
+        except Exception as exc:  # noqa: BLE001 - nunca derruba o arranque
             self._degrade("bootstrap do ORM", exc)
 
     # ---- infraestrutura interna -------------------------------------------
@@ -143,8 +65,6 @@ class OrmPersistence:
             print(f"[BRIDGE] AVISO: persistencia ORM (dual-write) desativada apos "
                   f"erro em {where}: {exc}. O streaming e o storage.py continuam; "
                   f"este aviso so aparece uma vez.")
-        # Tenta limpar qualquer transacao meia-feita para nao contaminar
-        # uma sessao que possa ainda vir a ser lida por um teste.
         try:
             if self.session is not None:
                 self.session.rollback()
@@ -171,9 +91,7 @@ class OrmPersistence:
             self.session.refresh(patient)
         self.patient_id = patient.id
 
-        # Utilizador local placeholder (ver DEFAULT_USER_UUID acima) — FK
-        # necessária para ConsentRecord.user_id. Get-or-create, idempotente
-        # como o resto deste método.
+        # utilizador local placeholder (FK necessária para ConsentRecord.user_id)
         user = (
             self.session.query(sa.User)
             .filter_by(uuid=DEFAULT_USER_UUID)
@@ -192,8 +110,7 @@ class OrmPersistence:
             self.session.refresh(user)
         self.user_id = user.id
 
-        # GDPR-001/GDPR-003 — ponto de aplicação real do consentimento.
-        self._ensure_consent()
+        self._ensure_consent()  # GDPR-001/003 — ponto de aplicação real do consentimento
 
         device = (
             self.session.query(sa.Device)
@@ -212,31 +129,12 @@ class OrmPersistence:
         self.device_id = device.id
 
     def _ensure_consent(self) -> None:
-        """GDPR-001/GDPR-003 — ponto de aplicação do consentimento no
-        arranque. O scope mínimo para o bridge sequer gravar dados é
-        `sensor_data`. Se existir um ConsentRecord válido (granted=True e,
-        se `expires_at` estiver preenchido, ainda não expirado) segue o
-        fluxo normal, sem mudanças de comportamento. Se NÃO existir, NÃO
-        bloqueia o arranque (o streaming BLE/`storage.py` nunca podem parar
-        por causa disto — mesmo padrão degradável do resto do módulo), mas
-        regista a ausência explicitamente em audit_log em vez de a ignorar
-        em silêncio.
-
-        NOTA: a criação automática opcional de um ConsentRecord inicial a
-        partir de variáveis de ambiente (CAREWEAR_CONSENT_*) foi ponderada
-        e deliberadamente NÃO implementada nesta fase: `ConsentRecord`
-        exige `user_id NOT NULL` (FK para `users`) e o bootstrap local não
-        tem provisioning real de contas (ver DEFAULT_PATIENT_UUID acima) —
-        não há um `user_id` real para atribuir, e inventar um utilizador
-        placeholder está fora do âmbito deste item. O consentimento
-        propriamente dito passa a ser criado pela UI de consentimento do
-        dashboard (com o representante já autenticado) — ver `set_consent()`
-        abaixo (2026-08-05): já é possível conceder/revogar por âmbito a
-        partir do dashboard, ainda sem essa UI dedicada."""
+        """Ponto de aplicação do consentimento no arranque (scope mínimo 'sensor_data').
+        Se não existir consentimento válido, não bloqueia o arranque (mesmo padrão
+        degradável do módulo) mas regista a ausência em audit_log."""
         if sa.has_valid_consent(self.session, self.patient_id, CONSENT_SCOPE):
-            return  # consentimento válido — comportamento inalterado.
+            return
 
-        # Ausência de consentimento válido registada explicitamente.
         self.audit(
             "consent_missing",
             resource_type="patient",
@@ -244,22 +142,12 @@ class OrmPersistence:
             details={"scope": CONSENT_SCOPE},
         )
 
-    # ---- consentimento granular por âmbito (2026-08-05) --------------------
-    #
-    # `_ensure_consent` acima só guarda o âmbito mínimo ('sensor_data') no
-    # arranque. Os métodos a seguir dão ao dashboard uma forma de conceder/
-    # revogar/consultar consentimento por CADA âmbito de sa.CONSENT_SCOPES
-    # separadamente (ex.: aceitar guardar sinais vitais mas recusar
-    # exportação/analítica) — o Choi Moon-Jung (KAIST), citado na
-    # PRISMA_SCR_SCOPING_REVIEW.md, é a referência da literatura que
-    # motivou isto: é o único estudo revisto a tratar a sério o controlo
-    # granular de partilha de dados de saúde por idosos.
+    # consentimento granular por âmbito: permite conceder/revogar/consultar por
+    # cada scope de sa.CONSENT_SCOPES separadamente (ex.: sensores sim, export não)
 
     def check_consent(self, scope: str) -> bool:
-        """Existe consentimento válido para este âmbito? Tolerante a falha
-        como o resto do módulo: se o ORM estiver desativado, devolve True
-        (não bloqueia por causa de uma falha de infraestrutura — a decisão
-        de bloquear é de quem chama, baseada no âmbito, não desta função)."""
+        """Existe consentimento válido para este âmbito? Se o ORM estiver desativado,
+        devolve True — não bloqueia por falha de infraestrutura não relacionada."""
         if self.disabled or self.session is None:
             return True
         try:
@@ -276,13 +164,9 @@ class OrmPersistence:
         representative_name: Optional[str] = None,
         representative_relationship: Optional[str] = None,
     ) -> dict:
-        """Concede ou revoga consentimento para um âmbito (comando
-        'set_consent' do dashboard). Ao contrário da escrita de sensores,
-        NÃO degrada em silêncio — uma alteração de consentimento que pareça
-        ter funcionado mas não foi gravada é pior que um erro visível
-        (mesmo raciocínio das leituras do dashboard, ver `_require_enabled`
-        abaixo). Lança ValueError se `scope` for desconhecido (propagado
-        de `sa.grant_consent`)."""
+        """Concede ou revoga consentimento (cmd 'set_consent'). Não degrada em
+        silêncio — uma alteração que pareça ter funcionado mas não gravou é pior
+        que um erro visível. Lança ValueError se scope desconhecido."""
         self._require_enabled()
         row = sa.grant_consent(
             self.session,

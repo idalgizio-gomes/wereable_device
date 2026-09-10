@@ -1,244 +1,81 @@
-// ============================================================
-// main.cpp — Ponto de entrada do firmware do wearable (nRF52840)
-// ============================================================
-// Este ficheiro é o "maestro" do dispositivo: liga tudo o que os outros
-// módulos (Imu, Ppg, Ble, Storage, QspiRingBuffer, Clock, Display) sabem
-// fazer sozinhos. A ideia geral do dispositivo é:
-//
-//   1) O utilizador carrega no botão (BTN_PIN) durante alguns segundos
-//      (long-press) para ligar o dispositivo.
-//   2) O firmware inicializa o ecrã, o armazenamento, o Bluetooth (BLE),
-//      o sensor de movimento (IMU) e o sensor cardíaco/SpO2 (PPG).
-//   3) Uma tarefa em segundo plano (storageTask, ver mais abaixo) lê as
-//      últimas amostras do IMU/PPG e grava-as num "ring buffer" persistido
-//      em memória flash externa (QspiRingBuffer), para depois poderem ser
-//      lidas/descarregadas (ver os scripts em test/*.py).
-//   4) O loop() principal mantém um "heartbeat" (LED a piscar), atualiza
-//      o ecrã com a hora/data, e vigia o botão: se for feito um novo
-//      long-press, o dispositivo entra em modo de baixo consumo
-//      (SYSTEM_OFF) através de goToSleep().
-//
-// Este projeto corresponde ao dispositivo wearable descrito no artigo de
-// monitorização comportamental para cuidados de demência: os dados aqui
-// recolhidos (IMU + frequência cardíaca + SpO2) são depois usados, num
-// computador, para classificar atividades e detetar anomalias de rotina.
-// ============================================================
-
 #include <Arduino.h>
-#include <Adafruit_TinyUSB.h>   // Pilha USB (porta série sobre USB) usada para debug/CLI
-#include <bluefruit.h>          // Pilha Bluetooth Low Energy (BLE) da Adafruit/Nordic
-#include <nrf_power.h>          // Acesso direto a registos de energia do chip nRF52840
+#include <Adafruit_TinyUSB.h>
+#include <bluefruit.h>
+#include <nrf_power.h>
 #include <SPI.h>
-#include <string.h>             // strcmp() usado no bypass de debug DEBUG_SERIAL_WAKE
-#include <rtos.h>               // FreeRTOS (sistema operativo em tempo real usado para as tasks)
+#include <string.h>
+#include <rtos.h>
 #include <math.h>
-#include <Adafruit_GFX.h>       // Biblioteca genérica de desenho (texto, formas) para ecrãs
-#include <Adafruit_SSD1351.h>   // Driver específico do ecrã OLED SSD1351
-#include "Display/app_icons.h"  // Imagens/logótipos (bitmaps) mostrados no arranque
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1351.h>
+#include "Display/app_icons.h"
 #include "Display/Ui.h"
-#include "Storage/Storage.h"           // Guarda calibração do IMU e a chave AES na flash interna
-#include "Imu/Imu.h"                   // Sensor de movimento (acelerómetro + giroscópio)
-#include "Ppg/Ppg.h"                   // Sensor ótico de frequência cardíaca / SpO2
-#include "Ble/Ble.h"                   // Serviço Bluetooth (emparelhamento, troca de chave, sincronização de hora)
-#include "QspiRingBuffer/QspiRingBuffer.h" // "Diário" circular de registos guardado na flash externa (QSPI)
-#include "ImuPpgPayload.h"              // Layout do registo IMU+PPG (partilhado com Ble.cpp)
-#include "Clock/Clock.h"               // Relógio interno (hora/data), sincronizado via BLE
-#include "Lora/Lora.h"                 // Rádio LoRa Wio-SX1262 (experimental — ver Lora.h)
-#include "Emergency/Emergency.h"       // Deteção de emergência: SOS manual + queda/inatividade (ver Emergency.h)
-#include "Nfc/Nfc.h"                   // NFC — preparação, antena ainda por confirmar (ver Nfc.h)
-#include "Battery/Battery.h"           // Nível de bateria via ADC (ver Battery.h para proveniência do pinout — UNVALIDADO em hardware real)
-#include "Logger/Logger.h"             // Macros de logging por nível/tag (LOG_INFO/WARN/ERROR/DEBUG) — módulo novo, adoção incremental (ver Logger.h), usado por agora só em alguns pontos de setup() a título de demonstração
+#include "Storage/Storage.h"
+#include "Imu/Imu.h"
+#include "Ppg/Ppg.h"
+#include "Ble/Ble.h"
+#include "QspiRingBuffer/QspiRingBuffer.h"
+#include "ImuPpgPayload.h"
+#include "Clock/Clock.h"
+#include "Lora/Lora.h"
+#include "Emergency/Emergency.h"
+#include "Nfc/Nfc.h"
+#include "Battery/Battery.h"
+#include "Logger/Logger.h"
 
-// ============================================================
-// FLAGS DE CONFIGURAÇÃO (interruptores para ligar/desligar comportamentos)
-// Mudar estes valores e voltar a compilar altera o que o firmware faz,
-// sem ser preciso mexer no resto do código.
-// ============================================================
-
-// FLAG DE WIPE — apaga calib+aes residuais do selfTest antigo.
-// Coloca a 1 numa única flash, depois volta a 0.
-// (Serve só para "limpar o disco" uma vez, depois de testes antigos que
-// deixaram dados de calibração/chave AES inválidos gravados na flash.)
+// flag de wipe unica: apaga calib+aes residuais do selfTest antigo, depois volta a 0
 #define WIPE_STALE_STORAGE 0
-
-// FLAG DE WIPE (2026-07-09) — reprovisionamento pedido pelo utilizador
-// depois de se perder localmente o valor da chave AES já gravada na
-// placa (aesKeyChar só aceita a primeira escrita — sem isto não há como
-// voltar a provisionar). Também reformata o ring buffer (QSPI), perdendo
-// os ~32 mil registos em fila. Preferível a ficar com dados que o bridge nunca mais vai conseguir decifrar.
+// flag de wipe: reprovisionamento apos perda da chave AES gravada (aesKeyChar so aceita a 1a escrita); reformata tambem o ring buffer
 #define WIPE_RING_BUFFER 0
-
-// Se a 1, corre um teste automático ao ring buffer da flash externa no
-// arranque (escreve, lê e apaga dados de teste). Só serve para debug.
 #define QSPI_RING_BUFFER_SELF_TEST 0
-
-// Se a 1 (normal), a tarefa que grava amostras IMU/PPG no ring buffer
-// é criada no arranque. Desligar isto (0) impede a gravação de dados.
 #define STORAGE_TASK_ENABLE 1
 
-// ------------------------------------------------------------
-// *** DEBUG TEMPORÁRIO — REMOVER QUANDO O BOTÃO FÍSICO FOR REPARADO ***
-// Enquanto o botão ligado a BTN_PIN estiver partido/desligado, não há
-// forma de satisfazer o long-press exigido em waitForLongPress(). Com
-// esta flag a 1, o firmware aceita também um comando de texto enviado
-// pela porta série (Serial Monitor) como substituto do long-press:
-//   - escrever "WAKE"  e Enter -> equivale a premir e manter o botão
-//     os 5 segundos exigidos para ligar o dispositivo.
-//   - escrever "SLEEP" e Enter -> equivale a um long-press para desligar
-//     (entra em SYSTEM_OFF), já que sem botão também não há como pedir
-//     isso fisicamente.
-// Isto NÃO simula o hardware do botão em si; é só um atalho de teste.
-// Voltar a pôr a 0 (ou apagar este bloco) assim que o botão for
-// resoldado/substituído.
-
+// DEBUG TEMPORARIO: botao fisico (BTN_PIN) partido -> aceita "WAKE"/"SLEEP" pela serie como substituto do long-press. Remover quando o botao for reparado.
 #define DEBUG_SERIAL_WAKE 1
-
-// ------------------------------------------------------------
-// *** DEBUG TEMPORÁRIO — REMOVER NO FIM DESTA FASE DE TESTES ***
-// A cada teste em hardware, o dispositivo entrava em SYSTEM_OFF (baixo
-// consumo) por inatividade/long-press e exigia todo o ciclo de "acordar
-// fisicamente com reset + enviar WAKE pela série" outra vez — muito lento
-// para uma sessão de testes com várias iterações seguidas. Com esta flag
-// a 1, goToSleep() fica praticamente desativado: regista a intenção no
-// Serial mas NÃO desliga o dispositivo, mantendo-o sempre ligado e
-// acessível por BLE/série. Poupança de energia fica sacrificada de
-// propósito durante o desenvolvimento. Voltar a 0 antes de qualquer uso
-// real com bateria (senão a bateria nunca dura, o dispositivo nunca
-// entra realmente em baixo consumo).
-// Testado a 0 em 2026-07-03 (ver PROJECT_STATUS.md, "Riscos/bloqueios
-// ativos", ponto 8) para excluir a hipótese de a instabilidade USB estar
-// ligada a nunca entrar em SYSTEM_OFF — não mostrou melhoria (o problema
-// observado nessa sessão era antes o dispositivo adormecer de propósito
-// dentro da janela de 8s de espera por WAKE, sem ligação com a
-// instabilidade USB em si). Reposto a 1, como o próprio teste previa
-// fazer nesse caso, para recuperar a comodidade de arranque imediato sem
-// precisar do botão físico partido nem da janela apertada de WAKE.
-// *** NAO DESLIGAR ***: so' depois do botao fisico (BTN_PIN) estar reparado. Ver aviso impresso no boot, perto de Serial.begin().
+// DEBUG TEMPORARIO: goToSleep() vira no-op para nao ter de religar fisicamente a cada teste. NAO desligar antes do botao estar reparado.
 #define DEBUG_DISABLE_SLEEP 1
-
-// ------------------------------------------------------------
-// *** DIAGNOSTICO TEMPORARIO — otimizacao de RAM ***
-// Com esta flag a 1, o loop() imprime periodicamente quanta stack cada
-// task do FreeRTOS ainda tem de folga (o minimo historico, "high water
-// mark"), para decidirmos com dados reais — em vez de adivinhar — se os
-// tamanhos de stack reservados (*_TASK_STACK_WORDS) podem ser reduzidos
-// com seguranca. Depois de recolher uns minutos de dados em uso normal,
-// pode voltar a 0 e ser removida.
+// DIAGNOSTICO TEMPORARIO: imprime stack livre de cada task para calibrar *_TASK_STACK_WORDS
 #define DEBUG_STACK_WATERMARKS 1
-
-// ------------------------------------------------------------
-// *** DIAGNOSTICO TEMPORARIO — recalibracao forcada do IMU (2026-07-22) ***
-// Achado: a calibracao guardada em flash (/calib.bin) estava com valores
-// impossiveis para um sensor parado (offsets de giroscopio de ate -20 dps;
-// tipico real e < 2-3 dps) — foi certamente gravada com a placa em
-// movimento/orientacao errada durante a calibracao original. Isto tornava
-// detectInactivity() (Imu.cpp) permanentemente falso (norma do giroscopio
-// calibrado ficava a ~21 dps e o desvio do acelerometro a ~1.48g, muito
-// acima de qualquer limiar razoavel) — a causa real do streaming continuo
-// de FC nunca arrancar, nao os limiares que tinham sido ajustados antes.
-// Com esta flag a 1, apaga a calibracao guardada ANTES de Imu::begin(),
-// obrigando a uma calibracao nova no arranque (a placa tem de ficar
-// imovel, numa superficie plana, durante a mensagem "a calibrar - manter
-// parado"). Voltar a 0 depois de confirmar que os novos offsets sao
-// plausiveis (gyro perto de 0 dps, accel perto de 1g de magnitude).
+// DIAGNOSTICO: forca apagar calibracao do IMU no arranque (usar se a calib guardada tiver offsets implausiveis)
 #define DEBUG_FORCE_IMU_RECALIBRATION 0
 
-// ============================================================
-// PINOS — mapeamento entre nomes com significado e os pinos físicos da placa
-// ============================================================
-#define BTN_PIN 0                  // raw, igual ao código de referência — pino do botão físico
-#define LONG_PRESS_TIME 5000       // tempo (ms) que é preciso manter o botão premido para ligar/desligar
-#define DEBOUNCE_TIME 50           // tempo (ms) de espera para ignorar "ruído" mecânico do botão
+#define BTN_PIN 0
+#define LONG_PRESS_TIME 5000
+#define DEBOUNCE_TIME 50
 
-#define OLED_CS_PIN    D9          // Chip Select do ecrã OLED (seleciona o dispositivo no barramento SPI)
-#define OLED_DC_PIN    D10         // Data/Command do ecrã (diz ao ecrã se o byte enviado é dado ou comando)
-#define OLED_RST_PIN   D11         // Reset físico do ecrã
+#define OLED_CS_PIN    D9
+#define OLED_DC_PIN    D10
+#define OLED_RST_PIN   D11
 
-// ============================================================
-// DISPLAY — configuração do ecrã OLED (128x128 pixels, a cores)
-// ============================================================
 #define SCREEN_W 128
 #define SCREEN_H 128
 #define COLOR_BLACK 0x0000
 #define COLOR_WHITE 0xFFFF
 
-// SPIM3 dedicado — não conflita com TWIM1 (Wire1, IMU interno)
-// (O nRF52840 tem vários periféricos SPI/I2C independentes; ao dar ao ecrã
-// o seu próprio barramento SPI (SPIM3), evita-se que o tráfego do ecrã
-// interfira com a comunicação I2C do IMU, que usa outro periférico.)
+// SPIM3 dedicado ao ecra, nao conflita com TWIM1 (Wire1, IMU)
 SPIClass dispSPI(NRF_SPIM3, PIN_SPI1_MISO, PIN_SPI1_SCK, PIN_SPI1_MOSI);
 Adafruit_SSD1351 display(SCREEN_W, SCREEN_H, &dispSPI,
                          OLED_CS_PIN, OLED_DC_PIN, OLED_RST_PIN);
 
-// Indica se o dispositivo está "acordado" e a operar normalmente
-// (true entre o long-press de ligar e o long-press de desligar).
 bool isRunning = false;
 
-// ============================================================
-// STORAGE TASK -> QSPI RING BUFFER
-// 1 registo por amostra IMU (52 Hz), com SPO2/HR opcionais.
-// ------------------------------------------------------------
-// Esta secção define uma "tarefa" do FreeRTOS (uma função que corre em
-// paralelo/concorrência com o resto do programa) cujo único trabalho é:
-//   1. Perguntar ao módulo Imu qual foi a última amostra de movimento lida.
-//   2. Perguntar ao módulo Ppg se há uma leitura nova de SpO2 e/ou de
-//      frequência cardíaca (estas chegam com muito menos frequência que
-//      o IMU, por isso podem não estar disponíveis em todas as amostras).
-//   3. Juntar tudo num único "payload" (pacote de dados) e empurrá-lo
-//      para o ring buffer persistido em flash (QspiRingBuffer::push),
-//      que funciona como um livro de registo circular: quando fica
-//      cheio, os registos mais antigos vão sendo substituídos.
-// ============================================================
 namespace {
 
-// Identificador do "tipo" de registo gravado no ring buffer: ver
-// kImuPpgRecordTypeV1 em include/ImuPpgPayload.h (única fonte de verdade,
-// partilhada com Ble.cpp).
-// Tamanho da pilha (stack) reservada para esta tarefa do FreeRTOS, em
-// "palavras" de 32 bits. Precisa de ser suficiente para as variáveis
-// locais e chamadas de função desta task, sem desperdiçar RAM.
-// *** OTIMIZAÇÃO DE RAM (2ª ronda, com dados reais de hardware) ***:
-// reduzido de 1536 para 768 words (-3072 bytes / -5120 bytes face ao
-// valor original de 2048). Justificação: captura real de
-// uxTaskGetStackHighWaterMark() em 2026-07-03 (ver DEBUG_STACK_WATERMARKS
-// mais abaixo e PROJECT_STATUS.md) mostrou apenas ~116 words realmente
-// usadas de 1536 reservadas (free=1420/1536, ~92% livre) durante ~30s de
-// streaming BLE ativo. 768 words mantém ainda ~5.6x de margem sobre esse
-// uso observado (768-116=652 words livres esperadas), muito acima do
-// habitual 2-3x recomendado para código com ramos raramente exercitados
-// (ex.: o bloco de prints quando chega SpO2/HR novos). Ainda por
-// confirmar em hardware real com este novo valor — reativar
-// DEBUG_STACK_WATERMARKS e validar que free_words continua confortável
-// acima de 0 assim que o dispositivo estiver acessível.
-constexpr uint16_t STORAGE_TASK_STACK_WORDS = 768;
-// Quando não há amostra nova do IMU, a task espera este tempo (ms) antes
-// de voltar a verificar, para não gastar CPU/energia num ciclo apertado.
+// 1 registo por amostra IMU (52 Hz), com SPO2/HR opcionais quando disponiveis
+constexpr uint16_t STORAGE_TASK_STACK_WORDS = 768; // reduzido de 2048->768 apos medir high water mark real (~116 words usadas)
 constexpr uint32_t STORAGE_TASK_IDLE_MS = 5;
 
-// Layout do registo IMU+PPG (ImuPpgPayloadV1): ver include/ImuPpgPayload.h —
-// partilhado com Ble.cpp, que lê de volta os mesmos bytes gravados aqui.
-
-// Verificação em tempo de compilação: garante que a estrutura acima cabe
-// no espaço reservado para cada registo do ring buffer. Se alguém
-// adicionar um campo a mais e isto ultrapassar o limite, o build falha
-// aqui em vez de corromper dados silenciosamente em runtime.
 static_assert(sizeof(ImuPpgPayloadV1) <= QspiRingBuffer::kPayloadSize,
               "ImuPpgPayloadV1 must fit ring payload");
 
-TaskHandle_t g_storageTaskHandle = nullptr;   // referência à task do FreeRTOS, para a poder gerir depois
+TaskHandle_t g_storageTaskHandle = nullptr;
 
-// Converte um valor "long" (mais largo) para int16_t, cortando (saturando)
-// nos limites em vez de dar overflow silencioso. Usado para guardar
-// leituras de SpO2/HR nos campos int16_t do payload em segurança.
 int16_t clampToI16(long v) {
   if (v > 32767L) return 32767;
   if (v < -32768L) return -32768;
   return static_cast<int16_t>(v);
 }
 
-// Corpo da tarefa em segundo plano que liga IMU + PPG ao armazenamento.
-// Corre em loop infinito (como é normal numa task do FreeRTOS) até o
-// dispositivo ser desligado.
 void storageTask(void *arg) {
   (void)arg;
 
@@ -252,43 +89,29 @@ void storageTask(void *arg) {
   Serial.println("[STOR] storage_task iniciada");
 
   while (true) {
-    // Passo 1: tentar obter a amostra de IMU mais recente. Se ainda não
-    // houver nenhuma (ex.: IMU acabou de arrancar), esperar um pouco e
-    // tentar de novo — isto evita um loop "ocupado" a consumir CPU/energia.
     Imu::Sample imu = {};
     if (!Imu::getLatestSample(imu)) {
       vTaskDelay(pdMS_TO_TICKS(STORAGE_TASK_IDLE_MS));
       continue;
     }
 
-    // Se o timestamp for igual ao da última vez, é a MESMA amostra que já
-    // foi gravada (a task do IMU ainda não produziu uma nova) — ignorar
-    // para não duplicar registos no ring buffer.
     if (imu.timestamp_ms == 0 || imu.timestamp_ms == lastImuTs) {
       vTaskDelay(pdMS_TO_TICKS(1));
       continue;
     }
     lastImuTs = imu.timestamp_ms;
 
-    // Por omissão assume-se "sem leitura nova" de SpO2/HR (0). O PPG só
-    // atualiza estes valores esporadicamente (ex.: 1x/minuto), por isso a
-    // maioria das amostras de IMU não terá dados de PPG associados.
     int16_t spo2Out = 0;
     int16_t hrOutX10 = 0;
 
     Ppg::Metrics ppg = {};
     if (Ppg::getLatest(ppg)) {
-      // "Consumir" a leitura de SpO2 apenas se for diferente da última já
-      // gravada (identificada pelo seu próprio timestamp), para não
-      // repetir o mesmo valor em várias amostras de IMU seguidas.
       if (ppg.spo2_valid && ppg.spo2_timestamp_ms != 0 &&
           ppg.spo2_timestamp_ms != consumedSpo2Ts) {
         spo2Out = clampToI16(ppg.spo2_value);
         consumedSpo2Ts = ppg.spo2_timestamp_ms;
       }
 
-      // Mesma lógica para a frequência cardíaca (HR), arredondada ao bpm
-      // mais próximo antes de gravar.
       if (ppg.hr_valid && ppg.hr_timestamp_ms != 0 &&
           ppg.hr_timestamp_ms != consumedHrTs) {
         const long hr10 = lroundf(ppg.hr_bpm);
@@ -297,7 +120,6 @@ void storageTask(void *arg) {
       }
     }
 
-    // Passo 2: montar o registo combinado (IMU + PPG) que vai ser gravado.
     ImuPpgPayloadV1 payload = {};
     payload.ax = imu.ax;
     payload.ay = imu.ay;
@@ -312,14 +134,11 @@ void storageTask(void *arg) {
     payload.hr = hrOutX10;
     payload.pacing_index = imu.pacing_index;
 
-    // Preferir o relógio real (UTC, sincronizado por BLE) como timestamp
-    // do registo, se já estiver disponível; caso contrário usar o
-    // millis() interno do IMU (tempo desde o arranque) como recurso.
+    // usa relogio UTC (sincronizado por BLE) se ja disponivel, senao millis() interno do IMU
     uint32_t recTs = imu.timestamp_ms;
     const uint32_t nowUtc = Clock::nowUtc();
     if (nowUtc != 0) recTs = nowUtc;
 
-    // Passo 3: gravar o registo no ring buffer da flash externa.
     if (QspiRingBuffer::push(kImuPpgRecordTypeV1,
                              reinterpret_cast<const uint8_t *>(&payload),
                              sizeof(payload),
@@ -352,18 +171,8 @@ void storageTask(void *arg) {
 
 } // namespace
 
-// ============================================================
-// BOTÃO — leitura e deteção de long-press (premir demorado)
-// ------------------------------------------------------------
-// O botão é ativo-LOW: o pino lê LOW (0V) quando está premido, e HIGH
-// (por causa da resistência de pull-up interna) quando está solto.
-// ============================================================
+// Botao ativo-LOW: LOW = premido, HIGH = solto (pull-up interno)
 
-// Espera "ms" milissegundos como delay(ms), mas continua a chamar
-// Emergency::update() em pequenos incrementos durante a espera, em vez de
-// bloquear sem vigiar o botão físico. Só é seguro chamar depois de
-// Emergency::begin() ter corrido (ver 'pollEmergency' em waitRelease()/
-// buttonPressedStable()/waitForLongPress() abaixo, que controla isso).
 void delayPollingEmergency(uint32_t ms) {
   const uint32_t start = millis();
   while ((millis() - start) < ms) {
@@ -372,16 +181,6 @@ void delayPollingEmergency(uint32_t ms) {
   }
 }
 
-// Bloqueia até o botão ser largado (voltar a HIGH), ou até passar
-// timeoutMs (0 = esperar indefinidamente). Útil depois de confirmar um
-// long-press, para não reagir várias vezes ao mesmo toque prolongado.
-//
-// 'pollEmergency': quando true, chama Emergency::update() durante a
-// espera (ver buttonPressedStable() abaixo para o porquê). Tem de ficar
-// false nas chamadas feitas a partir de setup() (long-press inicial de
-// ligar), porque Emergency::begin() só corre bem mais tarde, dentro do
-// próprio setup() — chamar Emergency::update() antes disso leria um
-// módulo por inicializar.
 bool waitRelease(uint32_t timeoutMs = 0, bool pollEmergency = false) {
   const uint32_t t0 = millis();
   while (digitalRead(BTN_PIN) == LOW) {
@@ -391,30 +190,11 @@ bool waitRelease(uint32_t timeoutMs = 0, bool pollEmergency = false) {
     if (pollEmergency) Emergency::update();
     delay(5);
   }
-  delay(30);  // pequena pausa extra para "assentar" o sinal (debounce de largada)
+  delay(30);
   return true;
 }
 
-// Verifica se o botão está premido "de forma estável": lê uma vez, espera
-// DEBOUNCE_TIME (para ignorar ruído elétrico de contacto mecânico) e
-// confirma que continua premido. Evita falsos positivos de toques curtos.
-//
-// Bug real corrigido (2026-07-10): esta função e waitForLongPress() abaixo
-// partilham o mesmo BTN_PIN com Emergency::updateSosGesture() (gesto SOS
-// de 3 cliques), mas bloqueavam com delay()/digitalRead() sem nunca chamar
-// Emergency::update() durante a espera — o mesmo problema já corrigido em
-// 2026-07-07 para o delay do heartbeat (ver delayPollingEmergency() acima),
-// mas que continuava por corrigir aqui. Sempre que este código era chamado
-// a partir de loop() (linha ~991) com o botão em baixo — o que acontece em
-// TODOS os cliques do gesto SOS, não só num long-press real — a deteção de
-// borda de descida de updateSosGesture() ficava cega durante toda a espera
-// (debounce + até 5s de confirmação de long-press + espera de largada), e
-// como essa deteção é por borda (não por amostra), o clique ficava
-// definitivamente perdido, não apenas atrasado. 'pollEmergency' resolve
-// isto chamando Emergency::update() durante a espera — só passado como
-// true a partir de loop() (depois de Emergency::begin() já ter corrido);
-// o long-press inicial de ligar em setup() continua com o comportamento
-// exato de antes (pollEmergency=false por omissão).
+// pollEmergency deve ser false em setup() (Emergency::begin() ainda nao correu) e true a partir de loop()
 bool buttonPressedStable(bool pollEmergency = false) {
   if (digitalRead(BTN_PIN) == LOW) {
     if (pollEmergency) {
@@ -428,23 +208,7 @@ bool buttonPressedStable(bool pollEmergency = false) {
 }
 
 #if DEBUG_SERIAL_WAKE
-// *** DEBUG TEMPORÁRIO *** — ver explicação junto de DEBUG_SERIAL_WAKE.
-// Lê a próxima linha completa disponível na porta série (sem bloquear) e
-// devolve-a num buffer partilhado, ou nullptr se ainda não chegou nenhuma
-// linha completa. Uma única linha é devolvida uma única vez (o buffer
-// interno é limpo assim que a linha é entregue).
-//
-// Bug real corrigido aqui (encontrado em varredura de código, nunca
-// confirmado em hardware por o botão físico estar por resolver): a versão
-// anterior desta função ("serialCommandReceived(cmd)") drenava e
-// descartava TODA a linha disponível mesmo quando não coincidia com
-// 'cmd' — como o loop() chama esta comparação duas vezes por iteração
-// (primeiro "SLEEP", depois "SOS"), escrever "SOS" na porta série era
-// sempre consumido e descartado pela comparação com "SLEEP" antes de a
-// comparação com "SOS" sequer correr, tornando o comando SOS
-// impossível de disparar por série. Com pollSerialLine() a linha só é lida
-// uma vez por iteração e comparada com todos os comandos candidatos nesse
-// mesmo local (ver loop()).
+// le a proxima linha completa da serie (nao bloqueia); buffer e' consumido a cada leitura
 const char *pollSerialLine() {
   static char buf[16];
   static uint8_t len = 0;
@@ -464,29 +228,12 @@ const char *pollSerialLine() {
   return nullptr;
 }
 
-// Verifica se a linha completa mais recente (se houver) é exatamente
-// 'cmd'. Só deve ser usada em contextos onde apenas UM comando candidato é
-// possível por chamada a pollSerialLine() (ex.: à espera só de "WAKE"); ver
-// loop() para o caso de múltiplos comandos candidatos na mesma iteração.
 bool serialCommandReceived(const char *cmd) {
   const char *line = pollSerialLine();
   return line != nullptr && strcmp(line, cmd) == 0;
 }
 #endif
 
-// Espera para ver se o botão é mantido premido durante LONG_PRESS_TIME
-// (5 segundos) seguidos. Se for largado antes disso, devolve false
-// (não foi um long-press, foi só um toque curto). Se aguentar os 5s,
-// espera ainda que o utilizador largue o botão antes de confirmar,
-// para não disparar a ação outra vez enquanto o dedo ainda lá está.
-//
-// *** DEBUG TEMPORÁRIO ***: com DEBUG_SERIAL_WAKE=1, escrever "WAKE" na
-// porta série durante a espera também conta como long-press confirmado
-// (substituto do botão partido). Ver DEBUG_SERIAL_WAKE acima.
-// 'pollEmergency': ver buttonPressedStable() acima — propagado para as
-// esperas bloqueantes internas (debounce inicial + confirmação de 5s +
-// espera de largada), para o gesto SOS não perder cliques quando esta
-// função é chamada a partir de loop() (ver bug corrigido em 2026-07-10).
 bool waitForLongPress(bool pollEmergency = false) {
 #if DEBUG_SERIAL_WAKE
   if (serialCommandReceived("WAKE")) {
@@ -509,22 +256,10 @@ bool waitForLongPress(bool pollEmergency = false) {
       delay(5);
     }
   }
-  // Confirma long-press apenas apos libertar o botao.
   waitRelease(0, pollEmergency);
   return true;
 }
 
-// ============================================================
-// SYSTEM OFF — via SoftDevice, com USB e LATCH tratados
-// ------------------------------------------------------------
-// "SYSTEM OFF" é o modo de consumo mais baixo do nRF52840: o chip
-// desliga quase tudo e só volta a arrancar (como se fosse um reset)
-// quando acontece o evento de "wake" configurado — neste caso, o botão
-// a ser premido (nível LOW). Antes de entrar neste modo é preciso
-// desligar/guardar em segurança tudo o que estava ativo (sensores,
-// Bluetooth, dados pendentes em flash), senão pode haver perda de dados
-// ou comportamento estranho no próximo arranque.
-// ============================================================
 void goToSleep() {
 #if DEBUG_DISABLE_SLEEP
   Serial.println("[DEBUG] goToSleep() pedido, mas DEBUG_DISABLE_SLEEP=1 -> a ignorar (dispositivo continua ligado)");
@@ -534,68 +269,30 @@ void goToSleep() {
   Serial.flush();
   isRunning = false;
 
-  // Garante MAX30101 sem emissao antes do SYSTEM_OFF.
-  // (Se o sensor cardíaco ficasse com o LED aceso, continuaria a gastar
-  // corrente mesmo com o resto do chip "desligado".)
-  Ppg::prepareForSystemOff();
+  Ppg::prepareForSystemOff(); // garante MAX30101 sem emissao antes do SYSTEM_OFF
   Ble::stopBroadcast();
-  // Força a escrita imediata de quaisquer dados do ring buffer que ainda
-  // só estivessem em memória, para não se perderem ao desligar.
   (void)QspiRingBuffer::sync();
 
-  // Apaga LED e display
-  digitalWrite(LED_BUILTIN, HIGH);   // OFF (ativo LOW)
+  digitalWrite(LED_BUILTIN, HIGH); // OFF (ativo LOW)
   pinMode(OLED_RST_PIN, OUTPUT);
   digitalWrite(OLED_RST_PIN, LOW);
 
-  // 1 — Desligar USB (impede wake imediato por VBUS)
-  // TinyUSB detach removido para evitar bloqueio durante power-off.
-
-  // 2 — Desabilitar wakes por eventos USB-power no SoftDevice
-  // Eventos USB do SoftDevice nao sao alterados neste caminho minimo.
-
-  // 3 — Limpar LATCH residual dos GPIOs
-  // (Os pinos do nRF52 guardam um "latch" quando mudam de estado durante
-  // certas transições de energia; se não for limpo, pode impedir o chip
-  // de detetar corretamente o próximo evento de wake-up.)
-  NRF_GPIO->LATCH = NRF_GPIO->LATCH;
+  NRF_GPIO->LATCH = NRF_GPIO->LATCH; // limpa latch residual dos GPIOs
   NRF_P1->LATCH   = NRF_P1->LATCH;
 
-  // 4 — Garantir libertação do botão antes de armar SENSE
-
-  // 5 — Configurar wake-up por LOW
-  // "SENSE_LOW" diz ao hardware: "quando este pino ficar em nível baixo
-  // (botão premido), gera um evento que acorda o chip do SYSTEM_OFF".
   nrf_gpio_cfg_input(BTN_PIN, NRF_GPIO_PIN_PULLUP);
   nrf_gpio_cfg_sense_input(BTN_PIN,
                            NRF_GPIO_PIN_PULLUP,
-                           NRF_GPIO_PIN_SENSE_LOW);
-  // Sem delay aqui para reduzir janela com tasks ainda ativas.
+                           NRF_GPIO_PIN_SENSE_LOW); // wake por LOW
 
-  // 6 — Entrar em SYSTEM_OFF via SoftDevice
-  // (Tem de ser pedido através do SoftDevice — a pilha BLE da Nordic —
-  // e não diretamente ao hardware, porque o SoftDevice também gere
-  // energia/rádio internamente.)
   uint32_t rc = sd_power_system_off();
   (void)rc;
 
-  // Fallback caso o SD não esteja ativo
-  NRF_POWER->SYSTEMOFF = 1;
+  NRF_POWER->SYSTEMOFF = 1; // fallback caso SD nao esteja ativo
 
-  // Se ainda estivermos aqui, SYSTEMOFF falhou/emulado.
-  // Reinicia para evitar ficar preso e exigir reset fisico.
-  NVIC_SystemReset();
+  NVIC_SystemReset(); // ainda aqui = SYSTEMOFF falhou; reinicia em vez de ficar preso
 }
 
-// ============================================================
-// DISPLAY — só inicializa depois do wake confirmado
-// ------------------------------------------------------------
-// Funções auxiliares para desenhar no ecrã OLED: mostrar logótipos no
-// arranque e mensagens de texto simples (erros, hora/data).
-// ============================================================
-
-// Desenha um bitmap monocromático (ex.: um logótipo) centrado no ecrã,
-// mantém-no visível durante "ms" milissegundos.
 void showLogo(const uint8_t *bits, int16_t w, int16_t h, uint16_t ms) {
   display.fillScreen(COLOR_BLACK);
   int16_t x = (SCREEN_W - w) / 2;
@@ -604,9 +301,6 @@ void showLogo(const uint8_t *bits, int16_t w, int16_t h, uint16_t ms) {
   delay(ms);
 }
 
-// Sequência de arranque visual: liga o barramento SPI do ecrã, inicializa
-// o driver do ecrã e mostra os três logótipos (IPCA, 2Ai, Intellicare)
-// em sequência, 1.5s cada, antes de limpar o ecrã para uso normal.
 void showReady() {
   Serial.println("showReady: dispSPI.begin()");
   dispSPI.begin();
@@ -627,12 +321,6 @@ void showReady() {
   Serial.println("showReady: done");
 }
 
-// ============================================================
-// UI — mensagem simples no display (até duas linhas centradas)
-// ============================================================
-// Mostra até duas linhas de texto, centradas horizontalmente no ecrã.
-// Usado tanto para mensagens de erro ("IMU ERRO") como para a hora/data.
-// Se line2 for nullptr, mostra só uma linha, centrada verticalmente.
 void uiMessage(const char *line1, const char *line2) {
   display.fillScreen(COLOR_BLACK);
   display.setTextColor(COLOR_WHITE);
@@ -655,9 +343,6 @@ void uiMessage(const char *line1, const char *line2) {
   }
 }
 
-// Mostra a hora e a data atuais no ecrã. Se o relógio ainda não estiver
-// sincronizado (Clock::isValid() == false), mostra os textos genéricos
-// "HORA"/"DATA" em vez de valores errados.
 void showHourDateScreen() {
   char line1[16] = "HORA";
   char line2[16] = "DATA";
@@ -669,20 +354,6 @@ void showHourDateScreen() {
   uiMessage(line1, line2);
 }
 
-// ============================================================
-// FUNÇÕES DE INICIALIZAÇÃO — cada uma liga um subsistema/módulo
-// ------------------------------------------------------------
-// São todas chamadas, em sequência, dentro de setup() (ver mais abaixo).
-// Cada uma delas mostra no ecrã um aviso de erro (2 segundos) se o
-// respetivo módulo falhar a inicializar, mas o arranque continua na
-// mesma para os módulos seguintes — para o dispositivo tentar funcionar
-// parcialmente mesmo que um sensor específico falhe.
-// ============================================================
-
-// STORAGE — corre depois do long-press (USB CDC já enumerou)
-// Inicializa o sistema de ficheiros interno (para a calibração do IMU e
-// a chave AES) e regista no log se já existem esses dados guardados de
-// uma sessão anterior.
 void initStorage() {
   if (!Storage::begin()) return;
 
@@ -699,13 +370,8 @@ void initStorage() {
   Storage::validate();
 }
 
-// IMU — inicializa o sensor de movimento, garante que está calibrado
-// (calibra automaticamente se for a primeira vez) e arranca a task em
-// segundo plano que vai continuamente lendo amostras.
 void initImu() {
 #if DEBUG_FORCE_IMU_RECALIBRATION
-  // Ver DEBUG_FORCE_IMU_RECALIBRATION acima: apaga a calibracao antiga
-  // (com valores impossiveis) para obrigar a uma nova, com a placa parada.
   Serial.println("[DEBUG] DEBUG_FORCE_IMU_RECALIBRATION=1 -> a apagar calibracao antiga");
   Storage::clearCalibration();
 #endif
@@ -729,11 +395,6 @@ void initImu() {
   Serial.println("[IMU] imu_task ativa");
 }
 
-// PPG — task única para SPO2 (1/min) + HR quando inatividade IMU
-// Inicializa o sensor ótico e arranca a sua task, que decide sozinha
-// quando medir SpO2 (periodicamente) e quando medir frequência cardíaca
-// (aproveitando períodos em que o IMU deteta o utilizador parado, o que
-// dá leituras de HR mais limpas por haver menos ruído de movimento).
 void initPpg() {
   Serial.println("[PPG] initPpg(): inicio");
   if (!Ppg::begin()) {
@@ -749,10 +410,6 @@ void initPpg() {
   Serial.println("[PPG] ppg_task ativa");
 }
 
-// BLE — serviço, advertising e receção da AES key
-// Liga a pilha Bluetooth, garante que existe uma chave AES (para cifrar
-// dados sensíveis trocados com a app/telemóvel) e tenta sincronizar o
-// relógio interno através da ligação BLE.
 void initBle() {
   if (!Ble::begin()) {
     uiMessage("BLE", "ERRO");
@@ -763,9 +420,6 @@ void initBle() {
   Ble::ensureTimeSync();
 }
 
-// BLE DATA LINK (GATT-only)
-// Liga o "canal de dados" BLE (advertising + serviço GATT) que permite a
-// uma app externa ligar-se ao dispositivo e trocar dados/comandos.
 void initBleDataLink() {
   if (!Ble::startBroadcast()) {
     Serial.println("[BLE] GATT-only start failed");
@@ -774,28 +428,17 @@ void initBleDataLink() {
   Serial.println("[BLE] GATT-only active");
 }
 
-// LORA — inicializacao EXPERIMENTAL do radio Wio-SX1262 (ver Lora.h para
-// o aviso completo sobre pinos com confianca baixa). Deliberadamente
-// tolerante a falhas: se o radio nao responder (pino errado), regista o
-// erro e o resto do arranque continua normalmente — nada no resto do
-// firmware depende de Lora::begin() ter sucesso.
+// LORA experimental (ver Lora.h — pinout ainda com confianca baixa); tolerante a falha, nada depende disto
 void initLora() {
   if (!Lora::begin()) {
     Serial.println("[LORA] init falhou — a continuar sem radio LoRa (ver Lora.h, pinout ainda por confirmar)");
     return;
   }
   Serial.println("[LORA] radio ativo");
-  // Envio de teste unico no arranque, so para validar deteccao +
-  // transmissao numa mesma sessao — nao faz parte de nenhuma logica de
-  // emergencia ainda.
   Lora::sendTest("CareWear LoRa test");
 }
 
-// NFC — preparacao apenas (ver Nfc.h). A antena NFC ainda nao esta
-// confirmada no esquematico desta placa, por isso begin() nao ativa
-// UICR.NFCPINS nem toca em P0.09/P0.10 — so regista o estado. Tolerante
-// a falhas tal como o LoRa: nada no resto do firmware depende de
-// Nfc::begin() ter sucesso.
+// NFC so preparacao (antena por confirmar, ver Nfc.h); tolerante a falha
 void initNfc() {
   if (!Nfc::begin()) {
     Serial.println("[NFC] init nao avancou — a continuar sem NFC (ver Nfc.h, antena por confirmar)");
@@ -804,18 +447,10 @@ void initNfc() {
   Serial.println("[NFC] ativo");
 }
 
-// BATERIA — configura os pinos usados para medir a tensao da bateria (ver
-// Battery.h para a proveniencia do pinout desta placa especifica e o que
-// ainda fica por validar em hardware real). Nao bloqueia nem tem caminho
-// de falha critico (begin() so configura pinMode/digitalWrite); a
-// primeira leitura so acontece mais tarde, no loop() (ver
-// kBatterySampleIntervalMs mais abaixo).
 void initBattery() {
   Battery::begin();
 }
 
-// QSPI RING BUFFER — inicializa o "livro de registo" na flash externa
-// onde ficam guardadas as amostras de IMU/PPG (ver storageTask acima).
 void initQspiRingBuffer() {
   if (!QspiRingBuffer::begin(true)) {
     Serial.println("[QSPIRB] init falhou");
@@ -841,9 +476,6 @@ void initQspiRingBuffer() {
 #endif
 }
 
-// Cria a task storageTask (definida no início do ficheiro) que faz a
-// ponte entre o IMU/PPG e o ring buffer. TASK_PRIO_LOW porque gravar
-// dados é menos urgente do que ler os sensores em tempo real.
 void initStorageTask() {
 #if STORAGE_TASK_ENABLE
   if (g_storageTaskHandle != nullptr) return;
@@ -866,22 +498,11 @@ void initStorageTask() {
 #endif
 }
 
-// ============================================================
-// SETUP — chamado automaticamente UMA VEZ pelo Arduino ao arrancar
-// ------------------------------------------------------------
-// Nota importante sobre o ciclo de vida deste dispositivo: como ele usa
-// SYSTEM_OFF (ver goToSleep) em vez de um "sleep" normal, cada vez que o
-// utilizador prime o botão para ligar, o chip faz na verdade um arranque
-// completo do zero — é por isso que quase toda a lógica de inicialização
-// (sensores, BLE, storage) está aqui dentro do setup(), e não seria
-// preciso um "wake handler" separado.
-// ============================================================
 void setup() {
   pinMode(BTN_PIN, INPUT_PULLUP);
 
-  // LED onboard como heartbeat (XIAO nRF52840 é ativo LOW)
   pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, HIGH);   // apagado por defeito
+  digitalWrite(LED_BUILTIN, HIGH); // apagado por defeito (ativo LOW)
 
   Serial.begin(115200);
 #if DEBUG_DISABLE_SLEEP
@@ -891,50 +512,25 @@ void setup() {
   Serial.println("[BOOT] AVISO: DEBUG_SERIAL_WAKE=1 -- comando WAKE/SLEEP pela serie substitui o botao fisico (BTN_PIN); so desligar depois do botao estar reparado (ver DEBUG_SERIAL_WAKE/DEBUG_DISABLE_SLEEP em main.cpp)");
 #endif
   delay(100);
-  // Demonstração do novo módulo Logger (ver include/Logger/Logger.h): estas
-  // 3 chamadas foram convertidas de Serial.println/printf diretos para as
-  // novas macros LOG_INFO, a título de exemplo de uso — o resto do ficheiro
-  // continua deliberadamente com Serial.println/printf diretos (adoção
-  // incremental, não um refactor em massa, ver comentário de cabeçalho de
-  // Logger.h).
   LOG_INFO("BOOT", "Acordou do System OFF");
 
   Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
 
-  // Inicializa SoftDevice S140 — necessário para sd_power_*
-  // Reserva 2 ligacoes perifericas para permitir provisioning e data link.
-  // (O SoftDevice é a pilha de rádio/BLE da Nordic; tem de ser iniciado
-  // logo no arranque porque outras partes do firmware, como o modo
-  // SYSTEM_OFF, dependem de funções que só existem depois disto.)
-  Bluefruit.begin(2, 0);
+  Bluefruit.begin(2, 0); // 2 ligacoes perifericas: provisioning + data link
   Bluefruit.setName("Wearable");
   LOG_INFO("BOOT", "SoftDevice inicializado");
 
-  // *** DEBUG TEMPORÁRIO *** (ver DEBUG_SERIAL_WAKE): se chegar o comando
-  // "WAKE" pela série, avança logo para o arranque normal, sem esperar
-  // pelo botão físico (que está partido). Deixa isRunning=true e cai
-  // diretamente na sequência de boot mais abaixo.
   bool debugForcedWake = false;
 #if DEBUG_SERIAL_WAKE
   Serial.println("[DEBUG] botao fisico indisponivel: escreve WAKE + Enter para ligar");
 #endif
 #if DEBUG_DISABLE_SLEEP
-  // Com o "dormir" desativado (ver DEBUG_DISABLE_SLEEP), nao faz sentido
-  // esperar pelo botao/WAKE aqui — arranca logo a fundo, exatamente como
-  // se um WAKE tivesse chegado, para evitar qualquer caminho que
-  // terminasse a chamar goToSleep() (que agora e' um no-op) e deixasse o
-  // setup() sair sem nunca ter ligado nada.
   Serial.println("[DEBUG] DEBUG_DISABLE_SLEEP=1 -> a arrancar sempre, sem esperar por botao/WAKE");
   debugForcedWake = true;
 #endif
 
 #if !DEBUG_DISABLE_SLEEP
-  // Anti-glitch: se o botão não estiver a ser premido (LOW) pouco depois
-  // de o chip arrancar, assume-se que o "acordar" foi espúrio (ruído
-  // elétrico, ligação USB, etc.) e volta-se a dormir passados 8s sem
-  // confirmação, para poupar bateria. Todo este bloco fica desativado
-  // quando DEBUG_DISABLE_SLEEP=1 (debugForcedWake já vem true de cima),
-  // para nenhum caminho conseguir sair do setup() sem arrancar.
+  // anti-glitch: se nao houver botao premido pouco depois do boot, assume wake espurio e volta a dormir aos 8s
   const uint32_t waitPressStart = millis();
   while (digitalRead(BTN_PIN) == HIGH) {
 #if DEBUG_SERIAL_WAKE
@@ -951,10 +547,8 @@ void setup() {
     }
     delay(5);
   }
-#endif // !DEBUG_DISABLE_SLEEP
+#endif
 
-  // Botão está premido ao arrancar -> só liga mesmo se for um long-press
-  // (5s), para evitar ligar por engano com um toque acidental curto.
   Serial.println("Botao pressionado ao acordar...");
   if (!debugForcedWake && !waitForLongPress()) {
     Serial.println("Botão pressionado ao acordar...");
@@ -964,10 +558,6 @@ void setup() {
     return;
   }
 
-  // Arranque normal apos long-press validado: liga todos os subsistemas,
-  // pela ordem abaixo. A ordem importa um pouco — por exemplo, o BLE e o
-  // ring buffer são inicializados antes do IMU/storageTask, para que a
-  // task de gravação já encontre tudo pronto quando começar a correr.
   isRunning = true;
   Serial.println("[BOOT] step: showReady");
   showReady();
@@ -998,33 +588,11 @@ void setup() {
   LOG_INFO("BOOT", "step: setup done");
 }
 
-// ============================================================
-// LOOP — chamado repetidamente pelo Arduino depois do setup()
-// ------------------------------------------------------------
-// Enquanto o dispositivo está ligado (isRunning == true), este ciclo:
-//   1. Vigia o botão: se for premido, pausa o PPG (para não interferir
-//      com a leitura durante os ~5s de verificação) e espera para ver
-//      se é um long-press de desligar. Se não for, retoma o PPG.
-//   2. Faz "piscar" o LED brevemente a cada ~1s, como sinal visual de
-//      que o firmware está vivo e a correr (heartbeat).
-//   3. Atualiza o ecrã com a hora/data uma vez por segundo.
-// Note-se que os módulos IMU, PPG, BLE e a gravação em flash correm nas
-// suas próprias tasks do FreeRTOS (ver storageTask, Imu::startTask,
-// Ppg::startTask) — este loop() não faz a leitura dos sensores
-// diretamente, serve apenas de "vigia" e interface com o utilizador.
-// ============================================================
 void loop() {
   static uint32_t lastUiMs = 0;
 
   if (isRunning) {
 #if DEBUG_SERIAL_WAKE
-    // *** DEBUG TEMPORÁRIO ***: comandos "SLEEP"/"SOS" pela série substituem
-    // o long-press físico / o gesto de cliques, enquanto o botão não
-    // existir. Lidos AQUI, uma única vez por iteração, e comparados com
-    // ambos os candidatos sobre a MESMA linha recebida — ver comentário em
-    // pollSerialLine() para o porquê (bug corrigido: comparar "SLEEP" e
-    // "SOS" com duas chamadas separadas a serialCommandReceived() fazia a
-    // primeira consumir e descartar a linha antes da segunda a poder ver).
     const char *serialLine = pollSerialLine();
     if (serialLine != nullptr) {
       if (strcmp(serialLine, "SLEEP") == 0) {
@@ -1036,15 +604,7 @@ void loop() {
         Serial.println("[DEBUG] comando SOS recebido -> a disparar alerta de teste");
         Emergency::triggerTestAlert();
       }
-      // *** DEBUG TEMPORÁRIO ***: apaga a chave AES guardada em flash
-      // (ver Storage::removeAesKey()), para permitir reprovisionar via
-      // aesKeyChar depois de um mismatch entre a chave em uso e a que o
-      // bridge tem configurada (aesKeyChar só aceita a primeira escrita
-      // enquanto houver uma chave gravada — sem isto, o único jeito de
-      // corrigir um mismatch seria apagar toda a flash interna). Não
-      // apaga o ring buffer QSPI (chip externo, módulo separado) nem
-      // desliga o streaming — o próximo registo simplesmente não será
-      // cifrado corretamente até chegar uma chave nova.
+      // apaga a chave AES para reprovisionar via aesKeyChar (que so aceita a 1a escrita); nao mexe no ring buffer QSPI
       if (strcmp(serialLine, "CLEARKEY") == 0) {
         bool ok = Storage::removeAesKey();
         Serial.println(ok
@@ -1056,21 +616,9 @@ void loop() {
     Emergency::update();
     Nfc::update(); // no-op (ver Nfc.h)
 
-    // pollEmergency=true nas duas chamadas abaixo: Emergency::begin() já
-    // correu (setup() terminou, isRunning só fica true depois disso), por
-    // isso é seguro e necessário chamar Emergency::update() durante estas
-    // esperas bloqueantes, para o gesto SOS não perder cliques que caiam
-    // em cima deste caminho (ver bug corrigido em 2026-07-10, comentário
-    // em buttonPressedStable()).
     if (buttonPressedStable(/*pollEmergency=*/true)) {
-      // (String corrigida: tinha um byte de codificacao invalido no "ã",
-      // que aparecia como lixo no monitor serie.)
       Serial.println("Pressao detectada -> verificar 5 segundos...");
-      // Suspende o PPG durante a verificação do long-press porque o
-      // sensor cardíaco é sensível a movimento/vibração — não faz
-      // sentido continuar a medir enquanto se aguarda a decisão do
-      // utilizador de desligar ou não.
-      Ppg::suspendForPowerCheck();
+      Ppg::suspendForPowerCheck(); // sensor cardiaco e' sensivel a movimento
       if (waitForLongPress(/*pollEmergency=*/true)) {
         goToSleep();
       } else {
@@ -1078,18 +626,10 @@ void loop() {
       }
     }
 
-    // Heartbeat: pulso curto a cada segundo.
-    // Bug real corrigido aqui: delay(50)+delay(950) bloqueantes faziam
-    // Emergency::update() (chamado uma só vez no topo desta iteração, mais
-    // acima) ser amostrado a ~1Hz — muito abaixo do necessário para contar
-    // um gesto de 3 cliques dentro de sosClickWindowMs (1200ms por
-    // omissão, ver Emergency.h): a maioria das bordas de descida do botão
-    // ficava sem ser vista entre uma chamada e a seguinte. Substituído por
-    // delayPollingEmergency(), que mantém a mesma duração total mas chama
-    // Emergency::update() a cada ~5ms durante a espera.
-    digitalWrite(LED_BUILTIN, LOW);    // ON
+    // heartbeat: pulso curto a cada segundo
+    digitalWrite(LED_BUILTIN, LOW);
     delayPollingEmergency(50);
-    digitalWrite(LED_BUILTIN, HIGH);   // OFF
+    digitalWrite(LED_BUILTIN, HIGH);
     delayPollingEmergency(950);
 
     const uint32_t nowMs = millis();
@@ -1098,14 +638,8 @@ void loop() {
       showHourDateScreen();
     }
 
-    // BATERIA — amostragem periodica (nao a cada iteracao do loop: o
-    // nivel de bateria varia devagar, ver Battery.h/kBatterySampleIntervalMs
-    // e o pedido original de "uma vez a cada 30-60s e' suficiente"). Cada
-    // amostra ativa o divisor resistivo por uns milissegundos (ver
-    // Battery::sample()), le o ADC, e publica o resultado na Battery
-    // Service BLE padrao (Ble::updateBatteryLevel(), 0x180F/0x2A19).
     static uint32_t lastBatteryMs = 0;
-    constexpr uint32_t kBatterySampleIntervalMs = 60000; // 60s
+    constexpr uint32_t kBatterySampleIntervalMs = 60000;
     if ((nowMs - lastBatteryMs) >= kBatterySampleIntervalMs) {
       lastBatteryMs = nowMs;
       Battery::Reading batt{};
@@ -1121,12 +655,6 @@ void loop() {
     }
 
 #if DEBUG_STACK_WATERMARKS
-    // *** DIAGNOSTICO TEMPORARIO *** (ver DEBUG_STACK_WATERMARKS acima):
-    // a cada 15s, imprime quanta stack cada task ainda tem por gastar no
-    // pior caso observado ate agora. Valores altos e estaveis ao longo do
-    // tempo indicam que o *_TASK_STACK_WORDS respetivo esta generoso e
-    // pode ser reduzido; valores a aproximarem-se de 0 indicam perigo de
-    // stack overflow e NAO devem ser reduzidos.
     static uint32_t lastStackLogMs = 0;
     if ((nowMs - lastStackLogMs) >= 15000) {
       lastStackLogMs = nowMs;
@@ -1152,8 +680,3 @@ void loop() {
     Serial.println("Sistema a correr...");
   }
 }
-
-
-
-
-

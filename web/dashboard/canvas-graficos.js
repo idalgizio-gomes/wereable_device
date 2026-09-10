@@ -1,27 +1,6 @@
-/* ============================================================
-   ACESSIBILIDADE (RNF-08, 2026-09-07)
-   ------------------------------------------------------------
-   Justificação: Freitas et al. 2025 (Universal Design) — os cuidadores
-   que usam este dashboard são, muitas vezes, eles próprios idosos.
-   Critério de aceitação do requisito: contraste WCAG 2.1 AA, tamanho de
-   letra ajustável e navegação completa por teclado.
-
-   O contraste foi corrigido nas variáveis CSS (ver :root e
-   html[data-theme="light"] em index.html, com os rácios medidos em
-   comentário). Este bloco trata das outras duas partes.
-
-   PORQUÊ AQUI e não em i18n-theme.js, que seria o vizinho natural do
-   tema claro/escuro: esse ficheiro está fora do conjunto de ficheiros
-   que esta tarefa podia alterar. canvas-graficos.js é o módulo de
-   apresentação partilhado por todas as vistas e é também quem precisa
-   da escala de letra para desenhar rótulos dentro dos canvas (o canvas
-   não herda font-size do CSS — ver canvasFont()), por isso as duas
-   coisas ficam juntas em vez de duplicadas.
-============================================================ */
+//Acessibilidade RNF-08: contraste WCAG AA (CSS), escala de letra e navegação por teclado (aqui)
 const FONT_SCALE_KEY = 'carewear_font_scale';
-// Três níveis, não um slider contínuo: um slider obriga a mira fina do
-// rato, exatamente o que se está a tentar evitar. 1.35 é o máximo antes
-// de a barra superior começar a partir em ecrãs de 1366px.
+//Três níveis fixos em vez de slider (mais fácil de acertar com o rato)
 const FONT_SCALE_STEPS = [1, 1.15, 1.35];
 
 function loadFontScale(){
@@ -30,19 +9,14 @@ function loadFontScale(){
 }
 let currentFontScale = loadFontScale();
 
-// Escreve a escala na variável CSS --font-scale, que multiplica TODAS as
-// declarações font-size do dashboard (reescritas para
-// calc(Npx * var(--font-scale)) em index.html).
+//Escreve --font-scale (multiplica os font-size do dashboard)
 function setFontScale(scale){
   currentFontScale = FONT_SCALE_STEPS.includes(scale) ? scale : 1;
   try { localStorage.setItem(FONT_SCALE_KEY, String(currentFontScale)); }
-  catch (e) { /* quota excedida ou localStorage indisponível — fica só nesta sessão */ }
+  catch (e) { /* localStorage indisponível */ }
   document.documentElement.style.setProperty('--font-scale', String(currentFontScale));
   syncFontScaleButtons();
-  // Os canvas não são texto CSS: têm de ser redesenhados para os rótulos
-  // acompanharem a escala. renderView(currentView) é o mesmo caminho já
-  // usado por setAlertMode()/applyI18n() — e, por não haver mudança de
-  // vista, não escreve no histórico de navegação (ver renderView()).
+  //Redesenha os canvas para os rótulos acompanharem a escala
   if (typeof currentView !== 'undefined' && currentView
       && document.getElementById('view-app').classList.contains('active')) {
     renderView(currentView);
@@ -56,18 +30,13 @@ function syncFontScaleButtons(){
   });
 }
 
-// Tamanho de letra a usar DENTRO de um canvas. O contexto 2D não herda
-// nada do CSS, por isso a escala tem de ser aplicada à mão aqui — sem
-// isto, aumentar a letra deixava todos os rótulos de eixo dos gráficos
-// no tamanho original (e cada vez mais pequenos em comparação).
+//Tamanho de letra dentro do canvas (2D não herda CSS)
 function canvasFont(px, weight){
   const family = getComputedStyle(document.body).fontFamily;
   return `${weight ? weight + ' ' : ''}${(px * currentFontScale).toFixed(2)}px ${family}`;
 }
 
-// Destino da ligação "Saltar para o conteúdo" (ver .skip-link em
-// index.html). Foco programático em vez de navegação por fragmento, para
-// não colidir com o fragmento que identifica a vista aberta.
+//Destino do "Saltar para o conteúdo" (.skip-link)
 function focusMainContent(){
   const c = document.getElementById('content');
   if (!c) return;
@@ -79,22 +48,14 @@ function initAccessibility(){
   document.documentElement.style.setProperty('--font-scale', String(currentFontScale));
   syncFontScaleButtons();
 
-  // SC 3.1.1 — mantém <html lang> em sintonia com o idioma escolhido. O
-  // onchange do <select> já chama setLanguage() (i18n-theme.js, fora do
-  // alcance desta tarefa); este ouvinte corre a seguir, em vez de
-  // alterar essa função.
+  //SC 3.1.1 — mantém <html lang> em sintonia com o idioma escolhido
   const langSel = document.getElementById('langSelect');
   if (langSel) langSel.addEventListener('change', () => {
     document.documentElement.lang = langSel.value || 'pt';
   });
   document.documentElement.lang = (typeof currentLang !== 'undefined' && currentLang) || 'pt';
 
-  // SC 2.1.2 (No Keyboard Trap) / 2.1.1: os quatro modais da aplicação só
-  // se fechavam clicando no botão "Cancelar"/"Fechar". Escape fecha o
-  // modal visível carregando no seu próprio botão de saída — reutiliza a
-  // função de fecho de cada modal (closeResetModal, closeEpisodeTimelineModal,
-  // ...) em vez de as reimplementar aqui, que é o que garante que o estado
-  // interno de cada um fica limpo.
+  //SC 2.1.2 — Escape fecha o modal visível clicando no seu botão de saída
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     const aberto = Array.from(document.querySelectorAll('.modal-overlay'))
@@ -106,9 +67,7 @@ function initAccessibility(){
 }
 initAccessibility();
 
-/* ============================================================
-   CANVAS — utilidades de tooltip + DPR
-============================================================ */
+//CANVAS — utilidades de tooltip + DPR
 const ttipEl = document.getElementById('ttip');
 function showTip(x, y, html){
   ttipEl.innerHTML = html;
@@ -139,9 +98,7 @@ function colorOf(token){
   return token;
 }
 
-/* ============================================================
-   ROUTINE TIMELINE (gantt de 1 dia) — canvas + hover
-============================================================ */
+//ROUTINE TIMELINE (gantt de 1 dia) — canvas + hover
 function drawRoutineTimeline(id, blocks, subtitle, dashedAnomaly){
   const S = setupCanvas(id, 96);
   if (!S) return;
@@ -212,20 +169,8 @@ function roundRect(ctx,x,y,w,h,r){
   ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
 }
 
-/* ============================================================
-   HEATMAP semanal
-============================================================ */
-/* ------------------------------------------------------------
-   CONVERSÃO sRGB <-> OKLab/OKLCH (Björn Ottosson,
-   https://bottosson.github.io/posts/oklab/) — usada para construir
-   rampas sequenciais percetualmente uniformes (ex.: heatmap semanal) em
-   vez de interpolação RGB ingénua, que produzia blocos de tom muito
-   parecido, difíceis de distinguir (pedido do utilizador: "cores mais
-   facilmente identificáveis"). Segue a orientação do skill dataviz:
-   "Sequential = one hue, light→dark", ancorada na própria cor de fundo
-   do tema ativo em vez de uma tabela fixa — funciona nos dois temas
-   (claro/escuro) sem precisar de valores separados.
------------------------------------------------------------- */
+//HEATMAP semanal
+//Conversão sRGB <-> OKLab (Björn Ottosson) para rampa sequencial percetualmente uniforme, ancorada na cor de fundo do tema
 function srgbToLinear(c){ return c <= 0.04045 ? c/12.92 : Math.pow((c+0.055)/1.055, 2.4); }
 function linearToSrgb(c){ return c <= 0.0031308 ? c*12.92 : 1.055*Math.pow(c, 1/2.4) - 0.055; }
 function hexToRgb01(hex){
@@ -254,10 +199,7 @@ function oklabToRgb(L,a,b){
   const lb=-0.0041960863*l-0.7034186147*m+1.7076147010*s;
   return [lr,lg,lb].map(v => linearToSrgb(Math.max(0, Math.min(1, v))));
 }
-// Devolve uma função (t: 0..1) => "rgb(r,g,b)". t=0 fica ancorado na
-// própria cor da superfície (funde-se no fundo, tal como uma rampa
-// sequencial deve "recuar" para perto de zero); t=1 é a versão mais
-// saturada/clara (escuro) ou mais saturada/escura (claro) do accent.
+//t=0 funde-se no fundo, t=1 é a versão mais saturada do accent
 function buildSequentialRamp(accentHex, surfaceHex){
   const [ar,ag,ab] = hexToRgb01(accentHex);
   const [aL,aa,ab2] = rgbToOklab(ar,ag,ab);
@@ -322,11 +264,7 @@ function drawHeatmap(id){
   S.cv.onmouseleave = hideTip;
 }
 
-/* ============================================================
-   TENDÊNCIA — linhas indexadas (3 métricas, escalas diferentes
-   → cada série é normalizada ao seu próprio min/max, nunca um
-   duplo eixo y) com crosshair + tooltip
-============================================================ */
+//TENDÊNCIA — 3 métricas normalizadas ao próprio min/max (nunca duplo eixo y), com tooltip
 function drawTrend(id){
   const S = setupCanvas(id, 190);
   if (!S) return;
@@ -395,19 +333,13 @@ function drawHrSeries(id){
   const padL=30, padR=8, top=14, bottom=22;
   const plotW=w-padL-padR, plotH=h-top-bottom;
 
-  // Em modo "ao vivo" (bridge ligado) desenha o buffer real recebido por
-  // WebSocket (liveHrBuffer); caso contrário, cai para a série simulada
-  // currentHrSeries() — mantém o gráfico sempre com algo para mostrar.
+  //Ao vivo (bridge ligado): usa liveHrBuffer; senão cai para a série simulada
   const live = liveState.connected && liveHrBuffer.length >= 2;
   const series = live ? liveHrBuffer : currentHrSeries();
   const label = document.getElementById('hrChartLabel');
   if (label) label.textContent = live ? '— ao vivo' : '— últimas 24h (demonstração)';
 
-  // Escala do eixo Y calculada a partir dos valores reais da série (fixo
-  // em 50-105 antes disto) — um valor fora desse intervalo fixo (ex.:
-  // deteção de HR com ruído, ver "Sessão de hardware real" no
-  // PROJECT_STATUS.md, 175-187 bpm) ficava desenhado fora do canvas,
-  // invisível, sem qualquer indicação de que algo estava a ser cortado.
+  //Escala do eixo Y calculada a partir dos valores reais (evita cortar picos fora de 50-105 fixo)
   const values = series.map(d => d.hr);
   const dataMin = Math.min(...values), dataMax = Math.max(...values);
   const pad = Math.max(5, (dataMax - dataMin) * 0.15);
@@ -435,7 +367,7 @@ function drawHrSeries(id){
   ctx.strokeStyle = resolveVar('--status-good'); ctx.lineWidth=2; ctx.stroke();
 
   if (live){
-    // Eixo com o instante (hh:mm) de cada amostra recebida.
+    //Eixo com o instante (hh:mm) de cada amostra
     const step = Math.max(1, Math.floor(series.length/6));
     series.forEach((d,i)=>{
       if (i % step !== 0 && i !== series.length-1) return;

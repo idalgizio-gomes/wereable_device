@@ -9,11 +9,7 @@ function buildFhirBundle(){
     name: [{ text: p.name }],
     extension: [{ url: 'age', valueInteger: p.age }],
   };
-  // Bug corrigido: esta exportação ignorava por completo o interruptor de
-  // "Alertas e registo de anomalias" do cartão de Consentimento — as
-  // vistas "Pacientes"/"Anomalias detetadas" já escondiam essa informação
-  // corretamente quando desligado, mas o Médico/Técnico continuava a
-  // conseguir obtê-la de qualquer forma através deste export FHIR.
+  // respeita o interruptor "Alertas e registo de anomalias" do Consentimento (antes ignorado por este export)
   const consented = loadConsent(p.id).shareAlerts;
   const observations = consented ? currentAlerts().map((a, i) => ({
     resourceType: 'Observation',
@@ -41,9 +37,7 @@ function buildFhirBundle(){
   };
 }
 
-// Descarrega um ficheiro JSON gerado em memória (sem backend) — mesma
-// técnica usada noutros exportadores client-side simples: Blob + <a
-// download> temporário, sem deixar o elemento no DOM.
+// Blob + <a download> temporário, sem deixar o elemento no DOM
 function downloadJson(filenamePrefix, data){
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -60,8 +54,7 @@ function exportFhirSummary(){
   downloadJson('carewear-fhir-resumo', buildFhirBundle());
 }
 
-// Descarrega texto CSV já pronto (recebido do bridge) — mesma técnica de
-// Blob + <a download> usada em downloadJson(), mas sem o JSON.stringify.
+// texto CSV já pronto (recebido do bridge) — mesma técnica de downloadJson(), sem JSON.stringify
 function downloadCsvText(filenamePrefix, csvText){
   const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -74,19 +67,8 @@ function downloadCsvText(filenamePrefix, csvText){
   URL.revokeObjectURL(url);
 }
 
-/* ------------------------------------------------------------
-   EXPORTAÇÃO CSV DE DADOS REAIS — ligado à base de dados SQLite do
-   bridge (bridge/storage.py), pedido do utilizador (2026-07-03):
-   "quero que dê para exportar os dados também em CSV" — CSV é lido
-   diretamente por praticamente qualquer ferramenta SQL/de dados
-   (SQLite .import, PostgreSQL COPY, MySQL LOAD DATA, Excel, pandas).
-   Diferente do FHIR/PDF acima (que só cobre o que está visível nesta
-   sessão): isto pede ao bridge o histórico real persistido em disco.
------------------------------------------------------------- */
-// 87600h = 10 anos — não há "sem limite" real na API (hours é sempre um
-// filtro de corte), por isso usa-se um valor grande o suficiente para
-// cobrir qualquer instalação real deste protótipo como proxy de "tudo".
-const EXPORT_ALL_HOURS = 87600;
+// CSV de dados reais — pede ao bridge o histórico persistido em SQLite (não só o visível nesta sessão)
+const EXPORT_ALL_HOURS = 87600; // 10 anos, proxy de "sem limite" (a API não tem esse conceito)
 
 function exportRealCsv(hours){
   const hint = document.getElementById('csvExportHint');
@@ -112,23 +94,11 @@ function handleCsvExportResult(msg){
   if (hint){ hint.style.color = 'var(--status-good)'; hint.textContent = t('exportar.csvDownloadedHint'); }
 }
 
-/* ------------------------------------------------------------
-   RETENÇÃO DE DADOS CONFIGURÁVEL (item pendente do backlog,
-   PROJECT_STATUS.md, Prioridade 4 — "expor DEFAULT_RETENTION_DAYS como
-   opção configurável pelo utilizador em vez de constante fixa no
-   código"). Lê/grava o valor efetivo guardado pelo bridge (tabela
-   `settings` em bridge/storage.py), não um valor local ao browser —
-   afeta a limpeza automática real de `sensor_records`.
------------------------------------------------------------- */
 function exportClinicalPdf(){
   const p = selectedPatient();
   const sheet = document.getElementById('clinicalPrintSheet');
   if (!sheet) return;
-  // Bug corrigido: mesmo lapso da exportação FHIR acima — esta folha de
-  // impressão/PDF ignorava o consentimento do paciente e incluía sempre
-  // alertas/anomalias, mesmo com "Alertas e registo de anomalias"
-  // desligado em Definições → Consentimento.
-  const consented = loadConsent(p.id).shareAlerts;
+  const consented = loadConsent(p.id).shareAlerts; // mesmo lapso da exportação FHIR — respeita consentimento
   const alerts = consented ? currentAlerts() : [];
   const anomalies = consented ? currentAnomalyLog() : [];
   const consentNote = consented ? '' : '<p class="print-meta"><b>Nota:</b> o utente/família não autorizou a partilha de alertas e anomalias com a equipa clínica (ver Definições → Consentimento) — omitidos deste resumo.</p>';

@@ -20,6 +20,7 @@ Estrutura de fixtures igual à de test_api.py (chaves de API reais, SQLite
 em memória via conftest.py) — não se duplica lógica de autenticação.
 """
 import uuid as _uuid
+from types import SimpleNamespace
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -204,21 +205,41 @@ class TestEstruturaObservation:
         observations = fhir_export.observations_from_sensor_record(record, _subject(), device_id=3)
         assert [o["id"] for o in observations] == ["hr-1"]
 
-    def test_janela_de_atividade_usa_start_time_no_effective_datetime(self):
+    def test_janela_de_atividade_usa_effective_period(self):
+        """2026-09-07: activity_duration passou a effectivePeriod (start+end)
+        em vez de effectiveDateTime pontual + Quantity de duração, seguindo
+        o HL7 FHIR Physical Activity Implementation Guide — ver a nota em
+        SIGNAL_MAPPINGS["activity_duration"]."""
         class _Window:
             id = 5
             device_id = 3
             activity_date = datetime(2026, 9, 7)
             activity_category = "sleep"
-            start_time = 90  # 01:30
+            start_time = 90   # 01:30
+            end_time = 480    # 08:00
+            duration_minutes = 390
+
+        observation = fhir_export.observation_from_activity_window(_Window(), _subject(), device_id=3)
+        assert "effectiveDateTime" not in observation
+        assert observation["effectivePeriod"]["start"] == "2026-09-07T01:30:00Z"
+        assert observation["effectivePeriod"]["end"] == "2026-09-07T08:00:00Z"
+        assert "valueQuantity" not in observation
+        assert "sleep" in observation["code"]["text"]
+        assert fhir_export.validate_observation(observation) == []
+
+    def test_janela_de_atividade_que_atravessa_a_meia_noite(self):
+        class _Window:
+            id = 6
+            device_id = 3
+            activity_date = datetime(2026, 9, 7)
+            activity_category = "sleep"
+            start_time = 1380  # 23:00
+            end_time = 360     # 06:00 do dia seguinte
             duration_minutes = 420
 
         observation = fhir_export.observation_from_activity_window(_Window(), _subject(), device_id=3)
-        assert observation["effectiveDateTime"] == "2026-09-07T01:30:00Z"
-        assert observation["valueQuantity"]["value"] == 420
-        assert observation["valueQuantity"]["code"] == "min"
-        assert "sleep" in observation["code"]["text"]
-        assert fhir_export.validate_observation(observation) == []
+        assert observation["effectivePeriod"]["start"] == "2026-09-07T23:00:00Z"
+        assert observation["effectivePeriod"]["end"] == "2026-09-08T06:00:00Z"
 
     def test_bundle_e_valido_e_total_coincide_com_as_entradas(self):
         record = _FakeRecord(heart_rate=72, spo2_percent=97)
@@ -251,26 +272,46 @@ class TestCodigosClinicos:
         assert codes == {"2708-6", "59408-5"}
         assert observation["valueQuantity"]["code"] == "%"
 
-    @pytest.mark.parametrize("attr,mapping_key", [
-        ("steps_count", "steps_count"),
-        ("pacing_index", "pacing_index"),
-    ])
-    def test_sinais_por_confirmar_saem_sem_coding(self, attr, mapping_key):
+    def test_activity_duration_sai_sem_coding(self):
         """REGRA CENTRAL DO RF-11: melhor ficar por confirmar do que
-        inventar um código clínico errado. Um sinal não confirmado sai com
-        `text` e SEM `coding` — o recetor percebe que não pode processar
-        aquilo automaticamente."""
-        record = _FakeRecord(**{attr: 10})
-        observation = fhir_export.observations_from_sensor_record(record, _subject(), device_id=3)[0]
+        inventar um código clínico errado. activity_duration não tem
+        candidato LOINC que cubra as 5 categorias (sleep/rest/activity/
+        eating/hygiene) e sai com `text` e SEM `coding`."""
+        record = SimpleNamespace(id=1, device_id=3, activity_date=datetime(2026, 9, 7),
+                                  activity_category="sleep", start_time=90, duration_minutes=420,
+                                  end_time=None)
+        observation = fhir_export.observation_from_activity_window(record, _subject(), device_id=3)
         assert "coding" not in observation["code"]
         assert observation["code"]["text"]
-        assert fhir_export.SIGNAL_MAPPINGS[mapping_key].confirmed is False
-        # Continua a ser um recurso FHIR válido: `text` sozinho é legal.
+        assert fhir_export.SIGNAL_MAPPINGS["activity_duration"].confirmed is False
         assert fhir_export.validate_observation(observation) == []
+
+    def test_steps_count_e_pacing_index_agora_confirmados(self):
+        """2026-09-07: steps_count passou a LOINC 41950-7 depois do firmware
+        reiniciar o contador à meia-noite UTC (resetStepsIfNewDay(),
+        src/Imu/Imu.cpp); pacing_index passou a código próprio do CareWear
+        (CAREWEAR_CODESYSTEM_URL), não LOINC — é uma métrica derivada, não
+        um conceito clínico estabelecido, e diz-se isso no próprio sistema
+        de codificação emitido."""
+        record = _FakeRecord(steps_count=10, pacing_index=10)
+        observations = fhir_export.observations_from_sensor_record(record, _subject(), device_id=3)
+        by_key = {}
+        for o in observations:
+            for c in o["code"].get("coding", []):
+                by_key[c["system"]] = c
+        steps_coding = next(c for o in observations for c in o["code"].get("coding", [])
+                             if c["code"] == "41950-7")
+        assert steps_coding["system"] == fhir_export.LOINC_SYSTEM
+        pacing_coding = next(c for o in observations for c in o["code"].get("coding", [])
+                              if c["code"] == "pacing-index")
+        assert pacing_coding["system"] == fhir_export.CAREWEAR_CODESYSTEM_URL
+        assert pacing_coding["system"] != fhir_export.LOINC_SYSTEM
+        assert fhir_export.SIGNAL_MAPPINGS["steps_count"].confirmed is True
+        assert fhir_export.SIGNAL_MAPPINGS["pacing_index"].confirmed is True
 
     def test_lista_de_codigos_por_confirmar_e_explicita(self):
         pendentes = {u["signal"] for u in fhir_export.unconfirmed_signals()}
-        assert pendentes == {"steps_count", "activity_duration", "pacing_index"}
+        assert pendentes == {"activity_duration"}
         for item in fhir_export.unconfirmed_signals():
             assert item["note"], "cada código por confirmar tem de dizer PORQUÊ"
 
@@ -500,7 +541,7 @@ class TestEndpointFhir:
         response = client.get("/api/fhir/observation-mappings", headers=primary.headers)
         assert response.status_code == 200
         body = response.json()
-        assert {s["signal"] for s in body["confirmed"]} == {"heart_rate", "spo2_percent"}
-        assert {s["signal"] for s in body["unconfirmed"]} == {
-            "steps_count", "activity_duration", "pacing_index"
+        assert {s["signal"] for s in body["confirmed"]} == {
+            "heart_rate", "spo2_percent", "steps_count", "pacing_index"
         }
+        assert {s["signal"] for s in body["unconfirmed"]} == {"activity_duration"}

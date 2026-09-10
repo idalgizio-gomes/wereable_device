@@ -19,9 +19,7 @@ WS_TLS_KEY_PATH = Path(__file__).parent / "tls_key.pem"
 
 WS_TOKEN = os.environ.get("CAREWEAR_WS_TOKEN")
 
-# Valvula de escape para desenvolvimento sem base de dados. Com o valor por
-# omissao ("0"), uma ligacao WebSocket sem sessao valida e' recusada — ver
-# process_request(). Nunca definir esta variavel num ambiente com dados reais.
+# dev-only: liga a validação de sessão em process_request(). Nunca usar com dados reais.
 WS_ALLOW_ANONYMOUS = os.environ.get("CAREWEAR_WS_ALLOW_ANONYMOUS", "0") == "1"
 
 
@@ -73,40 +71,21 @@ def build_ssl_context() -> Optional[ssl.SSLContext]:
 
 
 async def process_request(connection, request, sa=None, auth_sessions=None):
-    """Handshake do WebSocket: valida o token estatico opcional e resolve a
-    sessao do utilizador para identidade + perfil.
-
-    RF-02 (2026-09-07). Ate esta data a sessao era resolvida mas NUNCA
-    imposta: `_carewear_user_id` alimentava apenas o campo user_id do
-    registo de auditoria, pelo que uma ligacao sem sessao nenhuma recebia
-    na mesma todos os dados clinicos e podia executar comandos
-    destrutivos. Era auditoria, nao autorizacao. Passa a ser exigida uma
-    sessao valida para a ligacao ser aceite, e o perfil fica guardado em
-    `_carewear_user_role` para o mapa de autorizacao por comando em
-    ble_bridge.handle_dashboard_command().
-
-    A valvula de escape CAREWEAR_WS_ALLOW_ANONYMOUS=1 existe para
-    desenvolvimento sem base de dados; imprime aviso e NAO deve ser usada
-    fora disso.
-    """
+    """Handshake do WebSocket: valida o token estático opcional e resolve a sessão do
+    utilizador para identidade + perfil (`_carewear_user_role` usado em
+    ble_bridge.handle_dashboard_command()). Sessão válida é obrigatória para aceitar a ligação."""
     query = urllib.parse.parse_qs(urllib.parse.urlparse(request.path).query)
 
     if WS_TOKEN:
         presented = query.get("token", [None])[0] or ""
-        # compare_digest em vez de != : evita distinguir o token por tempo
-        # de resposta. O token estatico e' partilhado, pelo que so serve
-        # como barreira de rede — a autorizacao real e' a sessao abaixo.
-        if not secrets.compare_digest(presented, WS_TOKEN):
+        if not secrets.compare_digest(presented, WS_TOKEN):  # timing-safe compare
             return connection.respond(http.HTTPStatus.UNAUTHORIZED, "token invalido ou ausente\n")
 
     session_token = query.get("session", [None])[0]
     connection._carewear_user_id = None
     connection._carewear_user_role = None
 
-    if auth_sessions is None or sa is None:
-        # Sem ORM nao ha forma de validar sessoes. Falha fechada: e'
-        # preferivel o dashboard nao ligar a servir dados clinicos a quem
-        # nao foi identificado.
+    if auth_sessions is None or sa is None:  # sem ORM, falha fechada
         if WS_ALLOW_ANONYMOUS:
             print("[BRIDGE] AVISO: ORM indisponivel e CAREWEAR_WS_ALLOW_ANONYMOUS=1 "
                   "— ligacao WebSocket aceite SEM autenticacao")
@@ -122,7 +101,7 @@ async def process_request(connection, request, sa=None, auth_sessions=None):
             if user is not None:
                 connection._carewear_user_id = user.id
                 connection._carewear_user_role = user.role
-                db.commit()  # persiste o last_used_at escrito por resolve_session()
+                db.commit()  # persiste last_used_at escrito por resolve_session()
         finally:
             db.close()
 

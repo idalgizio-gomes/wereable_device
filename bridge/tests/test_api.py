@@ -255,21 +255,32 @@ class TestIDOR:
         )
         assert resp.status_code == 200
 
-    def test_admin_sees_everything_without_association(self, client, db):
+    def test_admin_de_sistema_nao_ve_nada_clinico(self, client, db):
+        """ALTERADO a 2026-09-07 (dois perfis de administrador).
+
+        Este teste chamava-se `test_admin_sees_everything_without_association`
+        e afirmava o contrário: que `admin` via TUDO sem associação. Esse
+        comportamento foi removido de propósito — o `admin` passou a ser
+        só Admin de Sistema (contas, dispositivos, firmware, logs), e a
+        API deixou de ser mais permissiva do que a própria vista de
+        administrador do dashboard, que já não mostrava dados clínicos
+        desde 2026-08-06 (ver cabeçalho de web/dashboard/admin-view.js).
+        O acesso clínico de suporte é agora o papel `admin_clinical` —
+        ver test_admin_profiles.py.
+        """
         admin = _make_user(db, role="admin", name="Root")
         key, _ = _issue_key(db, admin)
         patient, device = _make_patient_device(db, caregiver=None)
         med = _make_medication(db, patient)
-        # GET FC, GET aderência, GET atividade, POST — todos 200 sem associação.
-        assert client.get(f"/api/devices/{device.id}/heart-rate-trends", headers={"X-API-Key": key}).status_code == 200
-        assert client.get(f"/api/patients/{patient.id}/medication-adherence", headers={"X-API-Key": key}).status_code == 200
-        assert client.get(f"/api/devices/{device.id}/activity-distribution", params={"date": "2026-07-07"}, headers={"X-API-Key": key}).status_code == 200
+        assert client.get(f"/api/devices/{device.id}/heart-rate-trends", headers={"X-API-Key": key}).status_code == 404
+        assert client.get(f"/api/patients/{patient.id}/medication-adherence", headers={"X-API-Key": key}).status_code == 404
+        assert client.get(f"/api/devices/{device.id}/activity-distribution", params={"date": "2026-07-07"}, headers={"X-API-Key": key}).status_code == 404
         post = client.post(
             f"/api/medications/{med.id}/adherence",
             json={"scheduled_datetime": "2026-07-08T08:00:00", "taken": True},
             headers={"X-API-Key": key},
         )
-        assert post.status_code == 200
+        assert post.status_code == 404
 
 
 # ==================================================================

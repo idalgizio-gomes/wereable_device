@@ -1,4 +1,4 @@
-/* Retencao, consentimento e limiares personalizados - extraido de bridge-exportacao.js */
+//Retenção, consentimento e limiares personalizados
 
 function requestRetentionSettings(){
   const hint = document.getElementById('retentionHint');
@@ -46,17 +46,7 @@ function handleRetentionDaysSaveResult(msg){
   }
 }
 
-/* ------------------------------------------------------------
-   CONSENTIMENTO GRANULAR POR ÂMBITO (RGPD, 2026-08-05)
-   ------------------------------------------------------------
-   Distinto do `.consent-toggle` de "definicoes" (partilha com
-   cuidadores, guardado em localStorage) — isto lê/grava
-   `ConsentRecord` real na base de dados do bridge (ver
-   bridge/storage_advanced.py::CONSENT_SCOPES), por isso a função
-   chama-se setConsentScope() e não setConsent(), para não colidir com
-   a já existente. Cada âmbito é independente: sensor_data, analytics,
-   export, research (mesma ordem de sa.CONSENT_SCOPES).
-------------------------------------------------------------- */
+//Consentimento granular por âmbito (RGPD) — grava ConsentRecord na BD do bridge (storage_advanced.py::CONSENT_SCOPES)
 const CONSENT_SCOPES_UI = [
   { scope: 'sensor_data', labelKey: 'consentimento.scopeSensorData', descKey: 'consentimento.scopeSensorDataDesc' },
   { scope: 'analytics', labelKey: 'consentimento.scopeAnalytics', descKey: 'consentimento.scopeAnalyticsDesc' },
@@ -64,14 +54,11 @@ const CONSENT_SCOPES_UI = [
   { scope: 'research', labelKey: 'consentimento.scopeResearch', descKey: 'consentimento.scopeResearchDesc' },
 ];
 
-// null = ainda não chegou nenhuma resposta do bridge (distinto de "{}" =
-// chegou mas nenhum âmbito foi decidido, o que get_consent_status também
-// pode devolver por scope).
-liveState.consentStatus = null;
+liveState.consentStatus = null; //null = sem resposta ainda; {} = respondeu sem âmbitos decididos
 
 function requestConsentStatus(){
   const hint = document.getElementById('consentHint');
-  renderConsentScopes(); // desenha a lista já (estado "a carregar/sem ligação")
+  renderConsentScopes();
   if (!bridgeWs || bridgeWs.readyState !== WebSocket.OPEN){
     if (hint){ hint.style.color = 'var(--status-warning)'; hint.textContent = t('consentimento.noBridgeConnectionHint'); }
     return;
@@ -96,7 +83,7 @@ function setConsentScope(scope, granted){
   const sent = sendWsCommandWithArgs('set_consent', { scope, granted, representative_name: representativeName });
   if (!sent){
     if (hint){ hint.style.color = 'var(--status-warning)'; hint.textContent = t('consentimento.noBridgeConnectionHint'); }
-    renderConsentScopes(); // repõe o toggle visualmente (o pedido nem saiu)
+    renderConsentScopes(); //repõe o toggle (o pedido nem saiu)
     return;
   }
   if (hint){ hint.style.color = ''; hint.textContent = t('consentimento.savingHint'); }
@@ -106,19 +93,16 @@ function handleConsentResultMessage(msg){
   const hint = document.getElementById('consentHint');
   if (!msg.ok){
     if (hint){ hint.style.color = 'var(--status-warning)'; hint.textContent = `Falhou: ${msg.error || 'erro desconhecido'}.`; }
-    renderConsentScopes(); // repõe o toggle para o estado real (a gravação falhou)
+    renderConsentScopes(); //repõe o toggle (gravação falhou)
     return;
   }
   if (hint){ hint.style.color = 'var(--status-good)'; hint.textContent = 'Guardado.'; }
-  // Pede o estado completo de novo em vez de compor localmente — a base de
-  // dados (signed_at/version reais) é sempre a fonte de verdade, o mesmo
-  // raciocínio de handleRetentionDaysSaveResult acima.
-  sendWsCommand('get_consent_status');
+  sendWsCommand('get_consent_status'); //BD é a fonte de verdade, não compor localmente
 }
 
 function renderConsentScopes(){
   const list = document.getElementById('consentScopesList');
-  if (!list) return; // vista "exportar" não está aberta
+  if (!list) return; //vista "exportar" não está aberta
   const status = liveState.consentStatus;
   list.innerHTML = CONSENT_SCOPES_UI.map(({ scope, labelKey, descKey }) => {
     const entry = status ? status[scope] : null;
@@ -139,18 +123,7 @@ function renderConsentScopes(){
   }).join('');
 }
 
-/* ------------------------------------------------------------
-   BASELINE COMPORTAMENTAL PERSONALIZADA (2026-08-05)
-   ------------------------------------------------------------
-   Lê/grava PersonalizedThreshold real (ver bridge/storage_advanced.py) e
-   mostra alertas de FC/SpO2 em tempo real (bridge/vital_alerts.py) quando
-   uma leitura sai dos limiares definidos. Só expõe no formulário os 3
-   campos com avaliação em tempo real de facto ligada (heart_rate_min/max,
-   spo2_min) — o esquema tem mais 4 campos (inactivity_threshold_seconds,
-   sleep/activity_target_minutes, steps_target_daily) sem nenhuma rotina a
-   avaliá-los ainda; não expor um controlo que não faz nada é a mesma
-   disciplina já aplicada ao resto do dashboard (ex.: ACTIVITY_ML_DISCLAIMER).
-------------------------------------------------------------- */
+//Baseline comportamental — lê/grava PersonalizedThreshold (storage_advanced.py); só expõe os 3 campos com avaliação em tempo real ligada
 function requestThresholds(){
   const hint = document.getElementById('thresholdsHint');
   if (!bridgeWs || bridgeWs.readyState !== WebSocket.OPEN){
@@ -207,10 +180,7 @@ function handleThresholdsSaveResult(msg){
   }
 }
 
-// Estado ao vivo dos alertas de sinal vital (ver kind "vital_alert" em
-// handleBridgeMessage) — indexado por sinal ('hr'/'spo2'), cada entrada é
-// o payload do alerta ativo ou null (dentro dos limiares).
-liveState.vitalAlerts = { hr: null, spo2: null };
+liveState.vitalAlerts = { hr: null, spo2: null }; //payload do alerta ativo por sinal, ou null
 
 function renderVitalAlertsPanel(){
   const host = document.getElementById('vitalAlertsPanel');
@@ -222,13 +192,6 @@ function renderVitalAlertsPanel(){
   `).join('');
 }
 
-/* ------------------------------------------------------------
-   VERSIONAMENTO E ROLLBACK DO MODELO ML (2026-08-05)
-   ------------------------------------------------------------
-   Lista as versões registadas do classificador de atividade
-   (bridge/storage_advanced.py::MlModelVersion) e permite ativar
-   (rollback/promoção) uma delas em runtime, sem reiniciar o bridge — ver
-   cmds "list_model_versions"/"activate_model_version" em ble_bridge.py.
-------------------------------------------------------------- */
-liveState.modelVersions = null; // null = ainda não chegou nenhuma resposta
+//Versionamento/rollback do modelo ML — cmds list_model_versions/activate_model_version em ble_bridge.py
+liveState.modelVersions = null; //null = ainda não chegou resposta
 

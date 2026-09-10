@@ -1,11 +1,4 @@
-// ============================================================
-// BleInternal.h - declaracoes privadas partilhadas entre Ble.cpp e
-// BleGattDump.cpp (ver Ble.h para a API publica do modulo).
-// ============================================================
-// Nao incluir fora de src/Ble/ - isto NAO e a interface publica do
-// modulo BLE, so existe para ligar os dois .cpp deste modulo sem
-// duplicar objetos/estado (ver PROJECT_STATUS.md, modularizacao
-// 2026-09-07, para o porque desta divisao).
+// BleInternal.h - declaracoes privadas partilhadas entre Ble.cpp e BleGattDump.cpp. Nao incluir fora de src/Ble/ (ver Ble.h para a API publica).
 #pragma once
 
 #include "Ble/Ble.h"
@@ -14,11 +7,7 @@
 #include <cstdint>
 #include <cstring>
 
-// ------------------------------------------------------------
-// Objetos GATT (servicos/characteristics) - definidos uma unica vez em
-// Ble.cpp, usados tambem por BleGattDump.cpp (gattDumpTask,
-// sendLiveSnapshot, publishDumpStatus).
-// ------------------------------------------------------------
+// objetos GATT definidos em Ble.cpp, usados tambem por BleGattDump.cpp
 extern BLEService        wearableService;
 extern BLECharacteristic aesKeyChar;
 extern BLEService        currentTimeService;
@@ -32,10 +21,7 @@ extern BLECharacteristic emergencyProfileChar;
 extern BLECharacteristic liveSnapshotChar;
 extern BLEBas             batteryService;
 
-// ------------------------------------------------------------
-// Constantes de configuracao do "modo de dados" (streaming GATT) - ver
-// comentario completo original junto de cada uma em BleGattDump.cpp.
-// ------------------------------------------------------------
+// config do "modo de dados" (streaming GATT)
 constexpr uint16_t kGattDumpTaskStackWords = 1280;
 constexpr uint32_t kGattDumpInterPacketMs = 2;
 constexpr uint8_t kGattDumpTxMaxRetries = 5;
@@ -63,10 +49,6 @@ constexpr uint8_t kDumpDataType = 0xA1;
 constexpr uint8_t kDumpStatusType = 0xA2;
 constexpr const char *kBleBuildTag = "BLE_GATT_DUMP_V1";
 
-// ------------------------------------------------------------
-// Formatos de pacote - ver comentario original completo junto de cada
-// struct em BleGattDump.cpp (FullPlain) / Ble.cpp (EmergencyAlertPacket).
-// ------------------------------------------------------------
 struct __attribute__((packed)) FullPlain {
   uint32_t ts;
   float ax;
@@ -121,18 +103,12 @@ static_assert(sizeof(DumpDataPacket) == 20, "DumpDataPacket must have 20 bytes")
 static_assert(sizeof(DumpStatusPacket) == 20, "DumpStatusPacket must have 20 bytes");
 static_assert(sizeof(EmergencyAlertPacket) == 8, "EmergencyAlertPacket must have 8 bytes");
 
-// Estados possiveis da maquina de estados do "dump" (streaming) de
-// sensores - ver comentario original completo em BleGattDump.cpp.
 enum DumpState : uint8_t {
   DUMP_IDLE = 0,
   DUMP_STREAMING = 1,
 };
 
-// ------------------------------------------------------------
-// Estado partilhado da maquina de streaming - definido em
-// BleGattDump.cpp, escrito tambem pelos callbacks BLE em Ble.cpp
-// (dumpCtrlCallback, periphConnectCallback, periphDisconnectCallback).
-// ------------------------------------------------------------
+// estado partilhado da maquina de streaming, definido em BleGattDump.cpp, escrito tambem pelos callbacks BLE em Ble.cpp
 extern volatile DumpState s_dumpState;
 extern volatile bool s_dumpStartRequested;
 extern volatile bool s_dumpStopRequested;

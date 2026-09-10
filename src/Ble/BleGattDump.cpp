@@ -1,10 +1,4 @@
-// ============================================================
-// BleGattDump.cpp - "modo de dados": cifra AES-CTR, nonces persistentes,
-// e a tarefa FreeRTOS de streaming GATT dos registos de sensores.
-// ============================================================
-// Extraido de Ble.cpp (2026-09-07, modularizacao) - ver Ble.h para a
-// visao geral do modulo e BleInternal.h para o estado/objetos GATT
-// partilhados com Ble.cpp (callbacks BLE, Ble::begin(), etc.).
+// BleGattDump.cpp - "modo de dados": cifra AES-CTR, nonces persistentes, tarefa FreeRTOS de streaming GATT. Estado partilhado com Ble.cpp em BleInternal.h.
 #include "BleInternal.h"
 
 #include "Storage/Storage.h"
@@ -17,8 +11,7 @@
 #include <AES.h>
 #include <CTR.h>
 
-// Estado partilhado da maquina de streaming (ver BleInternal.h) -
-// definido aqui, lido/escrito tambem pelos callbacks BLE em Ble.cpp.
+// estado partilhado (ver BleInternal.h), lido/escrito tambem pelos callbacks BLE em Ble.cpp
 volatile DumpState s_dumpState = DUMP_IDLE;
 volatile bool s_dumpStartRequested = false;
 volatile bool s_dumpStopRequested = false;
@@ -30,63 +23,22 @@ TaskHandle_t s_dumpTaskHandle = nullptr;
 
 namespace {
 
-// Copia em RAM da chave AES atualmente ativa (para acesso rapido sem
-// tocar na flash a cada operacao de cifra/decifra).
 static uint8_t s_aesKey[AES_KEY_MAX_LEN] = {0};
-// Comprimento real da chave em s_aesKey (16, 24 ou 32 - AES-128/192/256).
-static size_t s_aesKeyLen = 0;
+static size_t s_aesKeyLen = 0; // 16, 24 ou 32 (AES-128/192/256)
 
-// "Registo pendente": o proximo registo já lido do ring buffer mas
-// ainda nao confirmado como enviado com sucesso (s_dumpPendingValid em
-// si e' extern, ver BleInternal.h - partilhado com os callbacks BLE).
+// registo lido do ring buffer mas ainda nao confirmado enviado (s_dumpPendingValid e' extern, ver BleInternal.h)
 static uint32_t s_dumpPendingSeq = 0;
 static FullPlain s_dumpPendingSample = {};
 static uint32_t s_dumpPendingNonce = 0;
 
-// ------------------------------------------------------------------
-// Alocacao de nonces por LOTES (evita escrever na flash interna a cada
-// registo).
-// ------------------------------------------------------------------
-// Registos chegam ate ~52/seg (taxa do IMU). Ler+incrementar+gravar o
-// contador persistido (Storage::counter_load()+counter_save(), que fazem
-// remove()+write() a um ficheiro LittleFS na flash interna) uma vez por
-// registo faria ate ~52 escritas de flash por segundo enquanto o
-// streaming estiver ativo — isto e' um erro grave de desenho, nao so' de
-// desempenho: a flash interna do nRF52840 tem um numero finito de ciclos
-// de apagar/escrever por setor (tipicamente dezenas de milhares), e a
-// esse ritmo esgotar-se-ia em horas/dias de uso continuo, alem de cada
-// escrita de flash ser bem mais lenta (ms) do que o intervalo entre
-// registos a 52Hz (~19ms), arriscando atrasos que já causaram
-// desconexoes BLE no passado (ver kGattDumpInterPacketMs).
-//
-// Por isso os nonces sao alocados em RAM, um lote de cada vez: cada vez
-// que o lote atual se esgota, reserva-se de uma so' vez o proximo lote
-// completo (kNonceBatchSize valores) com UMA UNICA escrita de flash que
-// avanca o contador persistido para alem de tudo o que ainda vai ser
-// usado. Se o dispositivo desligar a meio de um lote, no proximo arranque
-// o contador persistido ja' esta' avancado ate' ao fim desse lote — perde-se
-// (nunca se reutiliza) o resto dos valores desse lote que nao chegaram a
-// ser gastos, o que e' seguro (o objetivo e' NUNCA repetir um nonce com a
-// mesma chave, nao aproveitar cada valor ao maximo).
+// nonces alocados em RAM por lotes: 1 escrita de flash a cada kNonceBatchSize registos, em vez de 1 por registo (~52/seg esgotaria a flash em dias); resto do lote perde-se se desligar a meio, o que e' seguro (nunca repetir nonce > aproveitar todo o lote)
 constexpr uint64_t kNonceBatchSize = 65536; // ~21 min de streaming continuo a 52Hz por escrita de flash
 static uint64_t s_nonceNext = 0;
 static uint64_t s_nonceReservedUntil = 0;
 static bool s_nonceBatchInitialized = false;
 
-// BUG DE SEGURANCA ENCONTRADO E CORRIGIDO (2026-07-07, verificacao
-// dirigida da cifra AES-CTR): so' os 32 bits BAIXOS do contador
-// persistente (64 bits) viajam no pacote (campo "nonce" de
-// DumpDataPacket) — a ~52 registos/seg continuos, 2^32 registos esgotam-se
-// em ~2.6 anos. Sem proteccao, ao ultrapassar esse ponto o valor truncado
-// enviado pelo ar comecaria a REPETIR os nonces usados no inicio da vida
-// desta chave — quebra real da seguranca do CTR (permite recuperar o XOR
-// de dois registos diferentes cifrados com a mesma chave+nonce). Falha
-// agora FECHADA em vez de silenciosa: uma vez atingido o limite,
-// allocateNonce()/reserveNonceBatch() recusam-se a continuar (o streaming
-// de dados para), e nao ha' streaming sem cifra como alternativa (ver
-// sendDumpPendingRecord()). So' resolvido reprovisionando o dispositivo
-// com uma chave AES nova.
-constexpr uint64_t kMaxNonceValue = 0xFFFFFFFFULL; // maior valor representavel no campo "nonce" (uint32)
+// so os 32 bits baixos do contador (64 bits) viajam no pacote -> a 52 reg/seg esgota em ~2.6 anos; ao esgotar, para o streaming em vez de repetir nonce (quebra de seguranca do CTR)
+constexpr uint64_t kMaxNonceValue = 0xFFFFFFFFULL;
 static bool s_nonceKeyExhaustedWarned = false;
 static bool s_nonceCounterCorruptWarned = false;
 
@@ -101,23 +53,12 @@ void warnNonceExhausted() {
                   "retomar o streaming.");
 }
 
-// Reserva (escreve na flash, uma unica vez) o proximo lote de
-// kNonceBatchSize nonces, a partir do valor persistido atual (0 se ainda
-// nao existir nenhum, ou seja, primeira vez que o dispositivo cifra
-// dados). Devolve false se a escrita falhar (ex.: erro de flash) ou se o
-// espaco de nonces desta chave ja estiver esgotado (ver aviso acima).
+// reserva (1 escrita de flash) o proximo lote de kNonceBatchSize nonces
 bool reserveNonceBatch() {
   uint64_t current = 0;
   bool corrupted = false;
   Storage::counter_load(current, &corrupted);
-  // BUG CORRIGIDO (2026-07-07, rotina cloud): antes, qualquer falha de
-  // counter_load() (incl. ficheiro CORROMPIDO, nao so' "nunca guardado")
-  // era tratada como "comeca do zero" - reutilizando nonces ja usados com
-  // a mesma chave AES apos uma escrita cortada por perda de energia (ver
-  // Storage::counter_load(), agora com deteccao de corrupcao via
-  // magic+checksum). Ficheiro genuinamente ausente (primeiro arranque)
-  // continua seguro comecar do zero; ficheiro EXISTENTE mas corrompido
-  // falha fechado, tal como o esgotamento do espaco de nonces abaixo.
+  // ficheiro corrompido falha fechado (nao reutiliza nonces); ficheiro ausente (1o arranque) comeca do zero
   if (corrupted) {
     if (!s_nonceCounterCorruptWarned) {
       s_nonceCounterCorruptWarned = true;
@@ -141,11 +82,7 @@ bool reserveNonceBatch() {
   return true;
 }
 
-// Devolve em 'outNonce' o proximo valor nunca antes usado do contador
-// persistente dedicado ao nonce/IV AES-CTR. So' toca a flash quando o
-// lote atual se esgota (ver reserveNonceBatch()) — no caso comum e'
-// apenas um incremento em RAM. Devolve false (sem incrementar nada) se o
-// espaco de nonces de 32 bits desta chave ja estiver esgotado.
+// proximo nonce nunca usado; so toca a flash quando o lote esgota
 bool allocateNonce(uint64_t &outNonce) {
   if (!s_nonceBatchInitialized || s_nonceNext >= s_nonceReservedUntil) {
     if (!reserveNonceBatch()) return false;
@@ -159,17 +96,7 @@ bool allocateNonce(uint64_t &outNonce) {
   return true;
 }
 
-// Cifra 'len' bytes de 'plain' para 'cipher' com a chave atualmente em
-// cache (s_aesKey/s_aesKeyLen) e o 'nonce' de 32 bits deste registo.
-// Devolve false se s_aesKeyLen nao corresponder a nenhuma variante AES
-// suportada (16/24/32 bytes).
-//
-// Modo escolhido: CTR (contador), nao CBC/GCM — precisa de zero padding
-// (FullPlain nao e' multiplo de 16 bytes) e permite decifrar cada
-// fragmento assim que chega, sem esperar por um bloco completo. Nonce/IV:
-// bloco de 16 bytes [nonce de 32 bits (4 bytes, big-endian) | 0x00000000
-// (4 bytes) | contador de bloco (8 bytes, comeca em 0)], com
-// setCounterSize(8) — so' os ultimos 8 bytes incrementam bloco a bloco.
+// CTR (nao CBC/GCM): sem padding, decifra fragmento a fragmento. IV = [nonce 32-bit BE | 0x00000000 | contador de bloco 8 bytes], setCounterSize(8)
 bool encryptRecord(uint32_t nonce, const uint8_t *plain, uint8_t *cipher, size_t len) {
   uint8_t iv[16] = {0};
   iv[0] = (uint8_t)(nonce >> 24);
@@ -207,10 +134,7 @@ bool encryptRecord(uint32_t nonce, const uint8_t *plain, uint8_t *cipher, size_t
   return false;
 }
 
-// Converte um registo generico do ring buffer QSPI (formato interno,
-// com "type" e "payload" opacos) para o formato FullPlain especifico
-// de IMU+PPG usado pelo BLE. Rejeita registos de outro tipo ou com
-// tamanho insuficiente (protecao contra dados corrompidos/inesperados).
+// registo generico do ring buffer -> FullPlain; rejeita tipo/tamanho errados
 bool mapRingRecordToFull(const QspiRingBuffer::Record &rec, FullMappedRecord &out) {
   if (rec.type != kImuPpgRecordTypeV1) {
     if (kGattDumpVerboseLogs) {
@@ -230,22 +154,22 @@ bool mapRingRecordToFull(const QspiRingBuffer::Record &rec, FullMappedRecord &ou
     return false;
   }
 
-  const ImuPpgPayloadV1 *p = reinterpret_cast<const ImuPpgPayloadV1 *>(rec.payload);
+  const ImuPpgPayloadV1 *src = reinterpret_cast<const ImuPpgPayloadV1 *>(rec.payload);
 
   out.rec_seq = rec.seq;
   out.payload.ts = rec.timestamp;
-  out.payload.ax = p->ax;
-  out.payload.ay = p->ay;
-  out.payload.az = p->az;
-  out.payload.gx = p->gx;
-  out.payload.gy = p->gy;
-  out.payload.gz = p->gz;
-  out.payload.steps = p->steps;
-  out.payload.ff = p->ff ? 1 : 0;
-  out.payload.inact = p->inact ? 1 : 0;
-  out.payload.spo2 = p->spo2;
-  out.payload.hr = p->hr;
-  out.payload.pacing_index = p->pacing_index;
+  out.payload.ax = src->ax;
+  out.payload.ay = src->ay;
+  out.payload.az = src->az;
+  out.payload.gx = src->gx;
+  out.payload.gy = src->gy;
+  out.payload.gz = src->gz;
+  out.payload.steps = src->steps;
+  out.payload.ff = src->ff ? 1 : 0;
+  out.payload.inact = src->inact ? 1 : 0;
+  out.payload.spo2 = src->spo2;
+  out.payload.hr = src->hr;
+  out.payload.pacing_index = src->pacing_index;
 
   if (kGattDumpVerboseLogs) {
     Serial.print("[BLEG][DUMP][MAP] seq=");
@@ -279,8 +203,7 @@ bool mapRingRecordToFull(const QspiRingBuffer::Record &rec, FullMappedRecord &ou
   return true;
 }
 
-// Tenta obter (sem remover ainda) o proximo registo IMU+PPG valido do
-// ring buffer, saltando ate 4 entradas invalidas/de outro tipo.
+// proximo registo IMU+PPG valido (sem remover), salta ate 4 entradas invalidas
 bool peekImuPpgRecord(FullMappedRecord &out) {
   QspiRingBuffer::Record rec{};
   for (int i = 0; i < 4; i++) {
@@ -306,9 +229,7 @@ bool peekImuPpgRecord(FullMappedRecord &out) {
   return false;
 }
 
-// Le (peek, sem remover) o proximo registo do ring buffer e guarda-o
-// como "pendente", para so ser removido do buffer depois de confirmado
-// o envio bem-sucedido (ver sendDumpPendingRecord + o pop no chamador).
+// peek + guarda como "pendente"; so removido do buffer apos envio confirmado
 bool prepareDumpPendingRecord() {
   FullMappedRecord mapped{};
   if (!peekImuPpgRecord(mapped)) return false;
@@ -326,11 +247,7 @@ bool prepareDumpPendingRecord() {
   return true;
 }
 
-// Envia o registo pendente atual (s_dumpPendingSample) por BLE, CIFRADO
-// com AES-CTR (ver encryptRecord()), fragmentado em varios pacotes
-// DumpDataPacket. Se qualquer fragmento falhar a enviar, aborta e devolve
-// false — o registo continua "pendente" e sera reenviado na proxima
-// iteracao.
+// envia o registo pendente cifrado, fragmentado em pacotes DumpDataPacket; se um fragmento falhar, aborta e fica pendente para reenvio
 bool sendDumpPendingRecord() {
   if (!s_dumpPendingValid) return false;
   if (Bluefruit.connected() == 0) return false;
@@ -414,14 +331,7 @@ bool sendDumpPendingRecord() {
   return true;
 }
 
-// Envia, sem consumir o ring buffer, uma "fotografia" do registo mais
-// recente pela characteristic liveSnapshotChar — independente do atraso
-// do dump historico em dumpDataChar. Reutiliza deliberadamente o mesmo
-// formato de pacote/cifra e o MESMO contador de nonce partilhado com o
-// caminho historico (seguro: a unica regra e' nunca repetir um nonce com
-// a mesma chave, nao importa qual dos dois caminhos o consome). Ao
-// contrario do caminho historico, NAO tem retries: se falhar, o proximo
-// tick (~1s depois) manda um mais recente na mesma.
+// "fotografia" do registo mais recente sem consumir o ring buffer, mesmo contador de nonce que o caminho historico; sem retries (proximo tick ~1s manda mais recente)
 void sendLiveSnapshot() {
   if (Bluefruit.connected() == 0) return;
 
@@ -431,11 +341,7 @@ void sendLiveSnapshot() {
   FullMappedRecord mapped{};
   if (!mapRingRecordToFull(rec, mapped)) return;
 
-  // Bug real corrigido aqui (2026-08-06): o registo mais recente do ring
-  // buffer e' quase sempre uma amostra SO' de IMU — por isso pergunta-se
-  // diretamente ao modulo Ppg pela sua ultima leitura conhecida
-  // (independente do que ja foi "consumido" para o ring buffer) e
-  // substitui-se hr/spo2 do registo sempre que for valida.
+  // registo mais recente do ring buffer e' quase sempre so IMU; substitui hr/spo2 pela ultima leitura direta do Ppg
   Ppg::Metrics ppgLatest{};
   if (Ppg::getLatest(ppgLatest)) {
     if (ppgLatest.hr_valid) {
@@ -484,7 +390,7 @@ void sendLiveSnapshot() {
         Serial.print("/");
         Serial.println((int)fragTotal);
       }
-      return; // sem retry de proposito — ver comentario da funcao acima
+      return; // sem retry de proposito
     }
   }
   if (kGattDumpVerboseLogs) {
@@ -495,10 +401,7 @@ void sendLiveSnapshot() {
 
 } // namespace
 
-// Copia a chave AES recebida (de BLE ou de flash) para o buffer em RAM
-// usado pela cifra, garantindo que bytes nao usados ficam a zero.
-// Exposta (ver BleInternal.h) porque e' chamada tanto por
-// Ble::ensureAesKey() como por aesKeyCallback(), ambos em Ble.cpp.
+// copia a chave AES para o buffer em RAM da cifra (bytes nao usados a zero); chamada por Ble::ensureAesKey() e aesKeyCallback() em Ble.cpp
 void cacheAesKey(const uint8_t *key, size_t len) {
   if (len > AES_KEY_MAX_LEN) len = AES_KEY_MAX_LEN;
   memset(s_aesKey, 0, sizeof(s_aesKey));
@@ -506,19 +409,13 @@ void cacheAesKey(const uint8_t *key, size_t len) {
   s_aesKeyLen = len;
 }
 
-// Monta e envia (via write local + notify, se ligado) um pacote de
-// estado do streaming para a app. Exposta (ver BleInternal.h) porque e'
-// chamada tambem pelos callbacks BLE em Ble.cpp (dumpCtrlCallback,
-// periphConnectCallback).
+// monta e envia (write local + notify, se ligado) o estado do streaming; chamada tambem pelos callbacks BLE em Ble.cpp
 void publishDumpStatus(uint8_t state, uint8_t reason, uint32_t seq) {
   DumpStatusPacket st{};
   st.type = kDumpStatusType;
   st.state = state;
   st.reason = reason;
-  // Uma só chamada a count(), reaproveitada abaixo tanto para o cálculo de
-  // "quase cheio" como para ring_count — evita adquirir o mutex do ring
-  // buffer duas vezes seguidas para o mesmo valor.
-  const uint32_t ringCountNow = QspiRingBuffer::count();
+  const uint32_t ringCountNow = QspiRingBuffer::count(); // reaproveitado abaixo para nao adquirir o mutex do ring buffer 2x
   if (QspiRingBuffer::droppedByErase() > 0) {
     st.data_loss_flag = 2; // já a substituir dados
   } else {
@@ -537,11 +434,7 @@ void publishDumpStatus(uint8_t state, uint8_t reason, uint32_t seq) {
   }
 }
 
-// Tarefa FreeRTOS de fundo (baixa prioridade) que implementa a maquina
-// de estados do streaming de dados por GATT - ver comentario original
-// completo em Ble.h/PROJECT_STATUS.md. Pilotada por flags partilhadas
-// (s_dumpStartRequested/StopRequested, ver BleInternal.h) escritas pelos
-// callbacks BLE em Ble.cpp.
+// tarefa FreeRTOS de fundo: maquina de estados do streaming GATT, pilotada por flags partilhadas (ver BleInternal.h) escritas pelos callbacks BLE
 void gattDumpTask(void *arg) {
   (void)arg;
   Serial.println("[BLEG][DUMP] task started");

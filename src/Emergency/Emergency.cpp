@@ -12,25 +12,19 @@ namespace {
 Config s_config;
 uint8_t s_buttonPin = 0;
 
-// --- Estado do gesto SOS manual (cliques do botão) ---------------------
-bool s_lastButtonLow = false;   // Último valor lido do botão (LOW = premido).
+// estado do gesto SOS manual (cliques do botao)
+bool s_lastButtonLow = false;
 uint8_t s_clickCount = 0;
 uint32_t s_lastClickMs = 0;
 bool s_sosPending = false;
 uint32_t s_sosConfirmDeadlineMs = 0;
 
-// --- Estado da deteção automática (queda + inatividade) -----------------
-bool s_lastFreefall = false;    // Último valor de freefall lido do IMU.
-bool s_fallWatchActive = false; // true entre a queda e o alerta/cancelamento.
+// estado da deteção automatica (queda + inatividade)
+bool s_lastFreefall = false;
+bool s_fallWatchActive = false; // true entre a queda e o alerta/cancelamento
 uint32_t s_fallDetectedMs = 0;
-// true assim que Imu::Sample::inactivity assentou (~3s continuos parado,
-// ver Imu::detectInactivity) pela primeira vez depois da queda que armou
-// a vigilância atual — ver updateFallDetection() para o porquê de não
-// usar diretamente "!sample.inactivity" para cancelar.
-bool s_confirmedStillSinceFall = false;
+bool s_confirmedStillSinceFall = false; // true quando inactivity assentou (~3s) pela 1a vez apos a queda atual
 
-// Dispara o alerta pelos dois canais decididos com o utilizador (BLE +
-// LoRa, quando disponível) e regista em série para diagnóstico.
 void raiseAlert(uint8_t alertType, const char *reasonLabel) {
   const uint32_t ts = Clock::nowUtc();
 
@@ -55,17 +49,11 @@ void updateSosGesture() {
   const bool nowLow = (digitalRead(s_buttonPin) == LOW);
   const uint32_t nowMs = millis();
 
-  // Deteta a borda de descida (transição solto -> premido) — é o que
-  // conta como "um clique", evitando contar o mesmo toque várias vezes
-  // enquanto o botão continua premido.
-  const bool clickEdge = nowLow && !s_lastButtonLow;
+  const bool clickEdge = nowLow && !s_lastButtonLow; // borda de descida = 1 clique
   s_lastButtonLow = nowLow;
 
   if (clickEdge) {
     if (s_sosPending) {
-      // Um novo clique enquanto o SOS está pendente de confirmação
-      // cancela-o — dá ao utilizador uma forma simples de desfazer um
-      // gesto acidental (ver comentário em Emergency.h/Config).
       Serial.println("[EMERGENCY] SOS pendente cancelado (novo clique durante confirmacao)");
       s_sosPending = false;
       s_clickCount = 0;
@@ -73,7 +61,6 @@ void updateSosGesture() {
     }
 
     if ((nowMs - s_lastClickMs) > s_config.sosClickWindowMs) {
-      // Passou tempo demais desde o último clique — recomeça a contagem.
       s_clickCount = 0;
     }
     s_lastClickMs = nowMs;
@@ -89,11 +76,7 @@ void updateSosGesture() {
     }
   }
 
-  // Comparação segura a overflow de millis() (idêntica ao padrão já usado
-  // em Ppg.cpp/Ble.cpp): "nowMs >= s_sosConfirmDeadlineMs" direto falharia
-  // silenciosamente se millis() desse a volta (~49.7 dias) enquanto uma
-  // confirmação de SOS estivesse pendente, atrasando-a até ao próximo
-  // overflow em vez dos poucos segundos configurados.
+  // comparacao segura a overflow de millis() (~49.7 dias), mesmo padrao de Ppg.cpp/Ble.cpp
   if (s_sosPending &&
       static_cast<int32_t>(nowMs - s_sosConfirmDeadlineMs) >= 0) {
     s_sosPending = false;
@@ -107,8 +90,6 @@ void updateFallDetection() {
 
   const uint32_t nowMs = millis();
 
-  // Borda de subida do freefall: início de uma possível queda. Arranca
-  // (ou reinicia) o período de vigilância de inatividade.
   if (sample.freefall && !s_lastFreefall) {
     Serial.println("[EMERGENCY] possivel queda detetada — a vigiar inatividade...");
     s_fallWatchActive = true;
@@ -119,18 +100,7 @@ void updateFallDetection() {
 
   if (!s_fallWatchActive) return;
 
-  // Bug corrigido (2026-07-10): cancelar aqui com base em "!sample.inactivity"
-  // destruía SEMPRE a vigilância, porque essa flag só assenta a "true"
-  // depois de ~3s continuos parado (Imu::detectInactivity, kInactivitySamples
-  // = 156 @ 52Hz) — nos primeiros ~3s a seguir a qualquer queda ela é
-  // necessariamente "false", quer a pessoa esteja mesmo parada quer não.
-  // O alerta automático "queda + inatividade" nunca chegava a poder
-  // disparar. Em vez disso: só tratamos como "voltou a mexer-se" uma
-  // quebra da inatividade DEPOIS de já a termos visto assentar pelo menos
-  // uma vez desde esta queda — isso já é evidência real de movimento
-  // sustentado (a mesma flag, sendo um contador com fuga, não quebra por
-  // ruído de uma única amostra), não apenas "ainda não passaram os 3s
-  // iniciais de deteção".
+  // so cancela por "!inactivity" DEPOIS de a termos visto assentar 1x desde a queda; inactivity so assenta a true apos ~3s parado (senao o alerta nunca disparava)
   if (sample.inactivity) {
     s_confirmedStillSinceFall = true;
   } else if (s_confirmedStillSinceFall) {

@@ -1,5 +1,3 @@
-/* Tendencia semanal real - extraido de bridge-exportacao.js */
-
 function requestRealTrend(days){
   const status = document.getElementById('realTrendStatus');
   if (!liveState.connected){
@@ -29,14 +27,7 @@ function renderRealTrendTable(){
     return;
   }
   if (status) status.textContent = '';
-  // Bug de segurança corrigido (S03 frontend-security): `d.day` e
-  // `d.record_count` vêm de `msg.days_summary` (mensagem `daily_trend` do
-  // bridge via WebSocket, canal não autenticado — ver toFiniteNumber()
-  // acima) e entravam diretamente em innerHTML sem qualquer validação,
-  // ao contrário do padrão já usado para hr/spo2/steps em applyLiveVitals().
-  // `d.day` passa a ser escapado (texto livre do ponto de vista do
-  // browser) e os campos numéricos a passar por toFiniteNumber(), tal como
-  // os outros valores vindos do bridge.
+  //dados do bridge (canal não autenticado): d.day escapado, numéricos via toFiniteNumber()
   body.innerHTML = rows.map(d => {
     const hrSamples = toFiniteNumber(d.hr_samples) || 0;
     const avgHr = toFiniteNumber(d.avg_hr) || 0;
@@ -48,17 +39,4 @@ function renderRealTrendTable(){
   }).join('');
 }
 
-// Monta a folha de impressão (#clinicalPrintSheet, só visível em
-// @media print — ver CSS) com o resumo clínico atual, e chama
-// window.print(). É o browser que trata da conversão para PDF (a maioria
-// tem "Guardar como PDF" no diálogo de impressão) — evita depender de
-// bibliotecas externas de geração de PDF, que a CSP do Artifact bloqueia
-// de qualquer forma.
-// Folha de impressão melhorada (2026-07-03, pedido do utilizador): cabeçalho
-// com marca "CW" (a mesma da barra lateral, para consistência visual),
-// rodapé com nota de confidencialidade + numeração de página (via
-// contador CSS em @page, ver .print-only mais abaixo — suportado pelo
-// motor de impressão do Chromium; noutros motores a página simplesmente
-// não mostra o número, sem quebrar o resto do documento), e tabelas com
-// alinhamento e espaçamento consistentes (células com padding, cabeçalhos
-// com fundo, linhas alternadas para facilitar a leitura).
+//folha de impressão (#clinicalPrintSheet, @media print) via window.print(), sem libs externas de PDF

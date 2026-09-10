@@ -187,9 +187,6 @@ TEMPLATES.definicoes = () => `
   </div>
 `;
 
-/* ============================================================
-   TEMPLATES — AJUDA & SOBRE (comum aos dois perfis)
-============================================================ */
 const FAQ_ITEMS = [
   { q: 'ajuda.faqQ1', a: 'ajuda.faqA1' },
   { q: 'ajuda.faqQ2', a: 'ajuda.faqA2' },

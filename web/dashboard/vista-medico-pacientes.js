@@ -1,14 +1,5 @@
-/* ============================================================
-   TEMPLATES — VISTA "MÉDICO / TÉCNICO"
-============================================================ */
-// BUG DE XSS CORRIGIDO (2026-09-07): p.name/selectedPatient().name é texto
-// livre — "Criar conta" como Utente/Família regista um paciente com o nome
-// escrito no formulário (submitSignup() → registerOwnPatient() →
-// addPatient(), guardado em localStorage) e essa string entrava em
-// innerHTML sem escaping em todas as vistas clínicas. Um nome como
-// <img src=x onerror=…> executava assim que um médico/técnico abrisse a
-// lista de pacientes. admin-view.js já escapava exatamente o mesmo campo
-// (escapeHtml(p.name)) — as vistas clínicas ficaram por atualizar.
+// TEMPLATES — vista Médico/Técnico
+// p.name é texto livre do utilizador; escapeHtml() obrigatório para evitar XSS
 TEMPLATES.pacientes = () => {
   const mine = accessiblePatients();
   const unassigned = isAdminUser() ? [] : PATIENTS.filter(p => !mine.some(m => m.id === p.id));
@@ -20,13 +11,7 @@ TEMPLATES.pacientes = () => {
       <thead><tr><th>${t('pacientes.thPatient')}</th><th>${t('pacientes.thDevice')}</th><th>${t('pacientes.thLastSync')}</th><th>${t('pacientes.thStatus')}</th><th>${t('pacientes.thActiveAlerts')}</th><th></th></tr></thead>
       <tbody>
         ${mine.map(p => {
-          // Estado ao vivo (2026-07-21, pedido do utilizador: "o estado do
-          // wearable do paciente também deve de ser detetado na página
-          // médica") — mesmo mecanismo já usado em TEMPLATES.dispositivo
-          // (registeredMacFor/liveState.deviceMac): quando o dispositivo
-          // real ligado corresponde ao reconhecido para este paciente,
-          // mostra sempre "ligado" e "agora", em vez do status/lastSync de
-          // demonstração, que ficariam desatualizados face à ligação real.
+          // dispositivo real ligado corresponde ao paciente? mostra estado ao vivo em vez do valor de demo
           const isLive = liveState.connected && liveState.deviceMac && registeredMacFor(p.id, p.mac) === liveState.deviceMac;
           const statusPill = isLive
             ? pillHtml('good', t('pacientes.statusConnected'))
@@ -38,12 +23,7 @@ TEMPLATES.pacientes = () => {
             <td class="num">${isLive ? t('pacientes.lastSyncLiveNow') : p.lastSync}</td>
             <td>${statusPill}</td>
             <td>${(() => {
-              // Bug corrigido: esta contagem ignorava o consentimento do
-              // próprio paciente (loadConsent(p.id).shareAlerts) — o
-              // tooltip do cartão de consentimento promete explicitamente
-              // esconder alertas/anomalias da conta Médico/Técnico quando
-              // desligado, mas esta pill continuava a mostrar a contagem e
-              // severidade reais mesmo assim.
+              // respeita o consentimento do paciente para partilha de alertas
               if (!loadConsent(p.id).shareAlerts) return `<span class="empty-hint" style="padding:0;">${t('pacientes.statusNoConsent')}</span>`;
               const n = activeAlertsCount(p);
               return n > 0 ? pillHtml('critical', n + ' ' + t(n>1 ? 'pacientes.activeAlertsPlural' : 'pacientes.activeAlertsSingular')) : pillHtml('good',t('pacientes.statusNone'));
@@ -87,30 +67,11 @@ TEMPLATES.dispositivo = () => `
   ${(() => {
     const p = selectedPatient();
     const ringPct = ((p.ringBufferUsed / p.ringBufferTotal) * 100).toFixed(1);
-    // Dados reais (2026-07-21): quando o wearable realmente ligado por BLE
-    // (liveState.deviceMac, ver ble_bridge.py::connected_device_mac) é o
-    // reconhecido para o paciente selecionado — ver registeredMacFor():
-    // o mac de demonstração fixo (PATIENTS[].mac) só é usado enquanto
-    // nenhuma ligação real ainda associou este paciente a um dispositivo
-    // (handleBridgeMessage('device_status') grava essa associação assim
-    // que o wearable real se liga, para a conta que estiver selecionada
-    // nesse momento — "reconhecido em qualquer conta"). Mostra a bateria
-    // ao vivo em vez do valor de demonstração. O ring buffer continua a
-    // ser valor de demonstração mesmo neste caso — o bridge ainda não
-    // reenvia a contagem real (só a firmware a imprime em série, ver
-    // storageTask em main.cpp) — em vez de fingir um dado que não temos,
-    // mostra-se uma nota honesta (dispositivo.ringBufferDemoNote).
+    // mac reconhecido = último dispositivo BLE real associado a este paciente; senão usa o mac de demo
     const recognizedMac = registeredMacFor(p.id, p.mac);
     const isLive = liveState.connected && liveState.deviceMac && recognizedMac === liveState.deviceMac;
     const batteryPct = isLive && liveState.batteryPercent != null ? liveState.batteryPercent : p.battery;
-    // RAM/Flash/stack são propriedades do FIRMWARE instalado (o mesmo
-    // binário em todos os wearables desta frota), não do dispositivo
-    // físico individual — BUG CORRIGIDO (2026-07-03, reportado pelo
-    // utilizador): "os estados e folga do stack mostram sempre os mesmos
-    // dados" ao mudar de paciente. Bateria e ring buffer agora variam por
-    // paciente (dados reais de utilização de cada dispositivo); RAM/
-    // Flash/stack continuam iguais de propósito, com uma nota explícita
-    // do motivo, para não parecer um esquecimento.
+    // RAM/Flash/stack são do firmware (igual em toda a frota), não variam por paciente
     return `
   <div class="grid-2b">
     <div class="card">

@@ -1,10 +1,5 @@
-// web/dashboard/demo-data.js
 // GERADO AUTOMATICAMENTE por scripts/generate-demo-data.js — NAO EDITAR A MAO.
-// Gerado em: 2026-09-09T08:58:23.225Z
-// Seed do dia: "2026-09-09" (seed=624201851)
-// Nunca contem dados reais de pacientes — ver PROJECT_STATUS.md, "Regra de ouro".
-// Consumido por web/dashboard/index.html com fallback defensivo (ver as
-// consts DEMO_* la definidas) caso este ficheiro falte ou esteja desatualizado.
+// Dados de demonstracao (nunca reais) — seed do dia 2026-09-09, usado por index.html
 
 const DEMO_HR_SERIES = {
   "p1": [
