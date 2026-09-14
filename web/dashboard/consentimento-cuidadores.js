@@ -1,12 +1,4 @@
-// 2026-09-14: partilha com a equipa clínica deixou de ser opcional, a pedido da
-// utilizadora — um utente com défice cognitivo/demência a decidir esconder sinais
-// vitais, rotina ou alertas da equipa clínica anula o propósito de segurança do
-// projeto. loadConsent() devolve sempre tudo=true, independentemente do que possa
-// existir em localStorage de sessões anteriores a esta mudança; setConsent() foi
-// removida (nenhuma UI chama isto — ver vista-definicoes-ajuda.js). Isto é distinto
-// do consentimento RGPD formal em configuracoes-paciente.js (scopes sensor_data/
-// analytics/export/research, gravado no backend) — esse mantém-se, é sobre outra
-// coisa (finalidades de tratamento de dados, não segurança do utente).
+//Partilha com a equipa clínica passou a obrigatória (sem toggle) — distinto do consentimento RGPD em configuracoes-paciente.js
 function loadConsent(){
   return { shareVitals:true, shareRoutine:true, shareAlerts:true, lastChanged:null };
 }

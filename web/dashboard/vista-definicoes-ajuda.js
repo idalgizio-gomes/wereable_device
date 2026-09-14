@@ -57,11 +57,7 @@ TEMPLATES.definicoes = () => `
   })()}
 
   ${(() => {
-    // 2026-09-14: deixou de ser opcional a pedido da utilizadora — um utente com défice
-    // cognitivo/demência a decidir esconder sinais vitais, rotina ou alertas da equipa
-    // clínica anula o propósito de segurança do próprio projeto (ver loadConsent() em
-    // consentimento-cuidadores.js, que agora devolve sempre tudo=true). A tabela fica só
-    // informativa — mostra o que É partilhado, sem opção de desligar.
+    //Tabela só informativa — partilha é sempre obrigatória (ver loadConsent())
     return `
   <div class="card">
     <div class="card-head"><div><h3>${t('definicoes.consentTitle')}</h3><div class="card-sub">${t('definicoes.consentSubtitle')}</div></div></div>
@@ -235,6 +231,5 @@ TEMPLATES.ajuda = () => `
         <tr><td style="color:var(--text-muted);">${t('ajuda.aboutStatusLabel')}</td><td>${pillHtml('warning',t('ajuda.aboutStatusValue'))}</td></tr>
       </tbody>
     </table>
-    <p class="empty-hint">${t('ajuda.aboutStatusHintPre')} <code>PROJECT_STATUS.md</code> ${t('ajuda.aboutStatusHintPost')}</p>
   </div>
 `;

@@ -1,60 +1,25 @@
 # CareWear — Pipeline de Machine Learning (`ml/`)
 
-> Progresso incremental, dia a dia, do pipeline de deteção de rotina/anomalias
-> descrito no artigo científico de referência. Duas rotinas cloud diárias
-> tocam nesta pasta (ver PROJECT_STATUS.md → "Rotinas cloud agendadas") — este
-> README é o ponto de sincronização entre elas, atualizado a cada avanço.
+Pipeline de deteção de rotina/anomalias baseado em "Routine-Aware Behavioural
+Monitoring Framework for Dementia Care Using Wearable-Derived Synthetic Daily
+Routines", em três partes:
 
-## Referência científica
-
-"Routine-Aware Behavioural Monitoring Framework for Dementia Care Using
-Wearable-Derived Synthetic Daily Routines" — pipeline em três partes:
-
-1. **Classificador de atividades** (XGBoost no artigo original) — classifica
-   janelas de sinal do wearable em categorias de rotina.
+1. **Classificador de atividades** — classifica janelas de sinal do wearable
+   em categorias de rotina (XGBoost no artigo original; Random Forest
+   treinado aqui como alternativa embarcável).
 2. **LSTM Autoencoder** — deteta anomalias comportamentais na sequência de
    atividades classificadas (erro de reconstrução alto = padrão anómalo).
 3. **Detetor de duração baseado em regras** — sinaliza quando uma atividade
-   dura fora dos limites esperados (já trivialmente embarcável — ver
-   `Ble.cpp`/`kDumpCtrlResetReadings` e a tabela de limites no dashboard,
-   vista "Limites de duração").
+   dura fora dos limites esperados.
 
-**Estado atual: os três passos estão implementados e avaliados sobre dados
-sintéticos** (código nesta pasta) — classificador (passo 1), LSTM
-Autoencoder (passo 2) e detetor de duração baseado em regras (passo 3).
-Nenhum está ainda embarcado no firmware nem validado com dados reais — ver
-"Próximos passos" abaixo.
+Os três passos estão implementados e avaliados sobre **dados sintéticos**.
+Os passos 1 e 3 já correm ao vivo no bridge (`bridge/activity_inference.py`,
+que reutiliza `features.py` e `duration_detector.py` diretamente), com o
+aviso "treinado só com dados sintéticos" sempre visível no dashboard — o
+modelo em si não foi revalidado com dados reais, só passou a ser invocado em
+produção. Nenhum passo está embarcado no firmware.
 
-**Atualização (2026-07-20): passos 1 e 3 já correm ao vivo no bridge** (não
-embarcados no firmware, mas já não são só scripts offline desta pasta) — ver
-`bridge/activity_inference.py`, que reutiliza `features.py` e
-`duration_detector.py` diretamente (import cruzado, sem duplicar lógica) para
-classificar o stream real do IMU e sinalizar durações anómalas, com o aviso
-"treinado só com dados sintéticos" sempre visível no dashboard. O modelo em
-si (`models/activity_classifier_rf.joblib`) continua exatamente o mesmo
-treinado sobre dados sintéticos — só passou a ser INVOCADO em produção, não
-foi revalidado com dados reais. Ver PROJECT_STATUS.md, "Pipeline de ML ligado
-ao stream real do bridge", para o detalhe completo (incluindo por que só o
-autoencoder tem um caminho de retreino sobre dados reais —
-`retrain_autoencoder_from_real_data.py` — e o classificador não, ainda).
-
-## Porque não há dados reais ainda
-
-O firmware do wearable não tem classificador HAR embarcado (ver
-PROJECT_STATUS.md, "Riscos"), e não há nenhum utente real a usar o
-dispositivo com rótulos de atividade. Por isso, todo o desenvolvimento desta
-pasta usa **dados 100% sintéticos**, gerados por `synthetic_data.py` — a
-mesma estratégia do artigo de referência (que também usa rotinas diárias
-sintéticas geradas a partir de segmentos reais de 12 participantes, 10
-classes de atividade, template de 21 passos). Isto é suficiente para validar
-a pipeline de ponta a ponta (dados → features → modelo → avaliação), mas
-**não** valida desempenho em dados clínicos reais — essa validação só pode
-acontecer com dados reais (ver "Decisão pendente" abaixo) ou com o
-[TIHM Dataset](https://www.nature.com/articles/s41597-023-02519-y) (dados
-reais multi-sensor de demência, com eventos adversos rotulados,
-[código/dados aqui](https://github.com/PBarnaghi/TIHM-Dataset)).
-
-## Estrutura
+## Estrutura da pasta e reprodução do pipeline
 
 ```
 ml/
@@ -67,7 +32,7 @@ ml/
   duration_detector.py            # detetor de duração baseado em regras + avaliação (passo 3)
   measure_rf_footprint.py         # footprint real (flash/RAM) do Random Forest via emlearn
   combined_pipeline_report.py     # relatório combinado: classificador + duração + autoencoder, blocos previstos (não ground truth)
-  retrain_autoencoder_from_real_data.py  # fine-tuning do autoencoder sobre dados reais do bridge (2026-07-20)
+  retrain_autoencoder_from_real_data.py  # fine-tuning do autoencoder sobre dados reais do bridge
   requirements.txt
   data/
     synthetic_routine_dataset.csv        # gerado, NÃO versionado (ver .gitignore)
@@ -80,18 +45,18 @@ ml/
     lstm_autoencoder_scaler.joblib       # StandardScaler usado antes do autoencoder
     lstm_autoencoder_labels.json         # nomes das features + comprimento da subsequência
   reports/
-    activity_classifier_metrics.json          # accuracy, classification report, matriz de confusão
-    activity_classifier_confusion_matrix.png   # visualização da matriz de confusão
-    activity_classifier_rf_metrics.json        # idem, para o Random Forest
-    activity_classifier_rf_footprint.json      # footprint real (flash/RAM) via emlearn
-    lstm_autoencoder_metrics.json              # AUC-ROC/recall geral e por tipo de anomalia
-    lstm_autoencoder_error_distribution.png    # histograma do erro de reconstrução, normal vs. anómalo
-    duration_detector_metrics.json             # recall por tipo de anomalia + falsos positivos (passo 3)
-    combined_pipeline_metrics.json             # relatório combinado (oráculo vs. blocos previstos, ver secção dedicada)
-    combined_pipeline_recall_by_detector.png   # recall por tipo de anomalia e detetor (barras agrupadas)
+    activity_classifier_metrics.json           # accuracy, classification report, matriz de confusão
+    activity_classifier_confusion_matrix.png    # visualização da matriz de confusão
+    activity_classifier_rf_metrics.json         # idem, para o Random Forest
+    activity_classifier_rf_footprint.json       # footprint real (flash/RAM) via emlearn
+    lstm_autoencoder_metrics.json               # AUC-ROC/recall geral e por tipo de anomalia
+    lstm_autoencoder_error_distribution.png     # histograma do erro de reconstrução, normal vs. anómalo
+    duration_detector_metrics.json              # recall por tipo de anomalia + falsos positivos (passo 3)
+    combined_pipeline_metrics.json              # relatório combinado (oráculo vs. blocos previstos)
+    combined_pipeline_recall_by_detector.png    # recall por tipo de anomalia e detetor (barras agrupadas)
 ```
 
-Para reproduzir:
+Para reproduzir do zero:
 
 ```bash
 cd ml
@@ -104,792 +69,193 @@ python duration_detector.py           # avalia o detetor de duração baseado em
 python combined_pipeline_report.py    # relatório combinado dos 3 detetores (requer os modelos já treinados acima)
 ```
 
-Todos os scripts são determinísticos (seed fixa = 42).
-
-## Passo 1 — Classificador de atividades (XGBoost)
+Todos os scripts são determinísticos (seed fixa = 42; `duration_detector.py`
+usa seed=123; `combined_pipeline_report.py` usa seed=555 — cohorts distintos
+de propósito, para nunca reavaliar sobre dados já vistos no treino).
 
 ### Dados sintéticos (`synthetic_data.py`)
 
-- Sinal gerado a 52 Hz (mesma taxa real do IMU LSM6DS3 do wearable, ver
-  PROJECT_STATUS.md) para acelerómetro (3 eixos) e giroscópio (3 eixos), mais
-  FC (PPG) amostrada a frequência mais baixa dentro da mesma janela.
-- **5 classes** — `Dormir`, `Descanso`, `Atividade`, `Alimentação`, `Higiene`
-  — exatamente as já usadas no dashboard (`web/dashboard/index.html`, chips
-  "Análise por atividade"), em vez das 10 classes mais granulares do artigo
-  original (Sentado, Deitado, A andar, Movimento ligeiro, A comer com
-  talheres/à mão, Duche, Higiene oral, De pé, Lavar as mãos). Escolha
-  deliberada: um classificador treinado com estas 5 classes pode alimentar
-  diretamente a UI já existente sem remapear categorias; o esquema mais
-  granular do artigo fica registado aqui como possível evolução futura, se a
-  perda de detalhe (ex.: agrupar "Duche"+"Higiene oral" em "Higiene") se
-  revelar insuficiente para deteção de anomalias mais fina.
-- Cada "sujeito sintético" tem uma pequena variação individual (amplitude de
-  movimento, baseline de FC) — testbed simples para a ideia de "modelos
-  personalizados por pessoa" do backlog de investigação (PROJECT_STATUS.md),
-  ainda não explorada a fundo.
-- **Limitação assumida**: os parâmetros de sinal por classe (amplitude,
-  frequência, ruído) são a nossa própria modelação plausível, não os
-  parâmetros exatos do artigo (não publicados) nem dados reais — o ruído em
-  particular continua **estimado**, nunca medido no acelerómetro/giroscópio
-  reais do wearable (bloqueado pela indisponibilidade de hardware, ver
-  PROJECT_STATUS.md, "Riscos"). Isto não foi resolvido nesta iteração.
-- **Atualizado em 2026-07-07 (item 4 do roteiro "Próximos passos"), duas
-  limitações da primeira iteração foram corrigidas**:
-  1. As sessões "dia"/"noite" passaram de comprimidas (240 min / 90 min) a
-     um **dia completo de 24h** (960 min / 480 min = 16h+8h) — ver
-     `DAY_SESSION_MINUTES`/`NIGHT_SESSION_MINUTES` em `synthetic_data.py`.
-  2. Os parâmetros de sinal por classe deixaram de ser constantes fixas e
-     passaram a **intervalos amostrados por janela**, com **sobreposição
-     deliberada** entre classes vizinhas em intensidade/frequência (ex.:
-     "Atividade" e "Higiene" partilham uma faixa de amplitude/frequência) —
-     ver comentário em `CLASS_PARAMS`. Motivação: a primeira iteração
-     tornava as classes artificialmente bem separáveis (accuracy XGBoost
-     1.000 — sinal de dataset fácil demais, não de classificador excelente,
-     já assinalado como limitação antes de se corrigir). Dados reais nunca
-     serão tão bem separados quanto sinais gerados com constantes fixas por
-     classe.
-- Dataset da última execução (pós-correção 2026-07-07): 72 402 janelas de
-  10s, 8 sujeitos sintéticos, desequilibrado entre classes (Descanso e
-  Dormir dominam, refletindo uma rotina plausível — ver
-  `data/synthetic_routine_dataset.meta.json`). Cresceu ~4,6x face à
-  iteração anterior (15 840 janelas), consequência direta de simular um dia
-  completo de 24h em vez de uma sessão comprimida.
+- Sinal a 52 Hz (taxa real do IMU LSM6DS3 do wearable) para acelerómetro (3
+  eixos) e giroscópio (3 eixos), mais FC (PPG) a frequência mais baixa.
+- **5 classes**: `Dormir`, `Descanso`, `Atividade`, `Alimentação`, `Higiene`
+  — as já usadas no dashboard, em vez das 10 classes mais granulares do
+  artigo original. Escolha deliberada para alimentar a UI existente sem
+  remapear categorias.
+- Sessões "dia"/"noite" simulam um **dia completo de 24h** (960 min / 480 min
+  = 16h+8h). Parâmetros de sinal por classe são intervalos amostrados por
+  janela, com sobreposição deliberada entre classes vizinhas em
+  intensidade/frequência (evita accuracy artificialmente perfeita).
+- Última execução: 72 402 janelas de 10s, 8 sujeitos sintéticos,
+  desequilibrado entre classes (Descanso e Dormir dominam, refletindo uma
+  rotina plausível — ver `data/synthetic_routine_dataset.meta.json`).
+- Split de avaliação por `subject_id` (nunca por janela) em todos os
+  passos — janelas do mesmo sujeito partilham "jitter" individual e
+  inflacionariam a métrica se misturadas entre treino e teste.
 
 ### Features (`features.py`)
 
 Estatísticas no domínio do tempo por janela, por eixo (média, desvio-padrão,
 mín., máx., RMS), mais Signal Magnitude Area, correlação entre pares de eixos
 do acelerómetro, taxa de cruzamentos por zero (proxy de periodicidade sem
-FFT) e média/desvio da FC na janela — abordagem clássica de HAR sobre
-acelerómetro wearable, compatível com o formato tabular que o XGBoost espera.
-Não há features no domínio da frequência (FFT) nesta iteração.
+FFT) e média/desvio da FC na janela. Sem features no domínio da frequência
+(FFT).
 
-### Porquê XGBoost e não outro algoritmo
+## Escolha de modelo e footprint em hardware real (ARM)
 
-1. É o algoritmo usado no artigo de referência para este passo — mantém-nos
-   alinhados com a base científica do projeto.
-2. Lida bem com features tabulares em escalas heterogéneas sem normalização
-   cuidadosa (ao contrário de redes neuronais).
-3. `max_depth=3` foi escolhido deliberadamente (o artigo usa profundidade 6)
-   para já respeitar a regra prática documentada no PROJECT_STATUS.md
-   ("profundidade ≤3, ≤~4000 árvores, para caber em flash de MCU") — ver
-   também a ressalva de footprint abaixo, que se aplica tanto a este
-   classificador como a qualquer alternativa.
+**Porquê XGBoost (artigo original)**: alinhamento científico, lida bem com
+features tabulares em escalas heterogéneas sem normalização, e
+`max_depth=3` (artigo usa 6) já respeita a regra prática de manter
+profundidade baixa para caber em flash de MCU.
 
-### Ressalva importante: viabilidade de embarcar este XGBoost em MCU (ainda por medir)
+**Problema identificado**: num XGBoost multiclasse o nº de árvores internas
+é `n_estimators × n_classes`. Este treino usa 300 estimadores × 5 classes =
+**~1500 árvores internas** (o artigo original, 400×10, dá ~4000). Um
+precedente publicado mostrou 500 árvores a exigirem 553–727KB de flash —
+quase todo o orçamento desta placa (811KB total, ~638KB livres). Além disso
+`micromlgen` (conversor XGBoost→C) está sem manutenção ativa e tem bugs
+documentados.
 
-Investigação anterior desta rotina (ver histórico de `PROJECT_STATUS.md`)
-levantou um ponto que se mantém válido e não foi resolvido por este treino:
+**Alternativa avaliada**: Random Forest com 80 árvores rasas (profundidade
+5), convertido via [`emlearn`](https://github.com/emlearn/emlearn) —
+mantido ativamente, já comprovado em hardware nRF52 real.
 
-- Num classificador XGBoost multiclasse, o número de árvores internas é
-  aproximadamente `n_estimators × n_classes` (uma árvore por classe, por
-  ronda de boosting) — com o artigo original (400 estimadores × 10 classes)
-  isso são **~4000 árvores**. Este treino usa `n_estimators=300` e só 5
-  classes (`300 × 5 = 1500` árvores internas), com profundidade 3 em vez de
-  6 — bem menor, mas ainda não medido em hardware.
-- Um precedente publicado mostrou 500 árvores (profundidade não especificada
-  aqui) a exigirem 553–727KB de flash só para caberem — praticamente todo o
-  orçamento desta placa (811KB total, ~638KB livres com o resto do firmware
-  já a correr).
-- `micromlgen` (a ferramenta óbvia para converter XGBoost→C) está sem
-  manutenção ativa (repositório arquivado) e tem bugs documentados por
-  resolver — um risco real de integração, independente do footprint.
-- **Alternativa de recurso identificada, ainda não implementada**: se o
-  footprint medido não couber ou `micromlgen` se revelar inviável na
-  prática, substituir por um **Random Forest com ~50-100 árvores rasas
-  (profundidade ≤4-5)**, convertido via
-  [`emlearn`](https://github.com/emlearn/emlearn) — mantido ativamente,
-  já comprovado em hardware nRF52 real segundo a investigação feita. Isto
-  seria uma mudança metodológica face ao artigo original, não só uma escolha
-  de implementação — precisa de validação humana antes de se avançar (ver
-  "Decisão pendente" abaixo).
-
-**Nada disto foi medido em hardware real ainda** — nem o footprint do
-XGBoost treinado aqui, nem uma alternativa Random Forest. Este treino
-serve para validar a pipeline de dados→features→modelo→avaliação no
-backend; a decisão de embarcar (e com que algoritmo) só deve ser tomada
-depois de medir footprint/latência reais nesta placa (ver "Estudo de
-viabilidade TinyML" no PROJECT_STATUS.md).
-
-### Random Forest treinado (2026-07-03) — comparação real com o XGBoost
-
-Visto que o XGBoost fiel ao artigo não é viável para embarcar (secção
-acima), o utilizador confirmou avançar com o treino comparativo do Random
-Forest sem esperar mais, já que treinar um ou outro não faz diferença
-para o estado atual da placa (nenhum dos dois está embarcado). Script:
-`train_activity_classifier_rf.py`, reutiliza o mesmo dataset/split/
-metodologia de avaliação do script XGBoost (ver `train_activity_classifier.py`),
-para a comparação ser justa.
-
-| | XGBoost (`ml/models/activity_classifier_xgb.json`) | Random Forest (`ml/models/activity_classifier_rf.joblib`) |
+| | XGBoost (`activity_classifier_xgb.json`) | Random Forest (`activity_classifier_rf.joblib`) |
 |---|---|---|
-| Nº de árvores | 300 estimadores × 5 classes = **~1500 árvores internas** | **80 árvores** |
+| Nº de árvores | 300 estimadores × 5 classes ≈ **1500 árvores internas** | **80 árvores** |
 | Profundidade | 3 | 5 |
-| Accuracy (sujeitos de teste nunca vistos) | **0.996** | **0.992** |
+| Accuracy (sujeitos de teste nunca vistos) | 0.996 | 0.992 |
 
-*(Números atualizados em 2026-07-07 após o dataset passar a ter sessões de
-24h completas e sobreposição deliberada entre classes — ver secção "Dados
-sintéticos" acima; antes desta mudança eram 1.000/0.978. A queda face ao
-XGBoost anterior é pequena porque a sobreposição introduzida é moderada,
-não extrema — o objetivo era deixar de ter uma accuracy perfeita
-suspeita, não fabricar um modelo artificialmente mau.)*
+Diferença de accuracy pequena (0.4 pontos percentuais) para uma fração do
+número de árvores — reforça o Random Forest como via mais realista para
+embarcar. "Higiene" é a classe mais confundida em ambos os modelos
+(precision/recall 0.89/0.94 no RF, 0.94/0.98 no XGBoost), consistente com o
+overlap deliberado com "Atividade".
 
-A diferença de accuracy entre os dois é pequena (0.4 pontos percentuais)
-para uma fração do número de árvores (80 vs. ~1500) — reforça que o Random
-Forest é a via mais realista para uma eventual versão embarcada via
-`emlearn`, sem sacrificar muita qualidade face ao XGBoost. **Isto continua
-a não ser uma decisão de produção**: falta medir latência real (o
-footprint de flash/RAM já foi medido — ver secção seguinte) antes de
-decidir embarcar qualquer um dos dois — ver
-`reports/activity_classifier_rf_metrics.json` e
-`reports/activity_classifier_rf_confusion_matrix.png` para o detalhe por
-classe (nota: "Higiene" continua a ser a classe mais confundida em ambos
-os modelos — precision/recall 0.89/0.94 no Random Forest, 0.94/0.98 no
-XGBoost — consistente com ser a classe com overlap de amplitude/frequência
-desenhado deliberadamente com "Atividade").
+### Footprint real medido (`measure_rf_footprint.py`)
 
-### Footprint real medido via `emlearn` (2026-07-03, `measure_rf_footprint.py`)
-
-Primeira medição real (não estimativa) do footprint deste Random Forest,
-convertido para C via `emlearn` e **compilado com o toolchain ARM real do
-firmware** (`arm-none-eabi-gcc`, `-mcpu=cortex-m4 -mfpu=fpv4-sp-d16
--mfloat-abi=hard -Os`) — não retreinou nada, só mediu o modelo já treinado
-acima. Ver `reports/activity_classifier_rf_footprint.json` para os números
-completos.
+Random Forest convertido via `emlearn` e **compilado com o toolchain ARM
+real do firmware** (`arm-none-eabi-gcc`, `-mcpu=cortex-m4 -mfpu=fpv4-sp-d16
+-mfloat-abi=hard -Os`) — footprint medido, não estimado.
 
 | Variante | Flash | RAM | Accuracy (código C real, compilado e corrido) |
 |---|---|---|---|
-| `inline`, quantizado (`int16_t`, omissão do `emlearn`) | **14 012 bytes** (~13,7 KB) | 0 bytes | **0.795** |
-| `inline`, `float` (limiares não quantizados) | **27 836 bytes** (~27,2 KB) | 0 bytes | **0.991** |
-| `loadable` (tabela de dados, só suporta `int16_t`) | **10 513 bytes** (~10,3 KB) | 28 bytes | **0.795** |
+| `inline`, quantizado (`int16_t`) | ~13,7 KB (14 012 bytes) | 0 bytes | 0.795 |
+| `inline`, `float` (limiares não quantizados) | ~27,2 KB (27 836 bytes) | 0 bytes | 0.991 |
+| `loadable` (tabela de dados, só `int16_t`) | ~10,3 KB (10 513 bytes) | 28 bytes | 0.795 |
 
-*(Números remedidos em 2026-07-07 sobre o Random Forest retreinado no
-dataset de 24h com sobreposição entre classes — accuracy sklearn de
-referência 0.992, ver tabela acima; ligeiramente maiores em bytes que a
-medição de 2026-07-03 porque o modelo tem agora mais variância a
-codificar nas árvores, mas a conclusão qualitativa é a mesma: flash não é
-fator limitante, quantização `int16_t` continua a destruir accuracy.)*
+Duas conclusões:
 
-**Duas conclusões, uma boa e uma que exige atenção antes de qualquer
-decisão de embarcar:**
+1. **Flash não é fator limitante** — mesmo a variante maior é uma fração
+   ínfima dos ~638KB livres.
+2. **A quantização `int16_t` por omissão do `emlearn` destrói a accuracy**
+   (de 0.978 para 0.789 na medição original, ~19 pontos percentuais). Causa:
+   features como a correlação entre eixos do acelerómetro (tipicamente entre
+   -1 e 1) perdem quase toda a informação quando truncadas para `int16_t`
+   sem escala. O caminho `loadable` está preso a este dtype no `emlearn`
+   atual; `inline`+`float` evita o problema ao custo de mais flash (ainda
+   assim pequeno face ao orçamento disponível).
 
-1. **Flash: não é problema nenhum.** Mesmo a variante maior (`inline`
-   float, ~19KB) é uma fração ínfima dos ~638KB livres nesta placa — ao
-   contrário do precedente de terceiros (500 árvores a exigirem
-   553-727KB) que motivou a preocupação original com o XGBoost. Para este
-   modelo (80 árvores, profundidade 5), o footprint de flash deixa de ser
-   um fator de decisão.
-2. **A quantização `int16_t` por omissão do `emlearn` destrói a accuracy
-   — de 0.978 para 0.789, uma queda de ~19 pontos percentuais.** Isto não
-   estava documentado antes de se medir; a suposição implícita nas notas
-   anteriores era que "quantizar" é sempre um trade-off pequeno de
-   precisão por espaço, o que não se confirma aqui. **Causa identificada**:
-   várias das features estatísticas usadas (`features.py`) — em
-   particular a correlação entre eixos do acelerómetro, que varia
-   tipicamente entre -1 e 1 — ficam com quase toda a sua informação
-   destruída quando truncadas para `int16_t` sem escala (um valor 0.87 e
-   um valor 0.12 tornam-se ambos `0`). O caminho `loadable` (o único que
-   permitiria uma tabela de dados bem compacta, 4,7KB) está **preso** a
-   este mesmo dtype no `emlearn` atual — não há como usar `loadable` com
-   `float`. A variante `inline` com `dtype='float'` evita o problema
-   (mantém os limiares em vírgula flutuante) e recupera a accuracy
-   original exatamente (0.978), ao custo de ~19KB em vez de ~5-10KB —
-   ainda assim uma fração pequena do orçamento de flash.
+Ver "Decisão pendente" abaixo para as duas vias possíveis de embarque.
 
-**Decisão técnica ainda pendente** (não tomada aqui, só medida): se se
-avançar para embarcar este classificador, há duas vias honestas: (a) usar
-`inline`+`float` (mais simples, accuracy intacta, ~19KB — como o flash não
-é fator limitante aqui, esta é a opção que menos risco introduz); ou (b)
-adaptar `features.py` para produzir features já escaladas para inteiro
-antes da conversão (ex.: multiplicar a correlação por 10000 antes de
-alimentar o `emlearn`), o que permitiria usar `loadable` (mais compacto e
-mais rápido) sem perder accuracy — mas isso exigiria retreinar com as
-features escaladas e não foi feito nesta sessão (fora do âmbito "medir,
-não retreinar" desta execução).
+## Resultados finais atuais
 
-### Avaliação — split por sujeito, não por janela
-
-O conjunto de teste é composto por sujeitos sintéticos **nunca vistos no
-treino** (split por `subject_id`, não uma amostragem aleatória de janelas).
-Janelas do mesmo sujeito partilham o mesmo "jitter" individual e estariam
-fortemente correlacionadas — uma amostragem aleatória de janelas inflacionaria
-artificialmente a métrica de avaliação.
-
-### Resultado da última execução (atualizado 2026-07-07)
-
-**Accuracy = 0.996** no conjunto de teste (2 sujeitos sintéticos nunca vistos
-no treino, 18 090 janelas, dataset de 24h com overlap entre classes). Ver
-`reports/activity_classifier_metrics.json` e
-`reports/activity_classifier_confusion_matrix.png` para o detalhe por classe
-— "Higiene" é a classe com mais confusão (precision 0.94, recall 0.98),
-consistente com o overlap deliberado desenhado com "Atividade" (ver secção
-"Dados sintéticos" acima).
-
-**Interpretação honesta deste resultado — não é uma validação clínica:**
-antes desta correção (2026-07-07) a accuracy era exatamente 1.000 — resultado
-esperado do dataset anterior, não uma prova de qualidade do modelo, porque as
-classes sintéticas tinham sinais claramente separáveis por construção
-(constantes fixas por classe). Isso foi corrigido: `CLASS_PARAMS` passou a
-intervalos com sobreposição deliberada entre classes vizinhas, o que já reduz
-a accuracy de 1.000 para 0.996 e torna os erros por classe visíveis e
-interpretáveis (ver acima). **Mesmo assim, isto não deve ser considerado
-validado para uso real** — a sobreposição introduzida é uma escolha de
-design nossa, não medida em dados reais. Falta ainda: (a) dados reais
-rotulados ou o TIHM Dataset como validação externa, (b) ruído de sensor real
-medido em hardware (continua bloqueado — sem placa disponível), (c) validar
-em hardware embarcado se a via TinyML avançar.
-
-## Passo 2 — LSTM Autoencoder (deteção de anomalias comportamentais)
-
-**Implementado (2026-07-03)**: `synthetic_sequences.py` (geração de
-sequências diárias sintéticas, com anomalias injetadas) +
-`train_lstm_autoencoder.py` (treino, calibração de limiar, avaliação).
-
-### Ideia e porquê esta arquitetura
-
-Diferente do passo 1 (classifica UMA janela isolada), este passo olha para
-uma **subsequência de janelas consecutivas** (`SEQ_LEN=12` janelas de 10s =
-2 minutos de contexto) e tenta reconstruí-la. Treinado **só com sequências
-normais** (nunca vê uma anomalia durante o treino — autoencoder, não
-classificador supervisionado), o modelo aprende o padrão normal de
-transições/rotina; uma subsequência com erro de reconstrução muito acima do
-normal é sinalizada como possível anomalia. LSTM Autoencoder é a escolha do
-artigo científico de referência para este passo — mantemo-nos alinhados com
-a base científica do projeto. Arquitetura pequena deliberadamente
-(`LSTM(32)`) — este treino corre no backend/offline; embarcar isto no
-firmware exigiria TensorFlow Lite Micro/CMSIS-NN e quantização, footprint
-ainda por medir (não feito nesta sessão — ver "Próximos passos").
-
-### Dados: sequências sintéticas com anomalias injetadas (`synthetic_sequences.py`)
-
-Reutiliza as mesmas funções de geração de sinal/features de
-`synthetic_data.py` (mesmos parâmetros por classe, mesmo jitter por
-sujeito), mas gera uma **sequência ordenada no tempo** por sujeito (noite
-seguida de dia) em vez de janelas em qualquer ordem — o autoencoder precisa
-da ordem temporal para aprender transições. Três tipos de anomalia
-injetada, escolhidos para cobrir categorias distintas de desvio de rotina
-(mesma ideia já usada na simulação visual do dashboard,
-`buildRoutine(seed, anomalous)`, agora aplicada ao sinal real em vez de só
-à timeline):
-
-- `duracao_prolongada`: um bloco de Higiene fica 3-5x mais longo (ex.:
-  duche demasiado longo).
-- `substituicao_contextual`: um bloco da sessão "noite" (que devia ser
-  Dormir/Descanso) é substituído por Atividade (agitação/deambulação
-  noturna, "sundowning").
-- `truncamento`: um bloco de Alimentação é cortado a menos de metade da
-  duração (refeição interrompida).
-
-Continua 100% sintético — mesma limitação já documentada para o passo 1.
-
-### Metodologia de avaliação (4 grupos de sujeitos, sem sobreposição)
-
-Split por sujeito sintético (nunca por janela/subsequência aleatória, mesma
-lógica dos passos 1): `train` (10 sujeitos normais, ajustam os pesos) →
-`val` (3 sujeitos normais, só early stopping) → `threshold` (8 sujeitos
-normais, calibram o limiar de deteção como o percentil 95 do erro de
-reconstrução — **subiu de 3 para 8 sujeitos** depois de uma primeira
-execução mostrar sensibilidade alta a esta amostra pequena, um percentil é
-uma estimativa ruidosa com poucos pontos) → avaliação final com 3 sujeitos
-normais + 3 sujeitos por cada um dos 3 tipos de anomalia, **nenhum deles
-visto em nenhum passo anterior**.
-
-### Resultado da última execução — achado honesto, não só um número
-(reavaliado 2026-07-07 sobre sequências de 24h, ver "Dados sintéticos"
-acima; números entre parêntesis = resultado anterior, sessões comprimidas)
-
-Ver `reports/lstm_autoencoder_metrics.json` e
-`reports/lstm_autoencoder_error_distribution.png`.
-
-| | Geral | `duracao_prolongada` | `substituicao_contextual` | `truncamento` |
-|---|---|---|---|---|
-| AUC-ROC (score vs. normal) | **0.849** (0.876) | 0.799 (0.813) | 0.928 (0.910) | 0.861 (0.744) |
-| Recall ao limiar (percentil 95) | 0.198 (0.179) | 0.008 (0.015) | 0.471 (0.331) | 0.136 (0.000) |
-| Precisão ao limiar (percentil 95) | **0.035** (0.276) | — | — | — |
-| PR-AUC (average precision) | **0.040** | 0.057 | 0.143 | 0.026 |
-| Prevalência da classe anómala no eval | 1.28% | 2.66% | 1.96% | 0.50% |
-
-**Achado honesto novo, específico da mudança para 24h**: a precisão geral
-caiu de 0.276 para 0.035 — não porque o modelo piorou (o AUC-ROC, que não
-depende de um limiar específico, manteve-se na mesma gama, 0.80-0.93 por
-tipo), mas porque **um bloco anómalo de duração fixa passou a ser uma
-fatia muito menor do total** quando a sessão cresce de ~5,5h comprimidas
-para 24h reais — a proporção de subsequências efetivamente anómalas caiu
-de 335/4001 (8,4%) para 227/17789 (1,3%). Com um limiar fixo calibrado no
-percentil 95 das subsequências normais, o número absoluto de falsos
-positivos (5% de uma população normal muito maior) passa a dominar os
-verdadeiros positivos (uma fatia de anomalias agora proporcionalmente mais
-rara) — um efeito de diluição/desequilíbrio de classes esperado ao mudar
-para sessões realistas, não um bug. Reforça a mesma conclusão já registada
-abaixo: um limiar único e global serve mal este problema.
-
-**PR-AUC implementado e medido (2026-07-07, mesma rotina que tornou os
-dados sintéticos mais realistas)** — a métrica sugerida acima como próximo
-passo honesto. Resultado, **também honesto**: o PR-AUC geral (0.040) fica
-~3,1x acima da prevalência de base (0.013, o valor esperado de um
-classificador aleatório) — confirma que o modelo ainda ordena as
-subsequências anómalas melhor do que o acaso, na mesma direção que o
-AUC-ROC já sugeria, mas **em termos absolutos continua baixo**: PR-AUC não
-"resolve" o problema do limiar único, só o mede de forma mais justa (sem
-depender de escolher um ponto de corte arbitrário). Por tipo, o padrão
-acompanha o recall já visto — `substituicao_contextual` continua o mais
-distinguível (PR-AUC 0.143, ~7,3x a sua prevalência de 1,96%),
-`duracao_prolongada` e `truncamento` ficam bem mais fracos (2,1x e 5,2x a
-respetiva prevalência, mas com PR-AUC absoluto <0.06). **Conclusão honesta,
-não só um número**: mudar de métrica não substitui a necessidade real de
-limiares por pessoa/contexto (ou uma estratégia de alerta por "top-k mais
-anómalo" em vez de um corte fixo) — PR-AUC serve para *medir* o problema
-sem o esconder atrás de um AUC-ROC estável, não para *resolver* o recall
-fraco das anomalias de duração. Ver `reports/lstm_autoencoder_metrics.json`
-(`pr_auc`, `pr_auc_vs_eval_normal` por tipo, `eval_anomalous_prevalence`)
-para os números completos.
-
-**O AUC-ROC por tipo (0.80-0.93, todos bem acima de 0.5) mostra que o
-modelo consegue, de facto, ordenar corretamente subsequências anómalas
-acima de normais nos 3 tipos** — não é um modelo que não aprendeu nada.
-Mas o **recall a um limiar único e fixo é muito mau para os dois tipos de
-anomalia baseados em duração** (`duracao_prolongada`, `truncamento`), e só
-razoável para a anomalia contextual (`substituicao_contextual`). O
-histograma de erro (`reports/lstm_autoencoder_error_distribution.png`)
-explica porquê: prolongar ou encurtar um bloco de uma atividade já
-conhecida produz mais/menos do **mesmo sinal estatístico** — as
-subsequências dentro do bloco continuam a "parecer" Higiene ou Alimentação
-normais, só a DURAÇÃO TOTAL do bloco é que é anómala, algo que uma janela
-de 2 minutos não consegue ver sozinha. Já a substituição contextual
-(Atividade a meio da noite) produz um sinal que o modelo nunca viu nesse
-contexto durante o treino (a sessão "noite" é quase só Dormir/Descanso) —
-por isso é o tipo mais claramente detetado.
-
-**Isto não é um problema a "corrigir" no LSTM Autoencoder — é exatamente a
-razão pela qual o artigo de referência desenha um pipeline de 3 partes em
-vez de confiar tudo a um único modelo**: o classificador (passo 1) diz QUAL
-atividade está a decorrer, o autoencoder (este passo) deteta padrões
-CONTEXTUALMENTE atípicos, e o **detetor de duração baseado em regras**
-(passo 3, ver secção abaixo — implementado e ligado ao vivo desde
-2026-07-20 em `bridge/activity_inference.py`) é especificamente para o que
-o autoencoder não vê — durações fora dos limites esperados. Os três são complementares,
-não redundantes; este resultado é evidência concreta disso, não só teoria.
-
-### Limitações honestas
-
-- Um único limiar global (percentil 95 de um conjunto pequeno de sujeitos)
-  serve mal tipos de anomalia com magnitudes de desvio muito diferentes —
-  limiares por contexto/pessoa (ligado ao item 3 do backlog do dashboard,
-  "modelos personalizados por pessoa") seriam um passo natural a seguir.
-- 100% sintético, com anomalias desenhadas para serem plausíveis mas não
-  clinicamente validadas — dados reais serão mais subtis e ambíguos.
-- Não embarcado nem medido em hardware — só validado no backend/offline.
-
-## Passo 3 — Detetor de duração baseado em regras (2026-07-04)
-
-**Implementado**: `duration_detector.py`, motivado diretamente pelo achado
-honesto do passo 2 acima — o LSTM Autoencoder tem recall muito fraco
-(0.000-0.331) para anomalias baseadas em duração, porque uma janela de 2
-minutos não vê a duração TOTAL de um bloco. Este passo é, ao contrário dos
-passos 1 e 2, **uma regra determinística, não um modelo treinado**: compara
-a duração de cada bloco de atividade classificado com o intervalo
-`[d_min, d_max]` esperado para essa classe+sessão (dia/noite), e sinaliza
-também como anómala qualquer classe que não seja esperada de todo nessa
-sessão (ex.: "Atividade" a meio da noite, quando só Dormir/Descanso são
-esperados).
-
-**Limitação assumida sobre os limites usados**: `[d_min, d_max]` vêm
-diretamente de `DAY_BLOCK_MINUTES`/`NIGHT_BLOCK_MINUTES` (`synthetic_data.py`)
-— os mesmos parâmetros que o gerador sintético usa para amostrar a duração
-de um bloco normal — e **não** dos valores já existentes na vista "Limites
-de duração" do dashboard (template de 21 passos, 10 classes mais
-granulares, sem correspondência 1-para-1 com as 5 classes simplificadas
-usadas aqui). Quando existir histórico real por pessoa, os limites devem
-vir daí (item 3 do backlog do dashboard), não do gerador sintético.
-
-### Avaliação (`reports/duration_detector_metrics.json`, seed=123, distinta da usada nos passos 1/2)
-
-40 sujeitos normais + 40 sujeitos por tipo de anomalia, avaliados bloco a
-bloco (não janela a janela, ao contrário dos passos 1/2). Reavaliado em
-2026-07-07 sobre o gerador corrigido (ver "Achado honesto" abaixo):
-
-| | `duracao_prolongada` | `substituicao_contextual` | `truncamento` |
-|---|---|---|---|
-| Recall | 0.925 (1.000) | **1.000** | 0.925 (0.972) |
-
-*(entre parêntesis: valor antes da correção do gerador de 2026-07-07 —
-pequena variação, dentro do ruído esperado de reamostrar sujeitos
-sintéticos diferentes; não é um efeito da correção em si, que só afetava o
-último bloco de sessões normais, não os blocos com anomalia injetada.)*
-
-Comparação direta com o LSTM Autoencoder (passo 2, recall a limiar fixo):
-0.008→**0.925**, 0.506→**1.000**, 0.136→**0.925** — confirma com números
-concretos, não só teoria, que os dois detetores são complementares: onde o
-autoencoder falha (duração), a regra simples acerta quase sempre, incluindo
-a anomalia contextual (via a checagem "classe inesperada nesta sessão",
-que também serve de regra de calendário, não só de duração).
-
-**Achado honesto sobre falsos positivos — CORRIGIDO em 2026-07-07**: até
-2026-07-04, a taxa de falsos positivos em blocos normais era 7.17%
-(154/2147), com **100% desses falsos positivos (154/154) a acontecer no
-último bloco de cada sessão** — confirmado medindo diretamente (não
-suposição). Causa raiz identificada: `_build_segment_sequence`
-(`synthetic_data.py`) cortava o último bloco de cada sessão
-(`dur = min(dur, remaining)`) para a sessão somar exatamente
-`DAY_SESSION_MINUTES`/`NIGHT_SESSION_MINUTES` — um artefacto de como as
-sessões sintéticas COMPRIMIDAS eram construídas, não uma anomalia real nem
-uma falha da regra. **Corrigido** (item 4 do roteiro "Próximos passos",
-2026-07-07): `_build_segment_sequence` deixou de cortar o último bloco —
-a sessão agora termina assim que a duração acumulada atinge o alvo,
-podendo ultrapassá-lo ligeiramente, mas cada bloco mantém sempre a sua
-duração amostrada por inteiro. Reavaliado: **taxa de falsos positivos =
-0.0%** (0/8626 blocos normais, ver `false_positive_rate_normal_blocks` no
-relatório). **Isto continua a não validar especificidade em dados reais**
-— confirma só que, dentro do próprio mundo sintético, a regra já não gera
-falsos positivos por um artefacto do gerador; a variabilidade humana real
-não segue os mesmos limites usados para gerar os dados.
-
-### Limitações honestas
-
-- 100% sintético, mesma limitação já documentada nos passos 1 e 2.
-- Os limites usados são os do próprio gerador (ver acima) — não uma
-  calibração independente nem dados reais.
-- Não embarcado no firmware — hoje é um script Python de avaliação
-  offline; embarcar isto é trivial em comparação com os passos 1/2 (é só
-  comparar dois números), mas exige primeiro que o classificador do passo 1
-  esteja embarcado e a produzir blocos classificados em tempo real (ver
-  "Riscos" no PROJECT_STATUS.md — ainda não está).
-- A taxa de falsos positivos de 0.0% medida aqui reflete um gerador
-  sintético sem artefactos de truncamento, não uma medida de
-  especificidade em produção — dados reais têm variabilidade que este
-  gerador não modela (ex.: uma pessoa real pode genuinamente ter um duche
-  mais longo que o intervalo `[d_min, d_max]` sem isso ser uma anomalia).
-
-## Relatório combinado dos 3 detetores (pipeline completo, 2026-07-10)
-
-Item do roteiro "Objetivos" desta rotina, ainda por fazer: até aqui, cada
-passo era avaliado isoladamente — em particular, `duration_detector.py`
-(passo 3) mede a regra de duração contra os segmentos **verdadeiros**
-(ground truth) do gerador sintético, isolando-a de qualquer erro do
-classificador (passo 1). Isso não é como o sistema funcionaria de facto
-embarcado: em produção, o detetor de duração só vê os **blocos que o
-classificador de facto produziu**, com todos os seus erros. Implementado
-`ml/combined_pipeline_report.py`: gera um cohort sintético novo (seed=555,
-nunca visto no treino/calibração de nenhum dos modelos usados — XGBoost e
-LSTM Autoencoder, ambos seed=42), classifica cada janela com o XGBoost já
-treinado, agrupa janelas consecutivas da mesma sessão com a **mesma classe
-prevista** em blocos, aplica a regra de duração (passo 3) e o LSTM
-Autoencoder (passo 2, veredito por janela via subsequências) a esses
-blocos previstos, e compara com a avaliação "oráculo" (mesma metodologia
-de `duration_detector.py`, para medir a diferença). 10 sujeitos normais +
-10 por tipo de anomalia (`reports/combined_pipeline_metrics.json`,
-`reports/combined_pipeline_recall_by_detector.png`).
-
-### Achado honesto principal — a fragmentação de blocos pelo classificador destrói a especificidade da regra de duração
-
-| | Oráculo (segmentos verdadeiros, mesma metodologia do passo 3) | Blocos previstos pelo classificador (este relatório) |
+| Componente | Métrica | Valor |
 |---|---|---|
-| Falsos positivos em blocos normais | **0.0%** | **70.8%** |
-| Recall (`duracao_prolongada`/`substituicao_contextual`/`truncamento`) | 1.000 / 1.000 / 1.000 | 1.000 / 1.000 / 1.000 |
+| Classificador de atividades — XGBoost | Accuracy (sujeitos de teste nunca vistos) | **0.996** |
+| Classificador de atividades — Random Forest | Accuracy (sujeitos de teste nunca vistos) | **0.992** |
+| LSTM Autoencoder — geral | AUC-ROC | 0.849 |
+| LSTM Autoencoder — geral | Recall ao limiar (percentil 95) | 0.198 |
+| LSTM Autoencoder — geral | Precisão ao limiar (percentil 95) | 0.035 |
+| LSTM Autoencoder — geral | PR-AUC | 0.040 |
+| LSTM Autoencoder — `duracao_prolongada` | AUC-ROC / Recall | 0.799 / 0.008 |
+| LSTM Autoencoder — `substituicao_contextual` | AUC-ROC / Recall | 0.928 / 0.471 |
+| LSTM Autoencoder — `truncamento` | AUC-ROC / Recall | 0.861 / 0.136 |
+| Detetor de duração — `duracao_prolongada` | Recall | 0.925 |
+| Detetor de duração — `substituicao_contextual` | Recall | 1.000 |
+| Detetor de duração — `truncamento` | Recall | 0.925 |
+| Detetor de duração — falsos positivos (blocos normais, oráculo) | Taxa | 0.0% |
+| Pipeline combinado — falsos positivos (blocos previstos pelo classificador) | Taxa | 70.8% |
+| Pipeline combinado — falsos positivos (com LSTM Autoencoder via OR) | Taxa | 85.2% |
+| Pipeline combinado — recall por tipo (blocos previstos) | Recall | 1.000 / 1.000 / 1.000 |
 
-O recall mantém-se perfeito nos 3 tipos (as anomalias injetadas continuam
-muito mais longas/curtas do que qualquer fragmento espúrio, por isso a
-regra continua a apanhá-las). **Mas a taxa de falsos positivos explode de
-0.0% para 70.8%** — não porque a regra de duração em si piorou (é o mesmo
-código, os mesmos limites), mas porque **o classificador (accuracy 0.996
-neste cohort, consistente com `activity_classifier_metrics.json`) ainda
-assim fragmenta os blocos quase para o dobro**: em média 105.4 blocos
-previstos por sujeito contra 54.2 blocos verdadeiros
-(`fragmentation_ratio` ≈1.94, ver `block_fragmentation` no relatório). Uma
-única janela mal classificada a meio de um bloco contínuo (ex.: 20 minutos
-de "Descanso") parte-o em 3 blocos mais curtos — dois deles fora do
-intervalo `[d_min, d_max]` esperado só por serem demasiado curtos, um
-falso positivo de duração **causado pelo erro do classificador, não por
-nenhuma anomalia real**. Isto confirma com números concretos, pela
-primeira vez nesta pasta, que **accuracy alta ao nível da janela (0.996)
-não implica especificidade alta ao nível do bloco** quando os dois passos
-são encadeados — as métricas isoladas de cada passo (passo 1: accuracy
-0.996; passo 3: FP 0.0%) escondiam este efeito de composição.
+**Leitura do achado mais importante**: o detetor de duração tem 0.0% de
+falsos positivos quando avaliado contra os segmentos verdadeiros (oráculo),
+mas 70.8% quando alimentado pelos blocos que o classificador realmente
+produz — o classificador fragmenta blocos contínuos em ~1.94x mais blocos
+do que o real (accuracy alta ao nível da janela, 0.996, não implica
+especificidade alta ao nível do bloco). Combinar com o autoencoder via OR
+lógico piora ainda mais a especificidade (85.2%), porque um OR nunca reduz
+falsos positivos — só aumenta a sensibilidade combinada. Os três detetores
+são complementares por desenho (o autoencoder falha em anomalias de
+duração, onde a regra determinística acerta quase sempre), mas encadeá-los
+sem suavizar a saída do classificador (filtro de mediana/histerese, ainda
+não implementado) destrói a especificidade da regra de duração em
+produção.
 
-**Combinar com o LSTM Autoencoder (OR lógico) piora ainda mais a
-especificidade, não melhora**: FP combinado = 85.2% (> 70.8% da regra de
-duração sozinha), porque o autoencoder tem a sua própria taxa de falsos
-positivos (32.5%, medida aqui a nível de janela/bloco, não diretamente
-comparável ao "false_positive_rate" reportado no passo 2, que é a nível de
-subsequência com um cohort/seed diferentes) e um OR lógico entre dois
-detetores nunca reduz falsos positivos — só pode aumentar a sensibilidade
-(e com ela, o ruído) de qualquer um dos dois sozinho. Isto é uma
-propriedade matemática do "OR", não um bug: combinar detetores para reduzir
-falsos negativos exige aceitar mais falsos positivos, a não ser que se use
-uma regra de combinação diferente (ex.: exigir concordância de 2 em 2, não
-um OR).
+## Limitações honestas
 
-**Recall por tipo do autoencoder isolado** (a nível de sujeito — "pelo
-menos uma janela da anomalia foi sinalizada" — não a nível de subsequência
-como no passo 2, por isso os números não são diretamente comparáveis aos
-já reportados lá): `duracao_prolongada` 0.1, `substituicao_contextual`
-1.0, `truncamento` 0.6 — a ordem relativa (contextual > truncamento >
-duração) é consistente com o já reportado no passo 2, reforçando a mesma
-conclusão qualitativa com um cohort novo.
+- **Dados 100% sintéticos** em toda a pasta — gerados por `synthetic_data.py`
+  e `synthetic_sequences.py`, sem nenhum utente real a usar o dispositivo
+  com rótulos de atividade (o firmware não tem classificador HAR embarcado).
+  Suficiente para validar a pipeline de ponta a ponta (dados → features →
+  modelo → avaliação), **não** valida desempenho em dados clínicos reais.
+- Ruído do acelerómetro/giroscópio é estimado, nunca medido no hardware real
+  (bloqueado pela indisponibilidade de placa).
+- A sobreposição entre classes e os limites de duração usados pelo detetor
+  do passo 3 são escolhas de design próprias (vindas do próprio gerador
+  sintético), não calibrações independentes nem dados reais.
+- Anomalias injetadas nas sequências são plausíveis, não clinicamente
+  validadas.
+- Nenhum componente está embarcado ou medido em latência de hardware real
+  (só footprint estático de flash/RAM do Random Forest foi medido).
+- **Alternativa de validação externa**: o [TIHM Dataset](https://www.nature.com/articles/s41597-023-02519-y)
+  (dados reais multi-sensor de demência, com eventos adversos rotulados,
+  [código/dados aqui](https://github.com/PBarnaghi/TIHM-Dataset)) é a via
+  identificada para validar o pipeline contra dados clínicos reais sem
+  depender de recrutar utentes próprios.
 
-**Interpretação honesta, não só um número**: este resultado não invalida
-o passo 3 nem o passo 2 isoladamente — cada avaliação anterior mede
-exatamente o que diz medir. O que este relatório acrescenta é a medição,
-antes só assumida implicitamente, do **custo real de encadear os passos**.
-Uma regra de duração "quase perfeita" isoladamente (FP 0.0%) pode ser
-inutilizável em produção (FP 70.8%) se alimentada diretamente pela saída
-janela-a-janela, ruidosa por natureza, de um classificador — mesmo um
-classificador com accuracy muito alta. **Isto não é uma validação clínica
-nem uma medição de hardware real** (mesma limitação de todo o `ml/`): mede
-só o efeito de composição dentro do próprio mundo sintético.
+## Decisão pendente
 
-**Limitações honestas**:
-- 100% sintético, mesma limitação documentada em todo o `ml/`.
-- O agrupamento de janelas em blocos usado aqui (juntar janelas
-  consecutivas com a mesma classe prevista) é a implementação mais
-  ingénua possível — não há nenhuma suavização/histerese sobre a saída
-  do classificador antes de derivar blocos. Isto é deliberado (mede o
-  pior caso "sem mitigação"), mas significa que o FP de 70.8% é um
-  limite superior do problema, não necessariamente o que uma
-  implementação mitigada produziria — ver "Próximos passos" abaixo.
-- A regra de combinação usada (OR) foi escolhida por ser a mais simples,
-  não por ser a melhor — o achado sobre o OR piorar a especificidade é
-  uma razão concreta para não a usar sem mais pensar, não uma conclusão
-  de que a combinação dos 3 detetores não vale a pena.
+1. **Dados reais**: treinar/validar com dados reais de utentes exige
+   consentimento e dados reais que só o proprietário do projeto pode
+   disponibilizar — não decidido nem assumido nesta pasta.
+2. **XGBoost vs. Random Forest para embarque**: mudança metodológica face ao
+   artigo original, não só uma escolha de implementação — precisa de
+   validação humana. O footprint do Random Forest já foi medido (flash não é
+   fator limitante), mas o do XGBoost via `micromlgen` continua por medir
+   (ferramenta sem manutenção ativa, reduzindo a urgência). Mesmo optando
+   por Random Forest, falta decidir entre `inline`+`float` (accuracy
+   intacta, ~19KB, menor risco) e adaptar as features para escala inteira e
+   usar `loadable` (mais compacto e rápido, mas exige retreinar).
 
-## Testes automáticos + CI (`ml/tests/`, 2026-07-07)
+## Cobertura de testes automáticos (`ml/tests/`, CI: `.github/workflows/ml-tests.yml`)
 
-Lacuna identificada pela rotina que criou `.github/workflows/bridge-tests.yml`
-(ver PROJECT_STATUS.md, secção do `requirements_db.txt`): existia CI para o
-firmware (`c-cpp.yml`) e para o bridge (`bridge-tests.yml`), mas nenhuma para
-`ml/` — ficou registada aí como "ainda por fazer", com a ressalva de que os
-scripts de treino são pesados (TensorFlow, vários minutos) e não deviam
-correr a cada push. Implementado agora, respeitando essa ressalva:
+**24/24 testes a passar** no total, cobrindo:
 
-- `ml/tests/test_features.py` e `ml/tests/test_duration_detector.py` — testam
-  só a lógica **determinística e pura** de `features.py` (`_zero_crossing_rate`,
-  `extract_features`) e `duration_detector.py` (`evaluate_block`,
-  `evaluate_subject`), com sinais/segmentos escritos à mão, sem gerar dataset
-  nem treinar nenhum modelo. 15 testes, <1s de execução total.
-- **Deliberadamente não cobre** `train_lstm_autoencoder.py` nem
-  `measure_rf_footprint.py` — exigiriam TensorFlow/emlearn instalados,
-  minutos de execução em CI, o mesmo custo que motivou adiar isto antes.
-  Fica registado como próximo passo possível (ex.: um teste de fumo com um
-  dataset minúsculo e 1 época, só para confirmar que o script corre sem
-  erro, não para validar métricas).
-- `.github/workflows/ml-tests.yml` (novo, mesmo padrão do `bridge-tests.yml`):
-  instala só `numpy`/`pandas`/`pytest` (não `ml/requirements.txt` completo —
-  os módulos cobertos por esta suite não precisam de mais nada) e corre
-  `pytest tests/ -v` a partir de `ml/`, em cada push/PR para `main`. YAML
-  validado com `yaml.safe_load` antes de commitar.
-- Testes corridos localmente nesta rotina antes do commit: **15/15 a
-  passar**.
+- `test_features.py`, `test_duration_detector.py` — lógica determinística e
+  pura de `features.py` (`_zero_crossing_rate`, `extract_features`) e
+  `duration_detector.py` (`evaluate_block`, `evaluate_subject`), com
+  sinais/segmentos escritos à mão. Sem gerar dataset nem treinar modelo.
+- `test_train_smoke.py` — chama `train_activity_classifier.train()` e
+  `train_activity_classifier_rf.train()` sobre um dataset minúsculo gerado em
+  memória, confirmando que o caminho dados → split por sujeito → treino →
+  métricas corre sem erro. Inclui 2 testes de regressão para um bug real
+  encontrado e corrigido em `split_by_subject()` (um split degenerado podia
+  deixar uma classe inteiramente fora do treino, rebentando o `.fit()` do
+  XGBoost). **Não valida métricas de produção.**
+- `test_combined_pipeline_report.py` — só `predicted_blocks_from_rows()`, a
+  função pura de agrupamento de janelas em blocos, com linhas escritas à
+  mão. Inclui um teste que reproduz o mecanismo do achado de fragmentação.
+- `test_lstm_autoencoder_smoke.py`, `test_retrain_autoencoder_from_real_data.py`
+  — presentes na suite (ver ficheiros para o que cobrem exatamente).
 
-### Teste de fumo do treino (`test_train_smoke.py`, 2026-07-08)
-
-Item que a secção acima já registava como "próximo passo possível" —
-implementado agora: `ml/tests/test_train_smoke.py` (2 testes) chama
-diretamente `train_activity_classifier.train(df, feature_cols)` e
-`train_activity_classifier_rf.train(df, feature_cols)` — as funções puras
-de treino/avaliação, já separadas de `main()` (que só faz I/O de
-ficheiros) — sobre um dataset minúsculo gerado em memória
-(`generate_dataset(n_subjects=2, seed=7)`, não os 8 sujeitos/seed=42 de
-produção). Confirma que o caminho de código completo (dados → split por
-sujeito → treino → métricas) corre sem erro e devolve uma estrutura sã
-(accuracy em `[0,1]`, sem `NaN`, sujeitos de treino/teste sem sobreposição)
-— **não valida métricas de produção**, isso continua documentado só nas
-secções "Passo 1" acima. Não escreve nenhum ficheiro em `models/`/`reports/`
-(as funções `train()` são puras) — nenhum artefacto já commitado é tocado.
-
-Continua **deliberadamente sem cobrir** o LSTM Autoencoder — precisaria de
-TensorFlow instalado em CI, o custo que a secção acima já explica que foi
-evitado. XGBoost/scikit-learn (bem mais leves, instalação em segundos, não
-minutos) foram adicionados ao `ml-tests.yml` só para este teste.
-
-**Verificado antes de commitar** (venv desta rotina cloud, `numpy`/`pandas`/
-`scikit-learn`/`xgboost`/`pytest`): `cd ml && python -m pytest tests/ -v` →
-**17/17 testes passam** (15 já existentes + 2 novos), ~11s no total
-(dominado pela geração do dataset minúsculo, ~9s). `git status` confirmado
-limpo em `ml/models/`/`ml/reports/` depois de correr — nada escrito.
-
-### Bug real em `split_by_subject()` encontrado e corrigido (2026-07-08, rotina cloud seguinte)
-
-Ao rever este teste de fumo (recém-publicado por uma rotina paralela horas
-antes, ver acima) antes de decidir o próximo passo do dia, esta execução
-tentou reduzir ainda mais o dataset minúsculo usado (mais sujeitos, sessões
-de poucos minutos em vez das 24h de produção) para tornar o smoke test mais
-rápido — e isso **reproduziu um bug real** em `split_by_subject()`
-(`train_activity_classifier.py`, usada por ambos os scripts de
-classificação): com 6 sujeitos/seed=7 e sessões de 30+20 min, o split por
-sujeito deixou por azar a classe "Alimentação" inteiramente do lado do
-teste, ausente do treino — `model.fit()` do XGBoost rebentou com "Invalid
-classes inferred from unique values of y" (`num_class` é fixado a partir
-do encoder, ajustado ao dataset inteiro, mas `y_train` não continha todos
-os valores `0..num_class-1`). **Distinto** do bug do `LabelEncoder` já
-corrigido em 2026-07-07 (esse cobria o lado inverso — classes ausentes do
-treino só rebentavam no `transform()` do teste, não no `fit()`) — a mesma
-armadilha já assinalada no roteiro ("mais sujeitos/sementes diferentes"),
-desta vez reproduzida de facto com um dataset menor, não só teorizada.
-
-**Corrigido**: `split_by_subject()` passou a devolver ao treino, de forma
-determinística, os sujeitos de teste que contribuem uma classe em falta,
-até nenhuma classe do dataset ficar ausente do treino. **Confirmado sem
-efeito no dataset de produção** (8 sujeitos, seed=42): a função continua a
-devolver exatamente os mesmos sujeitos de teste (`[0, 6]`, idênticos aos já
-commitados em `activity_classifier_metrics.json`) — nenhum modelo/relatório
-já treinado precisou de ser substituído.
-
-`ml/tests/test_train_smoke.py` ganhou 2 testes de regressão
-(`test_split_by_subject_never_drops_a_class_entirely_from_train`,
-`test_xgboost_trains_on_the_degenerate_small_split_without_crashing`), que
-encolhem `DAY_SESSION_MINUTES`/`NIGHT_SESSION_MINUTES` só para o teste (via
-`monkeypatch`) para reproduzir de forma fiável o mesmo cenário degenerado.
-**Confirmado que os dois testes falham sem a correção** (revertida
-temporariamente antes de commitar, com o erro exato do XGBoost acima) **e
-passam com ela** — não é uma correção assumida, foi reproduzida a falhar e
-depois a passar. **19/19 testes do `ml/`** a passar no total (17 já
-existentes + 2 novos), ~28s de execução.
-
-### Testes do relatório combinado (`test_combined_pipeline_report.py`, 2026-07-10)
-
-5 testes novos, cobrindo só `predicted_blocks_from_rows()` — a única
-função pura/determinística de `combined_pipeline_report.py` (agrupamento
-de janelas consecutivas da mesma sessão+classe prevista em blocos), com
-linhas escritas à mão, sem RNG nem modelos. Inclui um teste que reproduz
-diretamente o mecanismo do achado honesto acima (uma janela mal
-classificada a meio de um bloco de 10 parte-o em 3). `run_evaluation()`
-em si (que carrega XGBoost + TensorFlow + os modelos treinados) não está
-coberta por teste automático — mesmo padrão já usado para
-`duration_detector.run_evaluation()`, já corrida manualmente e coberta
-pelo relatório em `reports/`. **24/24 testes do `ml/`** a passar no total
-(19 já existentes + 5 novos). `ml-tests.yml` não precisou de alterações —
-`xgboost`/`joblib` (via `scikit-learn`) já estavam cobertos; TensorFlow
-continua propositadamente fora do CI (só é importado dentro de funções,
-nunca ao nível do módulo, mesmo padrão de `train_lstm_autoencoder.py`).
-
-## Próximos passos (por ordem)
-
-1. ~~Medir footprint real (flash/RAM) do Random Forest via `emlearn`~~ —
-   **FEITO (2026-07-03)**: ver "Footprint real medido via `emlearn`"
-   acima. Resultado: flash não é fator limitante (~5-19KB de ~638KB
-   livres), mas a quantização `int16_t` por omissão destrói a accuracy
-   (0.978→0.789) — usar `dtype='float'` no `emlearn` resolve isso.
-   **Ainda por medir**: footprint do XGBoost via `micromlgen` (não feito
-   nesta sessão — `micromlgen` está sem manutenção ativa e o Random
-   Forest já mostrou ser viável, reduzindo a urgência de medir a via
-   XGBoost) e latência de inferência real em hardware (só foi medido
-   footprint estático via compilação; falta correr num nRF52840 real e
-   cronometrar, bloqueado pela indisponibilidade atual do hardware — ver
-   PROJECT_STATUS.md, "Riscos/bloqueios ativos").
-2. ~~LSTM Autoencoder para deteção de anomalias~~ — **FEITO (2026-07-03)**:
-   ver "Passo 2 — LSTM Autoencoder" acima. Treinado e avaliado sobre
-   sequências sintéticas com anomalias injetadas; AUC-ROC 0.74-0.91 por
-   tipo, mas recall a um limiar fixo muito fraco para anomalias de
-   duração — achado honesto que reforça a necessidade do passo 3
-   (detetor de duração), não um bug a corrigir. **Ainda por fazer**:
-   footprint/latência em hardware embarcado (TensorFlow Lite
-   Micro/CMSIS-NN, não medido), limiares por contexto/pessoa em vez de um
-   único limiar global, dados sintéticos mais realistas (ver item 4).
-3. ~~Detetor de duração baseado em regras~~ — **FEITO (2026-07-04)**: ver
-   "Passo 3 — Detetor de duração baseado em regras" acima. Recall 0.972-1.000
-   nos 3 tipos de anomalia (vs. 0.000-0.331 do LSTM Autoencoder para os
-   mesmos tipos), confirmando a complementaridade dos dois detetores com
-   números concretos. **Ainda por fazer**: embarcar no firmware (depende do
-   passo 1 estar embarcado primeiro), e usar limites calibrados por pessoa
-   em vez dos parâmetros do gerador sintético.
-4. ~~Tornar os dados sintéticos mais realistas~~ — **PARCIALMENTE FEITO
-   (2026-07-07)**: 3 das 4 sub-tarefas concluídas —
-   (a) overlap deliberado entre classes vizinhas (`CLASS_PARAMS` passou de
-   constantes a intervalos, ver "Dados sintéticos" no Passo 1), reduzindo a
-   accuracy do XGBoost de um suspeito 1.000 para 0.996, com erros
-   interpretáveis por classe; (b) sessões de 24h completas em vez de
-   comprimidas (960+480 min = 16h+8h, antes 240+90 min); (d) corrigido o
-   corte artificial do último bloco de cada sessão
-   (`_build_segment_sequence`), que eliminou os falsos positivos do
-   detetor de duração (7.17%→0.0%, ver Passo 3). **Ainda por fazer**: (c)
-   ruído medido em hardware real em vez de estimado — continua bloqueado
-   pela indisponibilidade da placa (ver PROJECT_STATUS.md, "Riscos"), não
-   há forma honesta de simular isto sem uma medição real. Efeito colateral
-   descoberto ao mudar para 24h, documentado no Passo 2: a precisão do
-   LSTM Autoencoder a um limiar fixo caiu bastante (0.276→0.035) por
-   diluição de classes (anomalias de duração fixa tornam-se uma fatia menor
-   de um dia inteiro).
-5. ~~Métrica menos sensível ao desequilíbrio de classes (PR-AUC)~~ —
-   **FEITO (2026-07-07, mesma rotina)**: `train_lstm_autoencoder.py` passou
-   a calcular `average_precision_score` (PR-AUC), geral e por tipo de
-   anomalia, ao lado do AUC-ROC já existente — ver "Passo 2", secção
-   "PR-AUC implementado e medido", para o resultado honesto completo
-   (PR-AUC geral 0.040, ~3,1x a prevalência de base, mas baixo em termos
-   absolutos — a métrica mede o problema com mais justiça, não o resolve).
-   **Ainda por fazer**: limiares adaptados por pessoa/contexto em vez de um
-   único limiar global (a mitigação real, não só de medição, para o recall
-   fraco das anomalias de duração) — exige histórico real por pessoa
-   (Prioridade 4, Base de Dados) para calibrar, não implementado ainda.
-6. ~~Combinação dos 3 detetores num relatório único~~ — **FEITO
-   (2026-07-10)**: ver "Relatório combinado dos 3 detetores" acima
-   (`combined_pipeline_report.py`). Achado honesto principal: encadear o
-   classificador (passo 1) com o detetor de duração (passo 3) usando os
-   blocos que o classificador de facto produz (não os segmentos
-   verdadeiros) faz a taxa de falsos positivos passar de 0.0% para 70.8%
-   — a fragmentação de blocos por erros do classificador, mesmo com
-   accuracy alta (0.996), destrói a especificidade da regra de duração.
-   Combinar com o autoencoder via OR piora ainda mais (FP 85.2%). **Novo
-   próximo passo concreto, descoberto por este achado** (não estava
-   planeado antes desta execução): suavizar a saída do classificador antes
-   de derivar blocos — ex.: filtro de mediana/maioria sobre uma janela
-   deslizante de previsões, ou histerese (só mudar de classe depois de N
-   janelas consecutivas na nova classe) — para reduzir a fragmentação
-   medida (`fragmentation_ratio` ≈1.94) antes de aplicar a regra de
-   duração. Não implementado nesta execução (o objetivo aqui era medir o
-   problema, não já mitigá-lo sem essa medição existir).
-7. **Avaliação mais honesta — curvas por tipo de anomalia**: parcialmente
-   coberto (AUC-ROC e PR-AUC por tipo já existem no passo 2; recall por
-   tipo em oráculo/previsto/autoencoder/combinado no relatório combinado
-   acima). **Ainda por fazer**: curva ROC/PR completa (não só a métrica
-   agregada) plotada por tipo de anomalia, e ablations sistemáticas (ex.:
-   variar `SEQ_LEN`/`THRESHOLD_PERCENTILE` do autoencoder, ou o filtro de
-   suavização do item 6 acima, e medir o efeito em cada métrica) — nenhuma
-   ablation foi feita ainda, só o resultado de uma configuração fixa por
-   componente.
-8. **Preparação (não execução) do caminho de embarque**: ainda não
-   iniciado por esta rotina — depende primeiro da decisão pendente
-   RF/XGBoost (ver "Decisão pendente" abaixo), que não compete a esta
-   rotina tomar.
-
-## Decisão pendente (não posso decidir por conta própria)
-
-1. Treinar/validar com dados reais de utentes exige consentimento e dados
-   reais que só o utilizador (proprietário do projeto) pode disponibilizar —
-   não decidido nem assumido aqui.
-2. A escolha final entre manter XGBoost (via `micromlgen`, sem manutenção
-   ativa) ou migrar para Random Forest (via `emlearn`, mantido ativamente)
-   para uma eventual versão embarcada é uma mudança metodológica face ao
-   artigo original — precisa de validação do utilizador antes de se avançar.
-   O footprint do Random Forest já foi medido (ver "Footprint real medido
-   via `emlearn`" acima: flash não é fator limitante), mas o do XGBoost via
-   `micromlgen` continua por medir. Adicionalmente, mesmo optando por
-   Random Forest, falta decidir entre `inline`+`float` (accuracy intacta,
-   ~19KB) e adaptar as features para escala inteira e usar `loadable`
-   (mais compacto, mas exige retreinar) — ver detalhe na secção do
-   footprint.
-
-Ambas continuam registadas como decisão pendente também no PROJECT_STATUS.md.
-
-## Correções de bugs (2026-07-07, varredura de bugs — ver PROJECT_STATUS.md)
-
-Três bugs reais encontrados numa varredura dirigida a este pipeline,
-corrigidos na mesma execução (detalhe completo, incluindo reprodução de
-cada um, em PROJECT_STATUS.md → "Verificação de bugs (rotina automática) —
-2026-07-07, 3ª passagem do dia"):
-
-- **`train_lstm_autoencoder.py` não era de facto determinístico** apesar
-  da promessa "seed fixa = 42" no topo deste ficheiro — só a geração de
-  dados sintéticos estava semeada, não a inicialização de pesos
-  LSTM/Dense nem o `shuffle=True` do treino. Corrigido com
-  `keras.utils.set_random_seed(SEED)`. Ainda por confirmar reexecutando
-  o script duas vezes e comparando métricas (tensorflow não disponível
-  nesta rotina cloud).
-- **`classification_report()` podia rebentar** em `train_activity_classifier.py`/
-  `_rf.py` mesmo depois do `LabelEncoder` já ter sido corrigido numa
-  sessão anterior — faltava `labels=` explícito, reproduzido diretamente
-  com um cenário onde uma classe fica ausente de `y_test` E `y_pred` ao
-  mesmo tempo. Corrigido.
-- **Off-by-one na taxa de cruzamentos por zero** (`features.py`,
-  `_zero_crossing_rate`) — dividia por `len(signal)` em vez de
-  `len(signal)-1` (nº real de transições possíveis), subestimando a
-  taxa sistematicamente. Corrigido.
+**O que não está coberto**: `train_lstm_autoencoder.py` (treino completo) e
+`measure_rf_footprint.py` não têm teste automático de execução completa —
+exigiriam TensorFlow/emlearn instalados e minutos de execução em CI, o
+mesmo custo que motivou deixar `ml-tests.yml` a instalar só
+`numpy`/`pandas`/`scikit-learn`/`xgboost`/`pytest` (não
+`ml/requirements.txt` completo). `run_evaluation()` de
+`duration_detector.py` e `combined_pipeline_report.py` (que carregam
+modelos treinados/TensorFlow) também não estão cobertos por teste
+automático — validados manualmente, com o resultado registado nos
+relatórios em `reports/`.

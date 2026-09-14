@@ -152,6 +152,7 @@ const ADMIN_EMAIL = 'ana.correia@carewear.pt';
 
 // conta clínica de demonstração (Dr. Ricardo) usada como valor por omissão para loadClinicianAssignments()/allCliniciansList()
 const DEFAULT_CLINICIAN_EMAIL = 'ricardo.alves@exemplo.pt';
+const ADMIN_CLINICAL_EMAIL = 'admin.clinico@carewear.pt';
 const CLINICIAN_ASSIGNMENTS_KEY = 'carewear_clinician_assignments';
 let currentUserEmail = '';
 

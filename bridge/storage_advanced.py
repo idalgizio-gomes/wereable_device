@@ -391,28 +391,6 @@ class EmergencyAlert(Base):
     )
 
 
-class AnomalyDetection(Base):
-    """Anomalia de rotina detectada (LSTM Autoencoder)."""
-    __tablename__ = "anomaly_detections"
-
-    id = Column(Integer, primary_key=True)
-    device_id = Column(Integer, ForeignKey("devices.id"), nullable=False)
-    anomaly_type = Column(String(100), nullable=False)
-    score = Column(Float)  # 0.0-1.0
-    start_datetime = Column(DateTime, nullable=False)
-    end_datetime = Column(DateTime)
-    description = Column(Text)
-    potential_cause = Column(Text)
-    severity = Column(String(20))  # 'minor', 'moderate', 'severe'
-    investigated = Column(Boolean, default=False)
-    investigation_notes = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    __table_args__ = (
-        Index("idx_anomaly_device_datetime", "device_id", "start_datetime"),
-    )
-
-
 class PersonalizedThreshold(Base):
     """Limiares personalizados por paciente."""
     __tablename__ = "personalized_thresholds"
@@ -430,34 +408,6 @@ class PersonalizedThreshold(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     patient = relationship("Patient", back_populates="thresholds")
-
-
-class DailyStatistics(Base):
-    """Cache de estatísticas diárias (para dashboards rápidos)."""
-    __tablename__ = "daily_statistics"
-
-    id = Column(Integer, primary_key=True)
-    device_id = Column(Integer, ForeignKey("devices.id"), nullable=False)
-    stat_date = Column(DateTime, nullable=False)
-    total_steps = Column(Integer)
-    avg_heart_rate = Column(Integer)
-    min_heart_rate = Column(Integer)
-    max_heart_rate = Column(Integer)
-    avg_spo2 = Column(Integer)
-    sleep_duration_minutes = Column(Integer)
-    activity_duration_minutes = Column(Integer)
-    rest_duration_minutes = Column(Integer)
-    eating_duration_minutes = Column(Integer)
-    hygiene_duration_minutes = Column(Integer)
-    alerts_count = Column(Integer)
-    anomalies_count = Column(Integer)
-    medication_adherence_percent = Column(Float)
-    computed_at = Column(DateTime, default=datetime.utcnow)
-
-    __table_args__ = (
-        UniqueConstraint("device_id", "stat_date", name="uq_daily_stats_device_date"),
-        Index("idx_daily_stats_device_date", "device_id", "stat_date"),
-    )
 
 
 class AuditLog(Base):
@@ -953,7 +903,6 @@ class DataRetention:
         "activity_windows": 1825,  # 5 anos
         "alerts": 2555,  # 7 anos
         "emergency_alerts": 2920,  # 8 anos (decisão da utilizadora, 2026-07-31 — GDPR-006)
-        "anomaly_detections": 1825,  # 5 anos
         "medication_adherence": 1095,  # 3 anos
     }
 
@@ -991,15 +940,6 @@ class DataRetention:
             query.update({"deleted_at": datetime.utcnow()})
             db.commit()
         results["alerts"] = count
-
-        # AnomalyDetection (apaga mesmo, não soft delete)
-        cutoff = cutoff_date - timedelta(days=DataRetention.RETENTION_POLICIES["anomaly_detections"])
-        query = db.query(AnomalyDetection).filter(AnomalyDetection.created_at < cutoff)
-        count = query.count()
-        if not dry_run:
-            query.delete()
-            db.commit()
-        results["anomaly_detections"] = count
 
         # MedicationAdherence (apaga mesmo, não soft delete)
         cutoff = cutoff_date - timedelta(days=DataRetention.RETENTION_POLICIES["medication_adherence"])

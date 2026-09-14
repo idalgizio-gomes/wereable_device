@@ -19,6 +19,8 @@ const liveState = {
   hr: null, spo2: null, steps: null, freefall: false, inactivity: false,
   pacing: null, // 0-100 "pacing"/curvas apertadas (Imu::detectPacing); 0 é válido, null = sem leitura ainda
   lastRecordAt: 0,
+  lastHrAt: 0, // ms (Date.now()) da última leitura de FC ao vivo — ver STALE_SIGNAL_MS/tickStaleCharts()
+  lastSpo2At: 0, // idem para SpO2
   dataLossFlag: 0, // 0=normal, 1=ring buffer quase cheio, 2=já a substituir dados não consumidos
   sentRecords: null, // contagem cumulativa de registos transferidos nesta sessão
   ringCount: null, // registos por enviar agora no ring buffer; com sentRecords dá % real de progresso
@@ -30,6 +32,33 @@ const liveState = {
   activityCorrection: null, // {category, originalCategory, correctedAtEpochS}
 };
 const liveHrBuffer = []; // {t: epoch_s, hr, label: "HH:MM:SS"}
+
+//Sem leitura nova há mais de STALE_SIGNAL_MS: esbate o canvas + rótulo "sem sinal há Xs" (não cai para 0, evita ler-se como "sem batimento")
+const STALE_SIGNAL_MS = 8000;
+function tickStaleCharts(){
+  const now = Date.now();
+
+  const hrCanvas = document.getElementById('cvHr');
+  const hrLabel = document.getElementById('hrChartLabel');
+  if (hrCanvas && liveState.connected && liveHrBuffer.length >= 2){
+    const ageMs = now - liveState.lastHrAt;
+    if (ageMs > STALE_SIGNAL_MS){
+      hrCanvas.style.opacity = '0.35';
+      if (hrLabel) hrLabel.textContent = t('vitais.noSignalSince', {s: Math.round(ageMs/1000)});
+    }
+  }
+
+  const spo2Canvas = document.getElementById('cvSpo2');
+  const spo2Label = document.getElementById('spo2ChartLabel');
+  if (spo2Canvas && liveState.connected && liveSpo2Buffer.length >= 2){
+    const ageMs = now - liveState.lastSpo2At;
+    if (ageMs > STALE_SIGNAL_MS){
+      spo2Canvas.style.opacity = '0.35';
+      if (spo2Label) spo2Label.textContent = t('vitais.noSignalSince', {s: Math.round(ageMs/1000)});
+    }
+  }
+}
+setInterval(tickStaleCharts, 1000);
 
 function fmtClock(epochSeconds){
   const d = new Date(epochSeconds * 1000);
@@ -572,12 +601,14 @@ function applySensorRecordFields(msg, {isLive}){
   if (pacingNum != null) liveState.pacing = pacingNum;
 
   if (hasNewHr && msg.ts){
+    liveState.lastHrAt = Date.now();
     liveHrBuffer.push({t: msg.ts, hr: hrNum, label: fmtClock(msg.ts)});
     if (liveHrBuffer.length > LIVE_HR_WINDOW) liveHrBuffer.shift();
     // Só redesenha o gráfico se a vista "Sinais vitais" estiver ativa.
     if (document.getElementById('cvHr')) drawHrSeries('cvHr');
   }
   if (hasNewSpo2 && msg.ts){
+    liveState.lastSpo2At = Date.now();
     liveSpo2Buffer.push({t: msg.ts, spo2: spo2Num, label: fmtClock(msg.ts)});
     if (liveSpo2Buffer.length > LIVE_SPO2_WINDOW) liveSpo2Buffer.shift();
     if (document.getElementById('cvSpo2')) drawSpo2Series('cvSpo2');

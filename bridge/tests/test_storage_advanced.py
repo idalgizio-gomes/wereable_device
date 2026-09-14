@@ -325,21 +325,6 @@ class TestDataRetention:
         reloaded = db.query(sa.Alert).filter_by(uuid="alert-old").one()
         assert reloaded.deleted_at is not None
 
-    def test_anomaly_detections_purged_after_five_years(self, db):
-        patient = _make_patient(db)
-        device = _make_device(db, patient)
-        old = sa.AnomalyDetection(
-            device_id=device.id, anomaly_type="wandering",
-            start_datetime=datetime.utcnow(),
-        )
-        old.created_at = datetime.utcnow() - timedelta(days=1826)
-        db.add(old)
-        db.commit()
-
-        result = sa.DataRetention.cleanup(db, dry_run=False)
-        assert result["anomaly_detections"] == 1
-        assert db.query(sa.AnomalyDetection).count() == 0
-
     def test_medication_adherence_purged_after_three_years(self, db):
         patient = _make_patient(db)
         med = sa.Medication(

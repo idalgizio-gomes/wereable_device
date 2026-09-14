@@ -931,6 +931,11 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 4v16"/></svg>
           <span data-i18n="login.role.admin">Administrador</span>
         </button>
+        <!-- Admin Clínico: acesso de leitura a dados clínicos com motivo obrigatório, concessão temporal e auditoria própria (ver _authorize_patient em bridge/api.py) -->
+        <button type="button" id="roleBtnAdminClinical" aria-pressed="false" onclick="setLoginRole('admin_clinical')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 4v16"/><circle cx="15.5" cy="13.5" r="2"/></svg>
+          <span data-i18n="login.role.adminClinical">Admin Clínico</span>
+        </button>
       </div>
 
       <div class="field">
@@ -1214,6 +1219,7 @@
     </div>
 
     <div id="storageWarningBanner" class="storage-warning-banner print-hide" style="display:none;"></div>
+    <div id="privilegedAccessBanner" class="storage-warning-banner print-hide" style="display:none;"></div>
     <div id="emergencyLiveBanner" class="emergency-live-banner print-hide" style="display:none;"></div>
     <!-- role="main" + tabindex="-1" (RNF-08, 2026-09-07): destino da
          ligação "Saltar para o conteúdo" e ponto de referência para
