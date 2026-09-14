@@ -1,23 +1,14 @@
-function loadAllConsent(){
-  try {
-    const raw = localStorage.getItem(CONSENT_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch (e) { /* dados corrompidos - ignora */ }
-  return {};
-}
-function loadConsent(patientId = selectedPatient().id){
-  const defaults = { shareVitals:true, shareRoutine:true, shareAlerts:true, lastChanged:null };
-  return { ...defaults, ...(loadAllConsent()[patientId] || {}) };
-}
-function setConsent(field, value, patientId = selectedPatient().id){
-  const all = loadAllConsent();
-  const c = loadConsent(patientId);
-  c[field] = value;
-  c.lastChanged = Date.now();
-  all[patientId] = c;
-  try { localStorage.setItem(CONSENT_KEY, JSON.stringify(all)); }
-  catch (e) { /* fica só em memória */ }
-  if (currentView) renderView(currentView);
+// 2026-09-14: partilha com a equipa clínica deixou de ser opcional, a pedido da
+// utilizadora — um utente com défice cognitivo/demência a decidir esconder sinais
+// vitais, rotina ou alertas da equipa clínica anula o propósito de segurança do
+// projeto. loadConsent() devolve sempre tudo=true, independentemente do que possa
+// existir em localStorage de sessões anteriores a esta mudança; setConsent() foi
+// removida (nenhuma UI chama isto — ver vista-definicoes-ajuda.js). Isto é distinto
+// do consentimento RGPD formal em configuracoes-paciente.js (scopes sensor_data/
+// analytics/export/research, gravado no backend) — esse mantém-se, é sobre outra
+// coisa (finalidades de tratamento de dados, não segurança do utente).
+function loadConsent(){
+  return { shareVitals:true, shareRoutine:true, shareAlerts:true, lastChanged:null };
 }
 
 //Equipa de cuidadores — múltiplos membros com permissões por papel

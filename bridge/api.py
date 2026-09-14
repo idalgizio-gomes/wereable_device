@@ -16,6 +16,7 @@ from itertools import islice
 from typing import Literal, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
@@ -34,6 +35,28 @@ app = FastAPI(
 
 # Corre antes da autenticação (ASGI), por isso também trava força-bruta à chave de API.
 app.add_middleware(api_auth.RateLimitMiddleware)
+
+# O dashboard corre como ficheiro local (index.html aberto via file://, sem servidor
+# HTTP à frente) — o browser envia Origin: null nesse caso, e "null" também cobre
+# sandboxes/iframes. Localhost é para quando o dashboard passar a ser servido por
+# http-server/vite/etc. em vez de aberto diretamente. Sem isto, o browser bloqueia
+# o pré-voo OPTIONS de qualquer pedido (login incluído) com 405, antes mesmo de a
+# app FastAPI ver o pedido real — não é um problema de autenticação nem de rede,
+# é só CORS por faltar este middleware. Adicionado por último para ficar como a
+# camada mais externa e responder ao OPTIONS antes do RateLimitMiddleware.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "null",
+        "http://localhost",
+        "http://127.0.0.1",
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 def _get_db():

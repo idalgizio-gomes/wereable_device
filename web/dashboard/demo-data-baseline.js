@@ -58,6 +58,18 @@ function buildHrSeries(seed){
 const HR_SERIES_BY_PATIENT = (typeof DEMO_HR_SERIES !== 'undefined') ? DEMO_HR_SERIES : {p1: buildHrSeries(5), p2: buildHrSeries(15), p3: buildHrSeries(25)};
 function currentHrSeries(){ return HR_SERIES_BY_PATIENT[selectedPatientId] || HR_SERIES_BY_PATIENT.p1; }
 
+//Sem gerador dedicado ainda (ver scripts/generate-demo-data.js) — sintetizado no cliente, mesmo padrão do buildHrSeries
+function buildSpo2Series(seed){
+  const rnd = seedRand(seed);
+  return Array.from({length: 48}, (_, i) => {
+    const hour = i / 2;
+    const night = hour < 7 || hour > 22;
+    return { t: hour, spo2: Math.round(Math.min(100, (night ? 95 : 97) + rnd() * 3 - Math.abs(Math.sin(i * 0.3)) * 2)) };
+  });
+}
+const SPO2_SERIES_BY_PATIENT = (typeof DEMO_SPO2_SERIES !== 'undefined') ? DEMO_SPO2_SERIES : {p1: buildSpo2Series(5), p2: buildSpo2Series(15), p3: buildSpo2Series(25)};
+function currentSpo2Series(){ return SPO2_SERIES_BY_PATIENT[selectedPatientId] || SPO2_SERIES_BY_PATIENT.p1; }
+
 //Limiares personalizados: baseline (média+desvio-padrão) a partir de currentTrendData(), hoje sintético; não é ainda ML treinado por pessoa
 function mean(arr){ return arr.reduce((s,v) => s+v, 0) / arr.length; }
 function stdDev(arr){
@@ -85,7 +97,3 @@ function setAlertMode(mode){
   if (currentView) renderView(currentView);
 }
 
-//Consentimento e partilha de dados — controlo do Utente/Família sobre o que a equipa clínica vê; só nesta conta/navegador (sem backend)
-const CONSENT_KEY = 'carewear_consent';
-
-//Namespaced por paciente (objeto indexado por patientId em localStorage)

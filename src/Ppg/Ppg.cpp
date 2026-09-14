@@ -37,7 +37,11 @@ constexpr uint16_t PPG_TASK_STACK_WORDS = 640; // reduzido de 1152 apos medir ux
 constexpr uint32_t FINGER_THRESHOLD = 50000;
 constexpr int32_t SPO2_BUFFER_LEN = 100; // exigido pelo algoritmo Maxim
 
-constexpr uint32_t HR_FINGER_CHECK_INTERVAL_MS = 2000; // compromisso: deteta dedo fora rapido sem interromper amostragem a 10ms
+// 2026-09-14: reduzido de 2000 para 500 — com 2s de intervalo, tirar o sensor do pulso deixava
+// ate ~2s de ruido/artefacto passar como batimento valido (g_hrFingerPresent so' e reposto no
+// proximo check). checkFingerPresentBrief() custa ate ~250ms (bloqueante); 500ms mantem folga
+// para a amostragem a 10ms sem deixar a janela de "presenca desatualizada" tao larga.
+constexpr uint32_t HR_FINGER_CHECK_INTERVAL_MS = 500;
 constexpr byte HR_FINGER_CHECK_IR_AMPLITUDE = 60; // mesmo brilho de setupForSpo2()
 
 uint32_t g_irBuffer[SPO2_BUFFER_LEN];

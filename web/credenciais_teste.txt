@@ -1,0 +1,26 @@
+CareWear — credenciais de teste (criadas 2026-09-11)
+=====================================================
+
+Não existem credenciais "universais" por omissão. Estas 3 contas foram criadas
+manualmente em bridge/carewear.db para testar os 3 perfis do dashboard.
+
+Utente / Família
+  Email:         familia@carewear.pt
+  Palavra-passe: [PASSWORD REMOVIDA DO HISTORICO 2026-09-21]
+
+Médico / Técnico
+  Email:         clinico@carewear.pt
+  Palavra-passe: [PASSWORD REMOVIDA DO HISTORICO 2026-09-21]
+
+Administrador
+  Email:         admin@carewear.pt
+  Palavra-passe: [PASSWORD REMOVIDA DO HISTORICO 2026-09-21]
+
+-----------------------------------------------------
+Nota: o utilizador local@carewear.invalid que já existia na base de dados
+continua deliberadamente bloqueado (hash de password inválida de propósito)
+— não tentar entrar com ele.
+
+Para trocar qualquer password:
+  cd bridge
+  python auth_sessions.py set-password --email <email>
