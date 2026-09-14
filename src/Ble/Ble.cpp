@@ -116,16 +116,15 @@ static void aesKeyCallback(uint16_t conn_hdl, BLECharacteristic *chr,
   Serial.println("[BLE] AES key received and stored");
 }
 
-// escrita em Current Time (0x2A2B) sincroniza Clock; bloqueada quando s_dataModeEnabled para impedir reescrita do relogio durante streaming (ver SECURITY_STATUS.md BLE-001/BLE-004/BLE-006 — escrita exige SECMODE_ENC_NO_MITM)
+// escrita em Current Time (0x2A2B) sincroniza Clock; permitida mesmo em modo de dados (ver
+// SECURITY_STATUS.md BLE-001/BLE-004/BLE-006 — ja protegida por SECMODE_ENC_NO_MITM, so
+// emparelhamento cifrado pode escrever). Bloquear aqui so impedia o bridge de resincronizar o
+// relogio a cada nova ligacao (startBroadcast() ativa s_dataModeEnabled logo ao ligar), deixando
+// o dispositivo preso ao primeiro sync do provisioning para sempre — bug real, corrigido 2026-09-14.
 static void timestampCallback(uint16_t conn_hdl, BLECharacteristic *chr,
                               uint8_t *data, uint16_t len) {
   (void)conn_hdl;
   (void)chr;
-
-  if (s_dataModeEnabled) {
-    Serial.println("[BLE] current-time write ignorada (ja em modo de dados, hora bloqueada)");
-    return;
-  }
 
   if (len != 10) {
     Serial.print("[BLE] invalid current-time len: ");

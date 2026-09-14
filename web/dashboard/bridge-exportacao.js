@@ -9,6 +9,8 @@ function wsUrl(){
   return session ? base + '?session=' + encodeURIComponent(session) : base;
 }
 const LIVE_HR_WINDOW = 60; // amostras mantidas no gráfico de FC ao vivo
+const LIVE_SPO2_WINDOW = 60; // amostras mantidas no gráfico de SpO2 ao vivo
+const liveSpo2Buffer = []; // {t: epoch_s, spo2, label: "HH:MM:SS"}
 
 const liveState = {
   connected: false,
@@ -574,6 +576,11 @@ function applySensorRecordFields(msg, {isLive}){
     if (liveHrBuffer.length > LIVE_HR_WINDOW) liveHrBuffer.shift();
     // Só redesenha o gráfico se a vista "Sinais vitais" estiver ativa.
     if (document.getElementById('cvHr')) drawHrSeries('cvHr');
+  }
+  if (hasNewSpo2 && msg.ts){
+    liveSpo2Buffer.push({t: msg.ts, spo2: spo2Num, label: fmtClock(msg.ts)});
+    if (liveSpo2Buffer.length > LIVE_SPO2_WINDOW) liveSpo2Buffer.shift();
+    if (document.getElementById('cvSpo2')) drawSpo2Series('cvSpo2');
   }
   // Só re-renderiza o cartão de pacing se a vista "Rotina diária" estiver ativa.
   if (pacingNum != null && document.getElementById('pacingSummary')) renderPacingSummary();

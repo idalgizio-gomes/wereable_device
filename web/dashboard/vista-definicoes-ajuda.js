@@ -57,7 +57,11 @@ TEMPLATES.definicoes = () => `
   })()}
 
   ${(() => {
-    const c = loadConsent();
+    // 2026-09-14: deixou de ser opcional a pedido da utilizadora — um utente com défice
+    // cognitivo/demência a decidir esconder sinais vitais, rotina ou alertas da equipa
+    // clínica anula o propósito de segurança do próprio projeto (ver loadConsent() em
+    // consentimento-cuidadores.js, que agora devolve sempre tudo=true). A tabela fica só
+    // informativa — mostra o que É partilhado, sem opção de desligar.
     return `
   <div class="card">
     <div class="card-head"><div><h3>${t('definicoes.consentTitle')}</h3><div class="card-sub">${t('definicoes.consentSubtitle')}</div></div></div>
@@ -67,21 +71,21 @@ TEMPLATES.definicoes = () => `
         <tr>
           <td>${t('definicoes.consentVitals')}</td>
           <td>${t('definicoes.clinicalTeam')}</td>
-          <td><label class="consent-toggle"><input type="checkbox" aria-label="${t('definicoes.shareVitalsAria')}" ${c.shareVitals?'checked':''} onchange="setConsent('shareVitals', this.checked)"><span></span></label></td>
+          <td>${pillHtml('good', t('definicoes.consentAlwaysShared'))}</td>
         </tr>
         <tr>
           <td>${t('definicoes.consentRoutine')}</td>
           <td>${t('definicoes.clinicalTeam')}</td>
-          <td><label class="consent-toggle"><input type="checkbox" aria-label="${t('definicoes.shareRoutineAria')}" ${c.shareRoutine?'checked':''} onchange="setConsent('shareRoutine', this.checked)"><span></span></label></td>
+          <td>${pillHtml('good', t('definicoes.consentAlwaysShared'))}</td>
         </tr>
         <tr>
           <td>${t('definicoes.consentAlerts')}</td>
           <td>${t('definicoes.clinicalTeam')}</td>
-          <td><label class="consent-toggle"><input type="checkbox" aria-label="${t('definicoes.shareAlertsAria')}" ${c.shareAlerts?'checked':''} onchange="setConsent('shareAlerts', this.checked)"><span></span></label></td>
+          <td>${pillHtml('good', t('definicoes.consentAlwaysShared'))}</td>
         </tr>
       </tbody>
     </table>
-    <p class="empty-hint">${c.lastChanged ? `${t('definicoes.lastChangedLabel')} ${new Date(c.lastChanged).toLocaleString('pt-PT')}.` : ''} ${t('definicoes.consentEmpty')}</p>
+    <p class="empty-hint">${t('definicoes.consentEmpty')}</p>
   </div>`;
   })()}
 

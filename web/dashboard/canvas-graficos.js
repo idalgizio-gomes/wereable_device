@@ -387,3 +387,62 @@ function drawHrSeries(id){
   };
   S.cv.onmouseleave = hideTip;
 }
+
+//Mesma estrutura de drawHrSeries, eixo Y fixo perto de 70-100% (faixa clínica do SpO2, não escalado aos dados como o de FC)
+function drawSpo2Series(id){
+  const S = setupCanvas(id, 190);
+  if (!S) return;
+  const {ctx,w,h} = S;
+  ctx.clearRect(0,0,w,h);
+  const padL=30, padR=8, top=14, bottom=22;
+  const plotW=w-padL-padR, plotH=h-top-bottom;
+
+  const live = liveState.connected && liveSpo2Buffer.length >= 2;
+  const series = live ? liveSpo2Buffer : currentSpo2Series();
+  const label = document.getElementById('spo2ChartLabel');
+  if (label) label.textContent = live ? t('vitais.hrChartLive') : t('vitais.hrChartDemo');
+
+  const values = series.map(d => d.spo2);
+  const dataMin = Math.min(...values);
+  let min = Math.max(70, Math.floor((dataMin - 3) / 5) * 5);
+  let max = 100;
+  if (max - min < 15) min = max - 15;
+
+  const xAt = (i) => padL + (i/(series.length-1))*plotW;
+  const yAt=(v)=> top + plotH - ((v-min)/(max-min))*plotH;
+
+  ctx.strokeStyle=resolveVar('--border-soft'); ctx.fillStyle=resolveVar('--text-muted'); ctx.font=canvasFont(10);
+  const tickCount = 4;
+  Array.from({length: tickCount + 1}, (_, i) => Math.round(min + (i * (max - min) / tickCount)))
+    .forEach(v=>{ const y=yAt(v); ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(w-padR,y); ctx.stroke(); ctx.fillText(v, 2, y-4); });
+
+  const grad = ctx.createLinearGradient(0,top,0,top+plotH);
+  grad.addColorStop(0, 'rgba(45,140,220,0.28)'); grad.addColorStop(1,'rgba(45,140,220,0.02)');
+  ctx.beginPath(); ctx.moveTo(xAt(0), yAt(series[0].spo2));
+  series.forEach((d,i)=> ctx.lineTo(xAt(i), yAt(d.spo2)));
+  ctx.lineTo(xAt(series.length-1), top+plotH); ctx.lineTo(xAt(0), top+plotH); ctx.closePath();
+  ctx.fillStyle = grad; ctx.fill();
+
+  ctx.beginPath(); series.forEach((d,i)=>{ const x=xAt(i),y=yAt(d.spo2); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
+  ctx.strokeStyle = 'rgb(45,140,220)'; ctx.lineWidth=2; ctx.stroke();
+
+  if (live){
+    const step = Math.max(1, Math.floor(series.length/6));
+    series.forEach((d,i)=>{
+      if (i % step !== 0 && i !== series.length-1) return;
+      ctx.fillStyle=resolveVar('--text-muted');
+      ctx.fillText(d.label, xAt(i)-14, h-bottom+8);
+    });
+  } else {
+    [0,6,12,18,23].forEach(hh=>{ const i = hh*2; ctx.fillStyle=resolveVar('--text-muted'); ctx.fillText(String(hh).padStart(2,'0')+'h', xAt(i)-8, h-bottom+8); });
+  }
+
+  S.cv.onmousemove = (e)=>{
+    const r=S.cv.getBoundingClientRect(); const mx=e.clientX-r.left;
+    let idx=0,best=Infinity; series.forEach((d,i)=>{ const dx=Math.abs(xAt(i)-mx); if(dx<best){best=dx; idx=i;} });
+    const d = series[idx];
+    const when = live ? d.label : `${String(Math.floor(d.t)).padStart(2,'0')}:${d.t%1?'30':'00'}`;
+    showTip(e.clientX, e.clientY, `<div class="tt-title">${when}</div><div class="tt-row"><span>SpO₂</span><b>${d.spo2}%</b></div>`);
+  };
+  S.cv.onmouseleave = hideTip;
+}

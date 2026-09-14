@@ -1,12 +1,17 @@
 ﻿<#
 .SYNOPSIS
-    Lançador de um clique do CareWear: arranca o bridge (liga-se sozinho ao
-    wearable por BLE) e abre o dashboard no browser, sem passos manuais.
+    Lançador de um clique do CareWear: arranca o bridge BLE, a API REST
+    (login/dados clínicos) e abre o dashboard no browser, sem passos manuais.
 
 .DESCRIPTION
     Antes disto, era preciso abrir um terminal, definir CAREWEAR_AES_KEY_HEX
     à mão e correr "python ble_bridge.py", e só depois abrir o index.html —
     pedido explícito do utilizador para reduzir isto a um duplo-clique.
+
+    O dashboard passou entretanto a ter um ecrã de login que depende de
+    bridge/api.py (REST, porta 8766) — este script foi atualizado para
+    também arrancar esse processo, que antes tinha de ser lançado à parte
+    à mão (senão o login falhava com "Não foi possível ligar à API").
 
     O que este script faz, por esta ordem:
       1. Lê bridge/device_key.env (se existir) e define as variáveis de
@@ -15,15 +20,19 @@
          no ficheiro, nunca imprime o valor da chave no ecrã.
       2. Arranca bridge/ble_bridge.py numa janela de terminal própria
          (fica visível e a correr — fechar essa janela desliga o bridge).
-      3. Espera alguns segundos para o WebSocket ficar a ouvir, depois abre
-         web/dashboard/index.html no browser por omissão — o dashboard já
-         se liga sozinho a ws://localhost:8765 assim que a página carrega.
+      3. Arranca bridge/api.py (via uvicorn, porta 8766) noutra janela de
+         terminal própria — mesmo padrão, visível, fechar a janela desliga
+         a API.
+      4. Espera alguns segundos para o WebSocket e a API ficarem a ouvir,
+         depois abre web/dashboard/index.html no browser por omissão — o
+         dashboard já se liga sozinho a ws://localhost:8765 e a
+         http://localhost:8766 assim que a página carrega.
 
-    Não faz nada de novo a nível de protocolo: é só automação dos dois
-    passos manuais já existentes (ver bridge/ble_bridge.py, cabeçalho
-    "UTILIZAÇÃO"). Sem bridge/device_key.env, o bridge arranca à mesma mas
-    avisa que não consegue decifrar os registos (comportamento já existente,
-    documentado em ble_bridge.py).
+    Não faz nada de novo a nível de protocolo: é só automação dos passos
+    manuais já existentes (ver bridge/ble_bridge.py e bridge/api.py,
+    cabeçalhos "UTILIZAÇÃO"). Sem bridge/device_key.env, o bridge arranca à
+    mesma mas avisa que não consegue decifrar os registos (comportamento já
+    existente, documentado em ble_bridge.py).
 
 .EXAMPLE
     Duplo-clique em start_carewear.bat (que chama este script), ou:
@@ -77,16 +86,29 @@ if (Test-Path $envFile) {
 # em tempo real, tal como já acontecia ao correr "python ble_bridge.py" à
 # mão. -NoExit mantém a janela aberta depois do script terminar (e depois
 # de um eventual erro), em vez de fechar sozinha.
-Write-Host 'A arrancar o bridge (nova janela)...' -ForegroundColor Cyan
+Write-Host 'A arrancar o bridge BLE (nova janela)...' -ForegroundColor Cyan
 Start-Process -FilePath 'powershell' `
     -ArgumentList '-NoExit', '-Command', "cd '$bridgeDir'; python ble_bridge.py" `
     -WorkingDirectory $bridgeDir
 
-# Passo 3 — dar tempo ao WebSocket para começar a ouvir antes de abrir o
-# dashboard (evita a primeira tentativa de ligação falhar só por chegar
-# demasiado cedo — o dashboard tenta religar sozinho de qualquer forma,
-# isto é só para a primeira impressão ficar já "ligado").
-Write-Host 'A aguardar o bridge arrancar...' -ForegroundColor DarkGray
+# Passo 2b — arrancar a API REST (login, dados clínicos, FHIR) numa janela
+# própria também. O dashboard tem um ecrã de login que depende disto em
+# localhost:8766 — sem este processo, o login falha com "Não foi possível
+# ligar à API" mesmo com o bridge BLE já a correr.
+if (-not (Test-Path (Join-Path $bridgeDir 'api.py'))) {
+    Write-Host "AVISO: não encontrei bridge\api.py — a saltar o arranque da API REST (login vai falhar)." -ForegroundColor Yellow
+} else {
+    Write-Host 'A arrancar a API REST (nova janela)...' -ForegroundColor Cyan
+    Start-Process -FilePath 'powershell' `
+        -ArgumentList '-NoExit', '-Command', "cd '$bridgeDir'; python -m uvicorn api:app --host 127.0.0.1 --port 8766" `
+        -WorkingDirectory $bridgeDir
+}
+
+# Passo 3 — dar tempo ao WebSocket e à API para começarem a ouvir antes de
+# abrir o dashboard (evita a primeira tentativa de ligação falhar só por
+# chegar demasiado cedo — o dashboard tenta religar sozinho de qualquer
+# forma, isto é só para a primeira impressão ficar já "ligado").
+Write-Host 'A aguardar o bridge e a API arrancarem...' -ForegroundColor DarkGray
 Start-Sleep -Seconds 3
 
 if (-not (Test-Path $dashboardPath)) {
@@ -96,4 +118,4 @@ if (-not (Test-Path $dashboardPath)) {
 Write-Host 'A abrir o dashboard no browser...' -ForegroundColor Cyan
 Start-Process $dashboardPath
 
-Write-Host '=== Pronto. Fecha a janela do bridge quando quiseres desligar. ===' -ForegroundColor Green
+Write-Host '=== Pronto. Fecha as janelas do bridge e da API quando quiseres desligar. ===' -ForegroundColor Green

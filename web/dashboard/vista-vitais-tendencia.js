@@ -29,6 +29,13 @@ TEMPLATES.vitais = () => `
     <canvas id="cvHr" height="170" role="img" aria-label="${t('vitais.hrChartAria')}"></canvas>
   </div>
 
+  <div class="card">
+    <div class="card-head">
+      <div><h3>${t('vitais.spo2CardTitle')} <span id="spo2ChartLabel">${t('vitais.hrChartDemo')}</span></h3><div class="card-sub">${t('vitais.spo2CardSubtitle')}</div></div>
+    </div>
+    <canvas id="cvSpo2" height="170" role="img" aria-label="${t('vitais.spo2ChartAria')}"></canvas>
+  </div>
+
   <div class="card print-hide">
     <div class="card-head"><div><h3>${t('vitais.baselineTitle')}</h3><div class="card-sub">${t('vitais.baselineSubtitle')}</div></div></div>
     <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end;">
@@ -53,7 +60,7 @@ TEMPLATES.vitais = () => `
     <p class="empty-hint">${t('vitais.baselineNoteEmpty')}</p>
   </div>
 `;
-AFTER_RENDER.vitais = () => { drawHrSeries('cvHr'); applyLiveVitals(); requestThresholds(); renderVitalAlertsPanel(); };
+AFTER_RENDER.vitais = () => { drawHrSeries('cvHr'); drawSpo2Series('cvSpo2'); applyLiveVitals(); requestThresholds(); renderVitalAlertsPanel(); };
 
 TEMPLATES.tendencia = () => `
   <div class="card">
