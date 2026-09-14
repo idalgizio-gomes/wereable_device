@@ -1,19 +1,24 @@
 // Navegação entre ecrãs (login vs app; utente vs médico/técnico)
 let currentRole = 'utente';
+let privilegedAccessExpiresAt = null; //ISO string de /api/auth/me, só para admin_clinical
+let privilegedAccessReason = null; //motivo capturado uma vez por sessão, enviado em todo pedido clínico (ver withPrivilegedReason em api-client.js)
 
 function setLoginRole(role){
   currentRole = role;
   document.getElementById('roleBtnUtente').setAttribute('aria-pressed', role==='utente');
   document.getElementById('roleBtnClinico').setAttribute('aria-pressed', role==='clinico');
   document.getElementById('roleBtnAdmin').setAttribute('aria-pressed', role==='admin');
-  const labelKey = role==='utente' ? 'login.role.utente' : role==='admin' ? 'login.role.admin' : 'login.role.clinico';
+  document.getElementById('roleBtnAdminClinical').setAttribute('aria-pressed', role==='admin_clinical');
+  const labelKey = role==='utente' ? 'login.role.utente' : role==='admin' ? 'login.role.admin'
+    : role==='admin_clinical' ? 'login.role.adminClinical' : 'login.role.clinico';
   document.getElementById('loginRoleLabel').textContent = t(labelKey);
 
-  // Email pré-preenchido muda consoante o perfil (ver ADMIN_EMAIL/DEFAULT_CLINICIAN_EMAIL)
+  // Email pré-preenchido muda consoante o perfil (ver ADMIN_EMAIL/DEFAULT_CLINICIAN_EMAIL/ADMIN_CLINICAL_EMAIL)
   const emailEl = document.getElementById('loginEmail');
   if (emailEl) {
     emailEl.value = role==='utente' ? 'maria.silva@exemplo.pt'
       : role==='admin' ? ADMIN_EMAIL
+      : role==='admin_clinical' ? ADMIN_CLINICAL_EMAIL
       : DEFAULT_CLINICIAN_EMAIL;
   }
 }
@@ -202,16 +207,61 @@ function submitProfileForm(){
 // Reflete o perfil guardado no cartão de avatar da topbar
 function applyProfileToAvatar(){
   const isUtente = currentRole === 'utente';
-  const isAdmin = currentRole === 'admin';
+  const isAdmin = currentRole === 'admin' || currentRole === 'admin_clinical'; //admin_clinical reutiliza o cartão de perfil do admin, com rótulo próprio
   const profileKey = isUtente ? 'utente' : isAdmin ? 'admin' : 'clinico';
   const p = loadProfile()[profileKey];
   const initials = p.name.split(' ').filter(Boolean).slice(0,2).map(w => w[0].toUpperCase()).join('') || '—';
   document.getElementById('avatarInitials').textContent = initials;
   document.getElementById('avatarName').textContent = p.name;
-  document.getElementById('avatarRole').textContent = 'Perfil: ' + t(isUtente ? 'login.role.utente' : isAdmin ? 'login.role.admin' : 'login.role.clinico');
+  const roleLabelKey = isUtente ? 'login.role.utente' : currentRole === 'admin_clinical' ? 'login.role.adminClinical' : isAdmin ? 'login.role.admin' : 'login.role.clinico';
+  document.getElementById('avatarRole').textContent = 'Perfil: ' + t(roleLabelKey);
 }
 
-const API_ROLE_TO_DASHBOARD_ROLE = { family: 'utente', clinician: 'clinico', admin: 'admin' };
+const API_ROLE_TO_DASHBOARD_ROLE = { family: 'utente', clinician: 'clinico', admin: 'admin', admin_clinical: 'admin_clinical' };
+
+const MIN_PRIVILEGED_REASON_LENGTH = 8; //espelha MIN_ACCESS_REASON_LENGTH em bridge/api.py
+
+function confirmPrivilegedReason(){
+  const input = document.getElementById('privilegedReasonInput');
+  const value = input ? input.value.trim() : '';
+  if (value.length < MIN_PRIVILEGED_REASON_LENGTH) return;
+  privilegedAccessReason = value;
+  renderPrivilegedAccessBanner();
+  if (currentView) renderView(currentView); //releitura dos dados clínicos agora com ?reason= incluído
+}
+
+function renderPrivilegedAccessBanner(){
+  const el = document.getElementById('privilegedAccessBanner');
+  if (!el) return;
+  if (currentRole !== 'admin_clinical'){ el.style.display = 'none'; return; }
+
+  if (!privilegedAccessReason){
+    el.style.display = 'block';
+    el.innerHTML = `
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <span>${t('adminClinical.reasonPrompt')}</span>
+        <input id="privilegedReasonInput" type="text" minlength="${MIN_PRIVILEGED_REASON_LENGTH}" placeholder="${t('adminClinical.reasonPlaceholder')}" style="flex:1; min-width:220px;">
+        <button class="btn-secondary" onclick="confirmPrivilegedReason()">${t('adminClinical.reasonConfirm')}</button>
+      </div>`;
+    return;
+  }
+
+  if (!privilegedAccessExpiresAt){
+    el.style.display = 'block';
+    el.textContent = t('adminClinical.noGrant');
+    return;
+  }
+  const remainingMs = new Date(privilegedAccessExpiresAt).getTime() - Date.now();
+  if (remainingMs <= 0){
+    el.style.display = 'block';
+    el.textContent = t('adminClinical.grantExpired');
+    return;
+  }
+  const h = Math.floor(remainingMs / 3600000);
+  const m = Math.floor((remainingMs % 3600000) / 60000);
+  el.style.display = 'block';
+  el.textContent = t('adminClinical.grantExpiresIn', { h, m });
+}
 
 async function login(){
   const emailEl = document.getElementById('loginEmail');
@@ -232,6 +282,8 @@ async function login(){
   }
   if (errEl) errEl.style.display = 'none';
   currentRole = API_ROLE_TO_DASHBOARD_ROLE[result.user.role] || 'utente';
+  privilegedAccessExpiresAt = result.user.privileged_access_expires_at || null;
+  privilegedAccessReason = null; //pedido de novo a cada login, nunca reaproveitado de uma sessão anterior
 
   document.getElementById('view-login').style.display = 'none';
   document.getElementById('view-app').classList.add('active');
@@ -243,24 +295,27 @@ async function login(){
 
   const isUtente = currentRole === 'utente';
   const isAdmin = currentRole === 'admin';
+  const isAdminClinical = currentRole === 'admin_clinical';
   const isClinico = currentRole === 'clinico';
   document.getElementById('navUtente').style.display = isUtente ? 'flex' : 'none';
-  document.getElementById('navClinico').style.display = isClinico ? 'flex' : 'none';
+  document.getElementById('navClinico').style.display = (isClinico || isAdminClinical) ? 'flex' : 'none';
   document.getElementById('navAdmin').style.display = isAdmin ? 'flex' : 'none';
 
   // Ligação/bateria/armazenamento na topbar só para Utente/Família; clínico/admin veem em "Dispositivo & firmware"
   const deviceGroup = document.getElementById('topbarDeviceStatusGroup');
   if (deviceGroup) deviceGroup.style.display = isUtente ? 'flex' : 'none';
   renderStorageWarningBanner();
+  renderPrivilegedAccessBanner();
 
   updateClinicoPatientLabel();
   const pill = document.getElementById('sidebarRolePill');
-  pill.textContent = t(isUtente ? 'login.role.utente' : isAdmin ? 'login.role.admin' : 'login.role.clinico');
-  pill.className = 'sidebar-role-pill ' + (isUtente ? 'utente' : isAdmin ? 'admin' : 'clinico');
+  const pillLabelKey = isUtente ? 'login.role.utente' : isAdminClinical ? 'login.role.adminClinical' : isAdmin ? 'login.role.admin' : 'login.role.clinico';
+  pill.textContent = t(pillLabelKey);
+  pill.className = 'sidebar-role-pill ' + (isUtente ? 'utente' : isAdminClinical ? 'admin-clinical' : isAdmin ? 'admin' : 'clinico');
 
   applyProfileToAvatar();
 
-  const defaultView = isUtente ? 'resumo' : isAdmin ? 'admin' : 'pacientes';
+  const defaultView = isUtente ? 'resumo' : isAdmin ? 'admin' : 'pacientes'; //clinico e admin_clinical caem em 'pacientes'
 
   // Fragmento (#rotina) só pode ser honrado depois da autenticação; inválido ou fora do perfil cai na vista por omissão
   let vistaInicial = defaultView;
@@ -364,24 +419,25 @@ function renderView(view, registarNoHistorico = true){
 // renderView('admin') na consola continua a funcionar seja qual for o perfil (código corre no cliente).
 // Controlo de acesso real do servidor: REST (bridge/api.py) implementado via _authorize_patient();
 // WebSocket (bridge/ble_bridge.py) em falta — handle_dashboard_command() não valida identidade/perfil (RF-02).
+//admin_clinical tem a mesma superfície de vistas que clinico — a fronteira real (só leitura, motivo, expiração) é imposta pelo backend (_authorize_patient em api.py), não aqui
 const VIEW_ROLES = {
   resumo:      ['utente'],
   rotina:      ['utente'],
   vitais:      ['utente'],
   tendencia:   ['utente'],
   definicoes:  ['utente'],
-  pacientes:   ['clinico'],
-  dispositivo: ['clinico'],
-  anomalias:   ['clinico'],
-  limites:     ['clinico'],
-  exportar:    ['clinico'],
-  alertas:     ['utente', 'clinico'],
-  timeline:    ['utente', 'clinico'],
-  emergencias: ['utente', 'clinico'],
-  medicacao:   ['utente', 'clinico'],
+  pacientes:   ['clinico', 'admin_clinical'],
+  dispositivo: ['clinico', 'admin_clinical'],
+  anomalias:   ['clinico', 'admin_clinical'],
+  limites:     ['clinico', 'admin_clinical'],
+  exportar:    ['clinico', 'admin_clinical'],
+  alertas:     ['utente', 'clinico', 'admin_clinical'],
+  timeline:    ['utente', 'clinico', 'admin_clinical'],
+  emergencias: ['utente', 'clinico', 'admin_clinical'],
+  medicacao:   ['utente', 'clinico', 'admin_clinical'],
   admin:       ['admin'],
-  perfil:      ['utente', 'clinico', 'admin'],
-  ajuda:       ['utente', 'clinico', 'admin'],
+  perfil:      ['utente', 'clinico', 'admin', 'admin_clinical'],
+  ajuda:       ['utente', 'clinico', 'admin', 'admin_clinical'],
 };
 
 function viewPermitidaParaPerfil(view, role){
@@ -390,7 +446,7 @@ function viewPermitidaParaPerfil(view, role){
 }
 
 function vistaPorOmissao(role){
-  return role === 'utente' ? 'resumo' : role === 'admin' ? 'admin' : 'pacientes';
+  return role === 'utente' ? 'resumo' : role === 'admin' ? 'admin' : 'pacientes'; //clinico e admin_clinical caem ambos em 'pacientes'
 }
 
 // Lido uma única vez no arranque; só consumido em login() porque o fragmento pode chegar antes de haver perfil

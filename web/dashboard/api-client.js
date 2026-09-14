@@ -11,12 +11,20 @@ function clearAuthToken(){
   sessionStorage.removeItem(AUTH_TOKEN_KEY);
 }
 
+//Admin Clínico: backend exige ?reason= em todo o acesso clínico (ver _authorize_patient em bridge/api.py) — injetado aqui, único ponto de passagem de todos os pedidos autenticados
+function withPrivilegedReason(path){
+  if (typeof currentRole === 'undefined' || currentRole !== 'admin_clinical') return path;
+  if (typeof privilegedAccessReason === 'undefined' || !privilegedAccessReason) return path;
+  const sep = path.includes('?') ? '&' : '?';
+  return path + sep + 'reason=' + encodeURIComponent(privilegedAccessReason);
+}
+
 async function apiFetch(path, opts = {}){
   const headers = Object.assign({}, opts.headers);
   const token = getAuthToken();
   if (token) headers['Authorization'] = 'Bearer ' + token;
   if (opts.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
-  const res = await fetch(API_BASE + path, Object.assign({}, opts, { headers }));
+  const res = await fetch(API_BASE + withPrivilegedReason(path), Object.assign({}, opts, { headers }));
   return res;
 }
 

@@ -14,6 +14,7 @@ import heapq
 from datetime import datetime, timedelta, timezone
 from itertools import islice
 from typing import Literal, Optional
+from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -401,6 +402,165 @@ def record_medication_adherence(
         "method": record.method,
         "notes": record.notes,
     }
+
+
+class ConditionIn(BaseModel):
+    display_text: str
+    code_system: Optional[str] = None
+    code: Optional[str] = None
+
+
+def _serialize_condition_or_allergy(row) -> dict:
+    return {
+        "id": row.id,
+        "display_text": row.display_text,
+        "code_system": row.code_system,
+        "code": row.code,
+    }
+
+
+@app.get("/api/patients/{patient_id}/conditions")
+def list_conditions(
+    patient_id: int,
+    request: Request,
+    db: Session = Depends(_get_db),
+    reason: Optional[str] = ACCESS_REASON_QUERY,
+    user: sa.User = Depends(_require_user),
+):
+    patient = db.get(sa.Patient, patient_id)
+    if patient is None:
+        raise HTTPException(status_code=404, detail="Paciente não encontrado")
+    _authorize_patient(db, user, patient_id, request=request, reason=reason)
+    rows = (
+        db.query(sa.PatientCondition)
+        .filter(sa.PatientCondition.patient_id == patient_id, sa.PatientCondition.deleted_at.is_(None))
+        .order_by(sa.PatientCondition.id)
+        .all()
+    )
+    _audit_read(db, user, request, "conditions.read", "patient", patient_id)
+    return {"conditions": [_serialize_condition_or_allergy(r) for r in rows]}
+
+
+@app.post("/api/patients/{patient_id}/conditions")
+def add_condition(
+    patient_id: int,
+    body: ConditionIn,
+    request: Request,
+    db: Session = Depends(_get_db),
+    reason: Optional[str] = ACCESS_REASON_QUERY,
+    user: sa.User = Depends(_require_user),
+):
+    patient = db.get(sa.Patient, patient_id)
+    if patient is None:
+        raise HTTPException(status_code=404, detail="Paciente não encontrado")
+    _authorize_patient(db, user, patient_id, write=True, request=request, reason=reason)
+    row = sa.PatientCondition(uuid=str(uuid4()), patient_id=patient_id, code_system=body.code_system, code=body.code)
+    row.display_text = body.display_text
+    db.add(row)
+    db.add(sa.AuditLog(
+        user_id=user.id, action="conditions.write", resource_type="patient", resource_id=patient_id,
+        ip_address=request.client.host if request.client else None,
+    ))
+    db.commit()
+    db.refresh(row)
+    return _serialize_condition_or_allergy(row)
+
+
+@app.delete("/api/patients/{patient_id}/conditions/{condition_id}")
+def delete_condition(
+    patient_id: int,
+    condition_id: int,
+    request: Request,
+    db: Session = Depends(_get_db),
+    reason: Optional[str] = ACCESS_REASON_QUERY,
+    user: sa.User = Depends(_require_user),
+):
+    row = db.get(sa.PatientCondition, condition_id)
+    if row is None or row.patient_id != patient_id or row.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Não encontrado")
+    _authorize_patient(db, user, patient_id, write=True, request=request, reason=reason)
+    row.deleted_at = datetime.utcnow()
+    db.add(sa.AuditLog(
+        user_id=user.id, action="conditions.delete", resource_type="patient", resource_id=patient_id,
+        ip_address=request.client.host if request.client else None,
+    ))
+    db.commit()
+    return {"status": "ok"}
+
+
+class AllergyIn(BaseModel):
+    display_text: str
+    code_system: Optional[str] = None
+    code: Optional[str] = None
+
+
+@app.get("/api/patients/{patient_id}/allergies")
+def list_allergies(
+    patient_id: int,
+    request: Request,
+    db: Session = Depends(_get_db),
+    reason: Optional[str] = ACCESS_REASON_QUERY,
+    user: sa.User = Depends(_require_user),
+):
+    patient = db.get(sa.Patient, patient_id)
+    if patient is None:
+        raise HTTPException(status_code=404, detail="Paciente não encontrado")
+    _authorize_patient(db, user, patient_id, request=request, reason=reason)
+    rows = (
+        db.query(sa.PatientAllergy)
+        .filter(sa.PatientAllergy.patient_id == patient_id, sa.PatientAllergy.deleted_at.is_(None))
+        .order_by(sa.PatientAllergy.id)
+        .all()
+    )
+    _audit_read(db, user, request, "allergies.read", "patient", patient_id)
+    return {"allergies": [_serialize_condition_or_allergy(r) for r in rows]}
+
+
+@app.post("/api/patients/{patient_id}/allergies")
+def add_allergy(
+    patient_id: int,
+    body: AllergyIn,
+    request: Request,
+    db: Session = Depends(_get_db),
+    reason: Optional[str] = ACCESS_REASON_QUERY,
+    user: sa.User = Depends(_require_user),
+):
+    patient = db.get(sa.Patient, patient_id)
+    if patient is None:
+        raise HTTPException(status_code=404, detail="Paciente não encontrado")
+    _authorize_patient(db, user, patient_id, write=True, request=request, reason=reason)
+    row = sa.PatientAllergy(uuid=str(uuid4()), patient_id=patient_id, code_system=body.code_system, code=body.code)
+    row.display_text = body.display_text
+    db.add(row)
+    db.add(sa.AuditLog(
+        user_id=user.id, action="allergies.write", resource_type="patient", resource_id=patient_id,
+        ip_address=request.client.host if request.client else None,
+    ))
+    db.commit()
+    db.refresh(row)
+    return _serialize_condition_or_allergy(row)
+
+
+@app.delete("/api/patients/{patient_id}/allergies/{allergy_id}")
+def delete_allergy(
+    patient_id: int,
+    allergy_id: int,
+    request: Request,
+    db: Session = Depends(_get_db),
+    reason: Optional[str] = ACCESS_REASON_QUERY,
+    user: sa.User = Depends(_require_user),
+):
+    row = db.get(sa.PatientAllergy, allergy_id)
+    if row is None or row.patient_id != patient_id or row.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Não encontrado")
+    _authorize_patient(db, user, patient_id, write=True, request=request, reason=reason)
+    row.deleted_at = datetime.utcnow()
+    db.add(sa.AuditLog(
+        user_id=user.id, action="allergies.delete", resource_type="patient", resource_id=patient_id,
+        ip_address=request.client.host if request.client else None,
+    ))
+    db.commit()
+    return {"status": "ok"}
 
 
 # RF-11 — exportação FHIR R4. Mapeamento sinal->código vive em fhir_export.py.

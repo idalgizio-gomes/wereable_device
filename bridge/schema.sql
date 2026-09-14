@@ -264,27 +264,6 @@ CREATE INDEX IF NOT EXISTS idx_emergency_alerts_device_timestamp
 CREATE INDEX IF NOT EXISTS idx_emergency_alerts_responded
     ON emergency_alerts (responded_at) WHERE responded_at IS NULL;
 
--- Anomalias de Rotina (LSTM Autoencoder — futura)
-
-CREATE TABLE IF NOT EXISTS anomaly_detections (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    device_id INTEGER NOT NULL,
-    anomaly_type TEXT NOT NULL,  -- 'routine_shift', 'activity_disruption', 'vital_outlier'
-    score REAL,  -- 0.0-1.0 (anomaly likelihood)
-    start_datetime TIMESTAMP NOT NULL,
-    end_datetime TIMESTAMP,
-    description TEXT,
-    potential_cause TEXT,  -- Hipótese inicial
-    severity TEXT,  -- 'minor', 'moderate', 'severe'
-    investigated BOOLEAN DEFAULT FALSE,
-    investigation_notes TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (device_id) REFERENCES devices (id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_anomaly_detections_device_datetime
-    ON anomaly_detections (device_id, start_datetime DESC);
-
 -- Auditoria: Todas as Ações Sensíveis
 
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -321,33 +300,6 @@ CREATE TABLE IF NOT EXISTS personalized_thresholds (
     FOREIGN KEY (patient_id) REFERENCES patients (id)
 );
 
--- Estatísticas em Cache (para Dashboards Rápidos)
-
-CREATE TABLE IF NOT EXISTS daily_statistics (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    device_id INTEGER NOT NULL,
-    stat_date DATE NOT NULL,
-    total_steps INTEGER,
-    avg_heart_rate INTEGER,
-    min_heart_rate INTEGER,
-    max_heart_rate INTEGER,
-    avg_spo2 INTEGER,
-    sleep_duration_minutes INTEGER,
-    activity_duration_minutes INTEGER,
-    rest_duration_minutes INTEGER,
-    eating_duration_minutes INTEGER,
-    hygiene_duration_minutes INTEGER,
-    alerts_count INTEGER,
-    anomalies_count INTEGER,
-    medication_adherence_percent REAL,
-    computed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (device_id) REFERENCES devices (id),
-    UNIQUE (device_id, stat_date)
-);
-
-CREATE INDEX IF NOT EXISTS idx_daily_statistics_device_date
-    ON daily_statistics (device_id, stat_date DESC);
-
 -- Política de Retenção de Dados
 
 CREATE TABLE IF NOT EXISTS data_retention_policies (
@@ -368,6 +320,5 @@ VALUES
     ('activity_windows', 1825, FALSE),  -- 5 anos
     ('alerts', 2555, TRUE),  -- 7 anos, soft delete
     ('emergency_alerts', 2920, TRUE),  -- 8 anos, soft delete (GDPR-006, decisao 2026-07-31)
-    ('anomaly_detections', 1825, FALSE),  -- 5 anos
     ('medication_adherence', 1095, FALSE)  -- 3 anos
 ON CONFLICT DO NOTHING;

@@ -328,6 +328,7 @@ function drawTrend(id){
 function drawHrSeries(id){
   const S = setupCanvas(id, 190);
   if (!S) return;
+  S.cv.style.opacity = '1'; // dado novo desenhado agora: nunca esbatido (ver tickStaleCharts em bridge-exportacao.js)
   const {ctx,w,h} = S;
   ctx.clearRect(0,0,w,h);
   const padL=30, padR=8, top=14, bottom=22;
@@ -392,6 +393,7 @@ function drawHrSeries(id){
 function drawSpo2Series(id){
   const S = setupCanvas(id, 190);
   if (!S) return;
+  S.cv.style.opacity = '1';
   const {ctx,w,h} = S;
   ctx.clearRect(0,0,w,h);
   const padL=30, padR=8, top=14, bottom=22;

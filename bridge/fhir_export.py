@@ -297,6 +297,41 @@ def build_observation(
     return observation
 
 
+#Patient/{id} e Device/{id} nas Observations nunca resolviam para um recurso real — usadas como entries "include" no Bundle (ver api.py)
+def build_patient_resource(patient: Any) -> dict:
+    """Recurso FHIR R4 Patient minimalista. RGPD: mesma disciplina de build_subject() — sem nome/data de nascimento, só id e pseudónimo."""
+    resource: dict[str, Any] = {
+        "resourceType": "Patient",
+        "id": str(getattr(patient, "id", "")),
+    }
+    pseudonym = getattr(patient, "pseudonym", None)
+    if pseudonym:
+        resource["identifier"] = [{
+            "system": PSEUDONYM_IDENTIFIER_SYSTEM,
+            "value": pseudonym,
+        }]
+    return resource
+
+
+def build_device_resource(device: Any) -> dict:
+    """Recurso FHIR R4 Device minimalista — id, versão de firmware (se conhecida) e
+    identificador do fabrico (UDI simplificado, não um UDI GS1 real)."""
+    resource: dict[str, Any] = {
+        "resourceType": "Device",
+        "id": str(getattr(device, "id", "")),
+    }
+    firmware_version = getattr(device, "firmware_version", None)
+    if firmware_version:
+        resource["version"] = [{"value": str(firmware_version)}]
+    hardware_variant = getattr(device, "hardware_variant", None)
+    if hardware_variant:
+        resource["deviceName"] = [{"name": str(hardware_variant), "type": "model-name"}]
+    patient_id = getattr(device, "patient_id", None)
+    if patient_id is not None:
+        resource["patient"] = {"reference": f"Patient/{patient_id}"}
+    return resource
+
+
 def observations_from_sensor_record(record: Any, subject: dict, device_id: int) -> list[dict]:
     """Todas as Observations de um SensorRecord. Sinais a None são omitidos
     (não dataAbsentReason): ausência aqui = "não trazido", não "medição falhada"."""
@@ -382,21 +417,27 @@ def build_observation_bundle(
     total: Optional[int] = None,
     self_url: Optional[str] = None,
     next_url: Optional[str] = None,
+    included: Iterable[dict] = (),
 ) -> dict:
-    """Empacota Observations num Bundle FHIR type=searchset (resposta a pesquisa).
-    `total`: em FHIR R4 é o total da PESQUISA, não da página — None mantém len(entries).
-    `next_url` só quando existe página seguinte (ausência = sinal normativo de fim)."""
+    """Empacota Observations num Bundle FHIR type=searchset. `total` é o total da pesquisa
+    (não conta `included`). `included`: Patient/Device referenciados, marcados search.mode=include."""
     entries = []
     for obs in observations:
         entry: dict[str, Any] = {"resource": obs}
         if base_url:
-            entry["fullUrl"] = f"{base_url.rstrip('/')}/Observation/{obs.get('id')}"
+            entry["fullUrl"] = f"{base_url.rstrip('/')}/{obs.get('resourceType', 'Observation')}/{obs.get('id')}"
+        entries.append(entry)
+    observation_count = len(entries)
+    for res in included:
+        entry = {"resource": res, "search": {"mode": "include"}}
+        if base_url:
+            entry["fullUrl"] = f"{base_url.rstrip('/')}/{res.get('resourceType')}/{res.get('id')}"
         entries.append(entry)
     bundle: dict[str, Any] = {
         "resourceType": "Bundle",
         "type": "searchset",
         "timestamp": _instant(datetime.now(timezone.utc)),
-        "total": len(entries) if total is None else int(total),
+        "total": observation_count if total is None else int(total),
         "entry": entries,
     }
     links = []
@@ -498,6 +539,31 @@ OBSERVATION_JSON_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
+#Schemas minimalistas para as entries "include" do Bundle — ver build_patient_resource()/build_device_resource()
+PATIENT_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "resourceType": {"const": "Patient"},
+        "id": {"type": "string"},
+        "identifier": {"type": "array", "items": {"type": "object"}},
+    },
+    "required": ["resourceType", "id"],
+    "additionalProperties": False,
+}
+
+DEVICE_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "resourceType": {"const": "Device"},
+        "id": {"type": "string"},
+        "version": {"type": "array", "items": {"type": "object"}},
+        "deviceName": {"type": "array", "items": {"type": "object"}},
+        "patient": _REFERENCE_SCHEMA,
+    },
+    "required": ["resourceType", "id"],
+    "additionalProperties": False,
+}
+
 BUNDLE_JSON_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "CareWear — subconjunto de HL7 FHIR R4 Bundle (searchset)",
@@ -527,7 +593,13 @@ BUNDLE_JSON_SCHEMA: dict[str, Any] = {
                 "type": "object",
                 "properties": {
                     "fullUrl": {"type": "string"},
-                    "resource": OBSERVATION_JSON_SCHEMA,
+                    "resource": {"anyOf": [OBSERVATION_JSON_SCHEMA, PATIENT_JSON_SCHEMA, DEVICE_JSON_SCHEMA]},
+                    "search": {
+                        "type": "object",
+                        "properties": {"mode": {"enum": ["match", "include", "outcome"]}},
+                        "required": ["mode"],
+                        "additionalProperties": False,
+                    },
                 },
                 "required": ["resource"],
                 "additionalProperties": False,
@@ -719,16 +791,20 @@ def validate_bundle(bundle: Any) -> list[str]:
 
     total = bundle.get("total")
     if total is not None:
-        # com paginação total é o total da pesquisa (>= entradas); sem paginação exige igualdade
+        #total só conta entries de "match" (search.mode ausente/"match") — "include" (Patient/Device) fica de fora
+        match_count = len([e for e in entries if isinstance(e, dict) and e.get("search", {}).get("mode", "match") == "match"])
         paginated = bool(relations & {"self", "next", "previous", "first", "last"})
-        if paginated and total < len(entries):
-            errors.append(f"Bundle.total ({total}) é menor que o número de entradas ({len(entries)})")
-        elif not paginated and total != len(entries):
-            errors.append(f"Bundle.total ({total}) não coincide com o número de entradas ({len(entries)})")
+        if paginated and total < match_count:
+            errors.append(f"Bundle.total ({total}) é menor que o número de entradas 'match' ({match_count})")
+        elif not paginated and total != match_count:
+            errors.append(f"Bundle.total ({total}) não coincide com o número de entradas 'match' ({match_count})")
     for i, entry in enumerate(entries):
         if not isinstance(entry, dict) or "resource" not in entry:
             errors.append(f"entry[{i}] tem de ter 'resource'")
             continue
+        resource_type = entry["resource"].get("resourceType") if isinstance(entry["resource"], dict) else None
+        if resource_type != "Observation":
+            continue  #Patient/Device (search.mode=include) — validados pelo JSON Schema, não por validate_observation
         for err in validate_observation(entry["resource"]):
             errors.append(f"entry[{i}].resource: {err}")
     return errors
