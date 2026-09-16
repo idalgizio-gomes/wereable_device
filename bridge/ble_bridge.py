@@ -232,6 +232,7 @@ WS_COMMAND_ROLES = {
     "set_ble_enabled":       _ROLES_CUIDADOR_E_CLINICO,
     "acknowledge_alert":     _ROLES_CUIDADOR_E_CLINICO,
     "get_alerts":            _ROLES_CUIDADOR_E_CLINICO,
+    "get_anomalies":         _ROLES_CUIDADOR_E_CLINICO,
     "confirm_alert":         _ROLES_CUIDADOR_E_CLINICO,
     "get_history":           _ROLES_CUIDADOR_E_CLINICO,
     "get_daily_trend":       _ROLES_CUIDADOR_E_CLINICO,
@@ -964,6 +965,28 @@ class BleBridge:
         )
         return [self._alert_to_dict(r) for r in rows]
 
+    def _list_anomalies(self, limit: int) -> list:
+        """Episódios de anomalia já fechados deste dispositivo, mais recentes primeiro
+        (ver storage_advanced.py::AnomalyDetection, anomaly_inference.py)."""
+        if not self.orm or getattr(self.orm, "session", None) is None or self.orm.disabled or sa is None:
+            return []
+        rows = (
+            self.orm.session.query(sa.AnomalyDetection)
+            .filter(sa.AnomalyDetection.device_id == self.orm.device_id)
+            .order_by(sa.AnomalyDetection.window_start.desc())
+            .limit(limit)
+            .all()
+        )
+        return [
+            {
+                "id": r.id, "detector": r.detector, "anomaly_category": r.anomaly_category,
+                "score": r.score, "threshold_used": r.threshold_used,
+                "window_start": r.window_start.isoformat(), "window_end": r.window_end.isoformat(),
+                "description": r.description, "severity": r.severity, "model_version": r.model_version,
+            }
+            for r in rows
+        ]
+
     @staticmethod
     def _format_resolution_note(action: str, note: str) -> str:
         """Acao e nota livre partilham a coluna resolution_note; prefixo "[acao] " estavel para o
@@ -1500,6 +1523,26 @@ class BleBridge:
                 "kind": "alerts", "alerts": alertas,
                 "escalation_minutes": self.ALERT_ESCALATION_MINUTES,
             }))
+            return
+        if cmd == "get_anomalies":
+            # so' responde a quem pediu, nao broadcast (mesmo padrao de get_alerts)
+            try:
+                limit = int(msg.get("limit", self.ALERT_LIST_MAX))
+            except (TypeError, ValueError):
+                limit = self.ALERT_LIST_MAX
+            limit = max(1, min(limit, self.ALERT_LIST_MAX))
+            if not self.orm:
+                await ws.send(json.dumps({
+                    "kind": "anomalies", "anomalies": [], "error": "persistencia indisponivel",
+                }))
+                return
+            try:
+                anomalias = self._list_anomalies(limit)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[BRIDGE] erro a listar anomalias: {exc}")
+                await ws.send(json.dumps({"kind": "anomalies", "anomalies": [], "error": str(exc)}))
+                return
+            await ws.send(json.dumps({"kind": "anomalies", "anomalies": anomalias}))
             return
         if cmd == "confirm_alert":
             # confirmar = travar escalonamento (read_at) + fechar com acao (resolved_at + nota)
