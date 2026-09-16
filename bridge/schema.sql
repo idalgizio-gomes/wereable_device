@@ -264,6 +264,30 @@ CREATE INDEX IF NOT EXISTS idx_emergency_alerts_device_timestamp
 CREATE INDEX IF NOT EXISTS idx_emergency_alerts_responded
     ON emergency_alerts (responded_at) WHERE responded_at IS NULL;
 
+-- Anomalias (episódio já fechado; 'lstm_autoencoder' ou 'duration_rule', ver ml/README.md)
+
+CREATE TABLE IF NOT EXISTS anomaly_detections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    uuid TEXT NOT NULL UNIQUE,
+    device_id INTEGER NOT NULL,
+    detector TEXT NOT NULL,  -- 'lstm_autoencoder' | 'duration_rule'
+    anomaly_category TEXT NOT NULL,
+    score REAL,
+    threshold_used REAL,
+    window_start TIMESTAMP NOT NULL,
+    window_end TIMESTAMP NOT NULL,
+    description TEXT,
+    severity TEXT,  -- 'minor', 'moderate', 'severe'
+    model_version TEXT,
+    investigated BOOLEAN DEFAULT FALSE,
+    investigation_notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (device_id) REFERENCES devices (id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_anomaly_device_window
+    ON anomaly_detections (device_id, window_start DESC);
+
 -- Auditoria: Todas as Ações Sensíveis
 
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -320,5 +344,6 @@ VALUES
     ('activity_windows', 1825, FALSE),  -- 5 anos
     ('alerts', 2555, TRUE),  -- 7 anos, soft delete
     ('emergency_alerts', 2920, TRUE),  -- 8 anos, soft delete (GDPR-006, decisao 2026-07-31)
+    ('anomaly_detections', 1825, FALSE),  -- 5 anos
     ('medication_adherence', 1095, FALSE)  -- 3 anos
 ON CONFLICT DO NOTHING;

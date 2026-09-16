@@ -284,6 +284,49 @@ def heart_rate_trends(
     return sa.Analytics.heart_rate_trends(db, device_id, days=days)
 
 
+@app.get("/api/devices/{device_id}/anomalies")
+def device_anomalies(
+    device_id: int,
+    request: Request,
+    days: int = Query(default=30, ge=1, le=3650),
+    db: Session = Depends(_get_db),
+    reason: Optional[str] = ACCESS_REASON_QUERY,
+    user: sa.User = Depends(_require_user),
+):
+    """Episódios de anomalia já fechados (ver anomaly_inference.py/duration_detector), mais recentes primeiro."""
+    device = db.get(sa.Device, device_id)
+    if device is None:
+        raise HTTPException(status_code=404, detail="Dispositivo não encontrado")
+    _authorize_patient(db, user, device.patient_id, request=request, reason=reason)
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    rows = (
+        db.query(sa.AnomalyDetection)
+        .filter(sa.AnomalyDetection.device_id == device_id, sa.AnomalyDetection.window_start >= cutoff)
+        .order_by(sa.AnomalyDetection.window_start.desc())
+        .all()
+    )
+    _audit_read(db, user, request, "anomalies.read", "device", device_id)
+    return {
+        "anomalies": [
+            {
+                "id": r.id,
+                "detector": r.detector,
+                "anomaly_category": r.anomaly_category,
+                "score": r.score,
+                "threshold_used": r.threshold_used,
+                "window_start": r.window_start.isoformat(),
+                "window_end": r.window_end.isoformat(),
+                "description": r.description,
+                "severity": r.severity,
+                "model_version": r.model_version,
+                "investigated": r.investigated,
+                "investigation_notes": r.investigation_notes,
+            }
+            for r in rows
+        ]
+    }
+
+
 @app.get("/api/patients/{patient_id}/medication-adherence")
 def medication_adherence(
     patient_id: int,

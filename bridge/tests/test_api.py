@@ -354,6 +354,58 @@ class TestMedicationAdherence:
         assert body["medications"][0]["percent"] == 50.0
 
 
+class TestConditionsAndAllergies:
+    def test_add_list_delete_condition(self, client, db, primary):
+        patient, _ = _make_patient_device(db, caregiver=primary.user)
+        resp = client.post(
+            f"/api/patients/{patient.id}/conditions",
+            json={"display_text": "Alzheimer", "code_system": "ICD-10", "code": "G30"},
+            headers=primary.headers,
+        )
+        assert resp.status_code == 200
+        cond_id = resp.json()["id"]
+
+        listed = client.get(f"/api/patients/{patient.id}/conditions", headers=primary.headers)
+        assert listed.status_code == 200
+        assert [c["display_text"] for c in listed.json()["conditions"]] == ["Alzheimer"]
+
+        deleted = client.delete(f"/api/patients/{patient.id}/conditions/{cond_id}", headers=primary.headers)
+        assert deleted.status_code == 200
+        assert client.get(f"/api/patients/{patient.id}/conditions", headers=primary.headers).json()["conditions"] == []
+
+    def test_add_list_delete_allergy(self, client, db, primary):
+        patient, _ = _make_patient_device(db, caregiver=primary.user)
+        resp = client.post(
+            f"/api/patients/{patient.id}/allergies",
+            json={"display_text": "Penicilina"},
+            headers=primary.headers,
+        )
+        assert resp.status_code == 200
+        allergy_id = resp.json()["id"]
+
+        listed = client.get(f"/api/patients/{patient.id}/allergies", headers=primary.headers)
+        assert [a["display_text"] for a in listed.json()["allergies"]] == ["Penicilina"]
+
+        deleted = client.delete(f"/api/patients/{patient.id}/allergies/{allergy_id}", headers=primary.headers)
+        assert deleted.status_code == 200
+        assert client.get(f"/api/patients/{patient.id}/allergies", headers=primary.headers).json()["allergies"] == []
+
+    def test_write_requires_edit_permission(self, client, db, primary):
+        patient, _ = _make_patient_device(db, caregiver=primary.user, can_edit=False)
+        resp = client.post(
+            f"/api/patients/{patient.id}/conditions",
+            json={"display_text": "Alzheimer"},
+            headers=primary.headers,
+        )
+        assert resp.status_code == 404
+
+    def test_unknown_patient_404(self, client, primary):
+        resp = client.get("/api/patients/9999/conditions", headers=primary.headers)
+        assert resp.status_code == 404
+        resp = client.get("/api/patients/9999/allergies", headers=primary.headers)
+        assert resp.status_code == 404
+
+
 class TestActivityDistribution:
     def test_invalid_date_format_400(self, client, db, primary):
         _, device = _make_patient_device(db, caregiver=primary.user)

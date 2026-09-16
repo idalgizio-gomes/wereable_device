@@ -383,13 +383,10 @@ class OrmPersistence:
         storage_advanced.py), já traduzido pelo chamador via
         CLASS_TO_DB_CATEGORY (closed_block["db_category"]).
 
-        NOTA: `is_anomaly`/`reason` (veredito do duration_detector) não têm
-        ainda uma coluna própria neste esquema — são transmitidos ao
-        dashboard em tempo real (kind "activity_duration_flag") mas não
-        persistidos aqui. Ficaria natural futuramente popular
-        `anomaly_detections` a partir daqui quando `is_anomaly` for True;
-        não feito nesta rotina (âmbito: ligar a classificação em si, não
-        todo o pipeline de alertas de rotina)."""
+        Quando `is_anomaly` é True (veredito do duration_detector), também
+        persiste em `anomaly_detections` com `detector='duration_rule'`
+        (ver insert_anomaly_detection abaixo) — chamada tardia depois do
+        commit deste bloco, nunca impede a escrita do bloco em si se falhar."""
         if self.disabled or self.session is None:
             return
         try:
@@ -429,6 +426,49 @@ class OrmPersistence:
             self.session.commit()
         except Exception as exc:  # noqa: BLE001
             self._degrade("insert_activity_window", exc)
+            return
+
+        if closed_block.get("is_anomaly"):
+            start_ts = closed_block["start_wall_clock_s"]
+            self.insert_anomaly_detection({
+                "detector": "duration_rule",
+                "anomaly_category": closed_block.get("reason") or "duracao_fora_dos_limites",
+                "score": None,
+                "threshold_used": None,
+                "window_start_ts": start_ts,
+                "window_end_ts": start_ts + closed_block["duration_min"] * 60,
+                "description": closed_block.get("explanation"),
+                "severity": "moderate",
+                "model_version": None,
+            })
+
+    def insert_anomaly_detection(self, episode: dict) -> None:
+        """Escrita imediata de um EPISÓDIO de anomalia já fechado — de
+        anomaly_inference.py (`detector='lstm_autoencoder'`) ou do veredito
+        do duration_detector num bloco de atividade fechado
+        (`detector='duration_rule'`, ver insert_activity_window acima).
+        `window_start_ts`/`window_end_ts` no relógio do dispositivo (epoch,
+        igual a activity_date acima)."""
+        if self.disabled or self.session is None:
+            return
+        try:
+            row = sa.AnomalyDetection(
+                uuid=str(uuid4()),
+                device_id=self.device_id,
+                detector=episode["detector"],
+                anomaly_category=episode["anomaly_category"],
+                score=episode.get("score"),
+                threshold_used=episode.get("threshold_used"),
+                window_start=datetime.fromtimestamp(episode["window_start_ts"]),
+                window_end=datetime.fromtimestamp(episode["window_end_ts"]),
+                description=episode.get("description"),
+                severity=episode.get("severity"),
+                model_version=episode.get("model_version"),
+            )
+            self.session.add(row)
+            self.session.commit()
+        except Exception as exc:  # noqa: BLE001
+            self._degrade("insert_anomaly_detection", exc)
 
     # ---- retenção ----------------------------------------------------------
 

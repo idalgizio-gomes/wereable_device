@@ -34,8 +34,11 @@ const liveState = {
 const liveHrBuffer = []; // {t: epoch_s, hr, label: "HH:MM:SS"}
 
 //Sem leitura nova há mais de STALE_SIGNAL_MS: esbate o canvas + rótulo "sem sinal há Xs" (não cai para 0, evita ler-se como "sem batimento")
-const STALE_SIGNAL_MS = 8000;
+const STALE_SIGNAL_MS = 35000;
 function tickStaleCharts(){
+  // leitura contínua desligada pelo utilizador (toggleContinuousHr) não é perda de sinal —
+  // o gráfico fica estático à espera de ser retomado, sem aviso de "sem sinal"
+  if (continuousHrIntervalId == null) return;
   const now = Date.now();
 
   const hrCanvas = document.getElementById('cvHr');
@@ -720,6 +723,15 @@ function toggleContinuousHr(){
     if (btn){ btn.className = 'btn-secondary'; btn.setAttribute('aria-pressed', 'false'); btn.textContent = ''; btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg> ${t('vitais.continuousHrStartBtn')}`; }
     if (forceBtn) forceBtn.disabled = false;
     if (hint){ hint.style.color = ''; hint.textContent = t('vitais.forceReadingHint'); }
+    // desligar a leitura contínua congela os gráficos como estão, sem aviso de "sem sinal"
+    const hrCanvas = document.getElementById('cvHr');
+    const hrLabel = document.getElementById('hrChartLabel');
+    if (hrCanvas) hrCanvas.style.opacity = '1';
+    if (hrLabel) hrLabel.textContent = t('vitais.hrChartLive');
+    const spo2Canvas = document.getElementById('cvSpo2');
+    const spo2Label = document.getElementById('spo2ChartLabel');
+    if (spo2Canvas) spo2Canvas.style.opacity = '1';
+    if (spo2Label) spo2Label.textContent = t('vitais.hrChartLive');
     return;
   }
   if (!liveState.connected){
