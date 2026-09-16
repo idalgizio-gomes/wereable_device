@@ -326,6 +326,40 @@ class TestHeartRateTrends:
         assert body["avg"] == 72
 
 
+class TestDeviceAnomalies:
+    def test_unknown_device_404(self, client, primary):
+        resp = client.get("/api/devices/9999/anomalies", headers=primary.headers)
+        assert resp.status_code == 404
+
+    def test_returns_episodes_within_window_newest_first(self, client, db, primary):
+        _, device = _make_patient_device(db, caregiver=primary.user)
+        now = datetime.utcnow()
+        older = sa.AnomalyDetection(
+            uuid="anom-1", device_id=device.id, detector="duration_rule",
+            anomaly_category="duracao_fora_dos_limites", window_start=now - timedelta(hours=2),
+            window_end=now - timedelta(hours=2) + timedelta(minutes=20), severity="moderate",
+        )
+        newer = sa.AnomalyDetection(
+            uuid="anom-2", device_id=device.id, detector="lstm_autoencoder",
+            anomaly_category="padrao_temporal_atipico", score=0.9, threshold_used=0.46,
+            window_start=now - timedelta(minutes=10), window_end=now, severity="severe",
+        )
+        out_of_window = sa.AnomalyDetection(
+            uuid="anom-3", device_id=device.id, detector="duration_rule",
+            anomaly_category="duracao_fora_dos_limites", window_start=now - timedelta(days=60),
+            window_end=now - timedelta(days=60) + timedelta(minutes=20), severity="minor",
+        )
+        db.add_all([older, newer, out_of_window])
+        db.commit()
+
+        resp = client.get(f"/api/devices/{device.id}/anomalies", headers=primary.headers)
+        assert resp.status_code == 200
+        body = resp.json()["anomalies"]
+        assert [a["detector"] for a in body] == ["lstm_autoencoder", "duration_rule"]
+        assert body[0]["severity"] == "severe"
+        assert body[0]["score"] == 0.9
+
+
 class TestMedicationAdherence:
     def test_unknown_patient_404(self, client, primary):
         resp = client.get("/api/patients/9999/medication-adherence", headers=primary.headers)
