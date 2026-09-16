@@ -224,6 +224,7 @@ class Device(Base):
     patient = relationship("Patient", back_populates="devices")
     sensor_records = relationship("SensorRecord", back_populates="device", cascade="all, delete-orphan")
     emergency_alerts = relationship("EmergencyAlert", back_populates="device", cascade="all, delete-orphan")
+    anomaly_detections = relationship("AnomalyDetection", back_populates="device", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("idx_device_patient_id", "patient_id"),
@@ -388,6 +389,39 @@ class EmergencyAlert(Base):
         Index("idx_emergency_device_timestamp", "device_id", "timestamp_utc"),
         Index("idx_emergency_responded", "responded_at"),
         UniqueConstraint("device_id", "sequence_number", name="uq_emergency_device_seq"),
+    )
+
+
+class AnomalyDetection(Base):
+    """Anomalia de rotina — uma linha por EPISÓDIO já fechado (não por
+    janela de 10s; ver anomaly_inference.py::AnomalyInference), de duas
+    fontes possíveis (`detector`): 'lstm_autoencoder' (padrão temporal
+    atípico numa sequência de janelas) ou 'duration_rule' (bloco de
+    atividade fora da duração esperada, ver ml/duration_detector.py).
+    Combina os dois "passos" complementares do pipeline de ml/README.md
+    numa só tabela consultável."""
+    __tablename__ = "anomaly_detections"
+
+    id = Column(Integer, primary_key=True)
+    uuid = Column(String(36), unique=True, nullable=False)
+    device_id = Column(Integer, ForeignKey("devices.id"), nullable=False)
+    detector = Column(String(30), nullable=False)  # 'lstm_autoencoder' | 'duration_rule'
+    anomaly_category = Column(String(50), nullable=False)
+    score = Column(Float)  # erro de reconstrução (autoencoder); null em duration_rule
+    threshold_used = Column(Float)  # limiar vigente no momento da deteção (autoencoder)
+    window_start = Column(DateTime, nullable=False)
+    window_end = Column(DateTime, nullable=False)
+    description = Column(Text)
+    severity = Column(String(20))  # 'minor', 'moderate', 'severe'
+    model_version = Column(String(50))  # versão ativa em ml_model_versions no momento da deteção
+    investigated = Column(Boolean, default=False)
+    investigation_notes = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    device = relationship("Device", back_populates="anomaly_detections")
+
+    __table_args__ = (
+        Index("idx_anomaly_device_window", "device_id", "window_start"),
     )
 
 
@@ -903,6 +937,7 @@ class DataRetention:
         "activity_windows": 1825,  # 5 anos
         "alerts": 2555,  # 7 anos
         "emergency_alerts": 2920,  # 8 anos (decisão da utilizadora, 2026-07-31 — GDPR-006)
+        "anomaly_detections": 1825,  # 5 anos
         "medication_adherence": 1095,  # 3 anos
     }
 
@@ -940,6 +975,15 @@ class DataRetention:
             query.update({"deleted_at": datetime.utcnow()})
             db.commit()
         results["alerts"] = count
+
+        # AnomalyDetection (apaga mesmo, não soft delete)
+        cutoff = cutoff_date - timedelta(days=DataRetention.RETENTION_POLICIES["anomaly_detections"])
+        query = db.query(AnomalyDetection).filter(AnomalyDetection.created_at < cutoff)
+        count = query.count()
+        if not dry_run:
+            query.delete()
+            db.commit()
+        results["anomaly_detections"] = count
 
         # MedicationAdherence (apaga mesmo, não soft delete)
         cutoff = cutoff_date - timedelta(days=DataRetention.RETENTION_POLICIES["medication_adherence"])
@@ -1232,6 +1276,7 @@ class MlModelVersion(Base):
     version = Column(String(50), nullable=False)      # ex. "1", "2", timestamp, etc.
     file_path = Column(String(500), nullable=False)   # caminho relativo a ml/, ex. "models/activity_classifier_rf_v2.joblib"
     labels_path = Column(String(500), nullable=False)
+    extra_path = Column(String(500))  # artefacto adicional opcional (ex.: scaler do autoencoder); significado depende do model_name
     is_active = Column(Boolean, default=False, nullable=False)
     trained_at = Column(DateTime)
     metrics_json = Column(Text)   # JSON livre: accuracy, etc. — sem obrigar a um esquema fixo
@@ -1251,6 +1296,7 @@ def _ml_model_version_to_dict(row: "MlModelVersion") -> dict:
         "version": row.version,
         "file_path": row.file_path,
         "labels_path": row.labels_path,
+        "extra_path": row.extra_path,
         "is_active": row.is_active,
         "trained_at": row.trained_at.replace(tzinfo=timezone.utc).timestamp() if row.trained_at else None,
         "metrics": json.loads(row.metrics_json) if row.metrics_json is not None else None,
@@ -1265,6 +1311,7 @@ def register_model_version(
     version: str,
     file_path: str,
     labels_path: str,
+    extra_path: Optional[str] = None,
     trained_at: Optional[datetime] = None,
     metrics: Optional[dict] = None,
     notes: Optional[str] = None,
@@ -1272,12 +1319,14 @@ def register_model_version(
 ) -> dict:
     """Regista uma nova versão do modelo `model_name`. Lança ValueError se já existir
     (model_name, version) — apanha o IntegrityError da UniqueConstraint e relança com
-    mensagem clara. Se `activate=True`, ativa a versão via activate_model_version."""
+    mensagem clara. Se `activate=True`, ativa a versão via activate_model_version.
+    `extra_path` é opcional, significado depende do modelo (ex.: scaler do autoencoder)."""
     row = MlModelVersion(
         model_name=model_name,
         version=str(version),
         file_path=file_path,
         labels_path=labels_path,
+        extra_path=extra_path,
         trained_at=trained_at,
         metrics_json=json.dumps(metrics) if metrics is not None else None,
         notes=notes,

@@ -85,6 +85,14 @@ except ImportError as exc:
     print(f"[BRIDGE] AVISO: modulo activity_inference indisponivel ({exc}); classificacao de atividade desativada")
     activity_inference = None
 
+try:
+    # tensorflow NAO esta' em requirements_db.txt (dependencia pesada, deliberadamente opcional --
+    # ver anomaly_inference.py); em falta, deteccao de anomalias fica desativada, resto do bridge normal
+    import anomaly_inference
+except ImportError as exc:
+    print(f"[BRIDGE] AVISO: modulo anomaly_inference indisponivel ({exc}); deteccao de anomalias desativada")
+    anomaly_inference = None
+
 # duplicado de activity_inference.CLASS_TO_DB_CATEGORY para a correcao manual (cmd "correct_activity")
 # continuar a funcionar mesmo sem activity_inference instalado
 ACTIVITY_CORRECTION_CATEGORIES = ("Dormir", "Descanso", "Atividade", "Alimentação", "Higiene")
@@ -510,6 +518,22 @@ class BleBridge:
                 print(f"[BRIDGE] AVISO: falha ao inicializar activity_inference: {exc}")
                 self.activity_inference = None
 
+        # idem, mas tensorflow em falta (comum — dependencia opcional) e' esperado, nao um erro grave
+        self.anomaly_inference = None
+        if anomaly_inference is not None:
+            try:
+                self.anomaly_inference = anomaly_inference.AnomalyInference()
+                if not self.anomaly_inference.available:
+                    print(f"[BRIDGE] AVISO: deteccao de anomalias indisponivel "
+                          f"({self.anomaly_inference.load_error}); desativada")
+                    self.anomaly_inference = None
+            except Exception as exc:  # noqa: BLE001 - nunca deve impedir o arranque
+                print(f"[BRIDGE] AVISO: falha ao inicializar anomaly_inference: {exc}")
+                self.anomaly_inference = None
+        # serializa chamadas ao autoencoder (correm em thread pool via asyncio.to_thread) -- evita
+        # que duas janelas do mesmo dispositivo sejam pontuadas fora de ordem se uma demorar mais
+        self._anomaly_lock = asyncio.Lock()
+
         # ultimo ESTADO (nao valor) difundido por sinal vital, so' notifica o dashboard numa MUDANCA
         self._vital_alert_state: dict[str, Optional[str]] = {"hr": None, "spo2": None}
 
@@ -545,7 +569,7 @@ class BleBridge:
 
     async def periodic_orm_retention_task(self) -> None:
         """GDPR-006: aplica as politicas de retencao FIXAS do ORM (DataRetention.cleanup —
-        sensor_records, activity_windows, alerts, anomaly_detections, medication_adherence;
+        sensor_records, activity_windows, alerts, medication_adherence;
         emergency_alerts nunca e' apagado). Distinta de periodic_retention_task, que so' cobre
         a retencao CONFIGURAVEL do dashboard."""
         while True:
@@ -752,6 +776,11 @@ class BleBridge:
                         "kind": "activity_duration_flag", **closed,
                     }))
 
+        # deteccao de anomalias (LSTM Autoencoder) corre em thread pool -- model.predict() e'
+        # mais pesado que o classificador RF, nao deve bloquear este callback nem o loop de eventos
+        if self.anomaly_inference is not None:
+            asyncio.create_task(self._score_anomaly_async(record))
+
         has_new_vital = record["hr"] is not None or record["spo2"] is not None
 
         # Baseline comportamental personalizada (2026-08-05, ver
@@ -791,6 +820,31 @@ class BleBridge:
         self._last_broadcast_monotonic = now
 
         asyncio.create_task(self.broadcast({"kind": "record", "rec_seq": rec_seq, **record}))
+
+    async def _score_anomaly_async(self, record: dict) -> None:
+        """Corre anomaly_inference.add_sample() em thread pool (model.predict do
+        LSTM Autoencoder), serializado por self._anomaly_lock para nao pontuar
+        janelas do mesmo dispositivo fora de ordem. Persiste e difunde so' quando
+        um episodio de anomalia fecha (nao a cada ~10s -- ver anomaly_inference.py)."""
+        async with self._anomaly_lock:
+            try:
+                result = await asyncio.to_thread(
+                    self.anomaly_inference.add_sample, self.orm.device_id if self.orm else 0, record,
+                )
+            except Exception as exc:  # noqa: BLE001 - nunca deve travar o streaming
+                print(f"[BRIDGE] erro na deteccao de anomalias: {exc}")
+                return
+        if not result:
+            return
+        asyncio.create_task(self.broadcast({
+            "kind": "anomaly_score", "score": result["score"], "threshold": result["threshold"],
+            "is_anomaly": result["is_anomaly"],
+        }))
+        closed = result.get("closed_episode")
+        if closed:
+            if self.orm:
+                self.orm.insert_anomaly_detection(closed)
+            asyncio.create_task(self.broadcast({"kind": "anomaly_detected", **closed}))
 
     def _maybe_broadcast_vital_alert(self, vital_key: str, alert: Optional[dict], thresholds: dict) -> None:
         """Difunde "vital_alert" só numa MUDANÇA de estado para este sinal
