@@ -132,6 +132,9 @@ function liveEmergencyAlertIdFor(fullKey){
   return entrada && entrada.liveSeq != null ? `${entrada.type}-${entrada.liveSeq}` : null;
 }
 function currentAnomalyLog(){
+  // bridge ligado e já respondeu a get_anomalies: dados REAIS substituem a demonstração
+  // (mesmo quando vazio — [] real é diferente de "ainda não perguntámos")
+  if (Array.isArray(bridgeAnomalies)) return bridgeAnomalies.map(bridgeAnomalyToRow);
   return selectedPatient().anomalyLog.filter(a => !deletedAnomaliesMap[`${selectedPatientId}:${a.id}`]);
 }
 
@@ -408,6 +411,31 @@ function requestBridgeAlerts(){
   return sendWsCommandWithArgs('get_alerts', {limit: 100});
 }
 
+// episódios reais (LSTM Autoencoder + duration_rule, ver bridge/anomaly_inference.py) — null até
+// chegar a 1ª resposta do bridge, distinto de [] (bridge respondeu, sem anomalias reais ainda)
+let bridgeAnomalies = null;
+
+function requestBridgeAnomalies(){
+  if (typeof sendWsCommandWithArgs !== 'function') return false;
+  return sendWsCommandWithArgs('get_anomalies', {limit: 100});
+}
+
+// mapeia o episódio real (storage_advanced.py::AnomalyDetection) para a forma que
+// TEMPLATES.anomalias já espera (dados de demonstração) — reaproveita os mapas de
+// tradução existentes (ANOMALY_TYPE_TO_I18N_SEGMENT/ANOMALY_DETECTOR_TO_I18N_SEGMENT)
+const ANOMALY_SEVERITY_FROM_BACKEND = {severe: 'critical', moderate: 'serious', minor: 'warning'};
+function bridgeAnomalyToRow(r){
+  return {
+    id: r.id,
+    type: r.detector === 'lstm_autoencoder' ? 'Comportamental' : 'Duração',
+    detector: r.detector === 'lstm_autoencoder' ? 'LSTM Autoencoder' : 'Regra de duração',
+    detail: r.description || '',
+    conf: r.score != null ? r.score.toFixed(2) : '—',
+    sev: ANOMALY_SEVERITY_FROM_BACKEND[r.severity] || 'warning',
+    time: r.window_start ? new Date(r.window_start).toLocaleString('pt-PT') : '',
+  };
+}
+
 // substitui/insere um alerta local a partir da forma serializada pelo bridge (_alert_to_dict)
 function upsertBridgeAlert(raw){
   if (!raw || !raw.uuid) return;
@@ -576,6 +604,12 @@ function handleAlertsBridgeMessage(msg){
     return true;
   }
 
+  if (msg.kind === 'anomalies'){
+    bridgeAnomalies = Array.isArray(msg.anomalies) ? msg.anomalies : [];
+    refreshAlertViews();
+    return true;
+  }
+
   if (msg.kind === 'alert_escalated'){
     // decidido no servidor (periodic_alert_escalation_task) — aqui só reflete escalated_to_severity/escalated_at
     upsertBridgeAlert(msg.alert);
@@ -607,6 +641,7 @@ function handleAlertsBridgeMessage(msg){
 
   if (msg.kind === 'device_status' && msg.connected){
     requestBridgeAlerts();
+    requestBridgeAnomalies();
     return false;
   }
 
@@ -628,7 +663,9 @@ function installAlertsBridgeHook(){
     catch (e) { console.warn('[CareWear] erro a tratar alerta do bridge:', e); }
   };
   requestBridgeAlerts();
+  requestBridgeAnomalies();
   setInterval(requestBridgeAlerts, BRIDGE_ALERTS_REFRESH_MS);
+  setInterval(requestBridgeAnomalies, BRIDGE_ALERTS_REFRESH_MS);
 }
 
 window.addEventListener('load', installAlertsBridgeHook);

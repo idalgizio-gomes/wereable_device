@@ -302,6 +302,23 @@ class TestAudit:
 # ENDPOINTS DE LEITURA (regressão do comportamento existente)
 # ==================================================================
 
+class TestPatientDevices:
+    def test_unknown_patient_404(self, client, primary):
+        resp = client.get("/api/patients/9999/devices", headers=primary.headers)
+        assert resp.status_code == 404
+
+    def test_returns_devices_of_authorized_patient(self, client, db, primary):
+        patient, device = _make_patient_device(db, caregiver=primary.user)
+        resp = client.get(f"/api/patients/{patient.id}/devices", headers=primary.headers)
+        assert resp.status_code == 200
+        assert resp.json()["devices"] == [{"id": device.id, "uuid": device.uuid}]
+
+    def test_intruder_sees_404(self, client, db, primary, intruder):
+        patient, _ = _make_patient_device(db, caregiver=primary.user)
+        resp = client.get(f"/api/patients/{patient.id}/devices", headers=intruder.headers)
+        assert resp.status_code == 404
+
+
 class TestHeartRateTrends:
     def test_unknown_device_404(self, client, primary):
         resp = client.get("/api/devices/9999/heart-rate-trends", headers=primary.headers)

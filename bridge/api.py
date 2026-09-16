@@ -267,6 +267,27 @@ def patients_directory(
     }
 
 
+@app.get("/api/patients/{patient_id}/devices")
+def patient_devices(
+    patient_id: int,
+    request: Request,
+    db: Session = Depends(_get_db),
+    reason: Optional[str] = ACCESS_REASON_QUERY,
+    user: sa.User = Depends(_require_user),
+):
+    """Ponte device_id <-> paciente: os endpoints /api/devices/{id}/* (heart-rate-trends,
+    anomalies, activity-distribution, fhir/observations) não tinham nenhuma forma de o
+    dashboard descobrir o device_id de um paciente — ficavam inalcançáveis do frontend,
+    só testados diretamente por id numérico. Endpoint próprio (não junto a
+    /api/patients/directory) para manter esse minimal e já auditado."""
+    patient = db.get(sa.Patient, patient_id)
+    if patient is None:
+        raise HTTPException(status_code=404, detail="Paciente não encontrado")
+    _authorize_patient(db, user, patient_id, request=request, reason=reason)
+    _audit_read(db, user, request, "patient_devices.read", "patient", patient_id)
+    return {"devices": [{"id": d.id, "uuid": d.uuid} for d in patient.devices]}
+
+
 @app.get("/api/devices/{device_id}/heart-rate-trends")
 def heart_rate_trends(
     device_id: int,
