@@ -25,7 +25,7 @@ const liveState = {
   sentRecords: null, // contagem cumulativa de registos transferidos nesta sessão
   ringCount: null, // registos por enviar agora no ring buffer; com sentRecords dá % real de progresso
   batteryPercent: null, // não reinicia ao perder ligação — é o último valor conhecido
-  realTrend: [], // histórico real por dia (storage.get_daily_summary), distinto de currentTrendData() sintético
+  realTrend: [], // histórico real por dia (orm_persistence), distinto de currentTrendData() sintético
   currentActivity: null, // {category, confidence, session, receivedAt} — modelo só treinado com dados sintéticos
   lastActivityDurationFlag: null, // veredito do detetor de duração (ml/duration_detector.py)
   // correção manual do cuidador à classificação da IA — mostrada ao lado, nunca substitui; não realimenta o modelo
@@ -170,7 +170,7 @@ function renderLiveActivityPanel(){
   }
 
   // Correção do cuidador é o valor PRINCIPAL enquanto "fresca" (< ACTIVITY_CORRECTION_OVERRIDE_S);
-  // a IA fica em segundo plano, nunca escondida — não há retreino em tempo real, só fica guardada em storage.py.
+  // a IA fica em segundo plano, nunca escondida — não há retreino em tempo real, só fica guardada via orm_persistence.
   const corr = liveState.activityCorrection;
   const correctionAgeS = corr && corr.correctedAtEpochS != null
     ? (Date.now() / 1000) - corr.correctedAtEpochS : null;

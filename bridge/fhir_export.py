@@ -297,7 +297,7 @@ def build_observation(
     return observation
 
 
-#Patient/{id} e Device/{id} nas Observations nunca resolviam para um recurso real — usadas como entries "include" no Bundle (ver api.py)
+#Entries "include" (search.mode=include) do Bundle, opt-in via ?_include=Observation:subject|device (ver api.py)
 def build_patient_resource(patient: Any) -> dict:
     """Recurso FHIR R4 Patient minimalista. RGPD: mesma disciplina de build_subject() — sem nome/data de nascimento, só id e pseudónimo."""
     resource: dict[str, Any] = {
