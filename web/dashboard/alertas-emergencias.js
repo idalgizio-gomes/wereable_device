@@ -132,8 +132,7 @@ function liveEmergencyAlertIdFor(fullKey){
   return entrada && entrada.liveSeq != null ? `${entrada.type}-${entrada.liveSeq}` : null;
 }
 function currentAnomalyLog(){
-  // bridge ligado e já respondeu a get_anomalies: dados REAIS substituem a demonstração
-  // (mesmo quando vazio — [] real é diferente de "ainda não perguntámos")
+  // bridge respondeu a get_anomalies: dados reais substituem a demonstração, mesmo [] (≠ "ainda não perguntámos")
   if (Array.isArray(bridgeAnomalies)) return bridgeAnomalies.map(bridgeAnomalyToRow);
   return selectedPatient().anomalyLog.filter(a => !deletedAnomaliesMap[`${selectedPatientId}:${a.id}`]);
 }
@@ -396,8 +395,7 @@ function confirmEmergencyCancel(){
 
 // medications/adherenceHistory são exemplo; só a toma de HOJE é real (localStorage, namespaced por paciente+dia+medicamento+horário)
 
-// embrulha handleBridgeMessage() (declarada em bridge-exportacao.js) com os kinds novos do RF-05/07/08, em vez de editar esse ficheiro
-// só pode embrulhar depois de 'load': este script corre antes de bridge-exportacao.js, handleBridgeMessage ainda não existe
+// embrulha handleBridgeMessage() (bridge-exportacao.js) com os kinds RF-05/07/08; só depois de 'load', pois este script corre antes
 
 // cadência de reconsulta ao bridge; serve também de recuperação após queda de ligação
 const BRIDGE_ALERTS_REFRESH_MS = 30000;
@@ -411,8 +409,7 @@ function requestBridgeAlerts(){
   return sendWsCommandWithArgs('get_alerts', {limit: 100});
 }
 
-// episódios reais (LSTM Autoencoder + duration_rule, ver bridge/anomaly_inference.py) — null até
-// chegar a 1ª resposta do bridge, distinto de [] (bridge respondeu, sem anomalias reais ainda)
+// episódios reais (bridge/anomaly_inference.py); null até 1ª resposta do bridge, distinto de [] (respondeu, sem anomalias ainda)
 let bridgeAnomalies = null;
 
 function requestBridgeAnomalies(){
@@ -420,9 +417,7 @@ function requestBridgeAnomalies(){
   return sendWsCommandWithArgs('get_anomalies', {limit: 100});
 }
 
-// mapeia o episódio real (storage_advanced.py::AnomalyDetection) para a forma que
-// TEMPLATES.anomalias já espera (dados de demonstração) — reaproveita os mapas de
-// tradução existentes (ANOMALY_TYPE_TO_I18N_SEGMENT/ANOMALY_DETECTOR_TO_I18N_SEGMENT)
+// mapeia episódio real (storage_advanced.py::AnomalyDetection) para a forma de TEMPLATES.anomalias, reaproveitando os mapas de tradução existentes
 const ANOMALY_SEVERITY_FROM_BACKEND = {severe: 'critical', moderate: 'serious', minor: 'warning'};
 function bridgeAnomalyToRow(r){
   return {
@@ -444,8 +439,7 @@ function upsertBridgeAlert(raw){
   if (i >= 0) bridgeAlerts[i] = linha; else bridgeAlerts.unshift(linha);
 }
 
-// RF-05: bridge difunde {kind:"wear_status",...} só quando o estado MUDA (evento, não polling) — guardado aqui p/ sobreviver a re-renderização
-// distinção 'removed' (recolocar) vs 'link_lost' (aproximar/carregar) é intencional: ações diferentes p/ o cuidador
+// RF-05: bridge só difunde wear_status quando o estado MUDA (evento, não polling); 'removed' vs 'link_lost' é distinção intencional (ações diferentes p/ o cuidador)
 let wearState = null;
 
 // estado -> apresentação; paleta é a de templates-core.js (SEV_COLOR/SEV_BG usam 'good', não 'info')

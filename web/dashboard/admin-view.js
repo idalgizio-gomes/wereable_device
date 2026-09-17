@@ -1,77 +1,35 @@
 /**
  * admin-view.js — Vista "Administrador de hospital/clínica"
- * ------------------------------------------------------------
- * Mesmo padrão de medication-reminders.js: script clássico global (sem
- * imports/exports ES, sem build step), carregado DEPOIS do <script>
- * principal de index.html — pode por isso assumir que t(), escapeHtml(),
- * PATIENTS, TEMPLATES, AFTER_RENDER, isAdminUser(), ADMIN_EMAIL,
- * loadClinicianAssignments(), selectPatient(), activateNavItem(),
- * statTile(), pillHtml() e activeAlertsCount() já existem no escopo global.
+ * Script clássico global (mesmo padrão de medication-reminders.js, sem
+ * imports/build, carregado após o <script> principal de index.html) —
+ * assume t(), escapeHtml(), PATIENTS, TEMPLATES, AFTER_RENDER,
+ * isAdminUser(), ADMIN_EMAIL, loadClinicianAssignments(), selectPatient(),
+ * activateNavItem(), statTile(), pillHtml(), activeAlertsCount() globais.
  *
- * DECISÕES DE DESIGN (para a utilizadora rever):
+ * ALL_CLINICIANS_KEY é um registo próprio (nome/instituição/cédula por
+ * email), preenchido por registerClinicianAccount() no signup. allCliniciansList()
+ * funde-o com CLINICIAN_ASSIGNMENTS_KEY para não perder contas sem nome
+ * (sessões anteriores a esta funcionalidade) — mostra o email como nome nesse caso.
  *
- * 1) "Lista de médicos/técnicos" — antes desta funcionalidade não existia
- *    nenhum registo de quem são os clínicos, só o email usado como chave
- *    em CLINICIAN_ASSIGNMENTS_KEY (ver index.html). Criei um registo novo,
- *    ALL_CLINICIANS_KEY, preenchido quando alguém cria conta como
- *    Médico/Técnico (ver chamada a registerClinicianAccount() em
- *    submitSignup(), em index.html) — guarda nome, instituição e cédula
- *    profissional por email. allCliniciansList() junta este registo com
- *    quaisquer emails que só existam em CLINICIAN_ASSIGNMENTS_KEY (ex.:
- *    dados de sessões anteriores a esta funcionalidade existir, ou
- *    atribuições feitas sem passar pelo ecrã de signup), para o admin
- *    nunca perder visibilidade sobre uma conta só por faltar o nome —
- *    nesses casos mostra o próprio email como "nome".
+ * Privacidade (decisão explícita da utilizadora): o Admin NÃO vê dados
+ * clínicos de pacientes. Existiu um botão "Ver dados" que abria o dossiê
+ * clínico completo via #navClinico — removido; #navClinico já não é
+ * concedido a este perfil (login() em index.html). A tabela de pacientes
+ * abaixo mostra só metadados organizacionais (nome, dispositivo, médicos
+ * atribuídos, contagem de alertas ativos — não o conteúdo dos alertas).
  *
- * 2) REVERTIDO (2026-08-06, pedido explícito da utilizadora): esta vista
- *    tinha originalmente um botão "Ver dados" que reaproveitava
- *    selectPatient() + a barra lateral clínica (#navClinico) para o admin
- *    abrir o dossiê clínico completo de qualquer paciente (sinais vitais,
- *    anomalias, medicação, exportações). A utilizadora identificou isto
- *    como invasão de privacidade — o perfil Administrador serve para
- *    NAVEGAR/ORGANIZAR (ver quem são os médicos, os pacientes, quem trata
- *    quem), não para ler dados clínicos de ninguém. #navClinico deixou de
- *    ser concedido a este perfil (ver login() em index.html) e a função
- *    adminViewPatient()/o botão correspondente foram removidos — a tabela
- *    de pacientes abaixo mostra só metadados organizacionais (nome,
- *    dispositivo, médicos atribuídos, contagem agregada de alertas ativos
- *    — um número, não o conteúdo dos alertas).
+ * Backend tem dois perfis de admin: `admin` (Sistema — sem dados clínicos,
+ * 404 em `_authorize_patient`, bridge/api.py — é o que esta vista serve) e
+ * `admin_clinical` (Suporte Autorizado — lê dados clínicos com `reason`,
+ * expiração `privileged_access_expires_at` e auditoria própria). O
+ * dashboard ainda não suporta o segundo perfil — falta em
+ * API_ROLE_TO_DASHBOARD_ROLE (auth-navegacao.js), UI de login, diálogo de
+ * motivo, exibição de expiração, e WS_COMMAND_ROLES (ble_bridge.py, que
+ * hoje bloqueia esse papel por omissão — fail-closed, mas só via REST).
+ * Fora do âmbito desta alteração.
  *
- * 3) DOIS PERFIS DE ADMINISTRADOR (2026-09-07) — NOTA, SEM ALTERAÇÃO DE UI.
- *    O backend deixou de ter um único `admin`. Passou a ter:
- *      * `admin` (Admin de Sistema) — contas, dispositivos, configuração,
- *        firmware, logs, manutenção. A API já NÃO lhe dá dados clínicos
- *        (404 em `_authorize_patient`, bridge/api.py). Ou seja: a decisão
- *        do ponto 2) acima, que até aqui só existia nesta vista, passou a
- *        estar imposta do lado do servidor. É exatamente este perfil que
- *        esta vista serve, e por isso nada aqui muda.
- *      * `admin_clinical` (Admin Clínico / Suporte Autorizado) — lê dados
- *        clínicos só com motivo explícito (`reason` no pedido), com
- *        concessão temporal por expirar (`privileged_access_expires_at`) e
- *        com auditoria própria (`privileged_clinical_access`).
- *
- *    O que o dashboard PRECISARIA de fazer (deliberadamente NÃO feito
- *    aqui — os ficheiros envolvidos estão fora do âmbito desta alteração):
- *      a) `API_ROLE_TO_DASHBOARD_ROLE` (auth-navegacao.js) não conhece
- *         'admin_clinical' — hoje esse papel traduziria para `undefined`.
- *         Precisa de uma entrada nova e de um nome de perfil próprio.
- *      b) uma forma de entrar como Admin Clínico: um segundo botão no
- *         ecrã de login OU um seletor dentro do perfil admin.
- *      c) uma caixa de diálogo que peça o MOTIVO antes de abrir qualquer
- *         dado clínico, e que o envie em `reason` — sem ele a API responde
- *         403 com a explicação.
- *      d) mostrar quanto tempo falta para a concessão expirar (`/api/auth/me`
- *         devolve `privileged_access_expires_at`) e tratar o 403 de
- *         concessão expirada como "pedir renovação", não como erro genérico.
- *      e) o canal WebSocket (ble_bridge.py, WS_COMMAND_ROLES) não conhece
- *         'admin_clinical': por ser uma lista de permissões explícita,
- *         esse papel fica sem NENHUM comando WS. É fail-closed (seguro),
- *         mas significa que o acesso privilegiado existe só via REST.
- *
- * LIMITAÇÃO ASSUMIDA (design já existente do projeto, não um bug desta
- * funcionalidade): sem backend real, "registar um clínico" é só gravar em
- * localStorage deste browser — outro browser/dispositivo não vê a mesma
- * lista. Mesma limitação que já existia em CLINICIAN_ASSIGNMENTS_KEY.
+ * Sem backend real: registo de clínicos só em localStorage deste browser
+ * (mesma limitação já existente em CLINICIAN_ASSIGNMENTS_KEY).
  */
 
 const ALL_CLINICIANS_KEY = 'carewear_all_clinicians';
@@ -81,10 +39,7 @@ function loadAllClinicians(){
     const raw = localStorage.getItem(ALL_CLINICIANS_KEY);
     if (raw) return JSON.parse(raw);
   } catch (e) { /* localStorage indisponível ou dados corrompidos - ignora */ }
-  // Valor por omissão (2026-08-06): mesmo espírito do fallback em
-  // loadClinicianAssignments() (pacientes-alertas-medicacao.js) — sem
-  // isto, o Dr. Ricardo aparecia na tabela só pelo email (sem nome),
-  // porque nunca passou por submitSignup() num browser novo.
+  // Fallback: sem isto o Dr. Ricardo aparecia só pelo email (nunca passou por submitSignup())
   return { [DEFAULT_CLINICIAN_EMAIL]: { name: 'Dr. Ricardo Alves', institution: 'Centro de Saúde de Barcelos', license: 'OM-12345' } };
 }
 function saveAllClinicians(map){
@@ -92,10 +47,7 @@ function saveAllClinicians(map){
   catch (e) { /* quota excedida ou localStorage indisponível - fica só em memória */ }
 }
 
-// Chamada por submitSignup() (perfil Médico/Técnico) em index.html — é o
-// único sítio que cria/atualiza este registo (mesmo espírito de
-// registerOwnPatient() para o perfil Utente/Família: só quem se regista
-// de facto fica com um nome associado ao email).
+// Único sítio que cria/atualiza este registo — chamado por submitSignup() (perfil Médico/Técnico) em index.html
 function registerClinicianAccount(email, name, institution, license){
   if (!email) return;
   const key = email.trim().toLowerCase();
@@ -108,8 +60,7 @@ function registerClinicianAccount(email, name, institution, license){
   saveAllClinicians(map);
 }
 
-// Lista consolidada de todos os clínicos "conhecidos" pelo sistema — ver
-// decisão de design (1) no cabeçalho deste ficheiro.
+// Lista consolidada de todos os clínicos "conhecidos" pelo sistema (ver cabeçalho)
 function allCliniciansList(){
   const registered = loadAllClinicians();
   const assignments = loadClinicianAssignments();
@@ -126,8 +77,7 @@ function allCliniciansList(){
   });
 }
 
-// Nomes (ou emails, se não registados) dos clínicos atribuídos a um
-// paciente — usado na tabela "Todos os pacientes" abaixo.
+// Nomes (ou emails, se não registados) dos clínicos atribuídos a um paciente
 function clinicianNamesForPatient(patientId){
   const assignments = loadClinicianAssignments();
   const registered = loadAllClinicians();
@@ -136,15 +86,8 @@ function clinicianNamesForPatient(patientId){
     .map(email => (registered[email] && registered[email].name) || email);
 }
 
-// Relatório de paciente (2026-08-06, ver comentário junto do modal
-// #adminPatientReportOverlay em index.html) — SIMPLIFICADO a pedido
-// explícito da utilizadora: "um administrador não tem de ver os dados
-// reais de um paciente, o relatório exportável que os médicos têm
-// basta." A versão anterior deste modal mostrava tabelas de alertas e
-// medicação em modo só-leitura — removido; fica só o acesso às mesmas 3
-// exportações (FHIR/CSV/PDF) que qualquer Médico/Técnico já tem, que
-// SÃO o "relatório" a que o admin tem direito, não uma vista adicional
-// dos dados brutos.
+// Simplificado a pedido da utilizadora: sem tabelas de alertas/medicação, só as
+// mesmas 3 exportações (FHIR/CSV/PDF) que um Médico/Técnico já tem (ver cabeçalho).
 function openAdminPatientReportModal(id){
   selectPatient(id);
   const p = selectedPatient();
@@ -167,9 +110,6 @@ function closeAdminPatientReportModal(){
   document.getElementById('adminPatientReportOverlay').style.display = 'none';
 }
 
-/* ============================================================
-   TEMPLATE — VISTA "ADMINISTRAÇÃO"
-============================================================ */
 TEMPLATES.admin = () => {
   const clinicians = allCliniciansList();
   const patients = PATIENTS;
@@ -226,10 +166,7 @@ TEMPLATES.admin = () => {
             <td class="num">${escapeHtml(p.deviceName)}</td>
             <td>${names.length ? names.map(escapeHtml).join(', ') : `<span class="empty-hint" style="padding:0;">${t('admin.noAssignedClinician')}</span>`}</td>
             <td>${n > 0 ? pillHtml('critical', n + ' ' + t(n > 1 ? 'pacientes.activeAlertsPlural' : 'pacientes.activeAlertsSingular')) : pillHtml('good', t('pacientes.statusNone'))}</td>
-            <!-- Só de leitura (ver openAdminPatientReportModal) — não é
-                 o botão "Ver dados" antigo, que dava acesso à vista
-                 clínica interativa completa (removido por pedido da
-                 utilizadora); este abre um modal sem ações. -->
+            <!-- Só leitura — não o antigo botão "Ver dados" com acesso à vista clínica completa (removido, ver cabeçalho) -->
             <td><button class="btn-secondary" onclick="openAdminPatientReportModal('${p.id}')">${t('admin.viewReportBtn')}</button></td>
           </tr>`;
         }).join('')}

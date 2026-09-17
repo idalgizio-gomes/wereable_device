@@ -1,7 +1,5 @@
-// Liga por WebSocket a bridge/ble_bridge.py (fala BLE com o dispositivo e reencaminha JSON já descodificado).
-// Sem bridge a correr, a ligação falha silenciosamente e o dashboard fica nos dados simulados.
-// TLS opcional (GDPR-004): bridge com CAREWEAR_WS_TLS=1 + aceitar o certificado em https://localhost:8765
-// + localStorage.setItem('carewear_ws_tls','1') aqui — sem os 3 passos a ligação wss:// falha silenciosamente.
+// Liga por WebSocket a bridge/ble_bridge.py; sem bridge a correr, fica nos dados simulados.
+// TLS opcional (GDPR-004): CAREWEAR_WS_TLS=1 no bridge + aceitar certificado + localStorage 'carewear_ws_tls'='1'.
 function wsUrl(){
   const scheme = localStorage.getItem('carewear_ws_tls') === '1' ? 'wss' : 'ws';
   const base = scheme + '://localhost:8765';
@@ -36,8 +34,7 @@ const liveHrBuffer = []; // {t: epoch_s, hr, label: "HH:MM:SS"}
 //Sem leitura nova há mais de STALE_SIGNAL_MS: esbate o canvas + rótulo "sem sinal há Xs" (não cai para 0, evita ler-se como "sem batimento")
 const STALE_SIGNAL_MS = 35000;
 function tickStaleCharts(){
-  // leitura contínua desligada pelo utilizador (toggleContinuousHr) não é perda de sinal —
-  // o gráfico fica estático à espera de ser retomado, sem aviso de "sem sinal"
+  // leitura contínua desligada pelo utilizador não é perda de sinal — gráfico fica estático, sem aviso
   if (continuousHrIntervalId == null) return;
   const now = Date.now();
 
@@ -133,8 +130,7 @@ function updateBatteryUI(){
   chip.title = pct != null ? t('topbar.batteryTitle', {pct}) : t('topbar.batteryUnknown');
 }
 
-// Painel "Atividade detetada (IA)": classificação em tempo real + veredito de duração do último bloco.
-// Aviso "não validado clinicamente" sempre visível junto ao resultado (ACTIVITY_ML_DISCLAIMER no bridge).
+// Painel "Atividade detetada (IA)": classificação em tempo real + veredito de duração; aviso clínico sempre visível (ACTIVITY_ML_DISCLAIMER no bridge).
 let activityCorrectionPickerOpen = false; // estado efémero de UI, não em liveState — não vem do bridge
 
 function renderLiveActivityPanel(){
@@ -169,8 +165,7 @@ function renderLiveActivityPanel(){
       : `<div class="activity-live-flag normal">✓ ${t('resumo.liveActivityDurationNormal', {cat: flagCatLabel, min: flag.durationMin})}</div>${explanationHtml}`;
   }
 
-  // Correção do cuidador é o valor PRINCIPAL enquanto "fresca" (< ACTIVITY_CORRECTION_OVERRIDE_S);
-  // a IA fica em segundo plano, nunca escondida — não há retreino em tempo real, só fica guardada via orm_persistence.
+  // Correção do cuidador é o valor principal enquanto "fresca" (< ACTIVITY_CORRECTION_OVERRIDE_S); IA nunca fica escondida, sem retreino em tempo real.
   const corr = liveState.activityCorrection;
   const correctionAgeS = corr && corr.correctedAtEpochS != null
     ? (Date.now() / 1000) - corr.correctedAtEpochS : null;
@@ -243,11 +238,8 @@ function submitActivityCorrection(category){
   renderLiveActivityPanel();
 }
 
-// RF-09 — rotulagem human-in-the-loop: cuidador marca alerta/classificação como falso positivo,
-// fica disponível para o próximo ciclo de retreino (escassez de dados rotulados = principal travão do HAR).
-// cmd "correct_activity" já existia no bridge só para classificação ao vivo; faltava: cobrir alertas,
-// persistir sem bridge, permitir ver/desfazer, e exportar num formato consumível por ml/.
-// Sem comando de bridge equivalente para alertas — essas marcações vivem só em localStorage até exportação manual.
+// RF-09 — rotulagem human-in-the-loop: cuidador marca alerta/classificação como falso positivo, para retreino futuro.
+// Sem comando de bridge para alertas — essas marcações vivem só em localStorage até exportação manual.
 const HITL_CORRECTIONS_KEY = 'carewear_hitl_corrections';
 const HITL_MAX_ENTRIES = 500; // localStorage é partilhado com o resto do protótipo, evita estourar a quota
 
@@ -578,14 +570,11 @@ function handleBridgeMessage(msg){
   }
 }
 
-// Aplica campos de sensores (hr/spo2/steps/freefall/inactivity/pacing) a liveState.
-// 'live_record' (liveSnapshotChar): instantâneo mais recente, nunca atrasado — única fonte da UI ao vivo.
-// 'record' (dumpDataChar): fluxo histórico cronológico, pode estar minutos atrasado se gravado sem BLE — chega mas
-// já não afeta a UI (só live_record atualiza liveState/gráfico), para nunca competir com o instantâneo ao vivo.
+// Aplica campos de sensores a liveState. 'live_record' (liveSnapshotChar): instantâneo mais recente, única fonte da UI ao vivo.
+// 'record' (dumpDataChar): histórico, pode chegar minutos atrasado — nunca atualiza a UI, para não competir com o live_record.
 function applySensorRecordFields(msg, {isLive}){
-  // spo2/hr vêm a 0 no wire format quando a amostra não trouxe leitura nova; o bridge já converte para null
-  // (decode_full_plain). toFiniteNumber preserva esse null (Number(null)===0 seria um bug). hasNewHr/hasNewSpo2
-  // exigem também >0 como rede de segurança extra — 0 nunca é uma leitura fisiológica real.
+  // spo2/hr vêm a 0 quando a amostra não trouxe leitura nova; bridge já converte para null (decode_full_plain).
+  // hasNewHr/hasNewSpo2 exigem também >0 como rede de segurança extra — 0 nunca é leitura fisiológica real.
   const hrNum = toFiniteNumber(msg.hr);
   const spo2Num = toFiniteNumber(msg.spo2);
   const stepsNum = toFiniteNumber(msg.steps);
@@ -670,9 +659,8 @@ function sendWsCommandWithArgs(cmd, extra){
   return true;
 }
 
-// Comandos ao vivo: "Medir agora" (FC+SpO2 forçados) e "Repor leituras" (destrutivo, com modal).
-// Countdown corre até FORCE_READING_SECONDS real, não até o command_result chegar — o bridge envia
-// esse ack logo a seguir à escrita GATT, muito antes da medição de 15s terminar no dispositivo.
+// "Medir agora" (FC+SpO2) e "Repor leituras" (destrutivo, com modal). Countdown corre por FORCE_READING_SECONDS
+// real, não pelo command_result (ack chega logo após a escrita GATT, bem antes da medição terminar).
 // Duração deve ficar em sincronia manual com DUMP_CTRL_FORCE_READING_SECONDS em bridge/ble_bridge.py.
 const FORCE_READING_SECONDS = 15;
 let forceReadingIntervalId = null;

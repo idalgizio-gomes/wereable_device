@@ -1,7 +1,5 @@
-// RF-13: timeline unificada — atividade, sinais vitais, alertas e medicação no mesmo eixo X, com zoom por janela.
-// Canvas 2D (padrão canvas-graficos.js), sem libs externas (CSP default-src 'none').
-// Quatro faixas empilhadas, não eixos y sobrepostos: bpm/passos/alertas/doses não partilham unidade.
-// Zoom = janela (início+largura) sobre o canvas, não ctx.scale(), para não distorcer linhas/texto.
+// RF-13: timeline unificada (atividade, vitais, alertas, medicação no mesmo eixo X). Canvas 2D, sem libs (CSP default-src 'none').
+// Quatro faixas empilhadas, não eixos sobrepostos (unidades diferentes); zoom = janela sobre o canvas, não ctx.scale() (evita distorcer texto).
 // Tabela por baixo replica tudo em texto (RNF-08/WCAG 1.1.1 — canvas não é lido por leitores de ecrã).
 
 // Nomes prefixados tl/TL_ (classic scripts, âmbito global partilhado).
@@ -412,9 +410,8 @@ function tlTooltipHtml(hit){
   `;
 }
 
-// RF-09 dentro da timeline: clicar num bloco abre o seletor de categoria; correção vai para a fila (bridge-exportacao.js).
-// Não envia "correct_activity" ao bridge — esse comando corrige a classificação do momento ATUAL, não um bloco passado
-// (corromperia os dados de retreino). Falta um comando com carimbo temporal explícito; ver relatório da tarefa.
+// RF-09: clicar num bloco abre o seletor de categoria; correção vai para a fila (bridge-exportacao.js).
+// Não envia "correct_activity" ao bridge — esse comando corrige o momento ATUAL, corromperia o retreino num bloco passado; falta comando com carimbo temporal (ver relatório).
 function tlRenderBlockCorrection(){
   const host = document.getElementById('tlBlockCorrection');
   if (!host) return;
@@ -528,8 +525,7 @@ function tlRenderEventsTable(){
   `;
 }
 
-// Atualiza só o que depende da janela (canvas, rótulo, botões, tabela). Não chama renderView() —
-// reconstruiria a vista, perderia o scroll e escreveria no histórico de navegação a cada zoom.
+// Atualiza só o que depende da janela; não chama renderView() (perderia o scroll e sujaria o histórico a cada zoom).
 function tlRefresh(){
   drawUnifiedTimeline();
   const lbl = document.getElementById('tlWindowLabel');
