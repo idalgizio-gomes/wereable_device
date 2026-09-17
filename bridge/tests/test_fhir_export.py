@@ -458,6 +458,29 @@ class TestEndpointFhir:
         }
         assert "8867-4" in codes
 
+    def test_sem_include_bundle_nao_tem_patient_nem_device(self, db, client, primary):
+        _, device = _make_patient_device(db, caregiver=primary.user)
+        _add_sensor_record(db, device)
+        bundle = client.get(
+            f"/api/devices/{device.id}/fhir/observations", headers=primary.headers
+        ).json()
+        resource_types = {e["resource"]["resourceType"] for e in bundle["entry"]}
+        assert resource_types == {"Observation"}
+
+    def test_include_subject_e_device_junta_patient_e_device_ao_bundle(self, db, client, primary):
+        _, device = _make_patient_device(db, caregiver=primary.user)
+        _add_sensor_record(db, device)
+        bundle = client.get(
+            f"/api/devices/{device.id}/fhir/observations"
+            "?_include=Observation:subject&_include=Observation:device",
+            headers=primary.headers,
+        ).json()
+        included = [e for e in bundle["entry"] if e.get("search", {}).get("mode") == "include"]
+        included_types = {e["resource"]["resourceType"] for e in included}
+        assert included_types == {"Patient", "Device"}
+        # included entries não contam para `total` (contrato de search.mode=include)
+        assert bundle["total"] == 4
+
     @pytest.mark.skipif(_jsonschema is None, reason="jsonschema não instalada (não é dependência do projeto)")
     def test_bundle_do_endpoint_valida_contra_json_schema_externo(self, db, client, primary):
         _, device = _make_patient_device(db, caregiver=primary.user)

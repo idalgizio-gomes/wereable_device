@@ -13,7 +13,7 @@ from __future__ import annotations
 import heapq
 from datetime import datetime, timedelta, timezone
 from itertools import islice
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
@@ -719,6 +719,12 @@ def fhir_observations(
         alias="_page",
         description="Página, começando em 1. Prefira seguir Bundle.link relation='next'.",
     ),
+    include: List[str] = Query(
+        default=[],
+        alias="_include",
+        description="FHIR _include padrão: 'Observation:subject' e/ou 'Observation:device' juntam"
+        " Patient/Device como entries search.mode=include, fora da contagem de 'total'.",
+    ),
     db: Session = Depends(_get_db),
     reason: Optional[str] = ACCESS_REASON_QUERY,
     user: sa.User = Depends(_require_user),
@@ -735,6 +741,12 @@ def fhir_observations(
         device.patient_id,
         pseudonym=getattr(patient, "pseudonym", None) if patient else None,
     )
+
+    included_resources = []
+    if "Observation:subject" in include and patient is not None:
+        included_resources.append(fhir_export.build_patient_resource(patient))
+    if "Observation:device" in include:
+        included_resources.append(fhir_export.build_device_resource(device))
 
     cutoff = datetime.utcnow() - timedelta(hours=hours)
 
@@ -759,6 +771,7 @@ def fhir_observations(
             if has_next
             else None
         ),
+        included=included_resources,
     )
     return bundle
 
