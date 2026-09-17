@@ -1422,7 +1422,14 @@ class BleBridge:
             return
 
         try:
-            await client.write_gatt_char(UUID_DUMP_CTRL, payload, response=False)
+            # response=True (não response=False, ao contrário do START automático acima): sem
+            # ACK GATT, um pacote perdido por uma quebra de ligação transitória (observado em
+            # hardware real, 2026-09-17 — Windows a cancelar a escrita a meio de uma reconexão)
+            # fazia este comando reportar "ok": true ao dashboard mesmo sem chegar à placa —
+            # a causa exata do "force_reading por vezes silenciosamente ignorado" documentado
+            # em PROJECT_STATUS.md. Com response=True, essa mesma falha levanta exceção aqui
+            # (ver o except abaixo) e o dashboard recebe "ok": false em vez de um falso positivo.
+            await client.write_gatt_char(UUID_DUMP_CTRL, payload, response=True)
             print(f"[BRIDGE] comando do dashboard enviado: {name}")
             await ws.send(json.dumps({"kind": "command_result", "cmd": name, "ok": True}))
             # GDPR-003 (Lote C): auditar SÓ reset_readings, e só quando
