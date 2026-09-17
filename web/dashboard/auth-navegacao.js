@@ -415,11 +415,9 @@ function renderView(view, registarNoHistorico = true){
   }
 }
 
-// Que perfis podem abrir cada vista. AVISO: isto não é controlo de acesso, é só robustez de UI —
-// renderView('admin') na consola continua a funcionar seja qual for o perfil (código corre no cliente).
-// Controlo de acesso real do servidor: REST (bridge/api.py) implementado via _authorize_patient();
-// WebSocket (bridge/ble_bridge.py) em falta — handle_dashboard_command() não valida identidade/perfil (RF-02).
-//admin_clinical tem a mesma superfície de vistas que clinico — a fronteira real (só leitura, motivo, expiração) é imposta pelo backend (_authorize_patient em api.py), não aqui
+// AVISO: isto não é controlo de acesso, só UI — renderView('admin') na consola ignora isto (código corre no cliente).
+// Acesso real: REST via _authorize_patient() em bridge/api.py; WebSocket (ble_bridge.py) ainda não valida perfil (RF-02).
+// admin_clinical partilha as vistas do clinico — a fronteira real (leitura/motivo/expiração) é imposta no backend.
 const VIEW_ROLES = {
   resumo:      ['utente'],
   rotina:      ['utente'],

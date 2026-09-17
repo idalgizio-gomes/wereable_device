@@ -294,20 +294,5 @@ function registeredMacFor(patientId, demoMac){
   const reg = loadDeviceRegistry();
   return reg[patientId] || demoMac;
 }
-/* ------------------------------------------------------------
-   HORÁRIOS RECORRENTES (2026-07-15, pedido do utilizador)
-   ------------------------------------------------------------
-   Antes, medicações de horário fixo (ex.: de 8 em 8h) obrigavam a
-   escrever à mão "08:00, 16:00, 00:00" no campo de texto livre —
-   trabalhoso e propenso a erro (esquecer uma dose, hora mal calculada).
-   Estes botões pré-calculam as horas a partir de uma hora de início e
-   de um intervalo em horas, e escrevem o resultado no mesmo campo
-   #newMedTimes — o utilizador pode sempre editar à mão antes de
-   "Adicionar", o campo de texto continua a ser a fonte de verdade.
------------------------------------------------------------- */
-// FEEDBACK VISUAL (2026-07-21, reportado pelo utilizador: "não percebi o
-// funcionamento/seleção" ao usar os botões de horário recorrente): antes,
-// clicar preenchia #newMedTimes silenciosamente — sem nada a confirmar que
-// resultou, era fácil não notar (o campo fica visualmente igual a um campo
-// só preenchido à mão). Agora realça brevemente o campo e mostra uma
-// confirmação textual junto do botão de intervalo personalizado.
+// horários recorrentes: pré-calcula as horas a partir de início+intervalo e escreve em #newMedTimes; o campo continua editável à mão, é a fonte de verdade
+// clique realça o campo e mostra confirmação textual — preenchimento silencioso passava despercebido ao utilizador

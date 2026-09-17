@@ -169,8 +169,7 @@ function roundRect(ctx,x,y,w,h,r){
   ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
 }
 
-//HEATMAP semanal
-//Conversão sRGB <-> OKLab (Björn Ottosson) para rampa sequencial percetualmente uniforme, ancorada na cor de fundo do tema
+//HEATMAP semanal — rampa sequencial em OKLab, ancorada na cor de fundo do tema
 function srgbToLinear(c){ return c <= 0.04045 ? c/12.92 : Math.pow((c+0.055)/1.055, 2.4); }
 function linearToSrgb(c){ return c <= 0.0031308 ? c*12.92 : 1.055*Math.pow(c, 1/2.4) - 0.055; }
 function hexToRgb01(hex){

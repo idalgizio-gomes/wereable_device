@@ -177,8 +177,7 @@ function unmuteAlert(fullKey){
   if (currentView) renderView(currentView);
 }
 
-// RF-07: 4 níveis (traduzindo 'info'<->'good' da paleta), motivo real (campo `reason` do bridge, distinto de "plain"),
-// confirmação (trava escalonamento, diferente de "marcar como lida"), e escalonamento por tempo (sobe até 'critical', ao contrário do por repetição)
+// RF-07: 4 níveis de severidade, motivo real vindo do bridge, confirmação trava escalonamento, escalonamento por tempo sobe até 'critical'
 const ALERT_SEVERITY_LADDER = ['info', 'warning', 'serious', 'critical'];
 
 const ALERT_SEV_PALETTE = {info:'good', warning:'warning', serious:'serious', critical:'critical'};

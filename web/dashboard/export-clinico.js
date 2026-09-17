@@ -104,12 +104,7 @@ function exportClinicalPdf(){
   const consentNote = consented ? '' : '<p class="print-meta"><b>Nota:</b> o utente/família não autorizou a partilha de alertas e anomalias com a equipa clínica (ver Definições → Consentimento) — omitidos deste resumo.</p>';
   const generatedAt = new Date().toLocaleString('pt-PT');
 
-  // 2026-09-07: esta tabela era uma arrow function local idêntica a
-  // printTableHtml() (definida mais abaixo), mas SEM escaping das células.
-  // Passou a usar a partilhada — uma só tabela de impressão no ficheiro, e
-  // as células passam a ser escapadas. Os textos que entram aqui vêm de
-  // alertField()/anomalyDetailText(), que já incluem conteúdo escrito por
-  // utilizadores noutras vistas.
+  // printTableHtml() partilhada (versão local anterior não escapava as células, e este texto pode vir de utilizadores)
   const tableHtml = printTableHtml;
 
   sheet.innerHTML = `
@@ -140,22 +135,9 @@ function exportClinicalPdf(){
   printClinicalSheet(sheet);
 }
 
-// Espera pelo logótipo e só depois imprime.
-//
-// BUG CORRIGIDO (2026-07-16, reportado pelo utilizador): window.print()
-// era chamado logo a seguir a sheet.innerHTML=..., que acabou de criar
-// um <img> novo — inserir HTML não garante que a imagem já está
-// decodificada/pintada nesse instante, mesmo vindo de cache. Nalguns
-// casos o PDF/impressão saía com a caixa do logótipo em branco. Agora
-// espera-se por img.decode() (ou o evento load, se decode() falhar/não
-// existir) antes de imprimir; timeout de segurança de 800ms garante que
-// a impressão nunca fica bloqueada para sempre se a imagem não carregar.
-//
-// EXTRAÍDO PARA FUNÇÃO PRÓPRIA (2026-09-07, RF-12): o relatório semanal
-// automático precisa exatamente do mesmo comportamento. Duplicar este
-// bloco era garantir que a correção acima só seria aplicada a metade das
-// exportações da próxima vez que alguém lhe mexesse — há UM mecanismo de
-// impressão neste ficheiro, e é este.
+// Espera por img.decode() (ou load) antes de imprimir — window.print() logo após innerHTML
+// podia sair com o logótipo em branco (imagem ainda não decodificada). Timeout de 800ms evita
+// bloqueio se a imagem falhar. Função própria porque o relatório semanal usa o mesmo mecanismo.
 function printClinicalSheet(sheet){
   const logoImg = sheet.querySelector('.print-logo img');
   const printNow = () => window.print();
@@ -169,12 +151,8 @@ function printClinicalSheet(sheet){
   }
 }
 
-// Tabela de impressão — a mesma que exportClinicalPdf() já construía
-// inline. Extraída (2026-09-07) para o relatório semanal poder reutilizá-la
-// em vez de trazer um segundo estilo de tabela para o mesmo PDF.
-// Escapa sempre as células: o relatório semanal inclui texto vindo da API
-// (títulos/descrições de alertas gravados por outros componentes), que não
-// é de confiança para injeção direta em innerHTML.
+// Escapa sempre as células — inclui texto vindo da API (alertas gravados por outros componentes),
+// que não é de confiança para innerHTML direto.
 function printTableHtml(headers, rows){
   return `
     <table class="print-table">
@@ -187,38 +165,12 @@ function printTableHtml(headers, rows){
     </table>`;
 }
 
-/* ============================================================
-   RF-12 — RELATÓRIO SEMANAL AUTOMÁTICO POR PACIENTE (2026-09-07)
-   ------------------------------------------------------------
-   Critério de aceitação: relatório semanal por paciente com rotina,
-   sinais vitais, alertas e adesão à medicação.
-
-   DECISÃO — REUTILIZAR, NÃO DUPLICAR: o relatório sai pela MESMA folha
-   de impressão (`#clinicalPrintSheet`) e pelo MESMO mecanismo de
-   impressão (`printClinicalSheet`) que o "Resumo clínico" já usava. Não
-   se criou um segundo exportador em paralelo; a única diferença é o
-   conteúdo da folha e a janela temporal (7 dias em vez de "agora").
-
-   FONTE DOS DADOS — dois níveis, por esta ordem:
-     1. API (`GET /api/patients/{id}/weekly-report`, bridge/api.py) —
-        agrega os 7 dias a partir do que está REALMENTE persistido em
-        SQLite (ActivityWindow, SensorRecord, Alert, MedicationAdherence).
-        É esta a fonte boa, e é a mesma que o Cron usa.
-     2. Dados desta sessão do dashboard (tendência semanal, alertas,
-        registo de medicação em localStorage) — usados quando a API não
-        responde ou quando o paciente selecionado não tem correspondência
-        numérica na base de dados (ver `weeklyReportApiPatientId`).
-   O PDF diz SEMPRE de qual das duas veio, secção a secção. Um relatório
-   clínico que não distingue dados reais de dados de demonstração é pior
-   do que não haver relatório nenhum.
-
-   AGENDAMENTO PERIÓDICO: fica do lado do Cron que o projeto já tem
-   (relatório do projeto, cap. 6 — hoje usado para limpeza de registos
-   antigos). A tarefa semanal chama o endpoint por paciente e arquiva o
-   JSON; este botão é a geração a pedido, do mesmo relatório. Não se
-   introduziu nenhum agendador novo — nem no browser (um setInterval só
-   corre com o separador aberto, o que não é agendamento) nem no bridge.
-============================================================ */
+// RF-12 — relatório semanal por paciente: reutiliza a mesma folha/mecanismo de impressão do
+// "Resumo clínico" (não um segundo exportador). Fonte de dados em dois níveis: API
+// (GET /api/patients/{id}/weekly-report, agrega o realmente persistido em SQLite — mesma fonte
+// que o Cron usa) ou, se indisponível/paciente sem correspondência numérica, os dados desta
+// sessão do dashboard — o PDF diz sempre qual das duas usou, secção a secção. Agendamento
+// periódico fica do lado do Cron já existente; este botão é só a geração a pedido.
 const WEEKLY_REPORT_DAYS = 7;
 
 // Categorias de rotina: chave da API (inglês, ver o CheckConstraint de
@@ -233,25 +185,18 @@ const WEEKLY_LOCAL_ROUTINE_LABELS = {
   alimentacao: 'Alimentação', higiene: 'Higiene',
 };
 
-// LIMITAÇÃO CONHECIDA E DELIBERADA (2026-09-07): os pacientes do
-// dashboard têm ids de demonstração ('p1'/'p2'/'p3'), enquanto a API usa
-// a chave primária inteira de `patients`. Não existe hoje nenhuma tabela
-// de correspondência entre os dois — o dashboard nunca precisou dela
-// porque fala com o bridge por WebSocket, não por esta API. Em vez de
-// inventar um mapeamento (ex.: 'p1' -> 1), que daria relatórios do
-// PACIENTE ERRADO na primeira base de dados real em que os ids não
-// coincidissem, devolve-se null e cai-se nos dados locais, dizendo-o no
-// PDF. `p.dbId` já é lido aqui para que ligar isto seja só passar a
-// preencher esse campo quando a correspondência existir.
+// Pacientes do dashboard têm ids de demonstração ('p1'/'p2'/'p3'); a API usa a PK inteira de
+// `patients`, sem tabela de correspondência entre os dois. Em vez de inventar um mapeamento
+// (ex.: 'p1' -> 1), que arriscaria dar o relatório do paciente errado, devolve-se null e cai-se
+// nos dados locais (dito no PDF). `p.dbId` já é lido para quando a correspondência existir.
 function weeklyReportApiPatientId(p){
   if (p && p.dbId != null && /^\d+$/.test(String(p.dbId))) return Number(p.dbId);
   if (p && /^\d+$/.test(String(p.id))) return Number(p.id);
   return null;
 }
 
-// Vai buscar o relatório à API. Devolve null (nunca lança) quando não há
-// id numérico, quando não há sessão iniciada, ou quando a API responde
-// erro/não responde — o relatório sai à mesma, só que com dados locais.
+// Devolve null (nunca lança) sem id numérico, sem sessão, ou se a API falhar — o relatório
+// sai à mesma, com dados locais.
 async function fetchWeeklyReportFromApi(p, endDate){
   const apiId = weeklyReportApiPatientId(p);
   if (apiId === null || typeof apiFetch !== 'function') return null;
@@ -265,10 +210,10 @@ async function fetchWeeklyReportFromApi(p, endDate){
   }
 }
 
-// Agrega os dados que o dashboard já tem nesta sessão, na mesma forma que
-// a API devolve — para o resto do código só ter de lidar com um formato.
+// Agrega os dados desta sessão na mesma forma que a API devolve, para o resto do código só
+// lidar com um formato.
 function buildLocalWeeklyReport(p){
-  // --- Rotina: minutos por categoria do último dia disponível ---
+  // Rotina: minutos por categoria do último dia disponível
   const rotina = {};
   Object.keys(WEEKLY_LOCAL_ROUTINE_LABELS).forEach(k => { rotina[k] = 0; });
   (typeof currentRoutineToday === 'function' ? currentRoutineToday() : []).forEach(b => {
@@ -276,7 +221,7 @@ function buildLocalWeeklyReport(p){
     rotina[b.cat] += Math.max(0, (b.end || 0) - (b.start || 0));
   });
 
-  // --- Sinais vitais: a série de tendência dos últimos 7 dias ---
+  // Sinais vitais: série de tendência dos últimos 7 dias
   const trend = (typeof currentTrendData === 'function' ? currentTrendData() : []).slice(-WEEKLY_REPORT_DAYS);
   const media = (arr) => arr.length ? Math.round((arr.reduce((a, b) => a + b, 0) / arr.length) * 10) / 10 : null;
   const vitais = {
@@ -286,15 +231,11 @@ function buildLocalWeeklyReport(p){
     sonoMedio: media(trend.map(d => d.sono).filter(v => v != null)),
   };
 
-  // --- Alertas: respeitam o consentimento, tal como o resumo clínico ---
-  // Mesmo lapso que já tinha sido corrigido em buildFhirBundle() e em
-  // exportClinicalPdf(): se o utente/família não autorizou a partilha de
-  // alertas, este relatório não os pode incluir só por ser "automático".
+  // Alertas respeitam o consentimento, como em buildFhirBundle()/exportClinicalPdf()
   const consented = loadConsent(p.id).shareAlerts;
   const alertas = consented ? (typeof currentAlerts === 'function' ? currentAlerts() : []) : [];
   const anomalias = consented ? (typeof currentAnomalyLog === 'function' ? currentAnomalyLog() : []) : [];
 
-  // --- Adesão à medicação ---
   const historico = (p.adherenceHistory || []).slice(-WEEKLY_REPORT_DAYS);
   const hoje = (typeof todayAdherencePct === 'function') ? todayAdherencePct(p) : null;
   const meds = (typeof patientMedications === 'function') ? patientMedications(p) : (p.medications || []);
@@ -302,7 +243,6 @@ function buildLocalWeeklyReport(p){
   return { rotina, vitais, alertas, anomalias, consented, historico, hoje, meds };
 }
 
-// Monta o HTML da folha de impressão do relatório semanal.
 function weeklyReportSheetHtml(p, local, remote){
   const geradoEm = new Date().toLocaleString('pt-PT');
   const fonte = remote
@@ -312,7 +252,6 @@ function weeklyReportSheetHtml(p, local, remote){
     ? `${new Date(remote.period.start).toLocaleDateString('pt-PT')} a ${new Date(remote.period.end).toLocaleDateString('pt-PT')}`
     : `últimos ${WEEKLY_REPORT_DAYS} dias`;
 
-  // --- Rotina ---
   const rotinaRows = remote
     ? Object.keys(WEEKLY_ROUTINE_LABELS).map(k => {
         const r = (remote.rotina || {})[k] || {};
@@ -325,7 +264,6 @@ function weeklyReportSheetHtml(p, local, remote){
   const rotinaNota = remote ? '' :
     '<p class="print-meta">Distribuição do último dia disponível no dashboard (os blocos de rotina simulados cobrem um dia, não a semana).</p>';
 
-  // --- Sinais vitais ---
   const vitaisRows = remote
     ? [
         ['Frequência cardíaca (bpm)', remote.sinais_vitais.heart_rate],
@@ -340,7 +278,6 @@ function weeklyReportSheetHtml(p, local, remote){
         ['Sono por noite (h)', local.vitais.sonoMedio ?? 'não medido', '—', '—', local.vitais.dias],
       ];
 
-  // --- Alertas ---
   let alertasHtml;
   if (remote) {
     const sev = remote.alertas.por_severidade || {};
@@ -364,7 +301,6 @@ function weeklyReportSheetHtml(p, local, remote){
   const consentNote = local.consented ? '' :
     '<p class="print-meta"><b>Nota:</b> o utente/família não autorizou a partilha de alertas e anomalias com a equipa clínica (ver Definições → Consentimento) — omitidos deste relatório.</p>';
 
-  // --- Adesão ---
   const adesaoHtml = remote
     ? `<p class="print-meta">Adesão global na semana: <b>${Math.round(remote.adesao_medicacao.overall_percent)}%</b></p>
        ${printTableHtml(['Medicamento', 'Doses tomadas', 'Doses agendadas', 'Adesão'],
@@ -411,11 +347,8 @@ function weeklyReportSheetHtml(p, local, remote){
   `;
 }
 
-// Ponto de entrada do botão "Relatório semanal (PDF)".
-//
-// É `async` porque tenta primeiro a API; a folha só é escrita depois de se
-// saber qual das duas fontes se vai usar, para nunca haver um instante em
-// que o PDF mostra dados locais rotulados como reais.
+// async: tenta a API primeiro; a folha só é escrita depois de saber qual fonte usar, para
+// nunca haver um instante em que o PDF mostra dados locais rotulados como reais.
 async function exportWeeklyReportPdf(endDate){
   const p = selectedPatient();
   const sheet = document.getElementById('clinicalPrintSheet');
@@ -436,17 +369,12 @@ async function exportWeeklyReportPdf(endDate){
   printClinicalSheet(sheet);
 }
 
-// Tenta ligar assim que a página carrega (mesmo antes do login, para o
-// estado do dispositivo já estar correto quando o utilizador entrar).
+// Liga já ao carregar a página (antes do login), para o estado do dispositivo estar correto
+// quando o utilizador entrar.
 connectBridge();
 
-// Idioma: preenche o seletor e aplica as traduções guardadas (ou
-// Português por omissão) assim que a página carrega.
 populateLangSelect();
 applyI18n();
 
-// Só volta a desenhar os canvases (via AFTER_RENDER), sem recriar o HTML da
-// vista inteira com renderView() — recriar o HTML apagava silenciosamente
-// texto ainda não submetido (ex: "Notas do cuidador") e edições em curso
-// (ex: limites de duração na área Médico/Técnico) sempre que a janela era
-// redimensionada.
+// Só redesenha os canvases (AFTER_RENDER), sem recriar o HTML via renderView() — isso apagava
+// silenciosamente texto ainda não submetido (ex: notas do cuidador) ao redimensionar a janela.
