@@ -18,7 +18,7 @@ from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -73,9 +73,13 @@ def _require_user(
     authorization: Optional[str] = Header(default=None),
     db: Session = Depends(_get_db),
 ) -> sa.User:
-    """Autentica por chave de API (por-utilizador, revogável) ou sessão bearer; 401 caso contrário."""
+    """Autentica por chave de API (por-utilizador, revogável) ou sessão bearer; 401 caso contrário.
+
+    Conta desativada (`User.deleted_at`, ver admin_revoke_user) tem de perder acesso de imediato,
+    mesmo com uma chave de API própria ainda não revogada individualmente — sem isto, revogar a
+    conta pelo admin não bastava para uma chave de API sobrevivente continuar a autenticar."""
     row = api_auth._resolve_api_key_row(db, x_api_key)
-    if row is not None:
+    if row is not None and row.user is not None and row.user.deleted_at is None:
         row.last_used_at = datetime.utcnow()  # persiste no commit do próprio endpoint
         return row.user
 
@@ -83,7 +87,7 @@ def _require_user(
     if authorization and authorization.lower().startswith("bearer "):
         token = authorization[7:]
     user = auth_sessions.resolve_session(db, token)
-    if user is not None:
+    if user is not None and user.deleted_at is None:
         return user
 
     raise HTTPException(status_code=401, detail="Não autenticado")
@@ -238,6 +242,169 @@ def me(user: sa.User = Depends(_require_user)):
             if getattr(user, "privileged_access_expires_at", None) is not None else None
         ),
     }
+
+
+# CRUD de utilizadores/perfis (RF: "o sistema deve permitir a administração de utilizadores
+# e respetivos perfis") — reservado ao Admin de Sistema. admin_clinical NUNCA gere contas
+# (seria a mesma conta a escrever nas suas próprias permissões); ver ROLE_ADMIN_CLINICAL acima.
+def _require_admin(user: sa.User = Depends(_require_user)) -> sa.User:
+    if user.role != ROLE_ADMIN_SYSTEM:
+        raise HTTPException(status_code=403, detail="Reservado ao Admin de Sistema")
+    return user
+
+
+def _user_to_dict(u: sa.User) -> dict:
+    return {
+        "id": u.id,
+        "uuid": u.uuid,
+        "email": u.email,
+        "role": u.role,
+        "name": u.name,
+        "phone": u.phone,
+        "institution": u.institution,
+        "professional_id": u.professional_id,
+        "active": u.deleted_at is None,
+        "privileged_access_expires_at": (
+            u.privileged_access_expires_at.isoformat() if u.privileged_access_expires_at else None
+        ),
+        "created_at": u.created_at.isoformat() if u.created_at else None,
+    }
+
+
+@app.get("/api/admin/users")
+def admin_list_users(
+    request: Request,
+    db: Session = Depends(_get_db),
+    admin: sa.User = Depends(_require_admin),
+):
+    users = db.query(sa.User).order_by(sa.User.id).all()
+    db.add(sa.AuditLog(
+        user_id=admin.id, action="admin.users.list", resource_type="user", resource_id=0,
+        ip_address=request.client.host if request.client else None,
+    ))
+    db.commit()
+    return {"users": [_user_to_dict(u) for u in users]}
+
+
+class AdminUserCreate(BaseModel):
+    email: str
+    password: str
+    role: Literal["family", "clinician", "admin", "admin_clinical"]
+    name: str
+    phone: Optional[str] = None
+    institution: Optional[str] = None
+    professional_id: Optional[str] = None
+
+    @field_validator("password")
+    @classmethod
+    def _password_min_length(cls, v):
+        if len(v) < 8:
+            raise ValueError("password deve ter pelo menos 8 caracteres")
+        return v
+
+
+@app.post("/api/admin/users", status_code=201)
+def admin_create_user(
+    body: AdminUserCreate,
+    request: Request,
+    db: Session = Depends(_get_db),
+    admin: sa.User = Depends(_require_admin),
+):
+    existing = db.query(sa.User).filter(sa.User.email == body.email).first()
+    if existing is not None:
+        raise HTTPException(status_code=409, detail="Já existe um utilizador com este email")
+    user = sa.User(
+        uuid=str(uuid4()),
+        email=body.email,
+        password_hash=auth_sessions.hash_password(body.password),
+        role=body.role,
+        name=body.name,
+        phone=body.phone,
+        institution=body.institution,
+        professional_id=body.professional_id,
+    )
+    db.add(user)
+    db.flush()
+    db.add(sa.AuditLog(
+        user_id=admin.id, action="admin.users.create", resource_type="user", resource_id=user.id,
+        details={"role": body.role, "email": body.email},
+        ip_address=request.client.host if request.client else None,
+    ))
+    db.commit()
+    db.refresh(user)
+    return _user_to_dict(user)
+
+
+class AdminUserUpdate(BaseModel):
+    role: Optional[Literal["family", "clinician", "admin", "admin_clinical"]] = None
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    institution: Optional[str] = None
+    professional_id: Optional[str] = None
+    # concessão temporal de acesso clínico privilegiado (só relevante para role=admin_clinical,
+    # ver _privileged_grant_is_active acima); horas a somar a partir de agora.
+    privileged_access_hours: Optional[float] = Field(default=None, ge=0, le=24 * 30)
+
+
+@app.patch("/api/admin/users/{user_id}")
+def admin_update_user(
+    user_id: int,
+    body: AdminUserUpdate,
+    request: Request,
+    db: Session = Depends(_get_db),
+    admin: sa.User = Depends(_require_admin),
+):
+    user = db.get(sa.User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="Utilizador não encontrado")
+    if user.id == admin.id and body.role is not None and body.role != admin.role:
+        raise HTTPException(status_code=400, detail="Não podes alterar o teu próprio perfil")
+
+    changes = {}
+    for field in ("role", "name", "phone", "institution", "professional_id"):
+        value = getattr(body, field)
+        if value is not None:
+            setattr(user, field, value)
+            changes[field] = value
+    if body.privileged_access_hours is not None:
+        user.privileged_access_expires_at = datetime.utcnow() + timedelta(hours=body.privileged_access_hours)
+        changes["privileged_access_expires_at"] = user.privileged_access_expires_at.isoformat()
+
+    db.add(sa.AuditLog(
+        user_id=admin.id, action="admin.users.update", resource_type="user", resource_id=user.id,
+        details=changes, ip_address=request.client.host if request.client else None,
+    ))
+    db.commit()
+    db.refresh(user)
+    return _user_to_dict(user)
+
+
+@app.post("/api/admin/users/{user_id}/revoke")
+def admin_revoke_user(
+    user_id: int,
+    request: Request,
+    db: Session = Depends(_get_db),
+    admin: sa.User = Depends(_require_admin),
+):
+    """Desativa a conta (soft delete — nunca apaga o histórico de auditoria associado) e revoga
+    toda a sessão ativa, para o efeito ser imediato mesmo com um token de sessão já emitido."""
+    user = db.get(sa.User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="Utilizador não encontrado")
+    if user.id == admin.id:
+        raise HTTPException(status_code=400, detail="Não podes revogar a tua própria conta")
+
+    user.deleted_at = datetime.utcnow()
+    db.query(auth_sessions.UserSession).filter(
+        auth_sessions.UserSession.user_id == user.id,
+        auth_sessions.UserSession.revoked_at.is_(None),
+    ).update({"revoked_at": datetime.utcnow()})
+    db.add(sa.AuditLog(
+        user_id=admin.id, action="admin.users.revoke", resource_type="user", resource_id=user.id,
+        ip_address=request.client.host if request.client else None,
+    ))
+    db.commit()
+    return {"ok": True}
 
 
 @app.get("/api/patients/directory")

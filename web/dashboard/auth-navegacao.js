@@ -416,7 +416,8 @@ function renderView(view, registarNoHistorico = true){
 }
 
 // AVISO: isto não é controlo de acesso, só UI — renderView('admin') na consola ignora isto (código corre no cliente).
-// Acesso real: REST via _authorize_patient() em bridge/api.py; WebSocket (ble_bridge.py) ainda não valida perfil (RF-02).
+// Acesso real: REST via _authorize_patient() em bridge/api.py; WebSocket via WS_COMMAND_ROLES + sessão
+// resolvida no handshake (ws_transport.py::process_request — sessão válida obrigatória por omissão).
 // admin_clinical partilha as vistas do clinico — a fronteira real (leitura/motivo/expiração) é imposta no backend.
 const VIEW_ROLES = {
   resumo:      ['utente'],

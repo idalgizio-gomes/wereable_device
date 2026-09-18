@@ -131,7 +131,7 @@ const I18N = {
     'dispositivo.thStatus': 'Estado', 'dispositivo.statusPendingConfirmation': 'por confirmar',
     'dispositivo.optimizationNoteEmpty': 'Valores da 2ª ronda de otimização; ainda por confirmar em hardware real com DEBUG_STACK_WATERMARKS.',
     // rotina
-    'rotina.simFlag': 'dados simulados', 'rotina.timelineSubtitle': 'Blocos de atividade ao longo de 24h, alinhados ao template clínico', 'rotina.pacingTitle': 'Padrão de deambulação (pacing)',
+    'rotina.simFlag': 'dados simulados', 'rotina.realFlag': 'dados reais', 'rotina.timelineSubtitle': 'Blocos de atividade ao longo de 24h, alinhados ao template clínico', 'rotina.pacingTitle': 'Padrão de deambulação (pacing)',
     'rotina.simTrend': 'tendência simulada', 'rotina.pacingSubtitle': 'Curvas apertadas/mudanças de direção via giroscópio — sinal precoce de wandering, complementar ao GPS',
     'rotina.pacingTrendAria': 'Tendência do índice de pacing nos últimos 7 dias', 'rotina.notesTitle': 'Notas do cuidador',
     'rotina.notesSubtitle': 'Contexto que os sensores não captam — liga observações a momentos do dia', 'rotina.notePlaceholder': 'Ex: Recusou o almoço, parecia agitada antes do jantar…',
@@ -503,7 +503,7 @@ const I18N = {
     'dispositivo.thTask': 'Task', 'dispositivo.thReserved': 'Reserved', 'dispositivo.thStatus': 'Status', 'dispositivo.statusPendingConfirmation': 'to confirm',
     'dispositivo.optimizationNoteEmpty': 'Values from the 2nd optimization round; still to be confirmed on real hardware with DEBUG_STACK_WATERMARKS.',
     // rotina
-    'rotina.simFlag': 'simulated data', 'rotina.timelineSubtitle': 'Activity blocks over 24h, aligned to the clinical template', 'rotina.pacingTitle': 'Wandering pattern (pacing)',
+    'rotina.simFlag': 'simulated data', 'rotina.realFlag': 'real data', 'rotina.timelineSubtitle': 'Activity blocks over 24h, aligned to the clinical template', 'rotina.pacingTitle': 'Wandering pattern (pacing)',
     'rotina.simTrend': 'simulated trend', 'rotina.pacingSubtitle': 'Tight turns/direction changes via gyroscope — an early sign of wandering, complementary to GPS',
     'rotina.pacingTrendAria': 'Pacing index trend over the last 7 days', 'rotina.notesTitle': 'Caregiver notes',
     'rotina.notesSubtitle': 'Context the sensors can\'t capture — link observations to moments of the day', 'rotina.notePlaceholder': 'e.g. Refused lunch, seemed agitated before dinner…',
@@ -798,7 +798,7 @@ const I18N = {
     'dispositivo.stackSlackCardTitle': '每个任务的堆栈余量（FreeRTOS）', 'dispositivo.stackSlackCardSubtitle': '所有设备相同（相同固件）；待硬件确认', 'dispositivo.thTask': '任务', 'dispositivo.thReserved': '已保留',
     'dispositivo.thStatus': '状态', 'dispositivo.statusPendingConfirmation': '待确认', 'dispositivo.optimizationNoteEmpty': '第二轮优化的数值；仍需在真实硬件上使用 DEBUG_STACK_WATERMARKS 确认。',
     // rotina
-    'rotina.simFlag': '模拟数据', 'rotina.timelineSubtitle': '24 小时活动区块，与临床模板对齐', 'rotina.pacingTitle': '徘徊模式（pacing）', 'rotina.simTrend': '模拟趋势',
+    'rotina.simFlag': '模拟数据', 'rotina.realFlag': '真实数据', 'rotina.timelineSubtitle': '24 小时活动区块，与临床模板对齐', 'rotina.pacingTitle': '徘徊模式（pacing）', 'rotina.simTrend': '模拟趋势',
     'rotina.pacingSubtitle': '通过陀螺仪检测的急转弯/方向变化——徘徊的早期信号，是 GPS 的补充', 'rotina.pacingTrendAria': '过去 7 天的 pacing 指数趋势', 'rotina.notesTitle': '照护者备注', 'rotina.notesSubtitle': '传感器无法捕捉的情境——将观察与一天中的时刻关联',
     'rotina.notePlaceholder': '例如：拒绝午餐，晚餐前显得烦躁…', 'rotina.addNoteBtn': '添加备注', 'rotina.activityAnalysisTitle': '按活动分析', 'rotina.activityAnalysisSubtitle': '选择一个类别以查看今天的详情和每周趋势',
     'rotina.anomSimTitle': '注入异常的模拟', 'rotina.anomTimelineAria': '标记了注入异常的 24 小时日常', 'rotina.anomHint': '以虚线标记的异常：情境化活动替换以及超出限值 [d_min × 0.30, d_max × 3.00] 的时长区块。', 'rotina.notesEmpty': '尚未记录任何备注。',
@@ -1048,7 +1048,7 @@ const I18N = {
     'dispositivo.thReserved': 'Reservado', 'dispositivo.thStatus': 'Estado', 'dispositivo.statusPendingConfirmation': 'por confirmar',
     'dispositivo.optimizationNoteEmpty': 'Valores de la 2ª ronda de optimización; aún por confirmar en hardware real con DEBUG_STACK_WATERMARKS.',
     // rotina
-    'rotina.simFlag': 'datos simulados', 'rotina.timelineSubtitle': 'Bloques de actividad a lo largo de 24h, alineados con la plantilla clínica',
+    'rotina.simFlag': 'datos simulados', 'rotina.realFlag': 'datos reales', 'rotina.timelineSubtitle': 'Bloques de actividad a lo largo de 24h, alineados con la plantilla clínica',
     'rotina.pacingTitle': 'Patrón de deambulación (pacing)', 'rotina.simTrend': 'tendencia simulada',
     'rotina.pacingSubtitle': 'Giros cerrados/cambios de dirección mediante giroscopio — señal temprana de deambulación, complementaria al GPS',
     'rotina.pacingTrendAria': 'Tendencia del índice de pacing en los últimos 7 días', 'rotina.notesTitle': 'Notas del cuidador',
@@ -1356,7 +1356,7 @@ const I18N = {
     'dispositivo.thReserved': 'Réservé', 'dispositivo.thStatus': 'État', 'dispositivo.statusPendingConfirmation': 'à confirmer',
     'dispositivo.optimizationNoteEmpty': 'Valeurs du 2e tour d\'optimisation ; encore à confirmer sur du matériel réel avec DEBUG_STACK_WATERMARKS.',
     // rotina
-    'rotina.simFlag': 'données simulées', 'rotina.timelineSubtitle': 'Blocs d\'activité sur 24h, alignés sur le modèle clinique', 'rotina.pacingTitle': 'Schéma de déambulation (pacing)',
+    'rotina.simFlag': 'données simulées', 'rotina.realFlag': 'données réelles', 'rotina.timelineSubtitle': 'Blocs d\'activité sur 24h, alignés sur le modèle clinique', 'rotina.pacingTitle': 'Schéma de déambulation (pacing)',
     'rotina.simTrend': 'tendance simulée', 'rotina.pacingSubtitle': 'Virages serrés/changements de direction via gyroscope — signe précoce de déambulation, complémentaire au GPS',
     'rotina.pacingTrendAria': 'Tendance de l\'indice de pacing sur les 7 derniers jours', 'rotina.notesTitle': 'Notes du soignant',
     'rotina.notesSubtitle': 'Contexte que les capteurs ne captent pas — reliez des observations à des moments de la journée',
@@ -1667,7 +1667,7 @@ const I18N = {
     'dispositivo.thTask': 'Task', 'dispositivo.thReserved': 'Reserviert', 'dispositivo.thStatus': 'Status', 'dispositivo.statusPendingConfirmation': 'zu bestätigen',
     'dispositivo.optimizationNoteEmpty': 'Werte aus der 2. Optimierungsrunde; noch auf echter Hardware mit DEBUG_STACK_WATERMARKS zu bestätigen.',
     // rotina
-    'rotina.simFlag': 'simulierte Daten', 'rotina.timelineSubtitle': 'Aktivitätsblöcke über 24 Std., am klinischen Template ausgerichtet', 'rotina.pacingTitle': 'Umherwandern-Muster (Pacing)',
+    'rotina.simFlag': 'simulierte Daten', 'rotina.realFlag': 'echte Daten', 'rotina.timelineSubtitle': 'Aktivitätsblöcke über 24 Std., am klinischen Template ausgerichtet', 'rotina.pacingTitle': 'Umherwandern-Muster (Pacing)',
     'rotina.simTrend': 'simulierter Trend', 'rotina.pacingSubtitle': 'Enge Kurven/Richtungswechsel per Gyroskop — Frühzeichen für Umherwandern, ergänzend zum GPS',
     'rotina.pacingTrendAria': 'Trend des Pacing-Index über die letzten 7 Tage', 'rotina.notesTitle': 'Notizen der Pflegeperson',
     'rotina.notesSubtitle': 'Kontext, den die Sensoren nicht erfassen — verknüpft Beobachtungen mit Momenten des Tages',
@@ -1975,7 +1975,7 @@ const I18N = {
     'dispositivo.thStatus': 'Stato', 'dispositivo.statusPendingConfirmation': 'da confermare',
     'dispositivo.optimizationNoteEmpty': 'Valori del 2° round di ottimizzazione; ancora da confermare su hardware reale con DEBUG_STACK_WATERMARKS.',
     // rotina
-    'rotina.simFlag': 'dati simulati', 'rotina.timelineSubtitle': 'Blocchi di attività nell\'arco di 24h, allineati al template clinico', 'rotina.pacingTitle': 'Schema di deambulazione (pacing)',
+    'rotina.simFlag': 'dati simulati', 'rotina.realFlag': 'dati reali', 'rotina.timelineSubtitle': 'Blocchi di attività nell\'arco di 24h, allineati al template clinico', 'rotina.pacingTitle': 'Schema di deambulazione (pacing)',
     'rotina.simTrend': 'tendenza simulata', 'rotina.pacingSubtitle': 'Curve strette/cambi di direzione tramite giroscopio — segnale precoce di deambulazione, complementare al GPS',
     'rotina.pacingTrendAria': 'Tendenza dell\'indice di pacing negli ultimi 7 giorni', 'rotina.notesTitle': 'Note del caregiver',
     'rotina.notesSubtitle': 'Contesto che i sensori non colgono — collega osservazioni ai momenti della giornata',
