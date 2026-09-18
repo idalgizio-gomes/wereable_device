@@ -75,6 +75,11 @@ def resolve_session(db: Session, presented: Optional[str]) -> Optional[User]:
         return None
     if row.expires_at < datetime.utcnow():
         return None
+    # conta desativada pelo admin (User.deleted_at, ver api.py::admin_revoke_user) tem de perder
+    # acesso de imediato — sem isto, uma sessão ainda dentro do TTL sobrevivia à revogação da
+    # conta tanto na API REST como no handshake do WebSocket (ambos chamam esta função).
+    if row.user is None or row.user.deleted_at is not None:
+        return None
     row.last_used_at = datetime.utcnow()
     return row.user
 

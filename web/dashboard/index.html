@@ -611,6 +611,9 @@
 
   .empty-hint{ font-size:calc(12px * var(--font-scale)); color:var(--text-muted); padding:8px 0; }
   .sim-flag{ font-size:calc(10.5px * var(--font-scale)); color:var(--text-muted); background:var(--bg-surface-2); border:1px solid var(--border); padding:1px 7px; border-radius:20px; font-weight:600; }
+  /* Contrapartida positiva de .sim-flag — tendência semanal veio mesmo de activity_windows
+     (BD), não de buildCategoryWeekly() sintético. Ver vista-rotina.js::renderActivityDetail(). */
+  .real-flag{ font-size:calc(10.5px * var(--font-scale)); color:var(--status-good); background:var(--status-good-bg, var(--bg-surface-2)); border:1px solid var(--status-good); padding:1px 7px; border-radius:20px; font-weight:600; }
   /* Distinto de .sim-flag de propósito: dados REAIS do sensor, mas
      classificados por um modelo treinado só com dados sintéticos (ver
      bridge/activity_inference.py) — o aviso precisa de se destacar mais do

@@ -59,7 +59,76 @@ AFTER_RENDER.rotina = () => {
   renderPacingSummary();
   drawPacingTrend('cvPacingTrend', currentPacingTrend());
   renderHitlReviewCard('hitlReviewCard');
+  loadRealWeeklyActivityThenRerender();
 };
+
+// RF-10/RF-13 — histórico real de reconhecimento de atividade/rotina, via
+// /api/devices/{id}/activity-distribution (bridge/api.py). Esse endpoint é só por-dia,
+// por isso agregam-se aqui 7 pedidos para formar a tendência semanal. Substitui
+// buildCategoryWeekly() (sintético) quando há dados reais; cai para sintético em
+// qualquer falha (API em baixo, paciente sem dbId resolvido, sem device associado).
+const ROUTINE_LOCAL_TO_API_CAT = { dormir: 'sleep', descanso: 'rest', atividade: 'activity', alimentacao: 'eating', higiene: 'hygiene' };
+const ROUTINE_WEEKDAY_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']; // índice = Date.getUTCDay()
+let realWeeklyActivity = null; // {patientId, byLocalCat: {dormir: [{day,minutes}], ...}} ou null (sem dados reais)
+
+function isoDateDaysAgo(n){
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.toISOString().slice(0, 10);
+}
+
+// device_id da BD para o paciente selecionado — cacheado em p.apiDeviceId (undefined = por
+// resolver, null = sem correspondência). Reaproveita a mesma resolução conservadora de
+// weeklyReportApiPatientId() (export-clinico.js): nunca adivinha a partir do id de demonstração.
+async function resolvePatientApiDeviceId(p){
+  if (p.apiDeviceId !== undefined) return p.apiDeviceId;
+  const patientDbId = typeof weeklyReportApiPatientId === 'function' ? weeklyReportApiPatientId(p) : null;
+  if (patientDbId === null || typeof apiFetch !== 'function') { p.apiDeviceId = null; return null; }
+  try {
+    const res = await apiFetch(`/api/patients/${patientDbId}/devices`);
+    if (!res.ok) { p.apiDeviceId = null; return null; }
+    const data = await res.json();
+    const devices = Array.isArray(data.devices) ? data.devices : [];
+    p.apiDeviceId = devices.length ? devices[0].id : null;
+  } catch (e) {
+    p.apiDeviceId = null;
+  }
+  return p.apiDeviceId;
+}
+
+async function fetchRealWeeklyActivity(p){
+  const deviceId = await resolvePatientApiDeviceId(p);
+  if (deviceId == null) return null;
+  const isoDates = Array.from({length: 7}, (_, i) => isoDateDaysAgo(6 - i)); // mais antigo primeiro
+  const results = await Promise.all(isoDates.map(async (iso) => {
+    try {
+      const res = await apiFetch(`/api/devices/${deviceId}/activity-distribution?date=${iso}`);
+      return res.ok ? await res.json() : null;
+    } catch (e) { return null; }
+  }));
+  if (results.every(r => r === null)) return null; // API indisponível — fica-se no sintético
+
+  const byLocalCat = {};
+  Object.keys(ROUTINE_LOCAL_TO_API_CAT).forEach(localCat => {
+    const apiCat = ROUTINE_LOCAL_TO_API_CAT[localCat];
+    byLocalCat[localCat] = isoDates.map((iso, i) => ({
+      day: ROUTINE_WEEKDAY_LABELS[new Date(iso + 'T00:00:00Z').getUTCDay()],
+      minutes: results[i] && results[i][apiCat] ? Math.round(results[i][apiCat].duration_minutes) : 0,
+    }));
+  });
+  return { patientId: p.id, byLocalCat };
+}
+
+// Dispara em segundo plano; só re-renderiza se o paciente selecionado não tiver mudado
+// entretanto (evita mostrar dados reais de um paciente já trocado).
+function loadRealWeeklyActivityThenRerender(){
+  const p = selectedPatient();
+  fetchRealWeeklyActivity(p).then(result => {
+    if (selectedPatient().id !== p.id) return;
+    realWeeklyActivity = result;
+    if (currentView === 'rotina') renderActivityDetail(selectedActivityCat);
+  });
+}
 
 //RF-09 — cartão de revisão: alertas marcáveis como falso positivo + fila de rótulos já marcados
 function renderHitlReviewCard(hostId){
@@ -201,7 +270,12 @@ function renderActivityDetail(catKey){
   const totalMin = blocks.reduce((s,b) => s + (b.end - b.start), 0);
   const count = blocks.length;
   const avgMin = count ? Math.round(totalMin / count) : 0;
-  const weekly = buildCategoryWeekly(catKey);
+
+  // Real (BD, via activity-distribution) quando disponível para este paciente; sintético senão.
+  const realForPatient = realWeeklyActivity && realWeeklyActivity.patientId === selectedPatient().id
+    ? realWeeklyActivity.byLocalCat[catKey] : null;
+  const weekly = realForPatient || buildCategoryWeekly(catKey);
+  const weeklyIsReal = !!realForPatient;
   const weekAvg = Math.round(weekly.reduce((s,d) => s + d.minutes, 0) / weekly.length);
   const deltaPct = weekAvg ? Math.round(((totalMin - weekAvg) / weekAvg) * 100) : 0;
 
@@ -220,8 +294,8 @@ function renderActivityDetail(catKey){
           <span class="activity-block-dur tabular">${b.end-b.start} min</span>
         </div>`).join('') : `<p class="empty-hint">${t('rotina.noBlocksBefore')}"${cat.label}"${t('rotina.noBlocksAfter')}</p>`}
     </div>
-    <div class="card-sub" style="margin:14px 0 8px;">${t('rotina.weeklyTrendSubtitle')}</div>
-    <canvas id="cvActivityWeekly" height="120" role="img" aria-label="${t('rotina.weeklyTrendAriaBefore')}${cat.label}${t('rotina.weeklyTrendAriaAfter')} (${t('rotina.simFlag')})"></canvas>
+    <div class="card-sub" style="margin:14px 0 8px;">${t('rotina.weeklyTrendSubtitle')} <span class="${weeklyIsReal ? 'real-flag' : 'sim-flag'}">${weeklyIsReal ? t('rotina.realFlag') : t('rotina.simFlag')}</span></div>
+    <canvas id="cvActivityWeekly" height="120" role="img" aria-label="${t('rotina.weeklyTrendAriaBefore')}${cat.label}${t('rotina.weeklyTrendAriaAfter')} (${weeklyIsReal ? t('rotina.realFlag') : t('rotina.simFlag')})"></canvas>
   `;
   drawCategoryWeeklyBar('cvActivityWeekly', weekly, cat.color);
 }

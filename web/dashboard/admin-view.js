@@ -21,15 +21,17 @@
  * Backend tem dois perfis de admin: `admin` (Sistema — sem dados clínicos,
  * 404 em `_authorize_patient`, bridge/api.py — é o que esta vista serve) e
  * `admin_clinical` (Suporte Autorizado — lê dados clínicos com `reason`,
- * expiração `privileged_access_expires_at` e auditoria própria). O
- * dashboard ainda não suporta o segundo perfil — falta em
- * API_ROLE_TO_DASHBOARD_ROLE (auth-navegacao.js), UI de login, diálogo de
- * motivo, exibição de expiração, e WS_COMMAND_ROLES (ble_bridge.py, que
- * hoje bloqueia esse papel por omissão — fail-closed, mas só via REST).
- * Fora do âmbito desta alteração.
+ * expiração `privileged_access_expires_at` e auditoria própria). Ambos já
+ * suportados no dashboard (API_ROLE_TO_DASHBOARD_ROLE em auth-navegacao.js,
+ * login próprio, banner de expiração) — ver "Gestão de contas" abaixo para
+ * onde se concede/revoga o segundo perfil.
  *
- * Sem backend real: registo de clínicos só em localStorage deste browser
- * (mesma limitação já existente em CLINICIAN_ASSIGNMENTS_KEY).
+ * Registo de clínicos/pacientes acima ("Clínicos"/"Pacientes") continua só
+ * em localStorage deste browser — protótipo de demonstração, intencional.
+ * O cartão "Gestão de contas (base de dados)" abaixo é a parte NOVA e real:
+ * fala com /api/admin/users (bridge/api.py), CRUD de contas verdadeiras —
+ * criar, mudar de perfil (inclui conceder acesso clínico temporal a
+ * admin_clinical) e revogar (soft delete + derruba sessões/chaves ativas).
  */
 
 const ALL_CLINICIANS_KEY = 'carewear_all_clinicians';
@@ -174,5 +176,157 @@ TEMPLATES.admin = () => {
     </table>
     <p class="empty-hint">${t('admin.reportsHint')}</p>
   </div>
+
+  <div class="card" id="adminUsersCard"></div>
 `;
 };
+
+AFTER_RENDER.admin = () => {
+  loadAdminUsers();
+};
+
+// RF: "o sistema deve permitir a administração de utilizadores e respetivos perfis" — CRUD
+// real sobre /api/admin/users (bridge/api.py), distinto do registo de demonstração acima.
+const ADMIN_USER_ROLE_LABELS = {
+  family: 'Família/Cuidador', clinician: 'Clínico', admin: 'Admin de Sistema', admin_clinical: 'Admin Clínico/Suporte',
+};
+let adminUsersCache = null;
+let adminUsersError = null;
+
+async function loadAdminUsers(){
+  if (typeof apiFetch !== 'function') { adminUsersError = 'offline'; renderAdminUsersCard(); return; }
+  try {
+    const res = await apiFetch('/api/admin/users');
+    if (!res.ok) { adminUsersError = res.status === 403 ? 'sem_permissao' : 'erro'; adminUsersCache = null; renderAdminUsersCard(); return; }
+    const data = await res.json();
+    adminUsersCache = Array.isArray(data.users) ? data.users : [];
+    adminUsersError = null;
+  } catch (e) {
+    adminUsersError = 'offline';
+    adminUsersCache = null;
+  }
+  renderAdminUsersCard();
+}
+
+function renderAdminUsersCard(){
+  const host = document.getElementById('adminUsersCard');
+  if (!host) return; // navegou para outra vista entretanto
+
+  const errorHint = {
+    offline: 'API REST inalcançável (bridge/api.py, porta 8766) — confirma que está a correr.',
+    sem_permissao: 'Esta conta não tem perfil Admin de Sistema na API — a gestão de contas fica desativada (a vista acima continua a usar o registo local de demonstração).',
+    erro: 'Falha a carregar a lista de contas.',
+  }[adminUsersError];
+
+  const rows = (adminUsersCache || []).map(u => `
+    <tr>
+      <td><b>${escapeHtml(u.name)}</b>${u.active ? '' : ` ${pillHtml('critical', 'Revogada')}`}</td>
+      <td class="num">${escapeHtml(u.email)}</td>
+      <td>
+        <select id="adminRoleSelect-${u.id}" aria-label="Perfil de ${escapeHtml(u.name)}" ${u.active ? '' : 'disabled'}>
+          ${Object.keys(ADMIN_USER_ROLE_LABELS).map(r => `<option value="${r}" ${r === u.role ? 'selected' : ''}>${ADMIN_USER_ROLE_LABELS[r]}</option>`).join('')}
+        </select>
+      </td>
+      <td>${u.privileged_access_expires_at ? new Date(u.privileged_access_expires_at).toLocaleString('pt-PT', {dateStyle:'short', timeStyle:'short'}) : '—'}</td>
+      <td style="display:flex; gap:6px; flex-wrap:wrap;">
+        <button type="button" class="btn-secondary" ${u.active ? '' : 'disabled'} onclick="submitAdminUserRoleChange(${u.id})" aria-label="Gravar novo perfil de ${escapeHtml(u.name)}">Gravar perfil</button>
+        <button type="button" class="btn-secondary" ${u.active ? '' : 'disabled'} onclick="grantPrivilegedAccess(${u.id})" aria-label="Conceder 8 horas de acesso clínico a ${escapeHtml(u.name)}">Conceder 8h</button>
+        <button type="button" class="btn-secondary" ${u.active ? '' : 'disabled'} onclick="revokeAdminUser(${u.id}, '${escapeHtml(u.name).replace(/'/g, '&#39;')}')" aria-label="Revogar a conta de ${escapeHtml(u.name)}">Revogar</button>
+      </td>
+    </tr>`).join('');
+
+  host.innerHTML = `
+    <div class="card-head"><div><h3>Gestão de contas (base de dados)</h3><div class="card-sub">Criar, mudar de perfil e revogar contas reais — a auditoria regista cada ação.</div></div></div>
+    ${errorHint ? `<p class="empty-hint">${escapeHtml(errorHint)}</p>` : ''}
+    ${adminUsersCache && adminUsersCache.length ? `
+    <table class="data-table">
+      <thead><tr><th>Nome</th><th>Email</th><th>Perfil</th><th>Acesso clínico até</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>` : ''}
+    <form class="note-form" style="margin-top:14px; display:grid; gap:8px; grid-template-columns:repeat(auto-fit,minmax(160px,1fr));" onsubmit="event.preventDefault(); submitCreateAdminUser();">
+      <label class="sr-only" for="newUserName">Nome</label>
+      <input type="text" id="newUserName" placeholder="Nome" aria-label="Nome">
+      <label class="sr-only" for="newUserEmail">Email</label>
+      <input type="email" id="newUserEmail" placeholder="Email" aria-label="Email">
+      <label class="sr-only" for="newUserPassword">Password</label>
+      <input type="password" id="newUserPassword" placeholder="Password (mín. 8 carateres)" aria-label="Password, mínimo 8 carateres">
+      <label class="sr-only" for="newUserRole">Perfil</label>
+      <select id="newUserRole" aria-label="Perfil">
+        ${Object.keys(ADMIN_USER_ROLE_LABELS).map(r => `<option value="${r}">${ADMIN_USER_ROLE_LABELS[r]}</option>`).join('')}
+      </select>
+      <label class="sr-only" for="newUserInstitution">Instituição (opcional)</label>
+      <input type="text" id="newUserInstitution" placeholder="Instituição (opcional)" aria-label="Instituição, opcional">
+      <button type="submit" class="btn-secondary">Criar conta</button>
+    </form>
+    <p class="empty-hint" id="adminUsersFormHint"></p>
+  `;
+}
+
+async function submitCreateAdminUser(){
+  const hint = document.getElementById('adminUsersFormHint');
+  const name = document.getElementById('newUserName').value.trim();
+  const email = document.getElementById('newUserEmail').value.trim();
+  const password = document.getElementById('newUserPassword').value;
+  const role = document.getElementById('newUserRole').value;
+  const institution = document.getElementById('newUserInstitution').value.trim();
+  if (!name || !email || !password){
+    hint.textContent = 'Preenche nome, email e password.';
+    hint.style.color = 'var(--status-warning)';
+    return;
+  }
+  try {
+    const res = await apiFetch('/api/admin/users', {
+      method: 'POST',
+      body: JSON.stringify({ name, email, password, role, institution: institution || undefined }),
+    });
+    if (!res.ok){
+      const body = await res.json().catch(() => ({}));
+      hint.textContent = `Falhou: ${body.detail || res.status}.`;
+      hint.style.color = 'var(--status-warning)';
+      return;
+    }
+    hint.textContent = 'Conta criada.';
+    hint.style.color = 'var(--status-good)';
+    await loadAdminUsers();
+  } catch (e) {
+    hint.textContent = 'Sem ligação à API.';
+    hint.style.color = 'var(--status-warning)';
+  }
+}
+
+async function submitAdminUserRoleChange(userId){
+  const select = document.getElementById(`adminRoleSelect-${userId}`);
+  if (!select) return;
+  const res = await apiFetch(`/api/admin/users/${userId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ role: select.value }),
+  }).catch(() => null);
+  if (!res || !res.ok){
+    const body = res ? await res.json().catch(() => ({})) : {};
+    alert(`Não foi possível gravar o perfil: ${body.detail || 'erro de ligação'}.`);
+    return;
+  }
+  await loadAdminUsers();
+}
+
+async function grantPrivilegedAccess(userId){
+  const res = await apiFetch(`/api/admin/users/${userId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ privileged_access_hours: 8 }),
+  }).catch(() => null);
+  if (!res || !res.ok){
+    alert('Não foi possível conceder o acesso.');
+    return;
+  }
+  await loadAdminUsers();
+}
+
+async function revokeAdminUser(userId, name){
+  if (!confirm(`Revogar a conta de "${name}"? A pessoa perde acesso de imediato (sessões e chaves de API incluídas).`)) return;
+  const res = await apiFetch(`/api/admin/users/${userId}/revoke`, { method: 'POST' }).catch(() => null);
+  if (!res || !res.ok){
+    alert('Não foi possível revogar a conta.');
+    return;
+  }
+  await loadAdminUsers();
+}
