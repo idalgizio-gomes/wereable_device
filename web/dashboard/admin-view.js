@@ -213,50 +213,50 @@ function renderAdminUsersCard(){
   if (!host) return; // navegou para outra vista entretanto
 
   const errorHint = {
-    offline: 'API REST inalcançável (bridge/api.py, porta 8766) — confirma que está a correr.',
-    sem_permissao: 'Esta conta não tem perfil Admin de Sistema na API — a gestão de contas fica desativada (a vista acima continua a usar o registo local de demonstração).',
-    erro: 'Falha a carregar a lista de contas.',
+    offline: t('admin.usersErrOffline'),
+    sem_permissao: t('admin.usersErrNoPermission'),
+    erro: t('admin.usersErrGeneric'),
   }[adminUsersError];
 
   const rows = (adminUsersCache || []).map(u => `
     <tr>
-      <td><b>${escapeHtml(u.name)}</b>${u.active ? '' : ` ${pillHtml('critical', 'Revogada')}`}</td>
+      <td><b>${escapeHtml(u.name)}</b>${u.active ? '' : ` ${pillHtml('critical', t('admin.revokedBadge'))}`}</td>
       <td class="num">${escapeHtml(u.email)}</td>
       <td>
-        <select id="adminRoleSelect-${u.id}" aria-label="Perfil de ${escapeHtml(u.name)}" ${u.active ? '' : 'disabled'}>
+        <select id="adminRoleSelect-${u.id}" aria-label="${escapeHtml(t('admin.roleAriaPrefix', {name: u.name}))}" ${u.active ? '' : 'disabled'}>
           ${Object.keys(ADMIN_USER_ROLE_LABELS).map(r => `<option value="${r}" ${r === u.role ? 'selected' : ''}>${ADMIN_USER_ROLE_LABELS[r]}</option>`).join('')}
         </select>
       </td>
       <td>${u.privileged_access_expires_at ? new Date(u.privileged_access_expires_at).toLocaleString('pt-PT', {dateStyle:'short', timeStyle:'short'}) : '—'}</td>
       <td style="display:flex; gap:6px; flex-wrap:wrap;">
-        <button type="button" class="btn-secondary" ${u.active ? '' : 'disabled'} onclick="submitAdminUserRoleChange(${u.id})" aria-label="Gravar novo perfil de ${escapeHtml(u.name)}">Gravar perfil</button>
-        <button type="button" class="btn-secondary" ${u.active ? '' : 'disabled'} onclick="grantPrivilegedAccess(${u.id})" aria-label="Conceder 8 horas de acesso clínico a ${escapeHtml(u.name)}">Conceder 8h</button>
-        <button type="button" class="btn-secondary" ${u.active ? '' : 'disabled'} onclick="revokeAdminUser(${u.id}, '${escapeHtml(u.name).replace(/'/g, '&#39;')}')" aria-label="Revogar a conta de ${escapeHtml(u.name)}">Revogar</button>
+        <button type="button" class="btn-secondary" ${u.active ? '' : 'disabled'} onclick="submitAdminUserRoleChange(${u.id})" aria-label="${escapeHtml(t('admin.saveRoleAria', {name: u.name}))}">${t('admin.saveRoleBtn')}</button>
+        <button type="button" class="btn-secondary" ${u.active ? '' : 'disabled'} onclick="grantPrivilegedAccess(${u.id})" aria-label="${escapeHtml(t('admin.grant8hAria', {name: u.name}))}">${t('admin.grant8hBtn')}</button>
+        <button type="button" class="btn-secondary" ${u.active ? '' : 'disabled'} onclick="revokeAdminUser(${u.id}, '${escapeHtml(u.name).replace(/'/g, '&#39;')}')" aria-label="${escapeHtml(t('admin.revokeAria', {name: u.name}))}">${t('admin.revokeBtn')}</button>
       </td>
     </tr>`).join('');
 
   host.innerHTML = `
-    <div class="card-head"><div><h3>Gestão de contas (base de dados)</h3><div class="card-sub">Criar, mudar de perfil e revogar contas reais — a auditoria regista cada ação.</div></div></div>
+    <div class="card-head"><div><h3>${t('admin.usersCardTitle')}</h3><div class="card-sub">${t('admin.usersCardSubtitle')}</div></div></div>
     ${errorHint ? `<p class="empty-hint">${escapeHtml(errorHint)}</p>` : ''}
     ${adminUsersCache && adminUsersCache.length ? `
     <table class="data-table">
-      <thead><tr><th>Nome</th><th>Email</th><th>Perfil</th><th>Acesso clínico até</th><th></th></tr></thead>
+      <thead><tr><th>${t('admin.thName')}</th><th>${t('admin.thEmail')}</th><th>${t('admin.thUserRole')}</th><th>${t('admin.thPrivilegedUntil')}</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table>` : ''}
     <form class="note-form" style="margin-top:14px; display:grid; gap:8px; grid-template-columns:repeat(auto-fit,minmax(160px,1fr));" onsubmit="event.preventDefault(); submitCreateAdminUser();">
-      <label class="sr-only" for="newUserName">Nome</label>
-      <input type="text" id="newUserName" placeholder="Nome" aria-label="Nome">
-      <label class="sr-only" for="newUserEmail">Email</label>
-      <input type="email" id="newUserEmail" placeholder="Email" aria-label="Email">
-      <label class="sr-only" for="newUserPassword">Password</label>
-      <input type="password" id="newUserPassword" placeholder="Password (mín. 8 carateres)" aria-label="Password, mínimo 8 carateres">
-      <label class="sr-only" for="newUserRole">Perfil</label>
-      <select id="newUserRole" aria-label="Perfil">
+      <label class="sr-only" for="newUserName">${t('admin.thName')}</label>
+      <input type="text" id="newUserName" placeholder="${escapeHtml(t('admin.thName'))}" aria-label="${escapeHtml(t('admin.thName'))}">
+      <label class="sr-only" for="newUserEmail">${t('admin.thEmail')}</label>
+      <input type="email" id="newUserEmail" placeholder="${escapeHtml(t('admin.thEmail'))}" aria-label="${escapeHtml(t('admin.thEmail'))}">
+      <label class="sr-only" for="newUserPassword">${t('admin.newUserPasswordAria')}</label>
+      <input type="password" id="newUserPassword" placeholder="${escapeHtml(t('admin.newUserPasswordPlaceholder'))}" aria-label="${escapeHtml(t('admin.newUserPasswordAria'))}">
+      <label class="sr-only" for="newUserRole">${t('admin.thUserRole')}</label>
+      <select id="newUserRole" aria-label="${escapeHtml(t('admin.thUserRole'))}">
         ${Object.keys(ADMIN_USER_ROLE_LABELS).map(r => `<option value="${r}">${ADMIN_USER_ROLE_LABELS[r]}</option>`).join('')}
       </select>
-      <label class="sr-only" for="newUserInstitution">Instituição (opcional)</label>
-      <input type="text" id="newUserInstitution" placeholder="Instituição (opcional)" aria-label="Instituição, opcional">
-      <button type="submit" class="btn-secondary">Criar conta</button>
+      <label class="sr-only" for="newUserInstitution">${t('admin.newUserInstitutionPlaceholder')}</label>
+      <input type="text" id="newUserInstitution" placeholder="${escapeHtml(t('admin.newUserInstitutionPlaceholder'))}" aria-label="${escapeHtml(t('admin.newUserInstitutionPlaceholder'))}">
+      <button type="submit" class="btn-secondary">${t('signup.submit')}</button>
     </form>
     <p class="empty-hint" id="adminUsersFormHint"></p>
   `;
@@ -270,7 +270,7 @@ async function submitCreateAdminUser(){
   const role = document.getElementById('newUserRole').value;
   const institution = document.getElementById('newUserInstitution').value.trim();
   if (!name || !email || !password){
-    hint.textContent = 'Preenche nome, email e password.';
+    hint.textContent = t('admin.formFillHint');
     hint.style.color = 'var(--status-warning)';
     return;
   }
@@ -281,15 +281,15 @@ async function submitCreateAdminUser(){
     });
     if (!res.ok){
       const body = await res.json().catch(() => ({}));
-      hint.textContent = `Falhou: ${body.detail || res.status}.`;
+      hint.textContent = t('admin.createFailedPrefix', {detail: body.detail || res.status});
       hint.style.color = 'var(--status-warning)';
       return;
     }
-    hint.textContent = 'Conta criada.';
+    hint.textContent = t('admin.createdOk');
     hint.style.color = 'var(--status-good)';
     await loadAdminUsers();
   } catch (e) {
-    hint.textContent = 'Sem ligação à API.';
+    hint.textContent = t('admin.offlineErr');
     hint.style.color = 'var(--status-warning)';
   }
 }
@@ -303,7 +303,7 @@ async function submitAdminUserRoleChange(userId){
   }).catch(() => null);
   if (!res || !res.ok){
     const body = res ? await res.json().catch(() => ({})) : {};
-    alert(`Não foi possível gravar o perfil: ${body.detail || 'erro de ligação'}.`);
+    alert(t('admin.roleSaveFailedPrefix', {detail: body.detail || 'erro de ligação'}));
     return;
   }
   await loadAdminUsers();
@@ -315,17 +315,17 @@ async function grantPrivilegedAccess(userId){
     body: JSON.stringify({ privileged_access_hours: 8 }),
   }).catch(() => null);
   if (!res || !res.ok){
-    alert('Não foi possível conceder o acesso.');
+    alert(t('admin.grantAccessFailed'));
     return;
   }
   await loadAdminUsers();
 }
 
 async function revokeAdminUser(userId, name){
-  if (!confirm(`Revogar a conta de "${name}"? A pessoa perde acesso de imediato (sessões e chaves de API incluídas).`)) return;
+  if (!confirm(t('admin.revokeConfirm', {name}))) return;
   const res = await apiFetch(`/api/admin/users/${userId}/revoke`, { method: 'POST' }).catch(() => null);
   if (!res || !res.ok){
-    alert('Não foi possível revogar a conta.');
+    alert(t('admin.revokeFailed'));
     return;
   }
   await loadAdminUsers();

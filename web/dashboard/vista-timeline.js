@@ -5,11 +5,11 @@
 // Nomes prefixados tl/TL_ (classic scripts, âmbito global partilhado).
 const TL_DAY_MINUTES = 1440;
 const TL_WINDOWS = [
-  {min: 1440, label: 'Dia inteiro'},
-  {min: 720,  label: '12 h'},
-  {min: 360,  label: '6 h'},
-  {min: 180,  label: '3 h'},
-  {min: 60,   label: '1 h'},
+  {min: 1440, labelKey: 'timeline.windowFull'},
+  {min: 720,  labelKey: 'timeline.window12h'},
+  {min: 360,  labelKey: 'timeline.window6h'},
+  {min: 180,  labelKey: 'timeline.window3h'},
+  {min: 60,   labelKey: 'timeline.window1h'},
 ];
 let tlWindowMin = TL_DAY_MINUTES;   // largura da janela visível
 let tlWindowStart = 0;              // minuto do dia onde a janela começa
@@ -421,9 +421,9 @@ function tlRenderBlockCorrection(){
   host.innerHTML = `
     <div class="hitl-row" style="border-bottom:none;">
       <div class="hitl-main">
-        <div class="hitl-title">Bloco ${fmtMin(b.start)}–${fmtMin(b.end)} classificado como
+        <div class="hitl-title">${t('timeline.blockLabel', {start: fmtMin(b.start), end: fmtMin(b.end)})}
           <span style="color:${cat ? cat.color : 'var(--text-primary)'}">${cat ? cat.label : b.cat}</span></div>
-        <div class="hitl-meta">Se não corresponde ao que aconteceu, escolhe a categoria certa. Fica registada como rótulo humano.</div>
+        <div class="hitl-meta">${t('timeline.blockCorrectionHint')}</div>
         <div class="activity-chips" style="margin:10px 0 0;">
           ${ACTIVITY_CORRECTION_CATEGORIES.map(c => `
             <button type="button" class="activity-chip" onclick="tlCorrectSelectedBlock('${c}')">${c}</button>
@@ -431,7 +431,7 @@ function tlRenderBlockCorrection(){
         </div>
       </div>
       <div class="hitl-actions">
-        <button type="button" class="btn-secondary" onclick="tlCloseBlockCorrection()">Fechar</button>
+        <button type="button" class="btn-secondary" onclick="tlCloseBlockCorrection()">${t('common.close')}</button>
       </div>
     </div>
   `;
@@ -474,7 +474,7 @@ function tlRenderEventsTable(){
     linhas.push({
       min: b.start,
       cor: cat ? cat.color : 'var(--text-muted)',
-      faixa: 'Atividade',
+      faixa: t('timeline.laneActivity'),
       quando: `${fmtMin(b.start)}–${fmtMin(b.end)}`,
       descricao: `${cat ? cat.label : b.cat} (${b.end - b.start} min)`,
     });
@@ -485,7 +485,7 @@ function tlRenderEventsTable(){
     linhas.push({
       min: a.min,
       cor: SEV_COLOR[a.sev] || 'var(--text-muted)',
-      faixa: 'Alerta',
+      faixa: t('timeline.laneAlert'),
       quando: fmtMin(a.min),
       descricao: escapeHtml(a.title) + (falso ? ' <b>(marcado como falso positivo)</b>' : ''),
     });
@@ -495,7 +495,7 @@ function tlRenderEventsTable(){
     linhas.push({
       min: d.min,
       cor: TL_DOSE_COLOR[d.estado] || 'var(--text-muted)',
-      faixa: 'Medicação',
+      faixa: t('timeline.laneMedication'),
       quando: fmtMin(d.min),
       descricao: `${escapeHtml(d.nome)} ${escapeHtml(d.dose || '')} — ${d.estado}`,
     });
@@ -505,15 +505,15 @@ function tlRenderEventsTable(){
   const hrJanela = vitais.pontos.filter(p => dentro(p.min)).map(p => p.hr);
   const resumoFc = hrJanela.length
     ? `${Math.min(...hrJanela)}–${Math.max(...hrJanela)} bpm (média ${Math.round(hrJanela.reduce((s, v) => s + v, 0) / hrJanela.length)})`
-    : 'sem leituras neste período';
+    : t('timeline.hrNoReadings');
 
   linhas.sort((a, b) => a.min - b.min);
 
   host.innerHTML = `
     <tr>
       <td class="num">${fmtMin(tlWindowStart)}–${fmtMin(fim % TL_DAY_MINUTES === 0 && fim !== 0 ? 1439 : fim)}</td>
-      <td><span class="tl-ev-dot" style="background:var(--status-good)"></span>Sinais vitais</td>
-      <td>Frequência cardíaca ${resumoFc} · fonte: ${vitais.live ? 'sensor ao vivo' : 'demonstração'}</td>
+      <td><span class="tl-ev-dot" style="background:var(--status-good)"></span>${t('timeline.vitalsRowLabel')}</td>
+      <td>${t('timeline.hrSummaryLabel')} ${resumoFc} · fonte: ${vitais.live ? t('emergencias.sourceLive') : t('emergencias.sourceDemo')}</td>
     </tr>
     ${linhas.map(l => `
       <tr>
@@ -548,46 +548,38 @@ TEMPLATES.timeline = () => `
   <div class="card">
     <div class="card-head">
       <div>
-        <h3>Timeline unificada <span class="sim-flag">rotina e alertas simulados</span></h3>
-        <div class="card-sub">
-          Atividade, frequência cardíaca, alertas e medicação do mesmo dia, no mesmo eixo de tempo.
-          A frequência cardíaca vem do sensor quando o bridge está ligado; as restantes faixas são,
-          para já, dados de demonstração.
-        </div>
+        <h3>${t('timeline.title')} <span class="sim-flag">${t('timeline.simFlag')}</span></h3>
+        <div class="card-sub">${t('timeline.subtitle')}</div>
       </div>
     </div>
 
-    <div class="tl-controls" role="group" aria-label="Período e zoom da timeline">
+    <div class="tl-controls" role="group" aria-label="${escapeHtml(t('timeline.controlsAria'))}">
       ${TL_WINDOWS.map((op, i) => `
         <button type="button" class="tl-zoom-btn" id="tlZoom${i}" aria-pressed="${op.min === tlWindowMin}"
-                onclick="tlZoomTo(${op.min})">${op.label}</button>
+                onclick="tlZoomTo(${op.min})">${t(op.labelKey)}</button>
       `).join('')}
       <span class="tl-sep" aria-hidden="true"></span>
-      <button type="button" class="tl-zoom-btn" id="tlPanLeft" aria-label="Recuar no tempo" onclick="tlPan(-0.25)">←</button>
-      <button type="button" class="tl-zoom-btn" id="tlPanRight" aria-label="Avançar no tempo" onclick="tlPan(0.25)">→</button>
-      <button type="button" class="tl-zoom-btn" onclick="tlResetWindow()">Dia todo</button>
+      <button type="button" class="tl-zoom-btn" id="tlPanLeft" aria-label="${escapeHtml(t('timeline.panLeftAria'))}" onclick="tlPan(-0.25)">←</button>
+      <button type="button" class="tl-zoom-btn" id="tlPanRight" aria-label="${escapeHtml(t('timeline.panRightAria'))}" onclick="tlPan(0.25)">→</button>
+      <button type="button" class="tl-zoom-btn" onclick="tlResetWindow()">${t('timeline.fullDayBtn')}</button>
       <span class="tl-window-label" id="tlWindowLabel" aria-live="polite"></span>
     </div>
 
     <div class="tl-canvas-wrap">
       <!-- tabindex="0" + role="img": focável (ver S.cv.onkeydown) e anunciado como imagem; descrição completa na tabela abaixo -->
       <canvas id="${TL_CANVAS_ID}" height="${TL_HEIGHT}" tabindex="0" role="img"
-              aria-label="Timeline unificada: atividade, frequência cardíaca, alertas e medicação no mesmo eixo temporal. Use as setas para deslocar e ampliar; a lista de eventos do período está na tabela abaixo."></canvas>
+              aria-label="${escapeHtml(t('timeline.canvasAria'))}"></canvas>
     </div>
 
     <div class="tl-lane-legend">
-      <span class="legend-item"><b>Atividade:</b></span>
+      <span class="legend-item"><b>${t('timeline.legendActivityLabel')}</b></span>
       ${ROUTINE_CATS.map(c => `<span class="legend-item"><span class="legend-swatch" style="background:${c.color}"></span>${c.label}</span>`).join('')}
-      <span class="legend-item"><span class="legend-swatch" style="background:var(--status-good)"></span>FC (bpm)</span>
-      <span class="legend-item"><b>Alertas:</b> losango, cor conforme gravidade</span>
-      <span class="legend-item"><b>Medicação:</b> círculo cheio = tomada, vazado = pendente, vermelho = atrasada</span>
+      <span class="legend-item"><span class="legend-swatch" style="background:var(--status-good)"></span>${t('timeline.legendHr')}</span>
+      <span class="legend-item">${t('timeline.legendAlerts')}</span>
+      <span class="legend-item">${t('timeline.legendMedication')}</span>
     </div>
 
-    <p class="tl-hint">
-      Rato: roda para ampliar, arrastar para deslocar, clicar num bloco de atividade para corrigir a classificação.
-      Teclado: <kbd>Tab</kbd> até ao gráfico, depois <kbd>←</kbd> <kbd>→</kbd> para deslocar,
-      <kbd>↑</kbd> <kbd>↓</kbd> (ou <kbd>+</kbd> <kbd>−</kbd>) para ampliar e <kbd>Home</kbd> para ver o dia todo.
-    </p>
+    <p class="tl-hint">${t('timeline.hint')}</p>
 
     <div id="tlBlockCorrection"></div>
   </div>
@@ -595,12 +587,12 @@ TEMPLATES.timeline = () => `
   <div class="card">
     <div class="card-head">
       <div>
-        <h3>Eventos do período visível</h3>
-        <div class="card-sub">A mesma informação do gráfico, em texto — acompanha o zoom.</div>
+        <h3>${t('timeline.eventsTitle')}</h3>
+        <div class="card-sub">${t('timeline.eventsSubtitle')}</div>
       </div>
     </div>
     <table class="data-table tl-events-table">
-      <thead><tr><th>Hora</th><th>Faixa</th><th>Descrição</th></tr></thead>
+      <thead><tr><th>${t('timeline.thTime')}</th><th>${t('timeline.thLane')}</th><th>${t('timeline.thDescription')}</th></tr></thead>
       <tbody id="tlEventsBody"></tbody>
     </table>
   </div>

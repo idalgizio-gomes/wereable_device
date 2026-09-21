@@ -23,12 +23,16 @@ __pycache__/
 bridge/*.db
 bridge/*.db-wal
 bridge/*.db-shm
+bridge/*.db.enc
+bridge/*.db.enc.tmp
+bridge/*.db.tmp
 
 # Chave AES provisionada no dispositivo real (ver "Cifra AES-CTR do modo
 # de dados" em bridge/ble_bridge.py) — segredo local desta instalação,
 # nunca deve ir para o repositório nem para a internet. Cada
 # dispositivo/bridge tem a sua própria chave.
 bridge/device_key.env
+bridge/db_encryption_key.env
 
 # Certificado TLS autoassinado do WebSocket do bridge (opt-in via
 # CAREWEAR_WS_TLS=1, ver ble_bridge.py) — gerado localmente na 1ª vez,

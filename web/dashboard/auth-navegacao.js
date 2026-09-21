@@ -49,31 +49,31 @@ function submitSignup(){
   const pass = document.getElementById('signupPass').value;
 
   if (!name || !email || !pass){
-    alert('Preenche nome, email e palavra-passe para continuar.');
+    alert(t('signup.errMissingFields'));
     return;
   }
   if (signupRole === 'utente'){
     const patient = document.getElementById('signupPatient').value.trim();
     const patientAge = document.getElementById('signupPatientAge').value;
     if (!patient){
-      alert('Indica o nome do utente monitorizado.');
+      alert(t('signup.errMissingPatientName'));
       return;
     }
     if (!patientAge || parseInt(patientAge, 10) <= 0){
-      alert('Indica a idade do utente monitorizado.');
+      alert(t('signup.errMissingPatientAge'));
       return;
     }
     // Único sítio da app que cria um paciente do zero; área clínica só associa a um existente
     const record = registerOwnPatient(patient, patientAge, email);
     if (!record){
-      alert('Não foi possível registar o utente monitorizado — confirma o nome e a idade.');
+      alert(t('signup.errPatientRegisterFailed'));
       return;
     }
   } else {
     const institution = document.getElementById('signupInstitution').value.trim();
     const license = document.getElementById('signupLicense').value.trim();
     if (!license){
-      alert('Indica o número de cédula profissional.');
+      alert(t('signup.errMissingLicense'));
       return;
     }
     // registerClinicianAccount() definida em admin-view.js
@@ -81,7 +81,9 @@ function submitSignup(){
   }
 
   // Só o paciente (perfil Utente/Família) fica de facto registado; a conta em si continua sem backend
-  alert(`Conta criada (demonstração): ${name} <${email}> como ${signupRole === 'utente' ? 'Utente/Família' : 'Médico/Técnico'}.\n\n${signupRole === 'utente' ? 'O utente monitorizado ficou registado e já pode ser consultado pela equipa clínica.' : 'A conta em si continua a ser só uma simulação — falta backend real para autenticação.'}`);
+  const roleLabel = t(signupRole === 'utente' ? 'login.role.utente' : 'login.role.clinico');
+  const suffix = t(signupRole === 'utente' ? 'signup.demoCreatedUtenteSuffix' : 'signup.demoCreatedClinicoSuffix');
+  alert(`${t('signup.demoCreatedPrefix', {name, email, role: roleLabel})}\n\n${suffix}`);
   setLoginRole(signupRole);
   document.getElementById('loginEmail').value = email;
   showLogin();

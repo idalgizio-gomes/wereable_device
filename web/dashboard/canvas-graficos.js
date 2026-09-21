@@ -109,7 +109,6 @@ function drawRoutineTimeline(id, blocks, subtitle, dashedAnomaly){
   const plotW = w - padL - padR;
   const minToX = (m) => padL + (m/1440)*plotW;
 
-  // eixo de horas
   ctx.strokeStyle = resolveVar('--border'); ctx.lineWidth = 1;
   ctx.fillStyle = resolveVar('--text-muted'); ctx.font = canvasFont(10.5);
   ctx.textBaseline = 'middle';
@@ -119,7 +118,6 @@ function drawRoutineTimeline(id, blocks, subtitle, dashedAnomaly){
     ctx.fillText(String(hh).padStart(2,'0')+':00', x - (hh===24?26:0), top-9);
   }
 
-  // barra de fundo
   ctx.fillStyle = resolveVar('--bg-surface-2');
   roundRect(ctx, padL, top, plotW, barH, 6); ctx.fill();
 
@@ -286,7 +284,6 @@ function drawTrend(id){
     s.yAt = (v) => top + plotH - ((v - s.min)/((s.max-s.min)||1))*plotH*0.86 - plotH*0.02;
   });
 
-  // gridlines
   ctx.strokeStyle = resolveVar('--border-soft'); ctx.lineWidth = 1;
   for (let i=0;i<4;i++){ const y = top + (plotH/3)*i; ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(w-padR,y); ctx.stroke(); }
 
@@ -355,7 +352,6 @@ function drawHrSeries(id){
   Array.from({length: tickCount + 1}, (_, i) => Math.round(min + (i * (max - min) / tickCount)))
     .forEach(v=>{ const y=yAt(v); ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(w-padR,y); ctx.stroke(); ctx.fillText(v, 2, y-4); });
 
-  // área
   const grad = ctx.createLinearGradient(0,top,0,top+plotH);
   grad.addColorStop(0, 'rgba(12,163,12,0.28)'); grad.addColorStop(1,'rgba(12,163,12,0.02)');
   ctx.beginPath(); ctx.moveTo(xAt(0), yAt(series[0].hr));
