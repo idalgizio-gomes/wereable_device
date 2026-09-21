@@ -282,6 +282,8 @@ async function login(){
   }
   if (errEl) errEl.style.display = 'none';
   currentRole = API_ROLE_TO_DASHBOARD_ROLE[result.user.role] || 'utente';
+  // Densidade visual: perfis profissionais (leem vários pacientes em sequência) ficam mais compactos
+  document.documentElement.style.setProperty('--density-scale', (currentRole === 'clinico' || currentRole === 'admin_clinical') ? '0.78' : '1');
   privilegedAccessExpiresAt = result.user.privileged_access_expires_at || null;
   privilegedAccessReason = null; //pedido de novo a cada login, nunca reaproveitado de uma sessão anterior
 

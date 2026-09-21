@@ -544,6 +544,7 @@ class BleBridge:
     RECORD_BROADCAST_MIN_INTERVAL_S = 0.25  # no maximo ~4 atualizacoes/seg
     RETENTION_CHECK_INTERVAL_S = 6 * 3600  # limpeza de sensor_records (orm.purge)
     ORM_RETENTION_INTERVAL_S = 86400  # limpeza GDPR-006 do ORM, politicas em anos
+    DB_ENCRYPTION_CHECKPOINT_INTERVAL_S = 900  # GDPR-005: reduz a janela em texto simples em disco
     # limite de taxa para comandos de escrita do dashboard (canal WebSocket nao autenticado); sem isto
     # reset_readings podia ser enviado em loop e apagar o historico do wearable repetidamente
     WRITE_COMMAND_MIN_INTERVAL_S = 2.0
@@ -585,6 +586,18 @@ class BleBridge:
                 print(f"[BRIDGE] erro na limpeza de retencao ORM: {exc}")
             await asyncio.sleep(self.ORM_RETENTION_INTERVAL_S)
 
+    async def periodic_db_encryption_checkpoint_task(self) -> None:
+        """GDPR-005: recifra periodicamente o carewear.db em repouso (ver
+        storage_advanced.checkpoint_db_encryption). Sem CAREWEAR_DB_ENCRYPTION_KEY/SALT_HEX
+        configuradas, não faz nada a cada iteração — custo de um no-op."""
+        while True:
+            await asyncio.sleep(self.DB_ENCRYPTION_CHECKPOINT_INTERVAL_S)
+            try:
+                if sa:
+                    sa.checkpoint_db_encryption()
+            except Exception as exc:  # noqa: BLE001 - nunca deve derrubar o bridge
+                print(f"[BRIDGE] erro no checkpoint de cifra do .db (GDPR-005): {exc}")
+
     async def broadcast(self, payload: dict) -> None:
         if not self.ws_clients:
             return
@@ -593,6 +606,12 @@ class BleBridge:
         # size during iteration" quando ws_handler faz add()/discard() a meio de um broadcast
         dead = set()
         for ws in list(self.ws_clients):
+            # mesma regra de _authorize_patient() em api.py: Admin de Sistema nunca ve dados
+            # clinicos. Os comandos (WS_COMMAND_ROLES) ja recusavam pedidos deste perfil, mas o
+            # broadcast passivo (telemetria ao vivo, alertas) ia a todos os clientes ligados sem
+            # filtro nenhum — um admin puro conseguia observar tudo so por manter a ligacao aberta.
+            if self._ws_user_role(ws) == "admin":  # Admin de Sistema — mesma regra de _authorize_patient() em api.py
+                continue
             try:
                 await ws.send(message)
             except websockets.exceptions.ConnectionClosed:
@@ -1964,6 +1983,7 @@ async def main() -> None:
     async with server:
         asyncio.create_task(bridge.periodic_retention_task())
         asyncio.create_task(bridge.periodic_orm_retention_task())
+        asyncio.create_task(bridge.periodic_db_encryption_checkpoint_task())
         # em paralelo com o ciclo BLE: um alerta tem de escalar mesmo com o wearable desligado
         asyncio.create_task(bridge.periodic_alert_escalation_task())
         await bridge.run_device_loop()
@@ -1973,3 +1993,11 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("\n[BRIDGE] terminado pelo utilizador")
+    finally:
+        # GDPR-005: além do atexit em storage_advanced.py, força o checkpoint aqui para cobrir
+        # também paragens por SystemExit/sinais que não disparam atexit em todas as plataformas.
+        if sa:
+            try:
+                sa.checkpoint_db_encryption()
+            except Exception as exc:  # noqa: BLE001
+                print(f"[BRIDGE] erro no checkpoint final de cifra do .db (GDPR-005): {exc}")

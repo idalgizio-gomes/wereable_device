@@ -1,8 +1,8 @@
-CareWear — credenciais de teste (criadas 2026-09-11)
-=====================================================
+CareWear — credenciais de teste (criadas 2026-09-11, admin clínico acrescentado 2026-09-21)
+=============================================================================================
 
-Não existem credenciais "universais" por omissão. Estas 3 contas foram criadas
-manualmente em bridge/carewear.db para testar os 3 perfis do dashboard.
+Não existem credenciais "universais" por omissão. Estas 4 contas foram criadas
+manualmente em bridge/carewear.db para testar os 4 perfis do dashboard.
 
 Utente / Família
   Email:         familia@carewear.pt
@@ -12,9 +12,23 @@ Médico / Técnico
   Email:         clinico@carewear.pt
   Palavra-passe: [PASSWORD REMOVIDA DO HISTORICO 2026-09-21]
 
-Administrador
+Administrador (de Sistema)
   Email:         admin@carewear.pt
   Palavra-passe: [PASSWORD REMOVIDA DO HISTORICO 2026-09-21]
+  Nota: sem acesso a dados clínicos — _authorize_patient() em bridge/api.py
+  devolve sempre 404 para este perfil, por desenho.
+
+Admin Clínico / Suporte Autorizado
+  Email:         admin.clinico@carewear.pt
+  Palavra-passe: CareWear2026!acl
+  Acesso de LEITURA a dados clínicos, sujeito a duas condições em simultâneo:
+    1. Concessão temporal ativa (privileged_access_expires_at no futuro) —
+       já concedidas 8h a partir de 2026-09-21 ~11:24 (hora local); depois de
+       expirar, concede mais no dashboard (Administração → "Conceder 8h") ou
+       via PATCH /api/admin/users/{id} com {"privileged_access_hours": 8}.
+    2. Motivo explícito por pedido (query param "reason", mín. 8 caracteres),
+       registado em auditoria (AuditLog, ação privileged_clinical_access).
+  Nunca gere contas de outros utilizadores — só o Admin de Sistema o faz.
 
 -----------------------------------------------------
 Nota: o utilizador local@carewear.invalid que já existia na base de dados

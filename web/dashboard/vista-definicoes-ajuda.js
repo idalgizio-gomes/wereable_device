@@ -139,8 +139,8 @@ TEMPLATES.definicoes = () => `
         <tr>
           <td>${t(WEEKDAY_KEYS[wd])}</td>
           <td><label class="consent-toggle"><input type="checkbox" aria-label="${t('definicoes.scheduleDayAria')} ${t(WEEKDAY_KEYS[wd])}" ${enabled?'checked':''} onchange="setCaregiverScheduleDay(${wd},'enabled',this.checked)"><span></span></label></td>
-          <td><input type="time" class="row-input" value="${entry ? entry.start : '09:00'}" ${enabled?'':'disabled'} onchange="setCaregiverScheduleDay(${wd},'start',this.value)"></td>
-          <td><input type="time" class="row-input" value="${entry ? entry.end : '17:00'}" ${enabled?'':'disabled'} onchange="setCaregiverScheduleDay(${wd},'end',this.value)"></td>
+          <td><input type="time" class="row-input" aria-label="${t('definicoes.scheduleThStart')} — ${t(WEEKDAY_KEYS[wd])}" value="${entry ? entry.start : '09:00'}" ${enabled?'':'disabled'} onchange="setCaregiverScheduleDay(${wd},'start',this.value)"></td>
+          <td><input type="time" class="row-input" aria-label="${t('definicoes.scheduleThEnd')} — ${t(WEEKDAY_KEYS[wd])}" value="${entry ? entry.end : '17:00'}" ${enabled?'':'disabled'} onchange="setCaregiverScheduleDay(${wd},'end',this.value)"></td>
         </tr>`;
         }).join('')}
       </tbody>
@@ -159,9 +159,9 @@ TEMPLATES.definicoes = () => `
   <div class="card">
     <div class="card-head"><div><h3>${t('definicoes.emergencyContactTitle')}</h3><div class="card-sub">${t('definicoes.emergencyContactSubtitle')}</div></div></div>
     <div class="note-form">
-      <input type="text" value="${escapeHtml(ec.name)}" placeholder="${t('definicoes.emergencyContactNamePlaceholder')}" style="flex:1;" onchange="updateEmergencyContactField('name', this.value)">
-      <input type="tel" value="${escapeHtml(ec.phone)}" placeholder="${t('definicoes.emergencyContactPhonePlaceholder')}" onchange="updateEmergencyContactField('phone', this.value)">
-      <input type="text" value="${escapeHtml(ec.relation)}" placeholder="${t('definicoes.emergencyContactRelationPlaceholder')}" onchange="updateEmergencyContactField('relation', this.value)">
+      <input type="text" value="${escapeHtml(ec.name)}" placeholder="${t('definicoes.emergencyContactNamePlaceholder')}" aria-label="${t('definicoes.emergencyContactNamePlaceholder')}" style="flex:1;" onchange="updateEmergencyContactField('name', this.value)">
+      <input type="tel" value="${escapeHtml(ec.phone)}" placeholder="${t('definicoes.emergencyContactPhonePlaceholder')}" aria-label="${t('definicoes.emergencyContactPhonePlaceholder')}" onchange="updateEmergencyContactField('phone', this.value)">
+      <input type="text" value="${escapeHtml(ec.relation)}" placeholder="${t('definicoes.emergencyContactRelationPlaceholder')}" aria-label="${t('definicoes.emergencyContactRelationPlaceholder')}" onchange="updateEmergencyContactField('relation', this.value)">
     </div>
     <p class="empty-hint">${t('definicoes.emergencyContactNote')}</p>
   </div>`;

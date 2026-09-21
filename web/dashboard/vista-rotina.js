@@ -22,7 +22,8 @@ TEMPLATES.rotina = () => `
       <div><h3>${t('rotina.notesTitle')}</h3><div class="card-sub">${t('rotina.notesSubtitle')}</div></div>
     </div>
     <div class="note-form">
-      <textarea id="noteInput" placeholder="${t('rotina.notePlaceholder')}" rows="2"></textarea>
+      <label class="sr-only" for="noteInput">${t('rotina.notesTitle')}</label>
+      <textarea id="noteInput" placeholder="${t('rotina.notePlaceholder')}" aria-label="${t('rotina.notesTitle')}" rows="2"></textarea>
       <button class="btn-secondary" onclick="addCaregiverNote()">${t('rotina.addNoteBtn')}</button>
     </div>
     <div class="note-list" id="noteList"></div>

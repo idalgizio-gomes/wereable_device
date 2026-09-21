@@ -4,6 +4,7 @@ analíticas, retenção automática, cifra de campos sensíveis (NIF, morada).""
 
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import secrets
@@ -21,8 +22,19 @@ from sqlalchemy.pool import StaticPool
 from sqlalchemy.exc import IntegrityError
 
 from crypto_utils import decrypt_field, encrypt_field
+from db_at_rest import decrypt_db_file, encrypt_db_file, is_db_encryption_configured
 
 DB_URL = os.environ.get("DATABASE_URL", "sqlite:///./carewear.db")
+
+# GDPR-005: cifra do ficheiro .db em repouso (AES-256-GCM, ver db_at_rest.py). Só se aplica a
+# um ficheiro SQLite real em disco — nunca a :memory: (usado pelos testes).
+_DB_PLAIN_PATH: Optional[str] = None
+_DB_ENC_PATH: Optional[str] = None
+if DB_URL.startswith("sqlite:///") and ":memory:" not in DB_URL:
+    _DB_PLAIN_PATH = DB_URL[len("sqlite:///"):]
+    _DB_ENC_PATH = _DB_PLAIN_PATH + ".enc"
+    if is_db_encryption_configured():
+        decrypt_db_file(_DB_ENC_PATH, _DB_PLAIN_PATH)
 
 if DB_URL.startswith("sqlite"):
     engine = create_engine(
@@ -40,6 +52,21 @@ if DB_URL.startswith("sqlite"):
         cursor.close()
 else:
     engine = create_engine(DB_URL, echo=False, pool_pre_ping=True)
+
+
+def checkpoint_db_encryption() -> None:
+    """GDPR-005: grava o estado atual do .db cifrado em repouso. Chamar periodicamente (ver
+    ble_bridge.py::periodic_db_encryption_checkpoint_task) e no encerramento controlado do bridge.
+    Sem chave configurada ou sem ficheiro SQLite real em disco, não faz nada."""
+    if not _DB_ENC_PATH or not is_db_encryption_configured():
+        return
+    with engine.connect() as conn:
+        conn.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
+    encrypt_db_file(_DB_PLAIN_PATH, _DB_ENC_PATH)
+
+
+if _DB_ENC_PATH:
+    atexit.register(checkpoint_db_encryption)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()

@@ -151,6 +151,48 @@ class TestMaybeBroadcastVitalAlert:
         assert msgs[1]["level"] == "high"
 
 
+class TestBroadcastFiltraPorPerfil:
+    """Admin de Sistema nunca deve receber telemetria/alertas passivos (broadcast()) —
+    mesma regra que _authorize_patient() já aplica na API REST (bridge/api.py). Antes desta
+    correção, broadcast() enviava a QUALQUER ligação WS ativa, admin incluído."""
+
+    def test_admin_puro_nao_recebe_broadcast(self, bridge):
+        ws_admin = FakeWebSocket()
+        ws_admin._carewear_user_role = "admin"
+        bridge.ws_clients.add(ws_admin)
+
+        asyncio.run(bridge.broadcast({"kind": "device_status", "connected": True}))
+
+        assert ws_admin.sent == []
+
+    def test_family_e_clinician_e_admin_clinical_recebem_broadcast(self, bridge):
+        clientes = {}
+        for role in ("family", "clinician", "admin_clinical"):
+            ws = FakeWebSocket()
+            ws._carewear_user_role = role
+            bridge.ws_clients.add(ws)
+            clientes[role] = ws
+
+        asyncio.run(bridge.broadcast({"kind": "device_status", "connected": True}))
+
+        for role, ws in clientes.items():
+            assert len(ws.sent) == 1, f"perfil {role} devia ter recebido o broadcast"
+            assert ws.sent[0]["kind"] == "device_status"
+
+    def test_admin_e_outros_perfis_em_simultaneo_so_admin_fica_de_fora(self, bridge):
+        ws_admin = FakeWebSocket()
+        ws_admin._carewear_user_role = "admin"
+        ws_clinico = FakeWebSocket()
+        ws_clinico._carewear_user_role = "clinician"
+        bridge.ws_clients.add(ws_admin)
+        bridge.ws_clients.add(ws_clinico)
+
+        asyncio.run(bridge.broadcast({"kind": "live_record", "hr": 72}))
+
+        assert ws_admin.sent == []
+        assert len(ws_clinico.sent) == 1
+
+
 class TestComandosWsDeLimiares:
     def test_get_thresholds_returns_defaults_for_new_patient(self, bridge):
         ws = FakeWebSocket()

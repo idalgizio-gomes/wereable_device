@@ -107,6 +107,14 @@
        canvas-graficos.js). 1 = tamanho base. */
     --font-scale:1;
 
+    /* Densidade visual ajustada por perfil (2026-09-21) — cuidadores
+       familiares beneficiam de espaçamento generoso (valor base 1);
+       perfis profissionais (clínico/admin_clinical) recebem um valor
+       mais baixo definido em login()/setLoginRole() de auth-navegacao.js,
+       porque comparam vários pacientes e leem números em sequência.
+       Mesmo mecanismo do --font-scale acima, eixo independente. */
+    --density-scale:1;
+
     --radius-sm:6px;
     --radius-md:10px;
     --font-ui: -apple-system, "Segoe UI", "Segoe UI Variable", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -452,7 +460,7 @@
   .avatar-chip .name{ font-size:calc(12.5px * var(--font-scale)); font-weight:600; }
   .avatar-chip .role{ font-size:calc(10.5px * var(--font-scale)); color:var(--text-muted); }
 
-  .content{ padding:22px 26px 60px; display:flex; flex-direction:column; gap:20px; max-width:1440px; width:100%; margin:0 auto; }
+  .content{ padding:22px 26px 60px; display:flex; flex-direction:column; gap:calc(20px * var(--density-scale)); max-width:1440px; width:100%; margin:0 auto; }
 
   .section-title-row{ display:flex; align-items:baseline; justify-content:space-between; }
   .section-title-row h2{ font-size:calc(15px * var(--font-scale)); font-weight:600; }
@@ -473,13 +481,13 @@
   .stat-pill{ font-size:calc(10.5px * var(--font-scale)); font-weight:700; padding:2px 7px; border-radius:20px; letter-spacing:0.02em; }
 
   /* generic card */
-  .grid-2{ display:grid; grid-template-columns: 1.55fr 1fr; gap:16px; align-items:start; }
-  .grid-2b{ display:grid; grid-template-columns: 1fr 1fr; gap:16px; align-items:start; }
+  .grid-2{ display:grid; grid-template-columns: 1.55fr 1fr; gap:calc(16px * var(--density-scale)); align-items:start; }
+  .grid-2b{ display:grid; grid-template-columns: 1fr 1fr; gap:calc(16px * var(--density-scale)); align-items:start; }
   @media (max-width: 1080px){ .grid-2, .grid-2b{ grid-template-columns:1fr; } }
 
   .card{
     background:var(--bg-surface); border:1px solid var(--border); border-radius:var(--radius-md);
-    padding:16px 17px 18px;
+    padding:calc(16px * var(--density-scale)) calc(17px * var(--density-scale)) calc(18px * var(--density-scale));
   }
   .card-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
   .card-head h3{ font-size:calc(13.5px * var(--font-scale)); font-weight:600; }
@@ -589,9 +597,9 @@
   table.data-table{ width:100%; border-collapse:collapse; font-size:calc(12.5px * var(--font-scale)); }
   table.data-table th{
     text-align:left; font-size:calc(11px * var(--font-scale)); text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted);
-    font-weight:600; padding:0 10px 8px; border-bottom:1px solid var(--border);
+    font-weight:600; padding:0 10px calc(8px * var(--density-scale)); border-bottom:1px solid var(--border);
   }
-  table.data-table td{ padding:10px; border-bottom:1px solid var(--border-soft); vertical-align:middle; }
+  table.data-table td{ padding:calc(10px * var(--density-scale)); border-bottom:1px solid var(--border-soft); vertical-align:middle; }
   table.data-table tr:last-child td{ border-bottom:none; }
   table.data-table td.num{ font-variant-numeric:tabular-nums; font-family:var(--font-mono); }
   .row-input{ width:64px; background:var(--bg-surface-2); border:1px solid var(--border); border-radius:5px; padding:5px 7px; font-family:var(--font-mono); font-variant-numeric:tabular-nums; }

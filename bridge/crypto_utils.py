@@ -59,6 +59,12 @@ def encryption_configured() -> bool:
     return _ENCRYPTION_KEY is not None
 
 
+def get_encryption_key() -> bytes | None:
+    """Devolve a chave AES-256 já derivada, para reutilização por outros módulos (ex.: db_at_rest.py
+    para cifra do ficheiro .db em repouso). None se as variáveis de ambiente não estiverem definidas."""
+    return _ENCRYPTION_KEY
+
+
 def encrypt_field(plaintext: str | None) -> str | None:
     """Cifra uma string sensível. Devolve texto simples se a cifra não estiver configurada."""
     if plaintext is None:
