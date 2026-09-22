@@ -89,7 +89,7 @@ async function resolvePatientDbIds(){
   PATIENTS.forEach(p => {
     if (!p.dbUuid) { delete p.dbId; return; } // sem dbUuid não há resolução — nunca cai para o número do id
     const row = byUuid.get(String(p.dbUuid));
-    if (!row) { delete p.dbId; return; }  // uuid desconhecido nesta base
+    if (!row) { delete p.dbId; return; }
     p.dbId = row.id;
     p.dbPseudonym = row.pseudonym || null;
     resolved++;
@@ -143,7 +143,6 @@ function addPatient(name, age, deviceName, mac){
   if (currentView) renderView(currentView);
   return record;
 }
-// replay dos pacientes adicionados em sessões anteriores
 loadAddedPatients().forEach(record => PATIENTS.push(buildPatientRecord(record)));
 
 // atribuição paciente <-> conta clínica: sem backend real, "conta" é só o email do login (localStorage, protótipo)
@@ -289,7 +288,6 @@ function saveDeviceRegistry(map){
   try { localStorage.setItem(DEVICE_REGISTRY_KEY, JSON.stringify(map)); }
   catch (e) { /* quota excedida ou localStorage indisponível - fica só em memória */ }
 }
-// MAC registado por uma ligação real anterior, senão o de demonstração fixo
 function registeredMacFor(patientId, demoMac){
   const reg = loadDeviceRegistry();
   return reg[patientId] || demoMac;

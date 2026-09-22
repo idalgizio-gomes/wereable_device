@@ -124,6 +124,21 @@ uint32_t nowUtc() {
   return epoch;
 }
 
+// Mesmo calculo que nowUtc(), mas com precisao de milissegundo em vez de truncar para segundo.
+uint64_t nowUtcMs() {
+  if (!s_started) begin();
+
+  uint64_t epochMs = 0;
+  taskENTER_CRITICAL();
+  if (s_valid) {
+    updateTicksLocked();
+    epochMs = (uint64_t)s_epochBase * 1000ULL + (s_ticksSinceSet * 1000ULL) / kRtcFreqHz;
+  }
+  taskEXIT_CRITICAL();
+
+  return epochMs;
+}
+
 bool formatTime(char *out, size_t outLen) {
   if (out == nullptr || outLen < 9) return false; // "HH:MM:SS\0"
   const uint32_t epoch = nowUtc();

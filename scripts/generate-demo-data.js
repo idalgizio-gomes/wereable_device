@@ -337,7 +337,6 @@ function main() {
   const out = [
     '// web/dashboard/demo-data.js',
     '// GERADO AUTOMATICAMENTE por scripts/generate-demo-data.js — NAO EDITAR A MAO.',
-    `// Gerado em: ${new Date().toISOString()}`,
     `// Seed do dia: "${dateStr}" (seed=${seed})`,
     '// Nunca contem dados reais de pacientes — ver PROJECT_STATUS.md, "Regra de ouro".',
     '// Consumido por web/dashboard/index.html com fallback defensivo (ver as',

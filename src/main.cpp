@@ -12,6 +12,7 @@
 #include "Display/Ui.h"
 #include "Storage/Storage.h"
 #include "Imu/Imu.h"
+#include "Gnss/Gnss.h"
 #include "Ppg/Ppg.h"
 #include "Ble/Ble.h"
 #include "QspiRingBuffer/QspiRingBuffer.h"
@@ -139,11 +140,18 @@ void storageTask(void *arg) {
     const uint32_t nowUtc = Clock::nowUtc();
     if (nowUtc != 0) recTs = nowUtc;
 
+    // seq capturado ANTES do push() para refletir o slot que este push vai mesmo ocupar
+    const uint32_t predictedSeq = (nowUtc != 0) ? QspiRingBuffer::nextSeq() : 0;
+    const uint64_t nowMs = (nowUtc != 0) ? Clock::nowUtcMs() : 0;
+
     if (QspiRingBuffer::push(kImuPpgRecordTypeV1,
                              reinterpret_cast<const uint8_t *>(&payload),
                              sizeof(payload),
                              recTs)) {
       pushed++;
+      if (nowUtc != 0) {
+        Ble::publishLatencyProbe(predictedSeq, nowMs);
+      }
       if (payload.spo2 != 0 || payload.hr != 0) {
         Serial.print("[STOR] PPG reg spo2=");
         Serial.print(payload.spo2);
@@ -395,6 +403,14 @@ void initImu() {
   Serial.println("[IMU] imu_task ativa");
 }
 
+void initGnss() {
+  if (!Gnss::begin()) {
+    Serial.println("[GNSS] init falhou");
+    return;
+  }
+  Serial.println("[GNSS] init OK");
+}
+
 void initPpg() {
   Serial.println("[PPG] initPpg(): inicio");
   if (!Ppg::begin()) {
@@ -569,6 +585,8 @@ void setup() {
   initQspiRingBuffer();
   Serial.println("[BOOT] step: initImu");
   initImu();
+  Serial.println("[BOOT] step: initGnss");
+  initGnss();
   Serial.println("[BOOT] step: initStorageTask");
   initStorageTask();
   Serial.println("[BOOT] step: initPpg");
@@ -652,6 +670,37 @@ void loop() {
         Serial.print(" percent=");
         Serial.println(batt.percent);
       }
+    }
+
+    // gestao de energia do GNSS: corre livremente sem ligacao BLE; em ligacao, so' liga para atender pedido forcado
+    const bool bleConnected = Bluefruit.connected() > 0;
+    if (!bleConnected) {
+      if (!Gnss::isTaskRunning()) {
+        Gnss::startTask();
+        Serial.println("[GNSS] sem ligacao BLE -> task iniciada");
+      }
+    } else if (Ble::consumeGnssForceRequest()) {
+      Serial.println("[GNSS] pedido de leitura forcada recebido");
+      if (!Gnss::isTaskRunning()) Gnss::startTask();
+
+      Gnss::Sample sample = {};
+      bool gotSample = false;
+      for (uint8_t i = 0; i < 12; i++) { // ~1200ms
+        delay(100);
+        if (Gnss::getLatestSample(sample) && sample.fix) {
+          gotSample = true;
+          break;
+        }
+      }
+      if (!gotSample) Gnss::getLatestSample(sample); // usa o que houver, fix pode ficar false
+
+      Ble::publishGnssStatus(sample.fix, sample.siv, sample.timestamp_ms,
+                              sample.latitude, sample.longitude, sample.altitude_mm);
+
+      Gnss::stopTask(); // ligacao ativa -> volta a poupanca de energia
+    } else if (Gnss::isTaskRunning()) {
+      Gnss::stopTask();
+      Serial.println("[GNSS] ligacao BLE ativa -> task parada");
     }
 
 #if DEBUG_STACK_WATERMARKS

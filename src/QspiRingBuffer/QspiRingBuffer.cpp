@@ -505,6 +505,12 @@ bool push(uint16_t type, const uint8_t *payload, uint16_t len, uint32_t timestam
   return true;
 }
 
+// sem lock: so seguro chamado do mesmo contexto/task que chama push()
+uint32_t nextSeq() {
+  if (!s_started) return 0;
+  return s_meta.next_seq;
+}
+
 bool peek(Record &out) {
   LockGuard lock;
   if (!s_started || s_meta.count == 0) return false;

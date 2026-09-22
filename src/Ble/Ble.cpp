@@ -25,9 +25,14 @@ BLECharacteristic emergencyProfileWriteChar("abcd1234-5678-1234-5678-abcdef20000
 BLECharacteristic emergencyProfileChar     ("abcd1234-5678-1234-5678-abcdef200006");
 // snapshot "ao vivo" do ring buffer, paralelo ao dump historico (que entrega por ordem cronologica e pode ficar minutos atrasado)
 BLECharacteristic liveSnapshotChar         ("abcd1234-5678-1234-5678-abcdef200007");
+// estado da leitura de GNSS forcada via dumpCtrlChar; nao cifrado por AES-CTR, so encriptacao de link (mesmo padrao que dumpStatusChar)
+BLECharacteristic gnssStatusChar           ("abcd1234-5678-1234-5678-abcdef200008");
+// telemetria de latencia sensor->bridge (rec_seq + timestamp); metadados de timing apenas, sem dados clinicos
+BLECharacteristic latencyProbeChar         ("abcd1234-5678-1234-5678-abcdef200009");
 BLEBas batteryService; // Battery Service padrao (0x180F/0x2A19)
 
 volatile bool s_dataModeEnabled = false; // lido tambem por gattDumpTask em BleGattDump.cpp
+volatile bool s_gnssForceRequested = false; // consumido por Ble::consumeGnssForceRequest() no loop() de main.cpp
 
 namespace {
 
@@ -199,6 +204,12 @@ static void dumpCtrlCallback(uint16_t conn_hdl, BLECharacteristic *chr,
     return;
   }
 
+  if (cmd == kDumpCtrlForceGnss) {
+    s_gnssForceRequested = true;
+    Serial.println("[BLEG][DUMP] FORCE_GNSS pedido");
+    return;
+  }
+
   if (cmd == kDumpCtrlResetReadings) {
     // DESTRUTIVO E IRREVERSIVEL: apaga so o ring buffer (calibracao IMU e chave AES ficam intactas); format() usa mutex interno, seguro contra storageTask/gattDumpTask concorrentes
     s_dumpStopRequested = true;
@@ -299,6 +310,16 @@ bool begin() {
   liveSnapshotChar.setPermission(SECMODE_ENC_NO_MITM, SECMODE_NO_ACCESS);
   liveSnapshotChar.setFixedLen(sizeof(DumpDataPacket));
   liveSnapshotChar.begin();
+
+  gnssStatusChar.setProperties(CHR_PROPS_NOTIFY | CHR_PROPS_READ);
+  gnssStatusChar.setPermission(SECMODE_ENC_NO_MITM, SECMODE_NO_ACCESS);
+  gnssStatusChar.setFixedLen(sizeof(GnssStatusPacket));
+  gnssStatusChar.begin();
+
+  latencyProbeChar.setProperties(CHR_PROPS_NOTIFY | CHR_PROPS_READ);
+  latencyProbeChar.setPermission(SECMODE_ENC_NO_MITM, SECMODE_NO_ACCESS);
+  latencyProbeChar.setFixedLen(sizeof(LatencyProbePacket));
+  latencyProbeChar.begin();
 
   emergencyAlertChar.setProperties(CHR_PROPS_NOTIFY | CHR_PROPS_READ);
   emergencyAlertChar.setPermission(SECMODE_ENC_NO_MITM, SECMODE_NO_ACCESS);
@@ -550,6 +571,44 @@ void notifyEmergencyAlert(uint8_t alertType, uint32_t timestampUtc) {
   Serial.print(alertType);
   Serial.print(" seq=");
   Serial.println(pkt.seq);
+}
+
+bool consumeGnssForceRequest() {
+  if (!s_gnssForceRequested) return false;
+  s_gnssForceRequested = false;
+  return true;
+}
+
+void publishGnssStatus(bool fix, uint8_t siv, uint32_t timestampMs, int32_t latitude, int32_t longitude, int32_t altitudeMm) {
+  GnssStatusPacket pkt{};
+  pkt.type = kGnssStatusType;
+  pkt.fix = fix ? 1 : 0;
+  pkt.siv = siv;
+  pkt.reserved = 0;
+  pkt.timestamp_ms = timestampMs;
+  pkt.latitude = latitude;
+  pkt.longitude = longitude;
+  pkt.altitude_mm = altitudeMm;
+
+  gnssStatusChar.write(reinterpret_cast<const uint8_t *>(&pkt), sizeof(pkt));
+  if (Bluefruit.connected() > 0) {
+    (void)gnssStatusChar.notify(reinterpret_cast<const uint8_t *>(&pkt), sizeof(pkt));
+  }
+}
+
+void publishLatencyProbe(uint32_t recSeq, uint64_t epochMs) {
+  LatencyProbePacket pkt{};
+  pkt.type = kLatencyProbeType;
+  pkt.reserved[0] = 0;
+  pkt.reserved[1] = 0;
+  pkt.reserved[2] = 0;
+  pkt.rec_seq = recSeq;
+  pkt.epoch_ms = epochMs;
+
+  latencyProbeChar.write(reinterpret_cast<const uint8_t *>(&pkt), sizeof(pkt));
+  if (Bluefruit.connected() > 0) {
+    (void)latencyProbeChar.notify(reinterpret_cast<const uint8_t *>(&pkt), sizeof(pkt));
+  }
 }
 
 void updateBatteryLevel(uint8_t percent) {

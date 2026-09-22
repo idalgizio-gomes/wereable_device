@@ -1,6 +1,5 @@
 // web/dashboard/demo-data.js
 // GERADO AUTOMATICAMENTE por scripts/generate-demo-data.js — NAO EDITAR A MAO.
-// Gerado em: 2026-09-21T09:57:10.877Z
 // Seed do dia: "2026-09-21" (seed=624201909)
 // Nunca contem dados reais de pacientes — ver PROJECT_STATUS.md, "Regra de ouro".
 // Consumido por web/dashboard/index.html com fallback defensivo (ver as

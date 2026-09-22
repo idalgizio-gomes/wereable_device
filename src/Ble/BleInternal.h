@@ -19,6 +19,8 @@ extern BLECharacteristic emergencyAlertChar;
 extern BLECharacteristic emergencyProfileWriteChar;
 extern BLECharacteristic emergencyProfileChar;
 extern BLECharacteristic liveSnapshotChar;
+extern BLECharacteristic gnssStatusChar;
+extern BLECharacteristic latencyProbeChar;
 extern BLEBas             batteryService;
 
 // config do "modo de dados" (streaming GATT)
@@ -45,8 +47,11 @@ constexpr uint8_t kDumpCtrlStop = 0x02;
 constexpr uint8_t kDumpCtrlForceHr = 0x03;
 constexpr uint16_t kForceHrDefaultSeconds = 15;
 constexpr uint8_t kDumpCtrlResetReadings = 0x04;
+constexpr uint8_t kDumpCtrlForceGnss = 0x05;
 constexpr uint8_t kDumpDataType = 0xA1;
 constexpr uint8_t kDumpStatusType = 0xA2;
+constexpr uint8_t kGnssStatusType = 0xA3;
+constexpr uint8_t kLatencyProbeType = 0xA4;
 constexpr const char *kBleBuildTag = "BLE_GATT_DUMP_V1";
 
 struct __attribute__((packed)) FullPlain {
@@ -91,6 +96,17 @@ struct FullMappedRecord {
   FullPlain payload;
 };
 
+struct __attribute__((packed)) GnssStatusPacket {
+  uint8_t type;
+  uint8_t fix;
+  uint8_t siv;
+  uint8_t reserved;
+  uint32_t timestamp_ms;
+  int32_t latitude;
+  int32_t longitude;
+  int32_t altitude_mm;
+};
+
 struct __attribute__((packed)) EmergencyAlertPacket {
   uint8_t type;
   uint8_t reserved;
@@ -98,10 +114,19 @@ struct __attribute__((packed)) EmergencyAlertPacket {
   uint32_t timestamp_utc;
 };
 
+struct __attribute__((packed)) LatencyProbePacket {
+  uint8_t type;
+  uint8_t reserved[3];
+  uint32_t rec_seq;
+  uint64_t epoch_ms;
+};
+
 static_assert(sizeof(FullPlain) == 39, "FullPlain v3 must have 39 bytes");
 static_assert(sizeof(DumpDataPacket) == 20, "DumpDataPacket must have 20 bytes");
 static_assert(sizeof(DumpStatusPacket) == 20, "DumpStatusPacket must have 20 bytes");
+static_assert(sizeof(GnssStatusPacket) == 20, "GnssStatusPacket must have 20 bytes");
 static_assert(sizeof(EmergencyAlertPacket) == 8, "EmergencyAlertPacket must have 8 bytes");
+static_assert(sizeof(LatencyProbePacket) == 16, "LatencyProbePacket must have 16 bytes");
 
 enum DumpState : uint8_t {
   DUMP_IDLE = 0,
@@ -121,6 +146,9 @@ extern TaskHandle_t s_dumpTaskHandle;
 // Ligado/desligado do "modo de dados" - definido em Ble.cpp (startBroadcast/
 // stopBroadcast/isBroadcastActive), lido por gattDumpTask em BleGattDump.cpp.
 extern volatile bool s_dataModeEnabled;
+
+// pedido pontual de leitura de GNSS forcada, escrito em dumpCtrlCallback (Ble.cpp), consumido pelo loop() de main.cpp
+extern volatile bool s_gnssForceRequested;
 
 // Funcoes definidas em BleGattDump.cpp, chamadas a partir de Ble.cpp.
 void cacheAesKey(const uint8_t *key, size_t len);

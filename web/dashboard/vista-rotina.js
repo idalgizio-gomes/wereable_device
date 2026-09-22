@@ -131,7 +131,6 @@ function loadRealWeeklyActivityThenRerender(){
   });
 }
 
-//RF-09 — cartão de revisão: alertas marcáveis como falso positivo + fila de rótulos já marcados
 function renderHitlReviewCard(hostId){
   const host = document.getElementById(hostId);
   if (!host) return;
@@ -272,7 +271,6 @@ function renderActivityDetail(catKey){
   const count = blocks.length;
   const avgMin = count ? Math.round(totalMin / count) : 0;
 
-  // Real (BD, via activity-distribution) quando disponível para este paciente; sintético senão.
   const realForPatient = realWeeklyActivity && realWeeklyActivity.patientId === selectedPatient().id
     ? realWeeklyActivity.byLocalCat[catKey] : null;
   const weekly = realForPatient || buildCategoryWeekly(catKey);
@@ -335,7 +333,6 @@ function drawCategoryWeeklyBar(id, weekly, color){
   S.cv.onmouseleave = hideTip;
 }
 
-//Tendência de 7 dias do índice de pacing
 function drawPacingTrend(id, data){
   const S = setupCanvas(id, 110);
   if (!S) return;

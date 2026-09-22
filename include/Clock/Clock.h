@@ -58,6 +58,10 @@ bool isValid();
 // hora atual (ex.: para dar timestamp a um evento).
 uint32_t nowUtc();
 
+// Epoch UTC atual em milissegundos (mesmo calculo que nowUtc(), sem truncar
+// para segundo). Devolve 0 se invalido.
+uint64_t nowUtcMs();
+
 // Formata "HH:MM:SS" e "DD/MM/YYYY".
 // Escreve a hora atual formatada em "out" (buffer fornecido pelo
 // chamador, com capacidade "outLen"). Devolve false se "out" for nulo,

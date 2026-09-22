@@ -168,6 +168,9 @@ uint32_t capacity();
 // ultima formatacao. Util para diagnostico/telemetria.
 uint32_t droppedByErase();
 
+// Devolve o seq que sera atribuido ao proximo push(), sem o consumir. So seguro se chamado a partir do mesmo contexto/task que chama push() (sem lock proprio, deliberado). Retorna 0 se begin() ainda nao foi chamado.
+uint32_t nextSeq();
+
 // Forca a persistencia imediata dos metadados pendentes (head/tail/
 // count/etc.) no journal de metadados da flash, ignorando as regras de
 // "throttling" normalmente usadas para poupar ciclos de escrita (ver

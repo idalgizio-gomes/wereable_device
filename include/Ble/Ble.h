@@ -152,6 +152,15 @@ void notifyEmergencyAlert(uint8_t alertType, uint32_t timestampUtc);
 // (nao a cada iteracao do loop — o nivel de bateria varia devagar).
 void updateBatteryLevel(uint8_t percent);
 
+// Consome (atomicamente) um pedido pendente de leitura de GNSS forcada; chamar a partir do loop() de main.cpp para saber se ha' um pedido por atender.
+bool consumeGnssForceRequest();
+
+// Publica o resultado de uma leitura de GNSS forcada em gnssStatusChar (write + notify, se ligado).
+void publishGnssStatus(bool fix, uint8_t siv, uint32_t timestampMs, int32_t latitude, int32_t longitude, int32_t altitudeMm);
+
+// Publica um probe de latencia (rec_seq + timestamp) em latencyProbeChar; chamar em main.cpp sempre que um registo e' gravado no ring buffer, para medir latencia sensor->bridge (C13) sem expor dados clinicos.
+void publishLatencyProbe(uint32_t recSeq, uint64_t epochMs);
+
 } // namespace Ble
 
 #endif

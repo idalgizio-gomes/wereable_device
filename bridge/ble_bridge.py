@@ -122,6 +122,10 @@ UUID_EMERGENCY_PROFILE_WRITE = "abcd1234-5678-1234-5678-abcdef200005"
 # existe em firmwares a partir desta data; subscrever é tolerante a
 # falha (ver run_device_loop), tal como Battery Level acima.
 UUID_LIVE_SNAPSHOT = "abcd1234-5678-1234-5678-abcdef200007"
+# latencyProbeChar (2026-09-21) — canal paralelo de telemetria de latencia BLE, sem cifra
+# aplicacional (so' cifra de link). Nao existe em firmware anterior a esta data; subscricao
+# e' tolerante a falha, como liveSnapshotChar/Battery Level acima.
+UUID_LATENCY_PROBE = "abcd1234-5678-1234-5678-abcdef200009"
 # Battery Level (0x2A19) — Battery Service padrão do Bluetooth SIG (0x180F),
 # publicada pelo firmware via Ble::updateBatteryLevel()/BLEBas (ver
 # Battery.h/Ble.cpp, 2026-07-19). UUID padrão, não um dos "abcd1234..."
@@ -156,6 +160,14 @@ assert FULL_PLAIN_STRUCT.size == 39, "FullPlain deve ter 39 bytes, igual ao firm
 # reserved (uint8, ignorado), seq (uint16), timestamp_utc (uint32).
 EMERGENCY_ALERT_STRUCT = struct.Struct("<BBHI")
 assert EMERGENCY_ALERT_STRUCT.size == 8, "EmergencyAlertPacket deve ter 8 bytes, igual ao firmware"
+
+# LatencyProbePacket (16 bytes, latencyProbeChar): type (uint8, 0xA4 constante, so' validado),
+# reserved (3 bytes, ignorados), rec_seq (uint32), epoch_ms (uint64 — epoch UTC em ms, momento em
+# que o wearable gravou esse rec_seq no ring buffer local). "<" (little-endian, sem alinhamento
+# nativo) + "3x" cobre exatamente os bytes 1-3 reservados: 1+3+4+8 = 16 bytes.
+LATENCY_PROBE_STRUCT = struct.Struct("<B3xIQ")
+assert LATENCY_PROBE_STRUCT.size == 16, "LatencyProbePacket deve ter 16 bytes, igual ao firmware"
+LATENCY_PROBE_TYPE = 0xA4
 
 # EmergencyAlertType (ver include/Ble/Ble.h) — os valores têm de
 # corresponder exatamente ao enum do firmware.
@@ -460,6 +472,11 @@ class BleBridge:
         self._pending_fragments: dict[int, dict] = {}
         # dicionario separado do liveSnapshotChar: mesmo rec_seq pode aparecer nos dois canais
         self._live_pending_fragments: dict[int, dict] = {}
+        # probes de latencia (latencyProbeChar) pendentes de correlacao com "record"/"live_record"
+        # por rec_seq; mesma logica de limpeza/eviction de _pending_fragments (ver
+        # _prune_stale_latency_probes) — evita fuga de memoria quando a notificacao do registo
+        # correspondente nunca chega (perdida em BLE) ou chega fora de ordem.
+        self._latency_probes: dict[int, dict] = {}
         self.connected_device_name: Optional[str] = None
         self.connected_device_mac: Optional[str] = None
         self.last_record_ts: Optional[int] = None
@@ -551,6 +568,9 @@ class BleBridge:
     # fragmentos BLE perdidos (notify() sem confirmacao) ficavam para sempre em _pending_fragments;
     # entradas mais velhas que isto sao consideradas perdidas e descartadas
     PENDING_FRAGMENT_TIMEOUT_S = 5.0
+    # mesma logica que PENDING_FRAGMENT_TIMEOUT_S, mas para probes de latencia (_latency_probes):
+    # se o "record"/"live_record" correspondente nunca chegar, a probe fica orfa para sempre
+    PENDING_LATENCY_PROBE_TIMEOUT_S = 5.0
 
     async def periodic_retention_task(self) -> None:
         """Aplica a politica de retencao configuravel (storage_advanced.get/set_retention_days via
@@ -601,6 +621,10 @@ class BleBridge:
     async def broadcast(self, payload: dict) -> None:
         if not self.ws_clients:
             return
+        # instrumentação p/ avaliação de latência/jitter (C13/C20) — epoch ms no instante do
+        # broadcast; qualquer cliente WS pode usar para medir atraso até à receção, desde que
+        # corra na mesma máquina do bridge (sem isso, seria preciso NTP entre relógios)
+        payload = {**payload, "_send_ts_ms": time.time() * 1000}
         message = json.dumps(payload)
         # itera sobre copia da lista: iterar direto sobre o set causava "RuntimeError: Set changed
         # size during iteration" quando ws_handler faz add()/discard() a meio de um broadcast
@@ -634,6 +658,24 @@ class BleBridge:
                  if now - e["created_at"] > self.PENDING_FRAGMENT_TIMEOUT_S]
         for seq in stale:
             del self._live_pending_fragments[seq]
+
+    def _pop_ble_latency_ms(self, rec_seq: int) -> Optional[float]:
+        """Consome (remove) a probe de latencyProbeChar pendente para rec_seq, se existir, e
+        devolve o atraso ate' agora em ms; None se nao houver probe correspondente (notificacao
+        de latencia perdida) — nunca inventa um valor nesse caso."""
+        entry = self._latency_probes.pop(rec_seq, None)
+        if entry is None:
+            return None
+        return round((time.time() * 1000) - entry["epoch_ms"], 3)
+
+    def _prune_stale_latency_probes(self) -> None:
+        """Mesma logica de _prune_stale_fragments(), mas sobre _latency_probes: descarta probes
+        cujo "record"/"live_record" correspondente nunca chegou (notificacao perdida)."""
+        now = time.monotonic()
+        stale = [seq for seq, e in self._latency_probes.items()
+                 if now - e["created_at"] > self.PENDING_LATENCY_PROBE_TIMEOUT_S]
+        for seq in stale:
+            del self._latency_probes[seq]
 
     def _on_live_snapshot(self, _char: BleakGATTCharacteristic, data: bytearray) -> None:
         """Callback de liveSnapshotChar (Ble.cpp::sendLiveSnapshot()): mesmo formato/cifra do dump
@@ -703,7 +745,11 @@ class BleBridge:
         # ligado dariam falso "dispositivo removido" numa reconexao com backlog)
         self._observe_wear_state(record)
 
-        asyncio.create_task(self.broadcast({"kind": "live_record", "rec_seq": rec_seq, **record}))
+        live_record_payload = {"kind": "live_record", "rec_seq": rec_seq, **record}
+        ble_latency_ms = self._pop_ble_latency_ms(rec_seq)
+        if ble_latency_ms is not None:
+            live_record_payload["_ble_latency_ms"] = ble_latency_ms
+        asyncio.create_task(self.broadcast(live_record_payload))
 
     def _on_dump_data(self, _char: BleakGATTCharacteristic, data: bytearray) -> None:
         """Callback de dumpDataChar. Cada notificacao e' um fragmento (DumpDataPacket, 20 bytes):
@@ -839,7 +885,11 @@ class BleBridge:
             return  # amostra "normal" enviada ha pouco tempo — poupa o browser
         self._last_broadcast_monotonic = now
 
-        asyncio.create_task(self.broadcast({"kind": "record", "rec_seq": rec_seq, **record}))
+        record_payload = {"kind": "record", "rec_seq": rec_seq, **record}
+        ble_latency_ms = self._pop_ble_latency_ms(rec_seq)
+        if ble_latency_ms is not None:
+            record_payload["_ble_latency_ms"] = ble_latency_ms
+        asyncio.create_task(self.broadcast(record_payload))
 
     async def _score_anomaly_async(self, record: dict) -> None:
         """Corre anomaly_inference.add_sample() em thread pool (model.predict do
@@ -1211,6 +1261,20 @@ class BleBridge:
             return  # valor implausível — ignora em vez de mostrar lixo
         asyncio.create_task(self.broadcast({"kind": "battery", "percent": percent}))
 
+    def _on_latency_probe(self, _char: BleakGATTCharacteristic, data: bytearray) -> None:
+        """Callback de latencyProbeChar (LatencyProbePacket, 16 bytes): type (0xA4, so' validado),
+        3 bytes reservados (ignorados), rec_seq (uint32), epoch_ms (uint64 — instante em que o
+        wearable gravou esse rec_seq no ring buffer). Nao difunde nada sozinho: so' guarda o par
+        {rec_seq: epoch_ms} para _on_dump_data/_on_live_snapshot correlacionarem e calcularem
+        _ble_latency_ms antes do broadcast do "record"/"live_record" correspondente."""
+        if len(data) < LATENCY_PROBE_STRUCT.size:
+            return
+        pkt_type, rec_seq, epoch_ms = LATENCY_PROBE_STRUCT.unpack_from(data, 0)
+        if pkt_type != LATENCY_PROBE_TYPE:
+            return  # tipo inesperado — provavelmente desalinhado, descarta em vez de correlacionar lixo
+        self._latency_probes[rec_seq] = {"epoch_ms": epoch_ms, "created_at": time.monotonic()}
+        self._prune_stale_latency_probes()
+
     def _on_emergency_alert(self, _char: BleakGATTCharacteristic, data: bytearray) -> None:
         """Callback de emergencyAlertChar — SOS manual (3 cliques) ou queda+inatividade
         (Emergency.cpp). Reenvia de imediato, sem o limite de taxa dos registos normais."""
@@ -1355,6 +1419,13 @@ class BleBridge:
                     except Exception as exc:  # noqa: BLE001 - nao bloqueia o resto da ligacao
                         self._live_snapshot_available = False
                         print(f"[BRIDGE] nao foi possivel subscrever liveSnapshotChar "
+                              f"(normal em firmware antigo sem esta characteristic): {exc}")
+                    # idem, so' existe em firmware mais recente (telemetria de latencia); sem isto
+                    # fica so' sem o campo opcional "_ble_latency_ms" nos records difundidos
+                    try:
+                        await client.start_notify(UUID_LATENCY_PROBE, self._on_latency_probe)
+                    except Exception as exc:  # noqa: BLE001 - nao bloqueia o resto da ligacao
+                        print(f"[BRIDGE] nao foi possivel subscrever latencyProbeChar "
                               f"(normal em firmware antigo sem esta characteristic): {exc}")
                     # le o valor atual antes de subscrever (1ª notificacao periodica so' vem 60s depois)
                     try:
