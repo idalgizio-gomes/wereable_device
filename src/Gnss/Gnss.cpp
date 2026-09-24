@@ -3,6 +3,7 @@
 // main.cpp) - ao contrario do IMU/PPG, que correm sempre. Confirmado em hardware 2026-09-22.
 #include "Gnss/Gnss.h"
 #include "QspiRingBuffer/QspiRingBuffer.h"
+#include "SharedI2cBus/SharedI2cBus.h"
 
 #include <SparkFun_u-blox_GNSS_Arduino_Library.h>
 #include <Wire.h>
@@ -68,13 +69,19 @@ void gnssTask(void *arg) {
 
     Gnss::Sample sample = {};
     sample.timestamp_ms = startMs;
-    sample.fix = gnss.getGnssFixOk();
-    sample.siv = gnss.getSIV();
+    {
+      // PPG (Ppg.cpp) usa o mesmo Wire nesta task-scheduling; sem este lock as
+      // duas transacoes I2C intercalavam-se e podiam travar o barramento
+      // (ver hang investigado 2026-09-22/23).
+      SharedI2cBus::Guard i2cGuard;
+      sample.fix = gnss.getGnssFixOk();
+      sample.siv = gnss.getSIV();
 
-    if (sample.fix) {
-      sample.latitude = gnss.getLatitude();
-      sample.longitude = gnss.getLongitude();
-      sample.altitude_mm = gnss.getAltitude();
+      if (sample.fix) {
+        sample.latitude = gnss.getLatitude();
+        sample.longitude = gnss.getLongitude();
+        sample.altitude_mm = gnss.getAltitude();
+      }
     }
 
     taskENTER_CRITICAL();

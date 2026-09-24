@@ -25,24 +25,31 @@ function applyI18n(){
   document.title = t('app.title');
   document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
   document.querySelectorAll('[data-i18n-placeholder]').forEach(el => { el.placeholder = t(el.dataset.i18nPlaceholder); });
+  document.querySelectorAll('[data-i18n-aria]').forEach(el => { el.setAttribute('aria-label', t(el.dataset.i18nAria)); });
   // Reaplica a vista atual via currentView, não via .nav-item.active (esse fica desatualizado em vistas sem nav-item, ex. Ajuda)
   if (currentView && document.getElementById('view-app').classList.contains('active')) renderView(currentView);
   updateDeviceStatusUI();
   updateBatteryUI();
   updateLiveEmergencyBanner();
+  // rótulos da barra lateral (fora de renderView, nunca re-renderizados por ela)
+  if (typeof updateClinicoPatientLabel === 'function') updateClinicoPatientLabel();
+  if (typeof updateUtentePatientLabel === 'function') updateUtentePatientLabel();
 }
 
 function setLanguage(lang){
   currentLang = I18N[lang] ? lang : 'pt';
   localStorage.setItem('carewear_lang', currentLang);
+  document.querySelectorAll('.lang-select').forEach(sel => { sel.value = currentLang; });
   applyI18n();
 }
 
+// vários seletores (barra lateral da app + página de login), todos com a mesma classe;
+// mantidos em sincronia sempre que a língua muda, independentemente de qual foi usado
 function populateLangSelect(){
-  const sel = document.getElementById('langSelect');
-  if (!sel) return;
-  sel.innerHTML = Object.entries(LANG_NAMES).map(([code, name]) => `<option value="${code}">${name}</option>`).join('');
-  sel.value = currentLang;
+  document.querySelectorAll('.lang-select').forEach(sel => {
+    sel.innerHTML = Object.entries(LANG_NAMES).map(([code, name]) => `<option value="${code}">${name}</option>`).join('');
+    sel.value = currentLang;
+  });
 }
 
 // Tema claro/escuro — persistido em localStorage, por omissão segue prefers-color-scheme

@@ -2019,6 +2019,12 @@ class BleBridge:
             "connected": self.connected_device_name is not None,
             "mac": self.connected_device_mac,
         }))
+        # RF-05: wear_status so' e' difundido em MUDANCA de estado (ver _observe_wear_state) — sem
+        # isto, um cliente que ligasse depois da unica transicao 'unknown'->'worn' do arranque
+        # ficava preso em "estado de uso desconhecido" para sempre, mesmo com o dispositivo em uso
+        ultimo_evento_uso = self.wear_detector.current_event()
+        if ultimo_evento_uso is not None:
+            await ws.send(json.dumps({"kind": "wear_status", **ultimo_evento_uso}))
         try:
             async for raw_message in ws:
                 await self.handle_dashboard_command(ws, raw_message)

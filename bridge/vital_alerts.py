@@ -141,6 +141,10 @@ class WearDetector:
         self.last_motion_ts: Optional[float] = None
         self._last_magnitude: Optional[float] = None
         self._state_since_ts: Optional[float] = None
+        # ultimo evento de transicao devolvido por _transition(); permite a um cliente WS que
+        # so' ligou DEPOIS da transicao (o caso normal - o bridge arranca antes do dashboard
+        # abrir) saber o estado atual sem esperar pela proxima mudanca, que pode nunca vir
+        self._last_event: Optional[dict] = None
 
     # -- entradas ---------------------------------------------------------
     def observe(self, record: dict, now_ts: Optional[float] = None) -> Optional[dict]:
@@ -182,6 +186,12 @@ class WearDetector:
             return None
         return self._transition(WEAR_STATE_UNKNOWN, now, None, None)
 
+    def current_event(self) -> Optional[dict]:
+        """Ultimo evento de transicao conhecido, ou None se ainda nao houve nenhum (estado
+        'unknown' desde o arranque do bridge, sem amostras). Para dar a um cliente WS recem-ligado
+        o estado atual sem esperar por uma mudanca futura."""
+        return self._last_event
+
     # -- internos ---------------------------------------------------------
     def _has_motion(self, record: dict) -> bool:
         """Movimento nesta amostra: flag `inactivity` do firmware ou variação da aceleração."""
@@ -213,7 +223,7 @@ class WearDetector:
         previous = self.state
         self.state = new_state
         self._state_since_ts = now
-        return {
+        event = {
             "state": new_state,
             "previous_state": previous,
             "since_ts": now,
@@ -221,6 +231,8 @@ class WearDetector:
             "seconds_without_motion": None if without_motion is None else int(without_motion),
             "explanation": explain_wear_state(new_state, without_skin, without_motion),
         }
+        self._last_event = event
+        return event
 
 
 def explain_wear_state(

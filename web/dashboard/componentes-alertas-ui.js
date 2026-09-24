@@ -181,10 +181,10 @@ function unmuteAlert(fullKey){
 const ALERT_SEVERITY_LADDER = ['info', 'warning', 'serious', 'critical'];
 
 const ALERT_SEV_PALETTE = {info:'good', warning:'warning', serious:'serious', critical:'critical'};
-const ALERT_SEV_LABEL = {info:'Informação', warning:'Aviso', serious:'Sério', critical:'Crítico'};
+const ALERT_SEV_I18N_KEY = {info:'alertas.severityInfo', warning:'alertas.severityWarning', serious:'alertas.severitySerious', critical:'alertas.severityCritical'};
 
 function alertSevPaletteKey(sev){ return ALERT_SEV_PALETTE[sev] || sev; }
-function alertSevLabel(sev){ return ALERT_SEV_LABEL[sev] || sev; }
+function alertSevLabel(sev){ return ALERT_SEV_I18N_KEY[sev] ? t(ALERT_SEV_I18N_KEY[sev]) : sev; }
 function alertSeverityRank(sev){ return ALERT_SEVERITY_LADDER.indexOf(sev); }
 function alertNextSeverity(sev){
   const i = ALERT_SEVERITY_LADDER.indexOf(sev);
@@ -405,6 +405,6 @@ function toggleAlertPlain(explainId, btnEl){
 }
 
 function legendHtml(){
-  return `<div class="legend">${ROUTINE_CATS.map(c => `<span class="legend-item"><span class="legend-swatch" style="background:${c.color}"></span>${c.label}</span>`).join('')}</div>`;
+  return `<div class="legend">${ROUTINE_CATS.map(c => `<span class="legend-item"><span class="legend-swatch" style="background:${c.color}"></span>${t(c.labelKey)}</span>`).join('')}</div>`;
 }
 

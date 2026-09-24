@@ -1,3 +1,46 @@
+// RF-11 — aderência real à medicação, via GET /api/patients/{id}/medication-adherence
+// (bridge/api.py), agregada a partir de sa.MedicationAdherence persistida em SQLite. Distinta
+// do "analyticsCard" abaixo (esse lê cliques locais em "Marcar tomado", localStorage); esta
+// lê o que já foi escrito na BD por qualquer via (app, importação, etc.). Cai para null (card
+// omitido) se a API estiver indisponível ou o paciente não tiver id numérico correspondente.
+// cacheado em p.realMedicationAdherence (undefined = por pedir, null = indisponível/sem dados) —
+// evita repetir o pedido a cada render (chamar renderView() no callback voltaria a disparar
+// AFTER_RENDER.medicacao, um ciclo de refetch infinito sem esta cache).
+async function fetchRealMedicationAdherence(p){
+  const apiId = typeof weeklyReportApiPatientId === 'function' ? weeklyReportApiPatientId(p) : null;
+  if (apiId === null || typeof apiFetch !== 'function') return null;
+  try {
+    const res = await apiFetch(`/api/patients/${apiId}/medication-adherence?days=30`);
+    return res.ok ? await res.json() : null;
+  } catch (e) { return null; }
+}
+
+function loadRealMedicationAdherenceThenRerender(){
+  const p = selectedPatient();
+  if (p.realMedicationAdherence !== undefined) return;
+  fetchRealMedicationAdherence(p).then(data => {
+    p.realMedicationAdherence = data;
+    if (selectedPatient().id === p.id && currentView === 'medicacao') renderView('medicacao');
+  });
+}
+AFTER_RENDER.medicacao = () => { loadRealMedicationAdherenceThenRerender(); };
+
+function realMedicationAdherenceCardHtml(p){
+  const d = p.realMedicationAdherence;
+  if (!d) return '';
+  if (!d.medications || !d.medications.length) return '';
+  const rows = d.medications.map(m => `
+    <div class="meter-row"><span>${escapeHtml(m.medication_name)}</span><span class="num">${m.taken}/${m.total} (${Math.round(m.percent)}%)</span></div>
+    <div class="meter-track"><div class="meter-fill" style="width:${m.percent}%; background:${m.percent < 80 ? 'var(--status-warning)' : 'var(--status-good)'}"></div></div>
+  `).join('');
+  return `
+  <div class="card">
+    <div class="card-head"><div><h3>${t('medicacao.analyticsTitle')} <span class="sim-flag" style="background:var(--status-good-bg); color:var(--status-good);">dados reais (BD)</span></h3><div class="card-sub">${t('medicacao.realAdherenceSubtitle')}</div></div></div>
+    <p class="empty-hint">${t('medicacao.avgPrefix')} ${d.period_days} ${t('medicacao.avgDaysMid')} <b>${Math.round(d.overall_percent)}%</b></p>
+    <div class="device-meter">${rows}</div>
+  </div>`;
+}
+
 TEMPLATES.medicacao = () => {
   const p = selectedPatient();
   const isUtente = currentRole === 'utente';
@@ -62,6 +105,8 @@ TEMPLATES.medicacao = () => {
   </div>
 
   ${analyticsCard}
+
+  ${realMedicationAdherenceCardHtml(p)}
 
   ${!isUtente ? `
   <div class="card">

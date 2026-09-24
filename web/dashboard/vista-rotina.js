@@ -36,7 +36,7 @@ TEMPLATES.rotina = () => `
     <div class="activity-chips" id="activityChips">
       ${ROUTINE_CATS.map(c => `
         <button class="activity-chip${c.key===selectedActivityCat?' active':''}" data-cat="${c.key}" style="--chip-color:${c.color}">
-          <span class="chip-dot" style="background:${c.color}"></span>${c.label}
+          <span class="chip-dot" style="background:${c.color}"></span>${t(c.labelKey)}
         </button>`).join('')}
     </div>
     <div id="activityDetail"></div>
@@ -291,10 +291,10 @@ function renderActivityDetail(catKey){
           <span class="legend-swatch" style="background:${cat.color}"></span>
           <span class="tabular">${fmtMin(b.start)} – ${fmtMin(b.end)}</span>
           <span class="activity-block-dur tabular">${b.end-b.start} min</span>
-        </div>`).join('') : `<p class="empty-hint">${t('rotina.noBlocksBefore')}"${cat.label}"${t('rotina.noBlocksAfter')}</p>`}
+        </div>`).join('') : `<p class="empty-hint">${t('rotina.noBlocksBefore')}"${t(cat.labelKey)}"${t('rotina.noBlocksAfter')}</p>`}
     </div>
     <div class="card-sub" style="margin:14px 0 8px;">${t('rotina.weeklyTrendSubtitle')} <span class="${weeklyIsReal ? 'real-flag' : 'sim-flag'}">${weeklyIsReal ? t('rotina.realFlag') : t('rotina.simFlag')}</span></div>
-    <canvas id="cvActivityWeekly" height="120" role="img" aria-label="${t('rotina.weeklyTrendAriaBefore')}${cat.label}${t('rotina.weeklyTrendAriaAfter')} (${weeklyIsReal ? t('rotina.realFlag') : t('rotina.simFlag')})"></canvas>
+    <canvas id="cvActivityWeekly" height="120" role="img" aria-label="${t('rotina.weeklyTrendAriaBefore')}${t(cat.labelKey)}${t('rotina.weeklyTrendAriaAfter')} (${weeklyIsReal ? t('rotina.realFlag') : t('rotina.simFlag')})"></canvas>
   `;
   drawCategoryWeeklyBar('cvActivityWeekly', weekly, cat.color);
 }

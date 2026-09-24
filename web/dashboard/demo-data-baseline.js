@@ -1,11 +1,23 @@
 //Dados de exemplo — vitais seguem o payload real do firmware (ImuPpgPayloadV1); rotina é simulada (classificador HAR ainda não embarcado)
+// 'label' é o valor canónico em PT — usado como chave interna (API/BD/ACTIVITY_CLASS_COLOR_VAR),
+// nunca mostrado diretamente; para apresentação usar sempre activityCategoryLabel(label) ou
+// t(labelKey), nunca o valor de 'label' em si (pedido explícito: atividades apareciam sempre em
+// português mesmo com outra língua selecionada)
 const ROUTINE_CATS = [
-  {key:'dormir',      label:'Dormir',       color:'var(--cat-dormir)'},
-  {key:'descanso',    label:'Descanso',     color:'var(--cat-descanso)'},
-  {key:'atividade',   label:'Atividade',    color:'var(--cat-atividade)'},
-  {key:'alimentacao', label:'Alimentação',  color:'var(--cat-alimentacao)'},
-  {key:'higiene',     label:'Higiene',      color:'var(--cat-higiene)'},
+  {key:'dormir',      label:'Dormir',       labelKey:'atividade.catDormir',      color:'var(--cat-dormir)'},
+  {key:'descanso',    label:'Descanso',     labelKey:'atividade.catDescanso',    color:'var(--cat-descanso)'},
+  {key:'atividade',   label:'Atividade',    labelKey:'atividade.catAtividade',   color:'var(--cat-atividade)'},
+  {key:'alimentacao', label:'Alimentação',  labelKey:'atividade.catAlimentacao', color:'var(--cat-alimentacao)'},
+  {key:'higiene',     label:'Higiene',      labelKey:'atividade.catHigiene',     color:'var(--cat-higiene)'},
 ];
+
+// mapa inverso (valor canónico PT -> chave i18n), para traduzir category/corr.category/flag.category
+// que chegam do bridge/HITL já como este valor literal, sem passar por ROUTINE_CATS
+const ACTIVITY_CATEGORY_LABEL_KEY = Object.fromEntries(ROUTINE_CATS.map(c => [c.label, c.labelKey]));
+function activityCategoryLabel(catPt){
+  const key = ACTIVITY_CATEGORY_LABEL_KEY[catPt];
+  return key ? t(key) : catPt; // fallback ao valor literal para categorias desconhecidas/futuras
+}
 
 function seedRand(seed){ let s = seed; return () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; }; }
 

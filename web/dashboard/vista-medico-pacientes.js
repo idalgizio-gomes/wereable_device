@@ -18,7 +18,7 @@ TEMPLATES.pacientes = () => {
             : pillHtml(p.status==='good'?'good':p.status==='warn'?'warning':'critical', p.status==='good'?t('pacientes.statusConnected'):p.status==='warn'?t('pacientes.statusUnstable'):t('pacientes.statusDisconnected'));
           return `
           <tr${p.id===selectedPatientId ? ' style="background:color-mix(in srgb, var(--accent) 10%, transparent);"' : ''}>
-            <td><b>${escapeHtml(p.name)}</b> · ${p.age} anos${isLive ? ` ${pillHtml('good', t('dispositivo.liveDataBadge'))}` : ''}</td>
+            <td><b>${escapeHtml(p.name)}</b> · ${p.age} ${t('common.yearsOld')}${isLive ? ` ${pillHtml('good', t('dispositivo.liveDataBadge'))}` : ''}</td>
             <td class="num">${p.deviceName} · ${registeredMacFor(p.id, p.mac)}</td>
             <td class="num">${isLive ? t('pacientes.lastSyncLiveNow') : p.lastSync}</td>
             <td>${statusPill}</td>
@@ -44,7 +44,7 @@ TEMPLATES.pacientes = () => {
       <tbody>
         ${unassigned.map(p => `
           <tr>
-            <td>${escapeHtml(p.name)} · ${p.age} anos</td>
+            <td>${escapeHtml(p.name)} · ${p.age} ${t('common.yearsOld')}</td>
             <td class="num">${p.deviceName}</td>
             <td><button class="btn-secondary" onclick="assignPatientToCurrentUser('${p.id}'); renderView('pacientes');">${t('pacientes.assignToMeBtn')}</button></td>
           </tr>`).join('')}

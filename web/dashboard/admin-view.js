@@ -164,7 +164,7 @@ TEMPLATES.admin = () => {
           const n = activeAlertsCount(p);
           return `
           <tr>
-            <td><b>${escapeHtml(p.name)}</b> · ${p.age} anos</td>
+            <td><b>${escapeHtml(p.name)}</b> · ${p.age} ${t('common.yearsOld')}</td>
             <td class="num">${escapeHtml(p.deviceName)}</td>
             <td>${names.length ? names.map(escapeHtml).join(', ') : `<span class="empty-hint" style="padding:0;">${t('admin.noAssignedClinician')}</span>`}</td>
             <td>${n > 0 ? pillHtml('critical', n + ' ' + t(n > 1 ? 'pacientes.activeAlertsPlural' : 'pacientes.activeAlertsSingular')) : pillHtml('good', t('pacientes.statusNone'))}</td>

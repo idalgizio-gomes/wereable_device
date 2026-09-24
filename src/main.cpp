@@ -13,6 +13,7 @@
 #include "Storage/Storage.h"
 #include "Imu/Imu.h"
 #include "Gnss/Gnss.h"
+#include "SharedI2cBus/SharedI2cBus.h"
 #include "Ppg/Ppg.h"
 #include "Ble/Ble.h"
 #include "QspiRingBuffer/QspiRingBuffer.h"
@@ -149,7 +150,11 @@ void storageTask(void *arg) {
                              sizeof(payload),
                              recTs)) {
       pushed++;
-      if (nowUtc != 0) {
+      // limitado a ~1/s: notify() a cada push (ate ~54/s) inundava a fila de TX da
+      // SoftDevice, ja pesada com o dump; reduz o risco sem perder a amostra do C13
+      static uint32_t s_lastLatencyProbeMs = 0;
+      if (nowUtc != 0 && (nowMs - s_lastLatencyProbeMs >= 1000)) {
+        s_lastLatencyProbeMs = nowMs;
         Ble::publishLatencyProbe(predictedSeq, nowMs);
       }
       if (payload.spo2 != 0 || payload.hr != 0) {
@@ -585,6 +590,7 @@ void setup() {
   initQspiRingBuffer();
   Serial.println("[BOOT] step: initImu");
   initImu();
+  SharedI2cBus::init(); // antes de initGnss()/initPpg(): as duas tasks usam o mesmo Wire
   Serial.println("[BOOT] step: initGnss");
   initGnss();
   Serial.println("[BOOT] step: initStorageTask");

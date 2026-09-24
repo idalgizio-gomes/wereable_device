@@ -1,4 +1,5 @@
-CareWear — credenciais de teste (criadas 2026-09-11, admin clínico acrescentado 2026-09-21)
+CareWear — credenciais de teste (criadas 2026-09-11, admin clínico acrescentado 2026-09-21,
+passwords redefinidas 2026-09-22 depois de terem sido removidas do histórico)
 =============================================================================================
 
 Não existem credenciais "universais" por omissão. Estas 4 contas foram criadas
@@ -6,15 +7,15 @@ manualmente em bridge/carewear.db para testar os 4 perfis do dashboard.
 
 Utente / Família
   Email:         familia@carewear.pt
-  Palavra-passe: [PASSWORD REMOVIDA DO HISTORICO 2026-09-21]
+  Palavra-passe: CareWear2026!fam
 
 Médico / Técnico
   Email:         clinico@carewear.pt
-  Palavra-passe: [PASSWORD REMOVIDA DO HISTORICO 2026-09-21]
+  Palavra-passe: CareWear2026!cli
 
 Administrador (de Sistema)
   Email:         admin@carewear.pt
-  Palavra-passe: [PASSWORD REMOVIDA DO HISTORICO 2026-09-21]
+  Palavra-passe: CareWear2026!sys
   Nota: sem acesso a dados clínicos — _authorize_patient() em bridge/api.py
   devolve sempre 404 para este perfil, por desenho.
 

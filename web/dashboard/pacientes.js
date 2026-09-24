@@ -271,7 +271,15 @@ function selectPatient(id){
 function updateClinicoPatientLabel(){
   const p = selectedPatient();
   const label = document.getElementById('navClinicoLabel');
-  if (label) label.textContent = `${p.name} · ${p.age} anos`;
+  if (label) label.textContent = `${p.name} · ${p.age} ${t('common.yearsOld')}`;
+}
+
+// mesmo padrao que updateClinicoPatientLabel(), mas para a barra lateral do papel utente/familia
+// (navUtenteLabel) - antes era texto estatico "Maria Silva · 72 anos", nunca refletia o paciente real
+function updateUtentePatientLabel(){
+  const p = selectedPatient();
+  const label = document.getElementById('navUtenteLabel');
+  if (label) label.textContent = `${p.name} · ${p.age} ${t('common.yearsOld')}`;
 }
 
 // registo de emergências (SOS/queda+inatividade) corresponde ao módulo firmware Emergency + emergencyAlertChar BLE

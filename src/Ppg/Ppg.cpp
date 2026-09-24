@@ -3,6 +3,7 @@
 
 #include "Imu/Imu.h"
 #include "Clock/Clock.h"
+#include "SharedI2cBus/SharedI2cBus.h"
 #include <MAX30105.h>
 #include <spo2_algorithm.h>
 #include <Wire.h>
@@ -142,6 +143,7 @@ void ledsOff() {
 }
 
 void sensorIdle() {
+  SharedI2cBus::Guard i2cGuard; // GNSS (Gnss.cpp) partilha o mesmo Wire
   ledsOff();
   g_sensor.shutDown();
 }
@@ -149,6 +151,7 @@ void sensorIdle() {
 // wakeUp primeiro para garantir que "apagar LED" e mesmo aplicado; usada fora do fluxo normal da task (suspendForPowerCheck/prepareForSystemOff)
 void forceLedsOffNow() {
   if (!g_started) return;
+  SharedI2cBus::Guard i2cGuard;
   g_sensor.wakeUp();
   g_sensor.setPulseAmplitudeRed(0);
   g_sensor.setPulseAmplitudeIR(0);
@@ -280,6 +283,7 @@ bool waitSampleAvailable(uint32_t timeoutMs);
 
 // liga IR por um instante, descarta amostras residuais (gravadas so com verde antes do IR ligar, senao davam sempre falso-negativo), le, desliga IR outra vez
 bool checkFingerPresentBrief() {
+  SharedI2cBus::Guard i2cGuard;
   g_sensor.setPulseAmplitudeIR(HR_FINGER_CHECK_IR_AMPLITUDE);
 
   for (int i = 0; i < 4; i++) {
@@ -299,6 +303,7 @@ bool checkFingerPresentBrief() {
 
 void startHrStreaming() {
   if (g_hrStreaming) return;
+  SharedI2cBus::Guard i2cGuard;
   setupForHr();
   resetHrFilterState();
   g_hrStreaming = true;
@@ -319,18 +324,27 @@ void stopHrStreaming() {
 
 bool waitSampleAvailable(uint32_t timeoutMs) {
   const uint32_t startMs = millis();
-  while (!g_sensor.available()) {
-    g_sensor.check();
+  while (true) {
+    bool available;
+    {
+      SharedI2cBus::Guard i2cGuard;
+      available = g_sensor.available();
+      if (!available) g_sensor.check();
+    }
+    if (available) return true;
     if ((millis() - startMs) >= timeoutMs) {
       return false;
     }
     vTaskDelay(pdMS_TO_TICKS(1));
   }
-  return true;
 }
 
 // medicao completa e bloqueante (~1s): modo SpO2, dedo, 100 pares Red/IR, algoritmo Maxim; sensor sempre desligado no fim (finish)
 bool measureSpo2(int32_t &spo2, bool &validSpo2, int32_t &hr, bool &validHr, bool &fingerPresent) {
+  // lock unico para a medicao inteira (~1s, a cada 30s) - simples e aceitavel;
+  // GNSS so espera esse 1s ocasional, ao contrario do caminho a 100Hz do HR
+  // streaming (processHrSample), onde o lock tem de ser feito amostra a amostra.
+  SharedI2cBus::Guard i2cGuard;
   auto finish = [&](bool ret) {
     sensorIdle();
     return ret;
@@ -381,7 +395,11 @@ bool measureSpo2(int32_t &spo2, bool &validSpo2, int32_t &hr, bool &validHr, boo
 bool processHrSample(float &bpmOut, bool &validOut, bool &fingerPresent) {
   validOut = false;
   fingerPresent = true; // pipeline HR sem gate de IR proprio; o gate real e feito fora, via g_hrFingerPresent
-  long raw = g_sensor.getGreen();
+  long raw;
+  {
+    SharedI2cBus::Guard i2cGuard; // lock curto: chamada a 100Hz, nao pode segurar o barramento entre amostras
+    raw = g_sensor.getGreen();
+  }
   float low = lowPassFilter(raw);
   float high = highPassFilter(low);
   float diff = derivative(high);

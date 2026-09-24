@@ -48,12 +48,15 @@ bridge/tls_key.pem
 # fica só local, nunca commitada — o repositório público só expõe o
 # README.md. Ficheiros existentes no disco, não apagados; removidos do
 # histórico local em 2026-08-05 (ver backup-antes-filtro-2026-08-05).
+# Vão à mesma para a próxima pessoa do projeto (entrega direta da pasta,
+# não via GitHub público) — decisão confirmada em 2026-09-23: são
+# referência técnica real (arquitetura/segurança/estado/FAQ), não notas
+# pessoais; só não vão para o repo público por exporem detalhe sensível
+# (ex.: SECURITY_STATUS lista vulnerabilidades em aberto).
 DOCUMENTACAO_TECNICA_CODIGO.md
-PRISMA_SCR_SCOPING_REVIEW.md
-PRISMA_SYSTEMATIC_REVIEW.md
 PERGUNTAS_REPETIDAS.md
 
-# Idem, mas estes 5 já estavam publicados em origin/main de sessões
+# Idem, mas estes já estavam publicados em origin/main de sessões
 # anteriores — removidos do HEAD com commit dedicado + push em 2026-08-05
 # (não removidos do histórico antigo, só deixam de aparecer a partir de
 # agora; ver commit "remove docs internos do repositório público").
@@ -62,3 +65,11 @@ SECURITY_STATUS.md
 SECURITY_RESEARCH.md
 RELATORIO_QA_DETALHADO.md
 RELATORIO_QA_RESUMO.md
+
+# Arquivo pessoal (2026-09-23, a pedido da utilizadora): material da
+# entrega académica dela (revisão sistemática PRISMA, protocolos/
+# instrumentos C29/C30/C22, backup manual da BD, dados brutos de sessões
+# de medição) — não faz parte do que é entregue à próxima pessoa do
+# projeto. Pasta inteira nunca vai a git, mesmo que ficheiros individuais
+# lá dentro já tenham estado trackeados antes de serem movidos para cá.
+ARQUIVO_PESSOAL_NAO_ENTREGAR/

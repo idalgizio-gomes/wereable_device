@@ -50,7 +50,21 @@ function downloadJson(filenamePrefix, data){
   URL.revokeObjectURL(url);
 }
 
-function exportFhirSummary(){
+// Tenta o Bundle FHIR R4 real do bridge (GET /api/devices/{id}/fhir/observations, sinais
+// vitais persistidos em SQLite); cai para o resumo local de alertas (buildFhirBundle(), não é
+// um Bundle R4 de Observations) se a API estiver em baixo ou o paciente não tiver device_id.
+async function exportFhirSummary(){
+  const p = selectedPatient();
+  const deviceId = typeof resolvePatientApiDeviceId === 'function' ? await resolvePatientApiDeviceId(p) : null;
+  if (deviceId != null && typeof apiFetch === 'function') {
+    try {
+      const res = await apiFetch(`/api/devices/${deviceId}/fhir/observations?hours=24&_include=Observation:subject&_include=Observation:device`);
+      if (res.ok) {
+        downloadJson('carewear-fhir-observations', await res.json());
+        return;
+      }
+    } catch (e) { /* API indisponível — cai para o resumo local abaixo */ }
+  }
   downloadJson('carewear-fhir-resumo', buildFhirBundle());
 }
 

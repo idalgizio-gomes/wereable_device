@@ -31,8 +31,14 @@ const liveState = {
 };
 const liveHrBuffer = []; // {t: epoch_s, hr, label: "HH:MM:SS"}
 
-//Sem leitura nova há mais de STALE_SIGNAL_MS: esbate o canvas + rótulo "sem sinal há Xs" (não cai para 0, evita ler-se como "sem batimento")
+// Sem leitura nova há mais de STALE_SIGNAL_MS: a linha cai a 0 (decisão explícita da
+// utilizadora, 2026-09-23 — substitui a versão anterior que só esbatia o canvas, para evitar a
+// leitura "sem batimento"; confirmou que prefere o 0 literal). Só empurra o 0 UMA vez por
+// episódio de silêncio (hrStaleZeroPushed/spo2StaleZeroPushed), não a cada tick, senão enchia o
+// buffer de zeros repetidos; a flag é reposta assim que chega uma leitura real (hasNewHr/hasNewSpo2).
 const STALE_SIGNAL_MS = 35000;
+let hrStaleZeroPushed = false;
+let spo2StaleZeroPushed = false;
 function tickStaleCharts(){
   // leitura contínua desligada pelo utilizador não é perda de sinal — gráfico fica estático, sem aviso
   if (continuousHrIntervalId == null) return;
@@ -43,7 +49,12 @@ function tickStaleCharts(){
   if (hrCanvas && liveState.connected && liveHrBuffer.length >= 2){
     const ageMs = now - liveState.lastHrAt;
     if (ageMs > STALE_SIGNAL_MS){
-      hrCanvas.style.opacity = '0.35';
+      if (!hrStaleZeroPushed){
+        hrStaleZeroPushed = true;
+        liveHrBuffer.push({t: now/1000, hr: 0, label: fmtClock(now/1000)});
+        if (liveHrBuffer.length > LIVE_HR_WINDOW) liveHrBuffer.shift();
+        drawHrSeries('cvHr');
+      }
       if (hrLabel) hrLabel.textContent = t('vitais.noSignalSince', {s: Math.round(ageMs/1000)});
     }
   }
@@ -53,7 +64,12 @@ function tickStaleCharts(){
   if (spo2Canvas && liveState.connected && liveSpo2Buffer.length >= 2){
     const ageMs = now - liveState.lastSpo2At;
     if (ageMs > STALE_SIGNAL_MS){
-      spo2Canvas.style.opacity = '0.35';
+      if (!spo2StaleZeroPushed){
+        spo2StaleZeroPushed = true;
+        liveSpo2Buffer.push({t: now/1000, spo2: 0, label: fmtClock(now/1000)});
+        if (liveSpo2Buffer.length > LIVE_SPO2_WINDOW) liveSpo2Buffer.shift();
+        drawSpo2Series('cvSpo2');
+      }
       if (spo2Label) spo2Label.textContent = t('vitais.noSignalSince', {s: Math.round(ageMs/1000)});
     }
   }
@@ -143,20 +159,20 @@ function renderLiveActivityPanel(){
   }
 
   const a = liveState.currentActivity;
-  const catLabel = escapeHtml(a.category); // categorias não traduzidas em lado nenhum do dashboard, por consistência
+  const catLabel = escapeHtml(activityCategoryLabel(a.category));
   const pct = Math.round(a.confidence * 100);
 
   // indicador de incerteza: só aparece se o bridge o enviar (is_uncertain); compatível com bridge mais antigo
   let uncertaintyHtml = '';
   if (a.isUncertain && a.runnerUpCategory){
     const runnerUpPct = a.runnerUpConfidence != null ? Math.round(a.runnerUpConfidence * 100) : null;
-    uncertaintyHtml = `<div class="activity-live-flag uncertain">${t('resumo.liveActivityUncertainIcon')} ${t('resumo.liveActivityUncertain', {cat: escapeHtml(a.runnerUpCategory), pct: runnerUpPct})}</div>`;
+    uncertaintyHtml = `<div class="activity-live-flag uncertain">${t('resumo.liveActivityUncertainIcon')} ${t('resumo.liveActivityUncertain', {cat: escapeHtml(activityCategoryLabel(a.runnerUpCategory)), pct: runnerUpPct})}</div>`;
   }
 
   let flagHtml = '';
   const flag = liveState.lastActivityDurationFlag;
   if (flag){
-    const flagCatLabel = escapeHtml(flag.category);
+    const flagCatLabel = escapeHtml(activityCategoryLabel(flag.category));
     // explicação (frase já composta no bridge com números reais) só se o bridge a enviar
     const explanationHtml = flag.explanation
       ? `<div class="activity-live-flag-reason">${escapeHtml(flag.explanation)}</div>` : '';
@@ -178,19 +194,19 @@ function renderLiveActivityPanel(){
       : '';
     correctionHtml = correctionActive
       ? `<div class="activity-live-correction ai-note">${t('resumo.liveActivityAiSaysNow', {cat: catLabel, pct})}</div>`
-      : `<div class="activity-live-correction">✎ ${t('resumo.liveActivityCorrectedTo', {cat: escapeHtml(corr.category)})}${timeLabel ? ` · ${timeLabel}` : ''} — ${t('resumo.liveActivityCorrectionExpired')}</div>`;
+      : `<div class="activity-live-correction">✎ ${t('resumo.liveActivityCorrectedTo', {cat: escapeHtml(activityCategoryLabel(corr.category))})}${timeLabel ? ` · ${timeLabel}` : ''} — ${t('resumo.liveActivityCorrectionExpired')}</div>`;
   }
 
   const pickerHtml = activityCorrectionPickerOpen ? `
     <div class="activity-chips" style="margin:8px 0 0;">
       ${ACTIVITY_CORRECTION_CATEGORIES.map(cat => `
-        <button type="button" class="activity-chip" style="border-color:${categoryColorVar(cat)}" onclick="submitActivityCorrection('${cat}')">${escapeHtml(cat)}</button>
+        <button type="button" class="activity-chip" style="border-color:${categoryColorVar(cat)}" onclick="submitActivityCorrection('${cat}')">${escapeHtml(activityCategoryLabel(cat))}</button>
       `).join('')}
     </div>
   ` : '';
 
   // linha principal: correção ativa em destaque, senão a IA
-  const mainCat = correctionActive ? escapeHtml(corr.category) : catLabel;
+  const mainCat = correctionActive ? escapeHtml(activityCategoryLabel(corr.category)) : catLabel;
   const mainColor = correctionActive ? categoryColorVar(corr.category) : categoryColorVar(a.category);
   const mainSuffix = correctionActive
     ? `<span class="conf">${t('resumo.liveActivityConfirmedByCaregiver')}</span>`
@@ -403,7 +419,7 @@ function applyLiveVitals(){
   // HR chegando mas SpO2 nulo: sinal ainda instável para SpO2 (mais sensível a movimento que HR) — só nesta combinação
   const spo2NeedsHint = liveState.hr != null && liveState.spo2 == null;
   const spo2HintText = spo2NeedsHint
-    ? 'A ler HR mas sem SpO2 ainda — tenta manter a placa bem encostada ao pulso, sem mover a mão.'
+    ? t('resumo.spo2ReadingHint')
     : '';
   ['spo2-hint', 'spo2-hint-2'].forEach(id => {
     const el = document.getElementById(id);
@@ -594,6 +610,7 @@ function applySensorRecordFields(msg, {isLive}){
 
   if (hasNewHr && msg.ts){
     liveState.lastHrAt = Date.now();
+    hrStaleZeroPushed = false; // sinal voltou — próximo silêncio pode voltar a cair a 0
     liveHrBuffer.push({t: msg.ts, hr: hrNum, label: fmtClock(msg.ts)});
     if (liveHrBuffer.length > LIVE_HR_WINDOW) liveHrBuffer.shift();
     // Só redesenha o gráfico se a vista "Sinais vitais" estiver ativa.
@@ -601,6 +618,7 @@ function applySensorRecordFields(msg, {isLive}){
   }
   if (hasNewSpo2 && msg.ts){
     liveState.lastSpo2At = Date.now();
+    spo2StaleZeroPushed = false;
     liveSpo2Buffer.push({t: msg.ts, spo2: spo2Num, label: fmtClock(msg.ts)});
     if (liveSpo2Buffer.length > LIVE_SPO2_WINDOW) liveSpo2Buffer.shift();
     if (document.getElementById('cvSpo2')) drawSpo2Series('cvSpo2');

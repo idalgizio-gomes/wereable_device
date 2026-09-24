@@ -86,6 +86,19 @@ function clearAllEmergenciesForPatient(){
 // RF-07: alertas reais da tabela `alerts` do bridge (cmd "get_alerts"), fundidos com os de demonstração; distinguem-se por live:true
 let bridgeAlerts = [];
 
+// bridge grava o titulo em portugues (coluna NOT NULL, ver _VITAL_ALERT_TITLES em ble_bridge.py);
+// alert_type e' um conjunto fixo e conhecido -- traduz por ele quando reconhecido, mantem o
+// texto literal do bridge como fallback para tipos novos/nao mapeados (nunca mostra em branco)
+const ALERT_TYPE_TITLE_I18N_KEY = {
+  abnormal_vitals_hr: 'alertas.titleAbnormalHr',
+  abnormal_vitals_spo2: 'alertas.titleAbnormalSpo2',
+  device_not_worn: 'alertas.titleDeviceNotWorn',
+};
+function bridgeAlertTitle(raw){
+  const key = ALERT_TYPE_TITLE_I18N_KEY[raw.alert_type];
+  return key ? t(key) : (raw.title || 'Alerta');
+}
+
 // converte um alerta da BD para a forma que alertRow()/tabela de histórico desenham
 function bridgeAlertToRow(raw){
   const criadoMs = raw.created_at ? Date.parse(raw.created_at + 'Z') : null;
@@ -99,7 +112,7 @@ function bridgeAlertToRow(raw){
     escalatedAt: raw.escalated_at || null,
     escalatedAtMs: Number.isFinite(escaladoMs) ? escaladoMs : null,
     createdAtMs: Number.isFinite(criadoMs) ? criadoMs : null,
-    title: raw.title || 'Alerta',
+    title: bridgeAlertTitle(raw),
     desc: raw.reason || '',
     reason: raw.reason || '',
     resolutionNote: raw.resolution_note || null,
@@ -444,20 +457,20 @@ let wearState = null;
 
 // estado -> apresentação; paleta é a de templates-core.js (SEV_COLOR/SEV_BG usam 'good', não 'info')
 const WEAR_STATE_UI = {
-  worn:      {palette:'good',    icon:'heart', label:'Dispositivo a ser usado'},
-  removed:   {palette:'warning', icon:'warn',  label:'Dispositivo removido'},
-  link_lost: {palette:'serious', icon:'zap',   label:'Ligação ao wearable perdida'},
-  unknown:   {palette:'good',    icon:'zap',   label:'Estado de uso ainda desconhecido'},
+  worn:      {palette:'good',    icon:'heart', labelKey:'estadoUso.wornLabel'},
+  removed:   {palette:'warning', icon:'warn',  labelKey:'estadoUso.removedLabel'},
+  link_lost: {palette:'serious', icon:'zap',   labelKey:'estadoUso.linkLostLabel'},
+  unknown:   {palette:'good',    icon:'zap',   labelKey:'estadoUso.unknownLabel'},
 };
 
 function wearStateUi(state){ return WEAR_STATE_UI[state] || WEAR_STATE_UI.unknown; }
 
 // texto p/ o cuidador (o que fazer); `explanation` do bridge diz o que foi medido — os dois aparecem juntos
-const WEAR_STATE_HINT = {
-  worn: 'Há sinal cutâneo e/ou movimento — a monitorização está a decorrer normalmente.',
-  removed: 'O wearable continua ligado ao bridge, por isso não é uma falha de comunicação: está a comunicar mas não está no pulso. Volte a colocá-lo para retomar a monitorização de sinais vitais.',
-  link_lost: 'Não é o mesmo que "removido": aqui o wearable deixou simplesmente de comunicar, e sem dados não é possível saber se está ou não no pulso. Verifique a distância ao bridge, a bateria e se o Bluetooth está ligado.',
-  unknown: 'Ainda não há observações suficientes desde o arranque para classificar o estado de uso.',
+const WEAR_STATE_HINT_KEY = {
+  worn: 'estadoUso.wornHint',
+  removed: 'estadoUso.removedHint',
+  link_lost: 'estadoUso.linkLostHint',
+  unknown: 'estadoUso.unknownHint',
 };
 
 function renderWearStatusCard(){
@@ -465,15 +478,16 @@ function renderWearStatusCard(){
   if (!host) return;
   const estado = wearState ? wearState.state : 'unknown';
   const ui = wearStateUi(estado);
+  const label = t(ui.labelKey);
   const cor = SEV_COLOR[ui.palette], fundo = SEV_BG[ui.palette];
 
   // escapado: 'explanation' vem do bridge, canal sem autenticação
   const motivo = wearState && wearState.explanation
-    ? '<div class="alert-reason" style="font-size:.82rem;color:var(--text-secondary);margin-top:6px;"><b>Motivo:</b> ' + escapeHtml(wearState.explanation) + '</div>'
+    ? '<div class="alert-reason" style="font-size:.82rem;color:var(--text-secondary);margin-top:6px;"><b>' + escapeHtml(t('estadoUso.reasonLabel')) + '</b> ' + escapeHtml(wearState.explanation) + '</div>'
     : '';
 
   const desde = wearState && Number.isFinite(wearState.atMs)
-    ? '<div class="alert-mute-note">Desde ' + escapeHtml(new Date(wearState.atMs).toLocaleString(currentLang, {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})) + '</div>'
+    ? '<div class="alert-mute-note">' + escapeHtml(t('estadoUso.sinceLabel')) + ' ' + escapeHtml(new Date(wearState.atMs).toLocaleString(currentLang, {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})) + '</div>'
     : '';
 
   // contadores só existem em 'removed'; em 'link_lost' o bridge manda null (sem amostras)
@@ -483,8 +497,8 @@ function renderWearStatusCard(){
     ? Math.round(wearState.secondsWithoutMotion / 60) : null;
   const contadores = (semPele != null || semMovimento != null)
     ? '<div class="activity-stat-row">'
-      + '<div class="activity-stat"><div class="n tabular">' + (semPele != null ? semPele + ' min' : '—') + '</div><div class="l">Sem sinal cutâneo (PPG/SpO2)</div></div>'
-      + '<div class="activity-stat"><div class="n tabular">' + (semMovimento != null ? semMovimento + ' min' : '—') + '</div><div class="l">Sem movimento (acelerómetro)</div></div>'
+      + '<div class="activity-stat"><div class="n tabular">' + (semPele != null ? semPele + ' min' : '—') + '</div><div class="l">' + escapeHtml(t('estadoUso.noSkinSignalLabel')) + '</div></div>'
+      + '<div class="activity-stat"><div class="n tabular">' + (semMovimento != null ? semMovimento + ' min' : '—') + '</div><div class="l">' + escapeHtml(t('estadoUso.noMotionLabel')) + '</div></div>'
       + '</div>'
     : '';
 
@@ -492,8 +506,8 @@ function renderWearStatusCard(){
     '<div class="alert-row ' + ui.palette + '">'
     + '<span class="alert-icon" style="background:' + fundo + ';color:' + cor + '">' + iconFor(ui.icon) + '</span>'
     + '<div class="body">'
-    + '<div class="title">' + escapeHtml(ui.label) + ' <span class="pill ' + ui.palette + '" style="background:' + fundo + ';color:' + cor + '">' + escapeHtml(ui.label) + '</span></div>'
-    + '<div class="desc">' + escapeHtml(WEAR_STATE_HINT[estado] || WEAR_STATE_HINT.unknown) + '</div>'
+    + '<div class="title">' + escapeHtml(label) + ' <span class="pill ' + ui.palette + '" style="background:' + fundo + ';color:' + cor + '">' + escapeHtml(label) + '</span></div>'
+    + '<div class="desc">' + escapeHtml(t(WEAR_STATE_HINT_KEY[estado] || WEAR_STATE_HINT_KEY.unknown)) + '</div>'
     + motivo + contadores + desde
     + '</div></div>';
 }

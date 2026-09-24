@@ -8,14 +8,6 @@ TEMPLATES.resumo = () => `
     ${statTile('zap',t('resumo.spo2CardTitle'),'—','%', 'var(--status-good)', 'stat-spo2', false, 'spo2-hint')}
   </div>
 
-  <!-- RF-05: estado de uso do wearable, antes dos outros cartões (se não está no pulso, os dados deles são inválidos). Texto fixo em PT, este ficheiro não passa por i18n-strings.js -->
-  <div class="card">
-    <div class="card-head">
-      <div><h3>Estado de uso do dispositivo</h3><div class="card-sub">Distingue "retirado do pulso" de "sem ligação" — ver WearDetector em bridge/vital_alerts.py</div></div>
-    </div>
-    <div id="wearStatusPanel"></div>
-  </div>
-
   <div class="card activity-live-card">
     <div class="card-head">
       <div><h3>${t('resumo.liveActivityCardTitle')} <span class="experimental-flag" title="${t('resumo.liveActivityDisclaimer')}">${t('resumo.experimentalBadge')}</span></h3><div class="card-sub">${t('resumo.liveActivityCardSubtitle')}</div></div>
@@ -68,6 +60,14 @@ TEMPLATES.resumo = () => `
       <div><h3>Ações registadas após alertas</h3><div class="card-sub">O que foi feito, por quem e quando — alertas reais vêm de resolved_at/resolution_note na base de dados do bridge</div></div>
     </div>
     <div id="alertActionsHistory"></div>
+  </div>
+
+  <!-- RF-05: estado de uso do wearable — abaixo do resto (pedido explícito: não faz sentido estar em cima) -->
+  <div class="card">
+    <div class="card-head">
+      <div><h3>${t('resumo.wearStatusCardTitle')}</h3><div class="card-sub">${t('resumo.wearStatusCardSubtitle')}</div></div>
+    </div>
+    <div id="wearStatusPanel"></div>
   </div>
 `;
 AFTER_RENDER.resumo = () => {

@@ -401,7 +401,9 @@ function drawSpo2Series(id){
 
   const values = series.map(d => d.spo2);
   const dataMin = Math.min(...values);
-  let min = Math.max(70, Math.floor((dataMin - 3) / 5) * 5);
+  // clamp aos 70% clínicos só quando não há nenhum 0 na série (sem sinal) — senão o 0 ficava
+  // fora do eixo e a linha desaparecia por baixo do gráfico em vez de cair visivelmente a 0
+  let min = dataMin <= 0 ? -5 : Math.max(70, Math.floor((dataMin - 3) / 5) * 5);
   let max = 100;
   if (max - min < 15) min = max - 15;
 

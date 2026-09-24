@@ -23,6 +23,18 @@ function setLoginRole(role){
   }
 }
 
+// Mostrar/ocultar password nos campos de login e registo (RNF acessibilidade, 2026-09-21)
+function togglePasswordVisibility(inputId, btn){
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  const nowVisible = input.type === 'password';
+  input.type = nowVisible ? 'text' : 'password';
+  btn.setAttribute('aria-pressed', String(nowVisible));
+  btn.dataset.i18nAria = nowVisible ? 'login.hidePassword' : 'login.showPassword';
+  btn.setAttribute('aria-label', t(btn.dataset.i18nAria));
+  btn.textContent = nowVisible ? '🙈' : '👁';
+}
+
 // Inscrição de novos utilizadores — protótipo, sem backend real
 let signupRole = 'utente';
 
@@ -312,6 +324,7 @@ async function login(){
   renderPrivilegedAccessBanner();
 
   updateClinicoPatientLabel();
+  updateUtentePatientLabel();
   const pill = document.getElementById('sidebarRolePill');
   const pillLabelKey = isUtente ? 'login.role.utente' : isAdminClinical ? 'login.role.adminClinical' : isAdmin ? 'login.role.admin' : 'login.role.clinico';
   pill.textContent = t(pillLabelKey);

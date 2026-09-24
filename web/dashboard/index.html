@@ -322,7 +322,8 @@
   }
   .login-brand-quote h1{ font-size:calc(28px * var(--font-scale)); line-height:1.28; font-weight:600; color:var(--text-primary); }
 
-  .login-form-col{ display:flex; align-items:center; justify-content:center; padding:32px; }
+  .login-form-col{ display:flex; align-items:center; justify-content:center; padding:32px; position:relative; }
+  .login-lang-switcher{ position:absolute; top:16px; right:16px; }
   .login-form{ width:100%; max-width:380px; }
   .login-form h2{ font-size:calc(21px * var(--font-scale)); font-weight:600; }
   .login-form .sub{ color:var(--text-secondary); margin-top:6px; font-size:calc(13.5px * var(--font-scale)); }
@@ -344,6 +345,17 @@
 
   .field{ margin-top:16px; display:flex; flex-direction:column; gap:6px; }
   .field label{ font-size:calc(12.5px * var(--font-scale)); color:var(--text-secondary); font-weight:600; }
+  /* Mostrar/ocultar password (RNF acessibilidade, 2026-09-21) — wrapper só
+     para posicionar o botão dentro do input, sem alterar o field em si. */
+  .password-field{ position:relative; display:flex; }
+  .password-field input{ flex:1; padding-right:38px; }
+  .password-toggle-btn{
+    position:absolute; right:4px; top:50%; transform:translateY(-50%);
+    width:28px; height:28px; display:flex; align-items:center; justify-content:center;
+    background:transparent; border:none; border-radius:var(--radius-sm); cursor:pointer;
+    color:var(--text-secondary); font-size:calc(14px * var(--font-scale)); line-height:1;
+  }
+  .password-toggle-btn:hover{ color:var(--text-primary); background:var(--bg-surface-2); }
   .field input, .field select{
     background:var(--bg-surface-2); border:1px solid var(--border); border-radius:var(--radius-sm);
     padding:10px 12px; color:var(--text-primary); width:100%;
@@ -415,20 +427,40 @@
 
   .main{ display:flex; flex-direction:column; min-width:0; }
 
+  /* CORREÇÃO DE LAYOUT (2026-09-22, reportado pela utilizadora: "quando a
+     janela não está em ecrã inteiro, o dashboard desformata"). Causa raiz:
+     .topbar juntava ~10 itens (título, estado do dispositivo, botão
+     BLE, bateria, 3 botões de tamanho de letra, seletor de idioma, 2
+     ícones, chip de avatar com nome+perfil) numa única linha flex SEM
+     flex-wrap. A ecrã inteiro (ex. 1920px) cabiam todos; numa janela a
+     ocupar só uma parte do monitor (ex. ~960px, o caso relatado) o total
+     já não cabia, e como não havia wrap nem overflow-x controlado, a
+     topbar (sticky, ocupa a largura toda do .main) transbordava e
+     arrastava a página inteira para scroll horizontal — daí o "desformata"
+     ser mais visível a meio da gama de larguras do que em ecrã inteiro OU
+     num telemóvel estreito (onde .topbar-left/.topbar-right, mais curtos
+     por si só, ainda cabiam isolados). flex-wrap + row-gap aqui e nos dois
+     grupos internos deixa a topbar cair para 2ª linha de forma controlada
+     em QUALQUER largura, em vez de depender de um breakpoint pontual. */
   .topbar{
     display:flex; align-items:center; justify-content:space-between;
+    flex-wrap:wrap; row-gap:10px;
     padding:14px 26px; border-bottom:1px solid var(--border-soft);
     background:linear-gradient(180deg, rgba(255,255,255,0.015), transparent);
     position:sticky; top:0; z-index:5; backdrop-filter:blur(6px);
   }
-  .topbar-left{ display:flex; align-items:center; gap:18px; }
+  .topbar-left{ display:flex; align-items:center; gap:18px; flex-wrap:wrap; row-gap:8px; }
   .topbar h1{ font-size:calc(16.5px * var(--font-scale)); font-weight:600; }
   .device-status{ display:flex; align-items:center; gap:6px; font-size:calc(12.5px * var(--font-scale)); color:var(--text-secondary); }
   .status-dot{ width:7px; height:7px; border-radius:50%; background:var(--status-good); box-shadow:0 0 0 3px var(--status-good-bg); }
   .status-dot.warn{ background:var(--status-warning); box-shadow:0 0 0 3px var(--status-warning-bg); }
   .battery-chip{ display:flex; align-items:center; gap:6px; font-size:calc(12.5px * var(--font-scale)); color:var(--text-secondary); }
   .battery-chip svg{ width:16px; height:16px; }
-  .topbar-right{ display:flex; align-items:center; gap:14px; }
+  /* topbarDeviceStatusGroup (id, ver <body>) tem display/align-items/gap só
+     inline; flex-wrap não está lá definido, por isso esta regra aplica-se
+     sem disputa de especificidade — mesmo mecanismo do resto da topbar. */
+  #topbarDeviceStatusGroup{ flex-wrap:wrap; row-gap:6px; }
+  .topbar-right{ display:flex; align-items:center; gap:14px; flex-wrap:wrap; row-gap:8px; justify-content:flex-end; }
   .icon-btn{
     width:34px; height:34px; border-radius:var(--radius-sm); background:var(--bg-surface-2);
     border:1px solid var(--border); display:flex; align-items:center; justify-content:center;
@@ -593,7 +625,22 @@
 
   canvas{ display:block; max-width:100%; }
 
-  /* table (clinician) */
+  /* table (clinician) — CORREÇÃO DE LAYOUT (2026-09-22, ver nota na
+     .topbar acima sobre a mesma queixa "desformata numa janela parcial").
+     Segunda causa raiz: table-layout é 'auto' por omissão, e nesse modo
+     width:100% é só um MÍNIMO — a spec deixa a tabela crescer além disso
+     quando o conteúdo (nomes de medicamentos, badges, números tabulares
+     sem quebra) não cabe nas colunas. Em ecrã inteiro havia sempre largura
+     de sobra para isso passar despercebido; numa janela mais estreita a
+     tabela ultrapassava o .card, que não tinha overflow definido (default
+     'visible'), e esse transbordo escapava para a página inteira — o
+     mesmo mecanismo do bug da topbar, mas para tabelas em vez de botões.
+     Em vez de mexer em cada tabela (21 ocorrências em 8 ficheiros JS),
+     :has() apanha estruturalmente qualquer .card que contenha uma tabela
+     e isola o scroll horizontal aí dentro. overflow-y implícito (a spec
+     força os dois eixos a deixarem de ser 'visible' em conjunto) não tem
+     efeito real aqui porque .card nunca tem altura fixa. */
+  .card:has(table.data-table){ overflow-x:auto; }
   table.data-table{ width:100%; border-collapse:collapse; font-size:calc(12.5px * var(--font-scale)); }
   table.data-table th{
     text-align:left; font-size:calc(11px * var(--font-scale)); text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted);
@@ -908,8 +955,8 @@
       <div class="logo-dot"><img src="assets/logo.png" alt="CareWear"></div>
     </div>
     <div class="login-brand-quote">
-      <div class="eyebrow">Monitorização de rotina · nRF52840</div>
-      <h1>A rotina diária conta uma história. Este painel aprende a lê-la.</h1>
+      <div class="eyebrow" data-i18n="login.brandEyebrow">Monitorização de rotina · nRF52840</div>
+      <h1 data-i18n="login.brandHeadline">A rotina diária conta uma história. Este painel aprende a lê-la.</h1>
     </div>
     <div class="login-brand-footer">
       <img src="assets/logo-footer.png" alt="CareWear — Cuida de ti. Liga-te ao que importa.">
@@ -917,6 +964,9 @@
   </div>
 
   <div class="login-form-col">
+    <div class="login-lang-switcher">
+      <select class="lang-select" id="langSelectLogin" onchange="setLanguage(this.value)" title="Idioma / Language" aria-label="Idioma / Language"></select>
+    </div>
     <div class="login-form" id="loginPanel">
       <h2 data-i18n="login.title">Iniciar sessão</h2>
       <p class="sub" data-i18n="login.subtitle">Escolhe o teu perfil de acesso.</p>
@@ -955,13 +1005,16 @@
       </div>
       <div class="field">
         <label for="loginPass" data-i18n="login.pass">Palavra-passe</label>
-        <input id="loginPass" type="password" placeholder="••••••••" autocomplete="current-password" value="········">
+        <div class="password-field">
+          <input id="loginPass" type="password" placeholder="••••••••" autocomplete="current-password" value="········">
+          <button type="button" class="password-toggle-btn" id="loginPassToggleBtn" aria-pressed="false" data-i18n-aria="login.showPassword" aria-label="Mostrar palavra-passe" onclick="togglePasswordVisibility('loginPass', this)">👁</button>
+        </div>
       </div>
 
       <p class="login-error" id="loginError" style="display:none;color:#c0392b;margin:4px 0;"></p>
       <button class="btn-primary" onclick="login()"><span data-i18n="login.enterAs">Entrar como</span> <span id="loginRoleLabel">Utente / Família</span></button>
       <p class="login-switch"><span data-i18n="login.noAccount">Ainda não tens conta?</span> <a href="#" onclick="showSignup(); return false;" data-i18n="login.createAccount">Criar conta</a></p>
-      <p class="login-note"><b data-i18n="login.prototypeLabel">Protótipo de interface.</b> <span data-i18n="login.prototypeNote">Autenticação ligada à API (bridge/api.py, porta 8766) — precisa de estar a correr e o utilizador ter password definida (bridge/auth_sessions.py set-password). Dados clínicos usam leituras reais do wearable, dados de rotina/atividade são simulados até o classificador de HAR ser embarcado no firmware.</span></p>
+      <p class="login-note"><b data-i18n="login.prototypeLabel">Protótipo de interface.</b> <span data-i18n="login.prototypeNote">Autenticação ligada à API (bridge/api.py) — dados clínicos (frequência cardíaca, SpO2) usam leituras reais do wearable; dados de rotina/atividade são simulados até o classificador de HAR ser embarcado no firmware.</span></p>
     </div>
 
     <div class="login-form" id="signupPanel" style="display:none;">
@@ -989,16 +1042,19 @@
       </div>
       <div class="field">
         <label for="signupPass" data-i18n="signup.pass">Palavra-passe</label>
-        <input id="signupPass" type="password" placeholder="••••••••" autocomplete="new-password">
+        <div class="password-field">
+          <input id="signupPass" type="password" placeholder="••••••••" autocomplete="new-password">
+          <button type="button" class="password-toggle-btn" id="signupPassToggleBtn" aria-pressed="false" data-i18n-aria="login.showPassword" aria-label="Mostrar palavra-passe" onclick="togglePasswordVisibility('signupPass', this)">👁</button>
+        </div>
       </div>
 
       <div id="signupFieldsUtente">
         <div class="field">
           <label for="signupRelation" data-i18n="signup.relation">Relação com o utente monitorizado</label>
           <select id="signupRelation">
-            <option>Familiar</option>
-            <option>Cuidador(a)</option>
-            <option>O próprio utente</option>
+            <option data-i18n="signup.relationFamiliar">Familiar</option>
+            <option data-i18n="signup.relationCaregiver">Cuidador(a)</option>
+            <option data-i18n="signup.relationSelf">O próprio utente</option>
           </select>
         </div>
         <div class="field">
@@ -1006,7 +1062,7 @@
           <input id="signupPatient" type="text" placeholder="Ex: Maria Silva">
         </div>
         <div class="field">
-          <label for="signupPatientAge">Idade do utente monitorizado</label>
+          <label for="signupPatientAge" data-i18n="signup.patientAge">Idade do utente monitorizado</label>
           <input id="signupPatientAge" type="number" min="1" max="120" placeholder="Ex: 72">
         </div>
       </div>
@@ -1048,7 +1104,7 @@
     <span class="sidebar-role-pill utente" id="sidebarRolePill">Utente / Família</span>
 
     <nav class="nav-group" id="navUtente">
-      <span class="nav-group-label">Maria Silva · 72 anos</span>
+      <span class="nav-group-label" id="navUtenteLabel">Maria Silva · 72 anos</span>
       <button class="nav-item active" data-view="resumo">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
         <span data-i18n="nav.summary">Resumo</span>
